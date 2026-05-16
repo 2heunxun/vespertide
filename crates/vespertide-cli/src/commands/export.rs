@@ -17,6 +17,7 @@ pub enum OrmArg {
     Sqlalchemy,
     Sqlmodel,
     Jpa,
+    Gorm,
 }
 
 impl From<OrmArg> for Orm {
@@ -26,6 +27,7 @@ impl From<OrmArg> for Orm {
             OrmArg::Sqlalchemy => Orm::SqlAlchemy,
             OrmArg::Sqlmodel => Orm::SqlModel,
             OrmArg::Jpa => Orm::Jpa,
+            OrmArg::Gorm => Orm::Gorm,
         }
     }
 }
@@ -203,6 +205,7 @@ async fn clean_export_dir(root: &Path, orm: Orm) -> Result<()> {
         Orm::SeaOrm => "rs",
         Orm::SqlAlchemy | Orm::SqlModel => "py",
         Orm::Jpa => "java",
+        Orm::Gorm => "go",
     };
 
     clean_dir_recursive(root, ext).await?;
@@ -295,6 +298,7 @@ fn build_output_path(root: &Path, rel_path: &Path, orm: Orm) -> PathBuf {
             Orm::SeaOrm => "rs",
             Orm::SqlAlchemy | Orm::SqlModel => "py",
             Orm::Jpa => "java",
+            Orm::Gorm => "go",
         };
         // Java requires filename to match PascalCase class name
         let file_stem = if matches!(orm, Orm::Jpa) {
@@ -673,6 +677,7 @@ mod tests {
     #[case(OrmArg::Sqlalchemy, Orm::SqlAlchemy)]
     #[case(OrmArg::Sqlmodel, Orm::SqlModel)]
     #[case(OrmArg::Jpa, Orm::Jpa)]
+    #[case(OrmArg::Gorm, Orm::Gorm)]
     fn orm_arg_maps_to_enum(#[case] arg: OrmArg, #[case] expected: Orm) {
         assert_eq!(Orm::from(arg), expected);
     }

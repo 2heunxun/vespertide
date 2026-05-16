@@ -16,7 +16,7 @@ Declarative database schema management. Define your schemas in JSON, and Vespert
 - **Enum Types**: Native string enums and integer enums (no migration needed for new values)
 - **Zero-Runtime Migrations**: Compile-time macro generates database-specific SQL
 - **JSON Schema Validation**: Ships with JSON Schemas for IDE autocompletion and validation
-- **ORM Export**: Export schemas to SeaORM, SQLAlchemy, SQLModel
+- **ORM Export**: Export schemas to SeaORM, SQLAlchemy, SQLModel, GORM
 
 ## Installation
 
@@ -199,6 +199,7 @@ The only exception is adding `fill_with` values when prompted (for NOT NULL colu
 vespertide export --orm seaorm      # Rust - SeaORM entities
 vespertide export --orm sqlalchemy  # Python - SQLAlchemy models
 vespertide export --orm sqlmodel    # Python - SQLModel (FastAPI)
+vespertide export --orm gorm        # Go - GORM models
 ```
 
 ## Runtime Migrations (Macro)
