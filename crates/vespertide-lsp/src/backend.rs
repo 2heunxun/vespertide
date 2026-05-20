@@ -1,13 +1,17 @@
 //! LSP backend skeleton.
 //!
-//! Holds the [`Client`] handle and implements [`LanguageServer`] from
-//! tower-lsp-server. Wave 1 only handles the lifecycle requests
-//! (`initialize`, `initialized`, `shutdown`). Wave 2+ extends this impl
-//! with `did_open`, `did_change`, diagnostics, hover, and so on.
+//! Holds the [`Client`] handle and a shared [`DocumentStore`], and implements
+//! [`LanguageServer`] from tower-lsp-server. Wave 1 only handled the
+//! lifecycle requests (`initialize`, `initialized`, `shutdown`); Wave 2
+//! introduces the document data layer behind the backend. Notification
+//! handlers (`did_open`, `did_change`, `did_close`) and analysis features
+//! (diagnostics, hover, ...) layer on top in subsequent tasks.
 //!
 //! Note: tower-lsp-server re-exports the upstream `lsp-types` crate under
 //! the name `ls_types` (NOT `lsp_types`). Using `lsp_types::` directly
 //! would fail to resolve.
+
+use std::sync::Arc;
 
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::{
@@ -16,15 +20,19 @@ use tower_lsp_server::ls_types::{
 };
 use tower_lsp_server::{Client, LanguageServer};
 
+use crate::store::DocumentStore;
+
 /// Vespertide language server backend.
 ///
 /// Owns the [`Client`] handle used to push notifications (log messages,
-/// diagnostics) back to the editor. Cheap to construct; the actual document
-/// state will live behind concurrent collections added in Wave 2.
+/// diagnostics) back to the editor, plus a shared [`DocumentStore`] that
+/// holds parsed state for every open document.
 #[derive(Debug)]
 pub struct Backend {
     /// LSP client handle for sending notifications to the editor.
     pub client: Client,
+    /// Shared document store; handlers added in W2-T2 will mutate this.
+    pub store: Arc<DocumentStore>,
 }
 
 impl Backend {
@@ -33,7 +41,10 @@ impl Backend {
     /// Designed to be passed directly to `LspService::new(Backend::new)`.
     #[must_use]
     pub fn new(client: Client) -> Self {
-        Self { client }
+        Self {
+            client,
+            store: Arc::new(DocumentStore::new()),
+        }
     }
 }
 

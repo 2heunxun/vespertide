@@ -4756,6 +4756,7 @@ dependencies = [
  "dashmap",
  "insta",
  "lsp-textdocument",
+ "lsp-types",
  "proptest",
  "rstest",
  "serde",

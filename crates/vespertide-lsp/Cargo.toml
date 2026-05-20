@@ -32,6 +32,10 @@ tree-sitter-yaml = "0.7"
 
 # UTF-16 <-> byte offset position mapping
 lsp-textdocument = "0.5"
+# lsp-textdocument's public API takes lsp_types (0.97) directly, not
+# tower-lsp-server's re-exported ls_types. We need the concrete type when
+# constructing TextDocumentContentChangeEvent for full-sync updates.
+lsp-types = "0.97"
 
 # Concurrent document store (justified: hot per-key path; all other maps use BTreeMap).
 dashmap = "6"
