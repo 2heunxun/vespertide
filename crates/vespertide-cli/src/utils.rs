@@ -1,7 +1,19 @@
+use std::fmt::Write as _;
 use vespertide_config::FileFormat;
 
 // Re-export loader functions for convenience
 pub use vespertide_loader::{load_config, load_migrations, load_models};
+
+pub(crate) fn schema_url(schema_filename: &str) -> String {
+    // If not set, default to public raw GitHub schema location.
+    // Users can override via VESP_SCHEMA_BASE_URL.
+    let base = std::env::var("VESP_SCHEMA_BASE_URL").ok();
+    let base = base.as_deref().unwrap_or(
+        "https://raw.githubusercontent.com/dev-five-git/vespertide/refs/heads/main/schemas",
+    );
+    let base = base.trim_end_matches('/');
+    format!("{base}/{schema_filename}")
+}
 
 /// Generate a migration filename from version and optional comment with format and pattern.
 pub fn migration_filename_with_format_and_pattern(
@@ -43,7 +55,7 @@ fn sanitize_comment(comment: Option<&str>) -> String {
 }
 
 fn render_migration_name(pattern: &str, version: u32, sanitized_comment: &str) -> String {
-    let default_version = format!("{:04}", version);
+    let default_version = format!("{version:04}");
     let chars: Vec<char> = pattern.chars().collect();
     let mut i = 0;
     let mut out = String::new();
@@ -73,7 +85,7 @@ fn render_migration_name(pattern: &str, version: u32, sanitized_comment: &str) -
                         if w == 0 {
                             out.push_str(&default_version);
                         } else {
-                            out.push_str(&format!("{:0width$}", version, width = w));
+                            let _ = write!(out, "{version:0w$}");
                         }
                         i = j + 1;
                         continue;

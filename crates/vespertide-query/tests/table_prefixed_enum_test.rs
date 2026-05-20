@@ -6,6 +6,8 @@ mod test_utils {
     };
     use vespertide_query::{DatabaseBackend, build_plan_queries};
     #[test]
+    // reason: integration scenario asserts one generated migration end-to-end.
+    #[allow(clippy::too_many_lines)]
     fn test_table_prefixed_enum_names() {
         // Test that enum types are created with table-prefixed names to avoid conflicts
         let plan = MigrationPlan {
@@ -99,8 +101,7 @@ mod test_utils {
         let create_users_enum = users_sql[0].build(DatabaseBackend::Postgres);
         assert!(
             create_users_enum.contains("CREATE TYPE \"users_status\""),
-            "Should create users_status enum type. Got: {}",
-            create_users_enum
+            "Should create users_status enum type. Got: {create_users_enum}"
         );
         assert!(
             create_users_enum.contains("'active', 'inactive'"),
@@ -110,8 +111,7 @@ mod test_utils {
         let create_users_table = users_sql[1].build(DatabaseBackend::Postgres);
         assert!(
             create_users_table.contains("users_status"),
-            "Users table should use users_status type. Got: {}",
-            create_users_table
+            "Users table should use users_status type. Got: {create_users_table}"
         );
 
         // Check orders table enum type
@@ -119,8 +119,7 @@ mod test_utils {
         let create_orders_enum = orders_sql[0].build(DatabaseBackend::Postgres);
         assert!(
             create_orders_enum.contains("CREATE TYPE \"orders_status\""),
-            "Should create orders_status enum type. Got: {}",
-            create_orders_enum
+            "Should create orders_status enum type. Got: {create_orders_enum}"
         );
         assert!(
             create_orders_enum.contains("'pending', 'shipped', 'delivered'"),
@@ -130,8 +129,7 @@ mod test_utils {
         let create_orders_table = orders_sql[1].build(DatabaseBackend::Postgres);
         assert!(
             create_orders_table.contains("orders_status"),
-            "Orders table should use orders_status type. Got: {}",
-            create_orders_table
+            "Orders table should use orders_status type. Got: {create_orders_table}"
         );
 
         println!("\n=== Users Table SQL ===");

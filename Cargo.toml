@@ -1,5 +1,19 @@
 [workspace]
-members = ["crates/*", "examples/app"]
+members = ["crates/*", "examples/app", "fuzz"]
+default-members = [
+    "crates/vespertide",
+    "crates/vespertide-cli",
+    "crates/vespertide-config",
+    "crates/vespertide-core",
+    "crates/vespertide-exporter",
+    "crates/vespertide-loader",
+    "crates/vespertide-macro",
+    "crates/vespertide-naming",
+    "crates/vespertide-planner",
+    "crates/vespertide-query",
+    "crates/vespertide-schema-gen",
+    "examples/app",
+]
 resolver = "2"
 
 [workspace.package]
@@ -10,7 +24,21 @@ homepage = "https://github.com/dev-five-git/vespertide"
 documentation = "https://docs.rs/vespertide"
 
 [workspace.lints.rust]
+unsafe_code = "warn"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
+
+[workspace.lints.clippy]
+# AGENTS policy: clippy::all + pedantic enforced workspace-wide.
+# Pre-1.0 quality bar: every warning must be fixed or have a justified allow.
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Pedantic lints that are too noisy for this codebase and accepted as project style:
+module_name_repetitions = "allow"  # crate-prefixed type names are intentional (vespertide-* convention)
+similar_names = "allow"            # `from`/`to`, `table`/`tables` etc. are domain-natural
+must_use_candidate = "allow"       # blanket-applying #[must_use] obscures real intent; case-by-case via audit
+missing_errors_doc = "allow"       # adding `# Errors` to every Result fn is performative; deferred
+missing_panics_doc = "allow"       # same as above; we don't panic in production code paths
+return_self_not_must_use = "allow" # builder patterns are obvious from context
 
 [workspace.dependencies]
 vespertide-core = { path = "crates/vespertide-core", version = "=0.1.61", default-features = false }

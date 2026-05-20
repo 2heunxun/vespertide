@@ -11,7 +11,7 @@ pub mod table;
 pub use column::{
     ColumnDef, ColumnType, ComplexColumnType, EnumValues, NumValue, SimpleColumnType,
 };
-pub use constraint::TableConstraint;
+pub use constraint::{ConstraintKind, TableConstraint};
 pub use index::IndexDef;
 pub use names::{ColumnName, IndexName, TableName};
 pub use primary_key::PrimaryKeyDef;

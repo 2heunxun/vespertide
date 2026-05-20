@@ -2,14 +2,14 @@ use sea_query::Alias;
 
 use vespertide_core::TableDef;
 
-use super::helpers::build_sea_column_def_with_table;
+use super::helpers::{build_sea_column_def_with_table, quote_ident};
 use super::types::{BuiltQuery, DatabaseBackend, RawSql};
 use crate::error::QueryError;
 
 /// Build SQL for changing column comment.
-/// Note: SQLite does not support column comments natively.
+/// Note: `SQLite` does not support column comments natively.
 pub fn build_modify_column_comment(
-    backend: &DatabaseBackend,
+    backend: DatabaseBackend,
     table: &str,
     column: &str,
     new_comment: Option<&str>,
@@ -19,15 +19,14 @@ pub fn build_modify_column_comment(
 
     match backend {
         DatabaseBackend::Postgres => {
+            let quoted_table = quote_ident(table, backend);
+            let quoted_column = quote_ident(column, backend);
             let comment_sql = if let Some(comment) = new_comment {
                 // Escape single quotes in comment
                 let escaped = comment.replace('\'', "''");
-                format!(
-                    "COMMENT ON COLUMN \"{}\".\"{}\" IS '{}'",
-                    table, column, escaped
-                )
+                format!("COMMENT ON COLUMN {quoted_table}.{quoted_column} IS '{escaped}'")
             } else {
-                format!("COMMENT ON COLUMN \"{}\".\"{}\" IS NULL", table, column)
+                format!("COMMENT ON COLUMN {quoted_table}.{quoted_column} IS NULL")
             };
             queries.push(BuiltQuery::Raw(RawSql::uniform(comment_sql)));
         }
@@ -37,7 +36,7 @@ pub fn build_modify_column_comment(
                 .iter()
                 .find(|t| t.name == table)
                 .ok_or_else(|| {
-                    QueryError::Other(format!("Table '{}' not found in current schema.", table))
+                    QueryError::Other(format!("Table '{table}' not found in current schema."))
                 })?;
 
             let column_def = table_def
@@ -45,15 +44,12 @@ pub fn build_modify_column_comment(
                 .iter()
                 .find(|c| c.name == column)
                 .ok_or_else(|| {
-                    QueryError::Other(format!(
-                        "Column '{}' not found in table '{}'.",
-                        column, table
-                    ))
+                    QueryError::Other(format!("Column '{column}' not found in table '{table}'."))
                 })?;
 
             // Build the full column definition with updated comment
             let modified_col_def = vespertide_core::ColumnDef {
-                comment: new_comment.map(|s| s.to_string()),
+                comment: new_comment.map(std::string::ToString::to_string),
                 ..column_def.clone()
             };
 
@@ -67,12 +63,12 @@ pub fn build_modify_column_comment(
                 .to_owned();
 
             // Get the base SQL from sea-query
-            let base_sql = super::helpers::build_schema_statement(&stmt, *backend);
+            let base_sql = super::helpers::build_schema_statement(&stmt, backend);
 
             // Add COMMENT clause if needed (sea-query doesn't support COMMENT)
             let final_sql = if let Some(comment) = new_comment {
                 let escaped = comment.replace('\'', "''");
-                format!("{} COMMENT '{}'", base_sql, escaped)
+                format!("{base_sql} COMMENT '{escaped}'")
             } else {
                 base_sql
             };
@@ -144,7 +140,7 @@ mod tests {
             vec![],
         )];
 
-        let result = build_modify_column_comment(&backend, "users", "email", new_comment, &schema);
+        let result = build_modify_column_comment(backend, "users", "email", new_comment, &schema);
         assert!(result.is_ok());
         let queries = result.unwrap();
         let sql = queries
@@ -189,7 +185,7 @@ mod tests {
         )];
 
         let result = build_modify_column_comment(
-            &backend,
+            backend,
             "users",
             "email",
             Some("User's email address"),
@@ -236,7 +232,7 @@ mod tests {
             return;
         }
 
-        let result = build_modify_column_comment(&backend, "users", "email", Some("comment"), &[]);
+        let result = build_modify_column_comment(backend, "users", "email", Some("comment"), &[]);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("Table 'users' not found"));
@@ -264,7 +260,7 @@ mod tests {
         )];
 
         let result =
-            build_modify_column_comment(&backend, "users", "email", Some("comment"), &schema);
+            build_modify_column_comment(backend, "users", "email", Some("comment"), &schema);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("Column 'email' not found"));
@@ -285,7 +281,7 @@ mod tests {
         let long_comment = "This is a very long comment that describes the bio field in great detail. It contains multiple sentences and provides thorough documentation for this column.";
 
         let result =
-            build_modify_column_comment(&backend, "users", "bio", Some(long_comment), &schema);
+            build_modify_column_comment(backend, "users", "bio", Some(long_comment), &schema);
         assert!(result.is_ok());
         let queries = result.unwrap();
         let sql = queries
@@ -327,7 +323,7 @@ mod tests {
         )];
 
         let result = build_modify_column_comment(
-            &backend,
+            backend,
             "users",
             "email",
             Some("User email address"),
@@ -379,7 +375,7 @@ mod tests {
         )];
 
         let result =
-            build_modify_column_comment(&backend, "users", "email", Some("New comment"), &schema);
+            build_modify_column_comment(backend, "users", "email", Some("New comment"), &schema);
         assert!(result.is_ok());
         let queries = result.unwrap();
         let sql = queries
@@ -421,7 +417,7 @@ mod tests {
         )];
 
         let result = build_modify_column_comment(
-            &backend, "users", "email", None, // Drop comment
+            backend, "users", "email", None, // Drop comment
             &schema,
         );
         assert!(result.is_ok());
@@ -504,7 +500,7 @@ mod tests {
             vec![],
         )];
 
-        let result = build_modify_column_comment(&backend, "data", "field", Some(comment), &schema);
+        let result = build_modify_column_comment(backend, "data", "field", Some(comment), &schema);
         assert!(result.is_ok());
         let queries = result.unwrap();
         let sql = queries
@@ -513,7 +509,7 @@ mod tests {
             .collect::<Vec<String>>()
             .join("\n");
 
-        let type_name = format!("{:?}", column_type).to_lowercase();
+        let type_name = format!("{column_type:?}").to_lowercase();
         let suffix = format!(
             "{}_{}_comment",
             match backend {
@@ -546,7 +542,7 @@ mod tests {
         )];
 
         let result = build_modify_column_comment(
-            &backend,
+            backend,
             "users",
             "username",
             Some("Required username"),

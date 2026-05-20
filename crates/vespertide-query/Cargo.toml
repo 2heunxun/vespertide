@@ -7,6 +7,9 @@ repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
 description = "Converts migration actions into SQL statements with bind parameters"
+keywords = ["database", "migration", "schema", "orm", "sql"]
+categories = ["database"]
+readme = "../../README.md"
 
 [dependencies]
 vespertide-core = { workspace = true }
@@ -16,5 +19,26 @@ thiserror = "2"
 sea-query = "0.32"
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
 rstest = "0.26"
 insta = "1.47"
+proptest = "1"
+vespertide-core = { workspace = true, features = ["arbitrary"] }
+# Daemon-free SQL validation:
+# - rusqlite (bundled): in-memory SQLite for real execution checks (no system libsqlite needed)
+# - sqlparser:          pure-Rust 3-dialect SQL parser for Postgres/MySQL/SQLite syntax checks
+rusqlite = { version = "0.32", features = ["bundled"] }
+sqlparser = "0.52"
+
+# pg_query is PostgreSQL's real C parser via FFI. It does not build on Windows
+# (PG itself is Linux/macOS-first), but CI runs on Ubuntu so this gate is enforced there.
+# Windows developers will skip the `sql_pg_query` test file via #[cfg].
+[target.'cfg(not(target_os = "windows"))'.dev-dependencies]
+pg_query = "6"
+
+[[bench]]
+name = "sql_benchmarks"
+harness = false
+
+[lints]
+workspace = true

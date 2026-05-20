@@ -5,20 +5,34 @@ use crate::schema::{
     names::{ColumnName, TableName},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// A table-level constraint produced by [`TableDef::normalize`].
+///
+/// Inline column constraints (`primary_key`, `unique`, `index`, `foreign_key`) declared in model
+/// JSON files are converted into `TableConstraint` variants during normalization. You rarely
+/// construct these directly; the planner and SQL generator consume them.
+///
+/// This enum is `#[non_exhaustive]`: new variants may be added in future releases.
+/// Downstream `match` expressions should include a wildcard arm.
+///
+/// [`TableDef::normalize`]: crate::schema::TableDef::normalize
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case", tag = "type")]
+#[non_exhaustive]
 pub enum TableConstraint {
+    /// Primary key constraint, optionally with auto-increment (serial / identity) semantics.
     PrimaryKey {
         #[serde(default)]
         auto_increment: bool,
         columns: Vec<ColumnName>,
     },
+    /// Unique constraint ensuring no two rows share the same value(s) in the listed columns.
     Unique {
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<String>,
         columns: Vec<ColumnName>,
     },
+    /// Foreign key constraint linking columns in this table to columns in another table.
     ForeignKey {
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<String>,
@@ -28,10 +42,9 @@ pub enum TableConstraint {
         on_delete: Option<ReferenceAction>,
         on_update: Option<ReferenceAction>,
     },
-    Check {
-        name: String,
-        expr: String,
-    },
+    /// Arbitrary SQL CHECK expression enforced by the database on every write.
+    Check { name: String, expr: String },
+    /// Non-unique index to speed up queries on the listed columns.
     Index {
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<String>,
@@ -39,21 +52,57 @@ pub enum TableConstraint {
     },
 }
 
+/// Lightweight tag identifying the kind of a [`TableConstraint`] without carrying its data.
+///
+/// Returned by [`TableConstraint::kind`] and useful for filtering or grouping constraints without
+/// pattern-matching on the full enum.
+///
+/// This enum is `#[non_exhaustive]`: new variants may be added in future releases.
+/// Downstream `match` expressions should include a wildcard arm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ConstraintKind {
+    /// Identifies a [`TableConstraint::PrimaryKey`] constraint.
+    PrimaryKey,
+    /// Identifies a [`TableConstraint::ForeignKey`] constraint.
+    ForeignKey,
+    /// Identifies a [`TableConstraint::Unique`] constraint.
+    Unique,
+    /// Identifies a [`TableConstraint::Check`] constraint.
+    Check,
+    /// Identifies a [`TableConstraint::Index`] constraint.
+    Index,
+}
+
 impl TableConstraint {
+    /// Returns the high-level kind of this constraint.
+    #[must_use]
+    pub fn kind(&self) -> ConstraintKind {
+        match self {
+            TableConstraint::PrimaryKey { .. } => ConstraintKind::PrimaryKey,
+            TableConstraint::ForeignKey { .. } => ConstraintKind::ForeignKey,
+            TableConstraint::Unique { .. } => ConstraintKind::Unique,
+            TableConstraint::Check { .. } => ConstraintKind::Check,
+            TableConstraint::Index { .. } => ConstraintKind::Index,
+        }
+    }
+
     /// Returns the columns referenced by this constraint.
     /// For Check constraints, returns an empty slice (expression-based, not column-based).
     pub fn columns(&self) -> &[ColumnName] {
         match self {
-            TableConstraint::PrimaryKey { columns, .. } => columns,
-            TableConstraint::Unique { columns, .. } => columns,
-            TableConstraint::ForeignKey { columns, .. } => columns,
-            TableConstraint::Index { columns, .. } => columns,
+            TableConstraint::PrimaryKey { columns, .. }
+            | TableConstraint::Unique { columns, .. }
+            | TableConstraint::ForeignKey { columns, .. }
+            | TableConstraint::Index { columns, .. } => columns,
             TableConstraint::Check { .. } => &[],
         }
     }
 
     /// Apply a prefix to referenced table names in this constraint.
-    /// Only affects ForeignKey constraints (which reference other tables).
+    /// Only affects `ForeignKey` constraints (which reference other tables).
     pub fn with_prefix(self, prefix: &str) -> Self {
         if prefix.is_empty() {
             return self;
@@ -69,7 +118,7 @@ impl TableConstraint {
             } => TableConstraint::ForeignKey {
                 name,
                 columns,
-                ref_table: format!("{}{}", prefix, ref_table),
+                ref_table: format!("{prefix}{ref_table}"),
                 ref_columns,
                 on_delete,
                 on_update,
@@ -136,6 +185,55 @@ mod tests {
             expr: "amount > 0".into(),
         };
         assert!(check.columns().is_empty());
+    }
+
+    #[test]
+    fn test_kind() {
+        let constraints = [
+            (
+                TableConstraint::PrimaryKey {
+                    auto_increment: false,
+                    columns: vec!["id".into()],
+                },
+                ConstraintKind::PrimaryKey,
+            ),
+            (
+                TableConstraint::ForeignKey {
+                    name: None,
+                    columns: vec!["user_id".into()],
+                    ref_table: "user".into(),
+                    ref_columns: vec!["id".into()],
+                    on_delete: None,
+                    on_update: None,
+                },
+                ConstraintKind::ForeignKey,
+            ),
+            (
+                TableConstraint::Unique {
+                    name: None,
+                    columns: vec!["email".into()],
+                },
+                ConstraintKind::Unique,
+            ),
+            (
+                TableConstraint::Check {
+                    name: "check_positive".into(),
+                    expr: "amount > 0".into(),
+                },
+                ConstraintKind::Check,
+            ),
+            (
+                TableConstraint::Index {
+                    name: None,
+                    columns: vec!["email".into()],
+                },
+                ConstraintKind::Index,
+            ),
+        ];
+
+        for (constraint, expected) in constraints {
+            assert_eq!(constraint.kind(), expected);
+        }
     }
 
     #[test]

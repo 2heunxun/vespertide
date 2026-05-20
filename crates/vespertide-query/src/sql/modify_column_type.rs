@@ -6,14 +6,15 @@ use vespertide_core::{ColumnType, ComplexColumnType, TableDef};
 
 use super::helpers::{
     apply_column_type_with_table, build_create_enum_type_sql, build_sqlite_temp_table_create,
-    convert_default_for_backend, normalize_enum_default, recreate_indexes_after_rebuild,
+    convert_default_for_backend, normalize_enum_default, quote_ident,
+    recreate_indexes_after_rebuild,
 };
 use super::rename_table::build_rename_table;
 use super::types::{BuiltQuery, DatabaseBackend};
 use crate::error::QueryError;
 
-/// Build UPDATE statements for fill_with mappings (removed enum values → replacement values).
-/// Each entry generates: UPDATE "table" SET "column" = 'replacement' WHERE "column" = 'removed_value'
+/// Build UPDATE statements for `fill_with` mappings (removed enum values → replacement values).
+/// Each entry generates: UPDATE "table" SET "column" = 'replacement' WHERE "column" = '`removed_value`'
 fn build_fill_with_updates(
     table: &str,
     column: &str,
@@ -32,8 +33,14 @@ fn build_fill_with_updates(
         .collect()
 }
 
+// reason: backend-specific enum and SQLite rebuild sequence is kept together to preserve migration ordering readability.
+#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "branch-heavy SQL generation is kept cohesive"
+)]
 pub fn build_modify_column_type(
-    backend: &DatabaseBackend,
+    backend: DatabaseBackend,
     table: &str,
     column: &str,
     new_type: &ColumnType,
@@ -42,9 +49,9 @@ pub fn build_modify_column_type(
     pending_constraints: &[vespertide_core::TableConstraint],
 ) -> Result<Vec<BuiltQuery>, QueryError> {
     // SQLite does not support direct column type modification, so use temporary table approach
-    if *backend == DatabaseBackend::Sqlite {
+    if backend == DatabaseBackend::Sqlite {
         // Current schema information is required
-        let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::Other(format!("Table '{}' not found in current schema. SQLite requires current schema information to modify column types.", table)))?;
+        let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::Other(format!("Table '{table}' not found in current schema. SQLite requires current schema information to modify column types.")))?;
 
         // Create new column definitions with the modified column
         let mut new_columns = table_def.columns.clone();
@@ -52,16 +59,13 @@ pub fn build_modify_column_type(
             .iter()
             .position(|c| c.name == column)
             .ok_or_else(|| {
-                QueryError::Other(format!(
-                    "Column '{}' not found in table '{}'",
-                    column, table
-                ))
+                QueryError::Other(format!("Column '{column}' not found in table '{table}'"))
             })?;
 
         new_columns[col_index].r#type = new_type.clone();
 
         // Generate temporary table name
-        let temp_table = format!("{}_temp", table);
+        let temp_table = format!("{table}_temp");
 
         // 1. Create temporary table with new column types + CHECK constraints
         let create_query = build_sqlite_temp_table_create(
@@ -78,9 +82,9 @@ pub fn build_modify_column_type(
         // Build SELECT query
         let mut select_query = Query::select();
         for col_alias in &column_aliases {
-            select_query = select_query.column(col_alias.clone()).to_owned();
+            select_query.column(col_alias.clone());
         }
-        select_query = select_query.from(Alias::new(table)).to_owned();
+        select_query.from(Alias::new(table));
 
         // Build INSERT query
         let insert_stmt = Query::insert()
@@ -127,7 +131,7 @@ pub fn build_modify_column_type(
 
         // Check if this is an enum-to-enum migration that needs special handling (PostgreSQL only)
         // Covers both: enum value changes (same name) and enum name changes (different name)
-        let needs_enum_migration = if *backend == DatabaseBackend::Postgres {
+        let needs_enum_migration = if backend == DatabaseBackend::Postgres {
             matches!(
                 (old_type, new_type),
                 (
@@ -160,7 +164,7 @@ pub fn build_modify_column_type(
                 let (target_type_name, needs_rename) = if names_differ {
                     (new_type_name, false)
                 } else {
-                    (format!("{}_new", old_type_name), true)
+                    (format!("{old_type_name}_new"), true)
                 };
                 // 0. INSERT fill_with UPDATEs before any type changes (rows still have old enum type)
                 if let Some(fw) = fill_with {
@@ -174,11 +178,12 @@ pub fn build_modify_column_type(
                     .and_then(|c| c.default.clone());
                 // 1. CREATE TYPE target_type AS ENUM (new values)
                 let create_values = new_values.to_sql_values().join(", ");
+                let quoted_target_type = quote_ident(&target_type_name, DatabaseBackend::Postgres);
+                let quoted_table = quote_ident(table, DatabaseBackend::Postgres);
+                let quoted_column = quote_ident(column, DatabaseBackend::Postgres);
+                let quoted_old_type = quote_ident(&old_type_name, DatabaseBackend::Postgres);
                 queries.push(BuiltQuery::Raw(super::types::RawSql::per_backend(
-                    format!(
-                        "CREATE TYPE \"{}\" AS ENUM ({})",
-                        target_type_name, create_values
-                    ),
+                    format!("CREATE TYPE {quoted_target_type} AS ENUM ({create_values})"),
                     String::new(),
                     String::new(),
                 )));
@@ -186,8 +191,7 @@ pub fn build_modify_column_type(
                 if column_default.is_some() {
                     queries.push(BuiltQuery::Raw(super::types::RawSql::per_backend(
                         format!(
-                            "ALTER TABLE \"{}\" ALTER COLUMN \"{}\" DROP DEFAULT",
-                            table, column
+                            "ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} DROP DEFAULT"
                         ),
                         String::new(),
                         String::new(),
@@ -195,11 +199,17 @@ pub fn build_modify_column_type(
                 }
 
                 // 3. ALTER TABLE ... ALTER COLUMN ... TYPE target_type USING col::text::target_type
-                queries.push(BuiltQuery::Raw(super::types::RawSql::per_backend(format!("ALTER TABLE \"{}\" ALTER COLUMN \"{}\" TYPE \"{}\" USING \"{}\"::text::\"{}\"", table, column, target_type_name, column, target_type_name), String::new(), String::new())));
+                queries.push(BuiltQuery::Raw(super::types::RawSql::per_backend(
+                    format!(
+                        "ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} TYPE {quoted_target_type} USING {quoted_column}::text::{quoted_target_type}"
+                    ),
+                    String::new(),
+                    String::new(),
+                )));
 
                 // 4. DROP old enum type
                 queries.push(BuiltQuery::Raw(super::types::RawSql::per_backend(
-                    format!("DROP TYPE \"{}\"", old_type_name),
+                    format!("DROP TYPE {quoted_old_type}"),
                     String::new(),
                     String::new(),
                 )));
@@ -207,10 +217,7 @@ pub fn build_modify_column_type(
                 // 5. RENAME temp to final (only for same-name value changes)
                 if needs_rename {
                     queries.push(BuiltQuery::Raw(super::types::RawSql::per_backend(
-                        format!(
-                            "ALTER TYPE \"{}\" RENAME TO \"{}\"",
-                            target_type_name, old_type_name
-                        ),
+                        format!("ALTER TYPE {quoted_target_type} RENAME TO {quoted_old_type}"),
                         String::new(),
                         String::new(),
                     )));
@@ -222,8 +229,7 @@ pub fn build_modify_column_type(
                         normalize_enum_default(new_type, &default_value.to_sql());
                     queries.push(BuiltQuery::Raw(super::types::RawSql::per_backend(
                         format!(
-                            "ALTER TABLE \"{}\" ALTER COLUMN \"{}\" SET DEFAULT {}",
-                            table, column, normalized_default
+                            "ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} SET DEFAULT {normalized_default}"
                         ),
                         String::new(),
                         String::new(),
@@ -262,11 +268,11 @@ pub fn build_modify_column_type(
             }
 
             let mut col = SeaColumnDef::new(Alias::new(column));
-            apply_column_type_with_table(&mut col, new_type, table);
+            apply_column_type_with_table(&mut col, new_type, table, backend);
 
             // MySQL MODIFY COLUMN redefines the entire column, so we must preserve
             // existing NOT NULL and DEFAULT attributes
-            if *backend == DatabaseBackend::MySql
+            if backend == DatabaseBackend::MySql
                 && let Some(column_def) = current_schema
                     .iter()
                     .find(|t| t.name == table)
@@ -304,8 +310,9 @@ pub fn build_modify_column_type(
                 if should_drop {
                     // Use table-prefixed enum type name
                     let old_type_name = super::helpers::build_enum_type_name(table, old_name);
+                    let old_type_name = quote_ident(&old_type_name, DatabaseBackend::Postgres);
                     queries.push(BuiltQuery::Raw(super::types::RawSql::per_backend(
-                        format!("DROP TYPE \"{}\"", old_type_name),
+                        format!("DROP TYPE {old_type_name}"),
                         String::new(),
                         String::new(),
                     )));
@@ -379,7 +386,7 @@ mod tests {
         }];
 
         let result = build_modify_column_type(
-            &backend,
+            backend,
             "users",
             "age",
             &ColumnType::Complex(ComplexColumnType::Varchar { length: 50 }),
@@ -399,12 +406,10 @@ mod tests {
         for exp in expected {
             assert!(
                 sql.contains(exp),
-                "Expected SQL to contain '{}', got: {}",
-                exp,
-                sql
+                "Expected SQL to contain '{exp}', got: {sql}"
             );
         }
-        println!("sql: {}", sql);
+        println!("sql: {sql}");
 
         with_settings!({ snapshot_suffix => format!("modify_column_type_{}", title) }, {
             assert_snapshot!(sql);
@@ -414,7 +419,7 @@ mod tests {
     #[test]
     fn test_modify_column_type_table_not_found() {
         let result = build_modify_column_type(
-            &DatabaseBackend::Sqlite,
+            DatabaseBackend::Sqlite,
             "nonexistent_table",
             "age",
             &ColumnType::Simple(SimpleColumnType::BigInt),
@@ -450,7 +455,7 @@ mod tests {
             constraints: vec![],
         }];
         let result = build_modify_column_type(
-            &DatabaseBackend::Sqlite,
+            DatabaseBackend::Sqlite,
             "users",
             "nonexistent_column",
             &ColumnType::Simple(SimpleColumnType::BigInt),
@@ -518,7 +523,7 @@ mod tests {
         }];
 
         let result = build_modify_column_type(
-            &backend,
+            backend,
             "users",
             "age",
             &ColumnType::Simple(SimpleColumnType::BigInt),
@@ -599,7 +604,7 @@ mod tests {
         }];
 
         let result = build_modify_column_type(
-            &backend,
+            backend,
             "users",
             "email",
             &ColumnType::Complex(ComplexColumnType::Varchar { length: 255 }),
@@ -812,7 +817,7 @@ mod tests {
         }];
 
         let result = build_modify_column_type(
-            &backend,
+            backend,
             "users",
             "status",
             &new_type,
@@ -879,7 +884,7 @@ mod tests {
         });
 
         let result = build_modify_column_type(
-            &backend,
+            backend,
             "reservation_session",
             "status",
             &new_type,
@@ -899,13 +904,11 @@ mod tests {
         if matches!(backend, DatabaseBackend::Postgres) {
             assert!(
                 sql.contains("DROP DEFAULT"),
-                "Should drop default before type change. SQL: {}",
-                sql
+                "Should drop default before type change. SQL: {sql}"
             );
             assert!(
                 sql.contains("SET DEFAULT"),
-                "Should restore default after type change. SQL: {}",
-                sql
+                "Should restore default after type change. SQL: {sql}"
             );
 
             let drop_default_pos = sql.find("DROP DEFAULT").unwrap();
@@ -934,7 +937,7 @@ mod tests {
         use vespertide_core::ComplexColumnType;
 
         let result = build_modify_column_type(
-            &DatabaseBackend::Postgres,
+            DatabaseBackend::Postgres,
             "users",
             "status",
             &ColumnType::Complex(ComplexColumnType::Enum {
@@ -1024,7 +1027,7 @@ mod tests {
         }];
 
         let result = build_modify_column_type(
-            &backend,
+            backend,
             "users",
             "status",
             &new_type,
@@ -1043,8 +1046,7 @@ mod tests {
         // All backends should include the UPDATE statement for fill_with
         assert!(
             sql.contains("UPDATE"),
-            "Expected UPDATE for fill_with mapping, got: {}",
-            sql
+            "Expected UPDATE for fill_with mapping, got: {sql}"
         );
 
         with_settings!({ snapshot_suffix => format!("modify_column_type_with_fill_with_{}", title) }, {

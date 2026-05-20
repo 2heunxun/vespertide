@@ -7,12 +7,18 @@ repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
 description = "Rust workspace for defining database schemas in JSON and generating migration plans and SQL from model diffs"
+keywords = ["database", "migration", "schema", "orm", "sql"]
+categories = ["database"]
+readme = "../../README.md"
 
 [dependencies]
 vespertide-macro = { workspace = true }
 vespertide-core = { workspace = true }
-sea-orm = { version = "2.0.0-rc.37", default-features = false }
+sea-orm = { version = "2.0.0-rc.38", default-features = false }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-sea-orm = { version = "2.0.0-rc.37", default-features = false, features = ["runtime-tokio-native-tls", "sqlx-sqlite"] }
+sea-orm = { version = "2.0.0-rc.38", default-features = false, features = ["runtime-tokio-native-tls", "sqlx-sqlite"] }
+
+[lints]
+workspace = true

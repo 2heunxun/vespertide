@@ -5,6 +5,10 @@ use vespertide_planner::schema_from_plans;
 use crate::utils::{load_config, load_migrations, load_models};
 use std::collections::HashSet;
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "status command output is a single linear report"
+)]
 pub async fn cmd_status() -> Result<()> {
     let config = load_config()?;
     let current_models = load_models(&config)?;
@@ -50,7 +54,9 @@ pub async fn cmd_status() -> Result<()> {
         applied_plans.len().to_string().bright_yellow()
     );
     if !applied_plans.is_empty() {
-        let latest = applied_plans.last().unwrap();
+        let Some(latest) = applied_plans.last() else {
+            return Ok(());
+        };
         println!(
             "  {} {}",
             "Latest version:".cyan(),
@@ -112,7 +118,7 @@ pub async fn cmd_status() -> Result<()> {
 
     if !applied_plans.is_empty() {
         let baseline = schema_from_plans(&applied_plans)
-            .map_err(|e| anyhow::anyhow!("schema reconstruction error: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("schema reconstruction error: {e}"))?;
 
         let baseline_tables: HashSet<_> = baseline.iter().map(|t| &t.name).collect();
         let current_tables: HashSet<_> = current_models.iter().map(|t| &t.name).collect();
@@ -272,6 +278,26 @@ mod tests {
         fs::create_dir_all(cfg.migrations_dir()).unwrap(); // empty migrations dir
 
         cmd_status().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn cmd_status_empty_migration_list_returns_ok() {
+        let tmp = tempdir().unwrap();
+        let _guard = CwdGuard::new(&tmp.path().to_path_buf());
+        let cfg = write_config();
+        fs::create_dir_all(cfg.models_dir()).unwrap();
+        fs::create_dir_all(cfg.migrations_dir()).unwrap();
+
+        cmd_status().await.unwrap();
+    }
+
+    #[test]
+    fn cmd_status_does_not_unwrap_latest_migration() {
+        let source = include_str!("status.rs");
+        let needle = ["applied_plans.last()", ".unwrap()"].join("");
+
+        assert!(!source.contains(&needle));
     }
 
     #[tokio::test]

@@ -7,6 +7,9 @@ repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
 description = "Export vespertide table definitions into ORM-specific models"
+keywords = ["database", "migration", "schema", "orm", "sql"]
+categories = ["database"]
+readme = "../../README.md"
 
 [dependencies]
 vespertide-core = { workspace = true }
@@ -15,8 +18,14 @@ vespertide-naming = { workspace = true }
 thiserror = "2"
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
 rstest = "0.26"
 insta = { version = "1.47", features = ["yaml"] }
+proptest = "1"
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
+[[bench]]
+name = "codegen_benchmarks"
+harness = false
+
+[lints]
+workspace = true

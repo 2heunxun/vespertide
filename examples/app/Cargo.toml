@@ -7,7 +7,10 @@ publish = false
 [dependencies]
 vespertide = { path = "../../crates/vespertide" }
 tokio = { version = "1", features = ["full"] }
-sea-orm = { version = "2.0.0-rc.37", features = ["sqlx-sqlite", "sqlx-postgres", "runtime-tokio-native-tls", "macros"] }
+sea-orm = { version = "2.0.0-rc.38", features = ["sqlx-sqlite", "sqlx-postgres", "runtime-tokio-native-tls", "macros"] }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
-vespera = "0.1.50"
+vespera = "0.1.51"
+
+[lints]
+workspace = true

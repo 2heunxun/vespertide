@@ -4,17 +4,17 @@ use vespertide_core::{ColumnDef, TableDef};
 
 use super::helpers::{
     build_sea_column_def_with_table, build_sqlite_temp_table_create, convert_default_for_backend,
-    normalize_fill_with, recreate_indexes_after_rebuild,
+    normalize_fill_with, quote_ident, recreate_indexes_after_rebuild,
 };
 use super::rename_table::build_rename_table;
 use super::types::{BuiltQuery, DatabaseBackend, RawSql};
 use crate::error::QueryError;
 
 /// Build SQL for changing column nullability.
-/// For nullable -> non-nullable transitions, fill_with should be provided to update NULL values.
+/// For nullable -> non-nullable transitions, `fill_with` should be provided to update NULL values.
 #[allow(clippy::too_many_arguments)]
 pub fn build_modify_column_nullable(
-    backend: &DatabaseBackend,
+    backend: DatabaseBackend,
     table: &str,
     column: &str,
     nullable: bool,
@@ -27,54 +27,40 @@ pub fn build_modify_column_nullable(
 
     // If delete_null_rows is set, delete rows with NULL values instead of updating
     if !nullable && delete_null_rows {
-        let delete_sql = match backend {
-            DatabaseBackend::Postgres | DatabaseBackend::Sqlite => {
-                format!("DELETE FROM \"{}\" WHERE \"{}\" IS NULL", table, column)
-            }
-            DatabaseBackend::MySql => {
-                format!("DELETE FROM `{}` WHERE `{}` IS NULL", table, column)
-            }
-        };
+        let quoted_table = quote_ident(table, backend);
+        let quoted_column = quote_ident(column, backend);
+        let delete_sql = format!("DELETE FROM {quoted_table} WHERE {quoted_column} IS NULL");
         queries.push(BuiltQuery::Raw(RawSql::uniform(delete_sql)));
     }
     // If changing to NOT NULL, first update existing NULL values if fill_with is provided
     else if !nullable && let Some(fill_value) = normalize_fill_with(fill_with) {
         let fill_value = convert_default_for_backend(&fill_value, backend);
-        let update_sql = match backend {
-            DatabaseBackend::Postgres | DatabaseBackend::Sqlite => format!(
-                "UPDATE \"{}\" SET \"{}\" = {} WHERE \"{}\" IS NULL",
-                table, column, fill_value, column
-            ),
-            DatabaseBackend::MySql => format!(
-                "UPDATE `{}` SET `{}` = {} WHERE `{}` IS NULL",
-                table, column, fill_value, column
-            ),
-        };
+        let quoted_table = quote_ident(table, backend);
+        let quoted_column = quote_ident(column, backend);
+        let update_sql = format!(
+            "UPDATE {quoted_table} SET {quoted_column} = {fill_value} WHERE {quoted_column} IS NULL"
+        );
         queries.push(BuiltQuery::Raw(RawSql::uniform(update_sql)));
     }
 
     // Generate ALTER TABLE statement based on backend
     match backend {
         DatabaseBackend::Postgres => {
+            let quoted_table = quote_ident(table, backend);
+            let quoted_column = quote_ident(column, backend);
             let alter_sql = if nullable {
-                format!(
-                    "ALTER TABLE \"{}\" ALTER COLUMN \"{}\" DROP NOT NULL",
-                    table, column
-                )
+                format!("ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} DROP NOT NULL")
             } else {
-                format!(
-                    "ALTER TABLE \"{}\" ALTER COLUMN \"{}\" SET NOT NULL",
-                    table, column
-                )
+                format!("ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} SET NOT NULL")
             };
             queries.push(BuiltQuery::Raw(RawSql::uniform(alter_sql)));
         }
         DatabaseBackend::MySql => {
             // MySQL requires the full column definition in MODIFY COLUMN
             // We need to get the column type from current schema
-            let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::Other(format!("Table '{}' not found in current schema. MySQL requires current schema information to modify column nullability.", table)))?;
+            let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::Other(format!("Table '{table}' not found in current schema. MySQL requires current schema information to modify column nullability.")))?;
 
-            let column_def = table_def.columns.iter().find(|c| c.name == column).ok_or_else(|| QueryError::Other(format!("Column '{}' not found in table '{}'. MySQL requires column information to modify nullability.", column, table)))?;
+            let column_def = table_def.columns.iter().find(|c| c.name == column).ok_or_else(|| QueryError::Other(format!("Column '{column}' not found in table '{table}'. MySQL requires column information to modify nullability.")))?;
 
             // Create a modified column def with the new nullability
             let modified_col_def = ColumnDef {
@@ -94,7 +80,7 @@ pub fn build_modify_column_nullable(
         DatabaseBackend::Sqlite => {
             // SQLite doesn't support ALTER COLUMN for nullability changes
             // Use temporary table approach
-            let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::Other(format!("Table '{}' not found in current schema. SQLite requires current schema information to modify column nullability.", table)))?;
+            let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::Other(format!("Table '{table}' not found in current schema. SQLite requires current schema information to modify column nullability.")))?;
 
             // Create modified columns with the new nullability
             let mut new_columns = table_def.columns.clone();
@@ -103,7 +89,7 @@ pub fn build_modify_column_nullable(
             }
 
             // Generate temporary table name
-            let temp_table = format!("{}_temp", table);
+            let temp_table = format!("{table}_temp");
 
             // 1. Create temporary table with modified column + CHECK constraints
             let create_query = build_sqlite_temp_table_create(
@@ -123,9 +109,9 @@ pub fn build_modify_column_nullable(
                 .collect();
             let mut select_query = Query::select();
             for col_alias in &column_aliases {
-                select_query = select_query.column(col_alias.clone()).to_owned();
+                select_query.column(col_alias.clone());
             }
-            select_query = select_query.from(Alias::new(table)).to_owned();
+            select_query.from(Alias::new(table));
 
             let insert_stmt = Query::insert()
                 .into_table(Alias::new(&temp_table))
@@ -217,7 +203,7 @@ mod tests {
         )];
 
         let result = build_modify_column_nullable(
-            &backend,
+            backend,
             "users",
             "email",
             nullable,
@@ -266,7 +252,7 @@ mod tests {
         }
 
         let result =
-            build_modify_column_nullable(&backend, "users", "email", false, None, false, &[], &[]);
+            build_modify_column_nullable(backend, "users", "email", false, None, false, &[], &[]);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("Table 'users' not found"));
@@ -295,7 +281,7 @@ mod tests {
         )];
 
         let result = build_modify_column_nullable(
-            &backend,
+            backend,
             "users",
             "email",
             false,
@@ -309,7 +295,7 @@ mod tests {
         assert!(err_msg.contains("Column 'email' not found"));
     }
 
-    /// Test with index - should recreate index after table rebuild (SQLite)
+    /// Test with index - should recreate index after table rebuild (`SQLite`)
     #[rstest]
     #[case::postgres_with_index(DatabaseBackend::Postgres)]
     #[case::mysql_with_index(DatabaseBackend::MySql)]
@@ -328,7 +314,7 @@ mod tests {
         )];
 
         let result = build_modify_column_nullable(
-            &backend,
+            backend,
             "users",
             "email",
             false,
@@ -365,7 +351,7 @@ mod tests {
         });
     }
 
-    /// Test fill_with containing NOW() should be converted to CURRENT_TIMESTAMP for all backends
+    /// Test `fill_with` containing `NOW()` should be converted to `CURRENT_TIMESTAMP` for all backends
     #[rstest]
     #[case::postgres_fill_now(DatabaseBackend::Postgres)]
     #[case::mysql_fill_now(DatabaseBackend::MySql)]
@@ -385,7 +371,7 @@ mod tests {
         )];
 
         let result = build_modify_column_nullable(
-            &backend,
+            backend,
             "orders",
             "paid_at",
             false,
@@ -405,13 +391,11 @@ mod tests {
         // NOW() should be converted to CURRENT_TIMESTAMP for all backends
         assert!(
             !sql.contains("NOW()"),
-            "SQL should not contain NOW(), got: {}",
-            sql
+            "SQL should not contain NOW(), got: {sql}"
         );
         assert!(
             sql.contains("CURRENT_TIMESTAMP"),
-            "SQL should contain CURRENT_TIMESTAMP, got: {}",
-            sql
+            "SQL should contain CURRENT_TIMESTAMP, got: {sql}"
         );
 
         let suffix = format!(
@@ -428,7 +412,7 @@ mod tests {
         });
     }
 
-    /// Test with default value - should preserve default in MODIFY COLUMN (MySQL)
+    /// Test with default value - should preserve default in MODIFY COLUMN (`MySQL`)
     #[rstest]
     #[case::postgres_with_default(DatabaseBackend::Postgres)]
     #[case::mysql_with_default(DatabaseBackend::MySql)]
@@ -447,7 +431,7 @@ mod tests {
         )];
 
         let result = build_modify_column_nullable(
-            &backend,
+            backend,
             "users",
             "email",
             false,
@@ -483,7 +467,7 @@ mod tests {
         });
     }
 
-    /// Test delete_null_rows generates DELETE instead of UPDATE
+    /// Test `delete_null_rows` generates DELETE instead of UPDATE
     #[rstest]
     #[case::postgres_delete_null_rows(DatabaseBackend::Postgres)]
     #[case::mysql_delete_null_rows(DatabaseBackend::MySql)]
@@ -503,7 +487,7 @@ mod tests {
         )];
 
         let result = build_modify_column_nullable(
-            &backend,
+            backend,
             "orders",
             "user_id",
             false,
@@ -522,18 +506,15 @@ mod tests {
 
         assert!(
             sql.contains("DELETE FROM"),
-            "Expected DELETE FROM in SQL, got: {}",
-            sql
+            "Expected DELETE FROM in SQL, got: {sql}"
         );
         assert!(
             sql.contains("IS NULL"),
-            "Expected IS NULL in SQL, got: {}",
-            sql
+            "Expected IS NULL in SQL, got: {sql}"
         );
         assert!(
             !sql.contains("UPDATE"),
-            "Should NOT contain UPDATE, got: {}",
-            sql
+            "Should NOT contain UPDATE, got: {sql}"
         );
 
         let suffix = format!(
@@ -550,7 +531,7 @@ mod tests {
         });
     }
 
-    /// Test delete_null_rows=true with nullable=true does nothing special
+    /// Test `delete_null_rows=true` with nullable=true does nothing special
     #[rstest]
     #[case::postgres_delete_null_rows_nullable(DatabaseBackend::Postgres)]
     fn test_delete_null_rows_with_nullable_true(#[case] backend: DatabaseBackend) {
@@ -568,7 +549,7 @@ mod tests {
         )];
 
         let result = build_modify_column_nullable(
-            &backend,
+            backend,
             "orders",
             "user_id",
             true,
@@ -587,8 +568,7 @@ mod tests {
 
         assert!(
             !sql.contains("DELETE FROM"),
-            "Should NOT contain DELETE when nullable=true, got: {}",
-            sql
+            "Should NOT contain DELETE when nullable=true, got: {sql}"
         );
     }
 }

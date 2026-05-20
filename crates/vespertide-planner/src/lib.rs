@@ -1,3 +1,9 @@
+//! Schema diffing and migration planning.
+//!
+//! - [`diff_schemas`]: compute typed `MigrationAction`s between two schemas
+//! - [`apply_action`]: replay an action onto a baseline schema
+//! - [`validate_schema`], [`validate_migration_plan`]: ensure invariants
+
 pub mod apply;
 pub mod diff;
 pub mod error;

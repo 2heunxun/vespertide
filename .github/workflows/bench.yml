@@ -1,0 +1,31 @@
+name: benchmarks
+
+on:
+  pull_request:
+    paths:
+      - "crates/**/*.rs"
+      - "crates/**/benches/**"
+      - "crates/**/Cargo.toml"
+  workflow_dispatch:
+
+jobs:
+  bench:
+    name: criterion (informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Compile benchmarks
+        run: cargo bench --workspace --no-run
+
+      - name: Run benchmarks (informational)
+        run: cargo bench --workspace -- --output-format bencher | tee bench-results.txt
+
+      - name: Upload results
+        uses: actions/upload-artifact@v7
+        with:
+          name: bench-results
+          path: bench-results.txt

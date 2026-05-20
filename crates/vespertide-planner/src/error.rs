@@ -33,7 +33,7 @@ pub enum PlannerError {
     #[error("enum '{0}' in column '{1}.{2}' has duplicate variant name: '{3}'")]
     DuplicateEnumVariantName(String, String, String, String),
     #[error("enum '{0}' in column '{1}.{2}' has duplicate value: {3}")]
-    DuplicateEnumValue(String, String, String, i32),
+    DuplicateEnumValue(String, String, String, i64),
     #[error("{0}")]
     InvalidEnumDefault(#[from] Box<InvalidEnumDefaultError>),
     #[error(
@@ -42,6 +42,7 @@ pub enum PlannerError {
     InvalidAutoIncrement(String, String, String),
 }
 
+/// An enum column has a default or `fill_with` value not in the allowed set.
 #[derive(Debug, Error)]
 #[error(
     "enum '{enum_name}' in column '{table_name}.{column_name}' has invalid {value_type} value '{value}': not in allowed values [{allowed}]"

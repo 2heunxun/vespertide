@@ -7,6 +7,9 @@ repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
 description = "CLI command for vespertide (model template, diff, SQL, revision, status, log)"
+keywords = ["database", "migration", "schema", "orm", "sql"]
+categories = ["database"]
+readme = "../../README.md"
 publish = true
 
 [dependencies]
@@ -40,5 +43,5 @@ predicates = "3"
 name = "vespertide"
 path = "src/main.rs"
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
+[lints]
+workspace = true

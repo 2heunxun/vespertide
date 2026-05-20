@@ -7,5 +7,19 @@ repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
 description = "Naming conventions and helpers for vespertide database schema management"
+keywords = ["database", "migration", "schema", "orm", "sql"]
+categories = ["database"]
+readme = "../../README.md"
 
 [dependencies]
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1"
+
+[[bench]]
+name = "naming_benchmarks"
+harness = false
+
+[lints]
+workspace = true

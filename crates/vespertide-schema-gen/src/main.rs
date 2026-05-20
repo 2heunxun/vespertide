@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -21,12 +21,12 @@ struct Args {
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<()> {
     let args = Args::parse();
-    run(args.out)
+    run(&args.out)
 }
 
-fn run(out: PathBuf) -> Result<()> {
+fn run(out: &Path) -> Result<()> {
     if !out.exists() {
-        fs::create_dir_all(&out).with_context(|| format!("create dir {}", out.display()))?;
+        fs::create_dir_all(out).with_context(|| format!("create dir {}", out.display()))?;
     }
 
     let model_schema = schema_for!(TableDef);
@@ -74,7 +74,7 @@ mod tests {
         let out = temp_dir.path().join("test_schemas");
 
         assert!(!out.exists());
-        run(out.clone()).unwrap();
+        run(&out).unwrap();
         assert!(out.exists());
     }
 
@@ -83,7 +83,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let out = temp_dir.path();
 
-        run(out.to_path_buf()).unwrap();
+        run(out).unwrap();
 
         let model_path = out.join("model.schema.json");
         assert!(model_path.exists());
@@ -98,7 +98,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let out = temp_dir.path();
 
-        run(out.to_path_buf()).unwrap();
+        run(out).unwrap();
 
         let migration_path = out.join("migration.schema.json");
         assert!(migration_path.exists());
@@ -113,7 +113,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let out = temp_dir.path();
 
-        run(out.to_path_buf()).unwrap();
+        run(out).unwrap();
 
         let model_path = out.join("model.schema.json");
         let migration_path = out.join("migration.schema.json");
@@ -143,7 +143,7 @@ mod tests {
         assert!(out.exists());
 
         // Should still work
-        run(out.to_path_buf()).unwrap();
+        run(out).unwrap();
 
         let model_path = out.join("model.schema.json");
         let migration_path = out.join("migration.schema.json");
@@ -158,7 +158,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let out = temp_dir.path();
 
-        run(out.to_path_buf()).unwrap();
+        run(out).unwrap();
 
         let config_path = out.join("config.schema.json");
         assert!(config_path.exists());

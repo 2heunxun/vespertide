@@ -35,8 +35,8 @@ vespertide/
 |------|----------|-------|
 | Core types (TableDef, ColumnDef) | `vespertide-core/src/schema/` | Start with `table.rs`, `column.rs` |
 | Column type system | `vespertide-core/src/schema/column.rs` | `ColumnType::Simple/Complex` variants |
-| Migration actions | `vespertide-core/src/action.rs` | 12 action variants, `MigrationPlan` struct |
-| Schema diffing | `vespertide-planner/src/diff.rs` | **3215 lines** - topological sort for FK deps |
+| Migration actions | `vespertide-core/src/action.rs` | **14 action variants** (incl. `RawSql` escape hatch), `MigrationPlan` struct |
+| Schema diffing | `vespertide-planner/src/diff.rs` | topological sort for FK deps |
 | SQL generation | `vespertide-query/src/sql/` | One file per action type |
 | CLI commands | `vespertide-cli/src/commands/` | `cmd_*` functions |
 | ORM export | `vespertide-exporter/src/{seaorm,sqlalchemy,sqlmodel}/` | Backend-specific generators |
@@ -93,9 +93,9 @@ ColumnDef {
 |---------|---------|
 | `ColumnType::Integer` | Use `ColumnType::Simple(SimpleColumnType::Integer)` |
 | Forgetting inline fields in ColumnDef | Will cause compile errors - 4 Option fields required |
-| Raw SQL in migrations | Use typed `MigrationAction` enums |
+| Raw SQL in migrations | Prefer typed `MigrationAction` enums. `MigrationAction::RawSql` exists as a documented **emergency escape hatch** only — non-portable across backends, skipped by baseline replay, and not recommended for normal use |
 | Skipping `normalize()` on TableDef | Inline constraints won't convert to table-level |
-| Assuming YAML works | YAML loading NOT implemented (templates only) |
+| `.rs` file exceeding 1000 lines | Maintainability hard limit - split into focused submodules |
 
 ## COMMANDS
 
@@ -122,15 +122,24 @@ cargo insta test -p vespertide-exporter
 cargo insta accept
 ```
 
-## COMPLEXITY HOTSPOTS
+## COMPLEXITY HOTSPOTS (subject to 1000-line split)
 
 | File | Lines | What |
 |------|-------|------|
-| `planner/src/diff.rs` | 3215 | Schema diffing with topological FK sort |
-| `exporter/src/seaorm/mod.rs` | 2961 | SeaORM codegen with relation inference |
-| `planner/src/validate.rs` | 1821 | Schema/migration validation |
-| `core/src/schema/table.rs` | 1582 | Table normalization logic |
-| `query/src/sql/remove_constraint.rs` | 1581 | SQLite temp table workarounds |
+| `planner/src/diff.rs` | 4739 | Schema diffing with topological FK sort |
+| `exporter/src/seaorm/mod.rs` | 4122 | SeaORM codegen with relation inference |
+| `cli/src/commands/revision.rs` | 3064 | Revision generation, prompts, action emit |
+| `planner/src/validate.rs` | 2299 | Schema/migration validation |
+| `planner/src/apply.rs` | 1534 | Action replay onto baseline schema |
+| `core/src/schema/table.rs` | 1526 | Table normalization logic |
+| `query/src/sql/mod.rs` | 1507 | Dispatch and shared builder helpers |
+| `query/src/sql/remove_constraint.rs` | 1465 | SQLite temp-table workarounds |
+| `exporter/src/sqlalchemy/mod.rs` | 1383 | SQLAlchemy 2.x codegen |
+| `query/src/sql/add_constraint.rs` | 1356 | PK/FK/Unique/CHECK emission |
+| `exporter/src/sqlmodel/mod.rs` | 1274 | SQLModel/FastAPI codegen |
+| `core/src/action.rs` | 1236 | 14 `MigrationAction` variants + helpers |
+| `exporter/src/jpa/mod.rs` | 1122 | JPA codegen |
+| `query/src/sql/delete_column.rs` | 1084 | DROP COLUMN with SQLite rebuild |
 
 ## TESTING
 
@@ -146,11 +155,80 @@ cargo insta accept
 |---------|-------------------|-------|
 | PostgreSQL | `"identifier"` | Full feature support |
 | MySQL | `` `identifier` `` | Full feature support |
-| SQLite | `"identifier"` | Temp table workarounds for ALTER |
+| SQLite | `"identifier"` | Full feature support (ALTER limitations implemented via canonical temp-table-rebuild pattern in `query/src/sql/remove_constraint.rs` etc.) |
+
+## MODEL FORMATS
+
+Both JSON and YAML are supported for model and migration files. Loaders accept `.json`, `.yaml`, and `.yml` extensions. JSON is preferred (canonical schema URLs reference JSON) but YAML loading is a first-class, tested feature — see `vespertide-loader/src/models.rs` and `vespertide-config/src/file_format.rs`.
 
 ## NOTES
 
 - Edition 2024 (bleeding edge)
 - No LSP available - use grep/AST tools
-- YAML loading not implemented
-- Migration replay pattern: baseline always reconstructed from history
+- Every `.rs` file must stay ≤ 1000 lines; CI enforces this
+- Migration replay pattern: baseline always reconstructed from history (raw SQL actions are opaque to replay)
+
+## MUTATION TESTING
+
+`cargo-mutants` runs in CI on every PR for changed lines only. Locally:
+
+```bash
+# Full pass on the planner crate (slow, ~30 min)
+cargo install --locked cargo-mutants
+cargo mutants -p vespertide-planner --in-place --timeout-multiplier 3.0
+
+# Only mutations introduced by current changes
+cargo mutants --in-diff <(git diff main..) --in-place
+```
+
+Survived mutants indicate test gaps. Fix by adding assertions, not by suppressing the mutant.
+
+## FUZZING
+
+`cargo-fuzz` runs in a nightly CI job (`.github/workflows/fuzz.yml`).
+Three targets in `fuzz/fuzz_targets/`:
+
+- `fuzz_model_deser` — JSON deserialization of `TableDef` / `MigrationPlan`
+- `fuzz_sql_identifier` — `quote_ident` safety invariants
+- `fuzz_migration_apply` — `apply_action` never-panic property
+
+Local run (requires nightly):
+
+```bash
+rustup install nightly
+cargo install cargo-fuzz
+cd fuzz
+cargo +nightly fuzz run fuzz_model_deser -- -max_total_time=60
+```
+
+Corpus and artifacts are gitignored except the `.gitkeep` markers.
+Discovered crashes appear under `fuzz/artifacts/<target>/` and should be
+committed to a regression test before fixing.
+
+## BENCHMARKS
+
+`criterion` benchmarks in `crates/*/benches/`. Run locally:
+
+```bash
+# All benchmarks
+cargo bench --workspace
+
+# Single crate
+cargo bench -p vespertide-planner
+
+# Single benchmark with statistical comparison
+cargo bench -p vespertide-planner --bench diff_benchmarks -- diff_identity/100
+```
+
+HTML reports at `target/criterion/<bench>/report/index.html`.
+
+Save baseline for comparison:
+
+```bash
+cargo bench -- --save-baseline main
+git checkout feature/foo
+cargo bench -- --baseline main
+```
+
+CI workflow in `.github/workflows/bench.yml` runs on PR for informational
+trend tracking (not currently blocking).

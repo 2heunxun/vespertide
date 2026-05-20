@@ -28,7 +28,7 @@ pub fn load_models(config: &VespertideConfig) -> Result<Vec<TableDef>> {
             .collect::<Result<Vec<_>, _>>()?;
 
         validate_schema(&normalized_tables)
-            .map_err(|e| anyhow::anyhow!("schema validation failed: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("schema validation failed: {e}"))?;
     }
 
     Ok(tables)
@@ -51,7 +51,7 @@ fn load_models_recursive(dir: &Path, tables: &mut Vec<TableDef>) -> Result<()> {
 
         if path.is_file() {
             let ext = path.extension().and_then(|s| s.to_str());
-            if matches!(ext, Some("json") | Some("yaml") | Some("yml")) {
+            if matches!(ext, Some("json" | "yaml" | "yml")) {
                 let content = fs::read_to_string(&path)
                     .with_context(|| format!("read model file: {}", path.display()))?;
 
@@ -62,6 +62,10 @@ fn load_models_recursive(dir: &Path, tables: &mut Vec<TableDef>) -> Result<()> {
                     serde_yaml::from_str(&content)
                         .with_context(|| format!("parse YAML model: {}", path.display()))?
                 };
+
+                table
+                    .validate_unique_column_names()
+                    .with_context(|| format!("validate model: {}", path.display()))?;
 
                 tables.push(table);
             }
@@ -89,7 +93,7 @@ pub fn load_models_from_dir(
 
     // Read vespertide.json or use defaults
     let config = crate::config::load_config_or_default(Some(project_root.clone()))
-        .map_err(|e| format!("Failed to load config: {}", e))?;
+        .map_err(|e| format!("Failed to load config: {e}"))?;
 
     // Read models directory
     let models_dir = project_root.join(config.models_dir());
@@ -99,7 +103,7 @@ pub fn load_models_from_dir(
 
     let mut tables = Vec::new();
     load_models_recursive_internal(&models_dir, &mut tables)
-        .map_err(|e| format!("Failed to load models: {}", e))?;
+        .map_err(|e| format!("Failed to load models: {e}"))?;
 
     // Normalize tables
     let normalized_tables: Vec<TableDef> = tables
@@ -109,7 +113,7 @@ pub fn load_models_from_dir(
                 .map_err(|e| format!("Failed to normalize table '{}': {}", t.name, e))
         })
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.clone())?;
 
     Ok(normalized_tables)
 }
@@ -125,7 +129,7 @@ fn load_models_recursive_internal(
         .map_err(|e| format!("Failed to read models directory {}: {}", dir.display(), e))?;
 
     for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {e}"))?;
         let path = entry.path();
 
         if path.is_dir() {
@@ -136,7 +140,7 @@ fn load_models_recursive_internal(
 
         if path.is_file() {
             let ext = path.extension().and_then(|s| s.to_str());
-            if matches!(ext, Some("json") | Some("yaml") | Some("yml")) {
+            if matches!(ext, Some("json" | "yaml" | "yml")) {
                 let content = fs::read_to_string(&path)
                     .map_err(|e| format!("Failed to read model file {}: {}", path.display(), e))?;
 
@@ -149,6 +153,10 @@ fn load_models_recursive_internal(
                         format!("Failed to parse YAML model {}: {}", path.display(), e)
                     })?
                 };
+
+                table
+                    .validate_unique_column_names()
+                    .map_err(|e| format!("Failed to validate model {}: {}", path.display(), e))?;
 
                 tables.push(table);
             }
@@ -525,7 +533,7 @@ mod tests {
         let models_dir = temp_dir.path().join("models");
         fs::create_dir_all(&models_dir).unwrap();
 
-        fs::write(models_dir.join("invalid.yaml"), r#"invalid: [yaml"#).unwrap();
+        fs::write(models_dir.join("invalid.yaml"), r"invalid: [yaml").unwrap();
 
         let result = load_models_from_dir(Some(temp_dir.path().to_path_buf()));
         assert!(result.is_err());

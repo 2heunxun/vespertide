@@ -6,9 +6,9 @@ Schema diffing engine - compares baseline vs target schema to emit typed migrati
 
 ```
 src/
-├── diff.rs      # 3200+ lines - Schema comparison, topological sort
-├── validate.rs  # 1800+ lines - Schema/plan validation  
-├── apply.rs     # 1400+ lines - Apply actions to in-memory schema
+├── diff.rs      # 4739 lines, scheduled for split - Schema comparison, topological sort
+├── validate.rs  # 2299 lines, scheduled for split - Schema/plan validation
+├── apply.rs     # 1617 lines, scheduled for split - Apply actions to in-memory schema
 ├── schema.rs    # Replay migrations → baseline schema
 ├── plan.rs      # High-level planning API
 └── error.rs     # PlannerError enum
@@ -50,3 +50,10 @@ src/
 | Using HashMap in diff | Non-deterministic action ordering |
 | Ignoring topological sort | FK constraint violations on CREATE/DELETE |
 | Forgetting `fill_with` validation | NOT NULL columns without defaults fail |
+
+## NOTES
+
+- YAML and JSON are both fully supported for models and migrations.
+- Prefer typed `MigrationAction` enums; `RawSql` exists as a documented emergency escape hatch, but is opaque to baseline replay and not recommended for normal use.
+- Every `.rs` file must stay ≤ 1000 lines (CI enforced); current planner hotspots are `diff.rs` (4739), `validate.rs` (2299), and `apply.rs` (1617).
+- Workspace lints warn on unsafe code and Clippy all: `unsafe_code = "warn"`, `clippy::all = { level = "warn", priority = -1 }`.

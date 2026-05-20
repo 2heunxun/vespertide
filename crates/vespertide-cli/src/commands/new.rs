@@ -6,7 +6,7 @@ use serde_json::Value;
 use tokio::fs;
 use vespertide_core::TableDef;
 
-use crate::utils::load_config;
+use crate::utils::{load_config, schema_url};
 use vespertide_config::FileFormat;
 
 pub async fn cmd_new(name: String, format: Option<FileFormat>) -> Result<()> {
@@ -25,7 +25,7 @@ pub async fn cmd_new(name: String, format: Option<FileFormat>) -> Result<()> {
         FileFormat::Yml => "yml",
     };
 
-    let schema_url = schema_url_for(format);
+    let schema_url = schema_url("model.schema.json");
     let path = dir.join(format!("{name}.vespertide.{ext}"));
     if path.exists() {
         bail!("model file already exists: {}", path.display());
@@ -49,20 +49,6 @@ pub async fn cmd_new(name: String, format: Option<FileFormat>) -> Result<()> {
         format!("{}", path.display()).bright_white()
     );
     Ok(())
-}
-
-fn schema_url_for(format: FileFormat) -> String {
-    // If not set, default to public raw GitHub schema location.
-    // Users can override via VESP_SCHEMA_BASE_URL.
-    let base = std::env::var("VESP_SCHEMA_BASE_URL").ok();
-    let base = base.as_deref().unwrap_or(
-        "https://raw.githubusercontent.com/dev-five-git/vespertide/refs/heads/main/schemas",
-    );
-    let base = base.trim_end_matches('/');
-    match format {
-        FileFormat::Json => format!("{}/model.schema.json", base),
-        FileFormat::Yaml | FileFormat::Yml => format!("{}/model.schema.json", base),
-    }
 }
 
 async fn write_json_with_schema(path: &Path, table: &TableDef, schema_url: &str) -> Result<()> {
@@ -133,7 +119,7 @@ mod tests {
     async fn cmd_new_creates_json_with_schema() {
         let tmp = tempdir().unwrap();
         let _guard = CwdGuard::new(tmp.path());
-        let expected_schema = schema_url_for(FileFormat::Json);
+        let expected_schema = schema_url("model.schema.json");
         write_config(FileFormat::Json);
 
         cmd_new("users".into(), None).await.unwrap();
@@ -155,7 +141,7 @@ mod tests {
     async fn cmd_new_creates_yaml_with_schema() {
         let tmp = tempdir().unwrap();
         let _guard = CwdGuard::new(tmp.path());
-        let expected_schema = schema_url_for(FileFormat::Yaml);
+        let expected_schema = schema_url("model.schema.json");
         write_config(FileFormat::Yaml);
 
         cmd_new("orders".into(), None).await.unwrap();
@@ -181,7 +167,7 @@ mod tests {
     async fn cmd_new_creates_yml_with_schema() {
         let tmp = tempdir().unwrap();
         let _guard = CwdGuard::new(tmp.path());
-        let expected_schema = schema_url_for(FileFormat::Yml);
+        let expected_schema = schema_url("model.schema.json");
         write_config(FileFormat::Yml);
 
         cmd_new("products".into(), None).await.unwrap();

@@ -11,7 +11,7 @@ pub async fn cmd_diff() -> Result<()> {
     let applied_plans = load_migrations(&config)?;
 
     let plan = plan_next_migration(&current_models, &applied_plans)
-        .map_err(|e| anyhow::anyhow!("planning error: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("planning error: {e}"))?;
 
     if plan.actions.is_empty() {
         println!(
@@ -39,98 +39,97 @@ pub async fn cmd_diff() -> Result<()> {
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one display arm per migration action keeps output obvious"
+)]
 fn format_action(action: &MigrationAction) -> String {
+    let table = action.table_name().map(Colorize::bright_cyan);
     match action {
-        MigrationAction::CreateTable { table, .. } => {
+        MigrationAction::CreateTable { .. } => {
             format!(
                 "{} {}",
                 "Create table:".bright_green(),
-                table.bright_cyan().bold()
+                table.expect("CreateTable has a table").bold()
             )
         }
-        MigrationAction::DeleteTable { table } => {
+        MigrationAction::DeleteTable { .. } => {
             format!(
                 "{} {}",
                 "Delete table:".bright_red(),
-                table.bright_cyan().bold()
+                table.expect("DeleteTable has a table").bold()
             )
         }
-        MigrationAction::AddColumn { table, column, .. } => {
+        MigrationAction::AddColumn { column, .. } => {
             format!(
                 "{} {}.{}",
                 "Add column:".bright_green(),
-                table.bright_cyan(),
+                table.expect("AddColumn has a table"),
                 column.name.bright_cyan().bold()
             )
         }
-        MigrationAction::RenameColumn { table, from, to } => {
+        MigrationAction::RenameColumn { from, to, .. } => {
             format!(
                 "{} {}.{} {} {}",
                 "Rename column:".bright_yellow(),
-                table.bright_cyan(),
+                table.expect("RenameColumn has a table"),
                 from.bright_white(),
                 "->".bright_white(),
                 to.bright_cyan().bold()
             )
         }
-        MigrationAction::DeleteColumn { table, column } => {
+        MigrationAction::DeleteColumn { column, .. } => {
             format!(
                 "{} {}.{}",
                 "Delete column:".bright_red(),
-                table.bright_cyan(),
+                table.expect("DeleteColumn has a table"),
                 column.bright_cyan().bold()
             )
         }
         MigrationAction::ModifyColumnType {
-            table,
-            column,
-            new_type,
-            ..
+            column, new_type, ..
         } => {
             format!(
                 "{} {}.{} {} {}",
                 "Modify column type:".bright_yellow(),
-                table.bright_cyan(),
+                table.expect("ModifyColumnType has a table"),
                 column.bright_cyan().bold(),
                 "->".bright_white(),
                 new_type.to_display_string().bright_cyan().bold()
             )
         }
         MigrationAction::ModifyColumnNullable {
-            table,
-            column,
-            nullable,
-            ..
+            column, nullable, ..
         } => {
             let nullability = if *nullable { "NULL" } else { "NOT NULL" };
             format!(
                 "{} {}.{} {} {}",
                 "Modify column nullability:".bright_yellow(),
-                table.bright_cyan(),
+                table.expect("ModifyColumnNullable has a table"),
                 column.bright_cyan().bold(),
                 "->".bright_white(),
                 nullability.bright_cyan().bold()
             )
         }
         MigrationAction::ModifyColumnDefault {
-            table,
             column,
             new_default,
+            ..
         } => {
             let default_display = new_default.as_deref().unwrap_or("(none)");
             format!(
                 "{} {}.{} {} {}",
                 "Modify column default:".bright_yellow(),
-                table.bright_cyan(),
+                table.expect("ModifyColumnDefault has a table"),
                 column.bright_cyan().bold(),
                 "->".bright_white(),
                 default_display.bright_cyan().bold()
             )
         }
         MigrationAction::ModifyColumnComment {
-            table,
             column,
             new_comment,
+            ..
         } => {
             let comment_display = new_comment.as_deref().unwrap_or("(none)");
             let truncated = if comment_display.chars().count() > 30 {
@@ -144,7 +143,7 @@ fn format_action(action: &MigrationAction) -> String {
             format!(
                 "{} {}.{} {} '{}'",
                 "Modify column comment:".bright_yellow(),
-                table.bright_cyan(),
+                table.expect("ModifyColumnComment has a table"),
                 column.bright_cyan().bold(),
                 "->".bright_white(),
                 truncated.bright_cyan().bold()
@@ -166,27 +165,25 @@ fn format_action(action: &MigrationAction) -> String {
                 sql.bright_cyan()
             )
         }
-        MigrationAction::AddConstraint { table, constraint } => {
+        MigrationAction::AddConstraint { constraint, .. } => {
             format!(
                 "{} {} {} {}",
                 "Add constraint:".bright_green(),
                 format_constraint_type(constraint).bright_cyan().bold(),
                 "on".bright_white(),
-                table.bright_cyan()
+                table.expect("AddConstraint has a table")
             )
         }
-        MigrationAction::RemoveConstraint { table, constraint } => {
+        MigrationAction::RemoveConstraint { constraint, .. } => {
             format!(
                 "{} {} {} {}",
                 "Remove constraint:".bright_red(),
                 format_constraint_type(constraint).bright_cyan().bold(),
                 "from".bright_white(),
-                table.bright_cyan()
+                table.expect("RemoveConstraint has a table")
             )
         }
-        MigrationAction::ReplaceConstraint {
-            table, from, to, ..
-        } => {
+        MigrationAction::ReplaceConstraint { from, to, .. } => {
             format!(
                 "{} {} {} {} {} {}",
                 "Replace constraint:".bright_yellow(),
@@ -194,9 +191,10 @@ fn format_action(action: &MigrationAction) -> String {
                 "->".bright_white(),
                 format_constraint_type(to).bright_cyan().bold(),
                 "on".bright_white(),
-                table.bright_cyan()
+                table.expect("ReplaceConstraint has a table")
             )
         }
+        _ => unreachable!("MigrationAction is #[non_exhaustive]; all variants are matched above"),
     }
 }
 
@@ -225,7 +223,7 @@ fn format_constraint_type(constraint: &vespertide_core::TableConstraint) -> Stri
             }
         }
         vespertide_core::TableConstraint::Check { name, expr } => {
-            format!("{} CHECK ({})", name, expr)
+            format!("{name} CHECK ({expr})")
         }
         vespertide_core::TableConstraint::Index { name, columns } => {
             if let Some(n) = name {
@@ -234,6 +232,7 @@ fn format_constraint_type(constraint: &vespertide_core::TableConstraint) -> Stri
                 format!("INDEX ({})", columns.join(", "))
             }
         }
+        _ => unreachable!("TableConstraint is #[non_exhaustive]; all variants are matched above"),
     }
 }
 

@@ -1,0 +1,34 @@
+# cargo-mutants configuration for vespertide.
+# Mutation testing complements unit/property tests by mutating source AST
+# and verifying tests FAIL. Survived mutants = test gap.
+#
+# Run locally:
+#   cargo install --locked cargo-mutants
+#   cargo mutants --in-place --timeout-multiplier 3.0 -vV
+#
+# Run on changed lines only (used by PR CI):
+#   cargo mutants --in-diff git.diff --in-place
+
+# Skip patterns that produce noise (Debug/Display/From impls, generated boilerplate)
+exclude_re = [
+    "impl Debug",
+    "impl Display",
+    "impl From<",
+    "impl std::error::Error",
+    "fn fmt\\(",
+    # RawSql is an opaque escape hatch by design
+    "MigrationAction::RawSql",
+]
+
+# Focus on logic-heavy crates. Exclude:
+# - schema-gen: tool, not library
+# - macro: proc-macro coverage handled via trybuild
+# - exporter: snapshot tests catch most mutations trivially (output diff)
+exclude_globs = [
+    "crates/vespertide-schema-gen/**",
+    "crates/vespertide-macro/**",
+    "crates/vespertide-exporter/**",
+]
+
+# 3× baseline test time per mutant (handles proptest variance)
+timeout_multiplier = 3.0

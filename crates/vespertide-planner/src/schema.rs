@@ -160,7 +160,7 @@ mod tests {
         assert_eq!(users, &expected_users);
     }
 
-    /// Test that RemoveConstraint works when table was created with both
+    /// Test that `RemoveConstraint` works when table was created with both
     /// inline unique column AND table-level unique constraint for the same column
     #[test]
     fn remove_constraint_with_inline_and_table_level_unique() {

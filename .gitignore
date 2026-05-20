@@ -1,7 +1,70 @@
+# ─── Rust build artifacts ─────────────────────────────────────────────
 /target
-local.db
-settings.local.json
-coverage
+target/criterion/         # criterion benchmark HTML reports
+*.profraw                 # cargo profile-guided / llvm coverage raw data
+*.profdata                # processed profile data
+flamegraph.svg            # profiling visualization output
+perf.data                 # linux perf record output
+perf.data.old
+
+# ─── Insta snapshot review queue ──────────────────────────────────────
+# Pending snapshots awaiting `cargo insta accept` — CI gate fails on these.
+*.snap.new
+*.pending-snap
+
+# ─── cargo-mutants output (regenerated per run) ───────────────────────
+mutants-out*/
+mutants.out/
+
+# ─── cargo-fuzz (corpus has gitkeep'd subdirs; artifacts are crash dumps) ──
+fuzz/target/
+fuzz/artifacts/
+fuzz/corpus/*
+!fuzz/corpus/*/
+!fuzz/corpus/*/.gitkeep
+
+# ─── CI temp / drift detection ────────────────────────────────────────
+_tmp_schemas/             # schema-drift job regenerated schemas for diff
+
+# ─── Coverage output ──────────────────────────────────────────────────
+coverage/
 lcov.info
+
+# ─── Vespertide local / dev-only files ────────────────────────────────
+local.db                  # ad-hoc local SQLite for manual testing
+settings.local.json       # local overrides not committed
+
+# ─── OhMyOpenCode / agent infrastructure ──────────────────────────────
 .sisyphus
 .omc
+.omo
+.audit
+
+# ─── Local secrets / environment ──────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ─── Patch / conflict artifacts ───────────────────────────────────────
+*.bak
+*.orig
+*.rej
+
+# ─── Logs ─────────────────────────────────────────────────────────────
+*.log
+
+# ─── Editor / IDE ─────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.iml
+.fleet/
+
+# vim / emacs swap files
+*.swp
+*.swo
+*~
+
+# ─── OS junk ──────────────────────────────────────────────────────────
+.DS_Store                 # macOS Finder metadata
+Thumbs.db                 # Windows Explorer thumbnails
+desktop.ini               # Windows folder settings

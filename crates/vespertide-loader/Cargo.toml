@@ -7,6 +7,9 @@ repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
 description = "Loads migrations and models from filesystem"
+keywords = ["database", "migration", "schema", "orm", "sql"]
+categories = ["database"]
+readme = "../../README.md"
 
 [dependencies]
 vespertide-core = { workspace = true }
@@ -20,3 +23,6 @@ serde_yaml = "0.9"
 tempfile = "3"
 rstest = "0.26"
 serial_test = "3.4"
+
+[lints]
+workspace = true

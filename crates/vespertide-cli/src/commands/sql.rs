@@ -17,12 +17,12 @@ pub async fn cmd_sql(backend: DatabaseBackend) -> Result<()> {
         .map(|p| p.with_prefix(prefix))
         .collect();
     let baseline_schema = schema_from_plans(&prefixed_plans)
-        .map_err(|e| anyhow::anyhow!("failed to reconstruct schema: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("failed to reconstruct schema: {e}"))?;
 
     // Plan next migration using the pre-computed baseline
     let plan =
         plan_next_migration_with_baseline(&current_models, &prefixed_plans, &baseline_schema)
-            .map_err(|e| anyhow::anyhow!("planning error: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("planning error: {e}"))?;
 
     // Apply prefix to the new plan for SQL generation
     let prefixed_plan = plan.with_prefix(prefix);
@@ -45,7 +45,7 @@ fn emit_sql(
     }
 
     let plan_queries = build_plan_queries(plan, current_schema)
-        .map_err(|e| anyhow::anyhow!("query build error: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("query build error: {e}"))?;
 
     // Select queries for the specified backend
     let queries: Vec<_> = plan_queries
@@ -102,7 +102,7 @@ fn emit_sql(
                 if queries.len() > 1 {
                     format!("-{}", j + 1)
                 } else {
-                    "".to_string()
+                    String::new()
                 }
                 .bright_magenta()
                 .bold(),

@@ -1,0 +1,33 @@
+---
+source: crates/vespertide-exporter/src/seaorm/tests_edge_cases.rs
+expression: rendered
+---
+use sea_orm::entity::prelude::*;
+
+#[sea_orm::model]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+#[sea_orm(table_name = "type_matrix")]
+pub struct Model {
+    pub c_int: i32,
+    pub c_bigint: i64,
+    pub c_smallint: i16,
+    pub c_text: Option<String>,
+    pub c_bool: bool,
+    pub c_real: f32,
+    pub c_double: f64,
+    pub c_date: Option<Date>,
+    pub c_time: Option<Time>,
+    pub c_ts: Option<DateTime>,
+    pub c_tstz: Option<DateTimeWithTimeZone>,
+    pub c_interval: Option<String>,
+    pub c_uuid: Uuid,
+    pub c_json: Option<Json>,
+    pub c_bytea: Option<Vec<u8>>,
+    pub c_inet: Option<String>,
+    pub c_cidr: Option<String>,
+    pub c_macaddr: Option<String>,
+    pub c_xml: Option<String>,
+}
+
+vespera::schema_type!(Schema from Model, name = "TypeMatrixSchema");
+impl ActiveModelBehavior for ActiveModel {}

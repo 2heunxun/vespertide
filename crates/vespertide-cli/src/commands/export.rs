@@ -165,7 +165,7 @@ fn rel_path_to_module_segments(rel_path: &Path) -> Vec<String> {
             if let std::path::Component::Normal(name) = component
                 && let Some(s) = name.to_str()
             {
-                segments.push(sanitize_filename(s).to_string());
+                segments.push(sanitize_filename(s).clone());
             }
         }
     }
@@ -178,7 +178,7 @@ fn rel_path_to_module_segments(rel_path: &Path) -> Vec<String> {
             (file_name, "")
         };
         let stem = stem.strip_suffix(".vespertide").unwrap_or(stem);
-        segments.push(sanitize_filename(stem).to_string());
+        segments.push(sanitize_filename(stem).clone());
     }
 
     segments
@@ -302,7 +302,7 @@ fn build_output_path(root: &Path, rel_path: &Path, orm: Orm) -> PathBuf {
         } else {
             sanitized
         };
-        out.set_file_name(format!("{}.{}", file_stem, ext));
+        out.set_file_name(format!("{file_stem}.{ext}"));
     }
 
     out
@@ -356,11 +356,7 @@ async fn ensure_mod_chain(root: &Path, rel_path: &Path) -> Result<()> {
     };
     let mut comps: Vec<String> = path_stripped
         .components()
-        .filter_map(|c| {
-            c.as_os_str()
-                .to_str()
-                .map(|s| sanitize_filename(s).to_string())
-        })
+        .filter_map(|c| c.as_os_str().to_str().map(|s| sanitize_filename(s).clone()))
         .collect();
     if comps.is_empty() {
         return Ok(());
@@ -412,7 +408,7 @@ async fn walk_models(
             continue;
         }
         let ext = path.extension().and_then(|s| s.to_str());
-        if !matches!(ext, Some("json") | Some("yaml") | Some("yml")) {
+        if !matches!(ext, Some("json" | "yaml" | "yml")) {
             continue;
         }
         let content = fs::read_to_string(&path)

@@ -3,9 +3,16 @@ use vespertide_planner::apply_action;
 
 use crate::DatabaseBackend;
 use crate::error::QueryError;
-use crate::sql::BuiltQuery;
 use crate::sql::build_action_queries_with_pending;
+use crate::sql::{BuiltQuery, RawSql};
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PlanQueriesOptions {
+    /// Wrap the generated statement stream in a plan-level transaction.
+    pub wrap_in_transaction: bool,
+}
+
+#[derive(Debug)]
 pub struct PlanQueries {
     pub action: MigrationAction,
     pub postgres: Vec<BuiltQuery>,
@@ -13,26 +20,77 @@ pub struct PlanQueries {
     pub sqlite: Vec<BuiltQuery>,
 }
 
+impl PlanQueries {
+    /// Wrap each backend's full plan statement stream with transaction boundaries.
+    ///
+    /// `SQLite`'s no-DROP-CONSTRAINT temp-table rebuild pattern is canonical; wrapping
+    /// the ordered create-temp/insert/drop/rename/reindex sequence in a transaction
+    /// protects it from mid-sequence failures. `MySQL` accepts `BEGIN`/`COMMIT`, but
+    /// most DDL implicitly commits and is not transactional on that backend.
+    pub fn into_transactional(mut queries: Vec<Self>) -> Vec<Self> {
+        wrap_backend_queries(&mut queries, DatabaseBackend::Postgres);
+        wrap_backend_queries(&mut queries, DatabaseBackend::MySql);
+        wrap_backend_queries(&mut queries, DatabaseBackend::Sqlite);
+        queries
+    }
+}
+
+fn wrap_backend_queries(plan_queries: &mut [PlanQueries], backend: DatabaseBackend) {
+    let Some(first_idx) = plan_queries
+        .iter()
+        .position(|pq| !backend_queries(pq, backend).is_empty())
+    else {
+        return;
+    };
+    let Some(last_idx) = plan_queries
+        .iter()
+        .rposition(|pq| !backend_queries(pq, backend).is_empty())
+    else {
+        return;
+    };
+
+    backend_queries_mut(&mut plan_queries[first_idx], backend)
+        .insert(0, BuiltQuery::Raw(RawSql::uniform("BEGIN;".to_string())));
+    backend_queries_mut(&mut plan_queries[last_idx], backend)
+        .push(BuiltQuery::Raw(RawSql::uniform("COMMIT;".to_string())));
+}
+
+fn backend_queries(plan_queries: &PlanQueries, backend: DatabaseBackend) -> &[BuiltQuery] {
+    match backend {
+        DatabaseBackend::Postgres => &plan_queries.postgres,
+        DatabaseBackend::MySql => &plan_queries.mysql,
+        DatabaseBackend::Sqlite => &plan_queries.sqlite,
+    }
+}
+
+fn backend_queries_mut(
+    plan_queries: &mut PlanQueries,
+    backend: DatabaseBackend,
+) -> &mut Vec<BuiltQuery> {
+    match backend {
+        DatabaseBackend::Postgres => &mut plan_queries.postgres,
+        DatabaseBackend::MySql => &mut plan_queries.mysql,
+        DatabaseBackend::Sqlite => &mut plan_queries.sqlite,
+    }
+}
+
 /// Extract the target table name from any migration action.
 /// Returns `None` for `RawSql` (no table) and `RenameTable` (ambiguous).
 fn action_target_table(action: &MigrationAction) -> Option<&str> {
     match action {
-        MigrationAction::CreateTable { table, .. }
-        | MigrationAction::DeleteTable { table }
-        | MigrationAction::AddColumn { table, .. }
-        | MigrationAction::RenameColumn { table, .. }
-        | MigrationAction::DeleteColumn { table, .. }
-        | MigrationAction::ModifyColumnType { table, .. }
-        | MigrationAction::ModifyColumnNullable { table, .. }
-        | MigrationAction::ModifyColumnDefault { table, .. }
-        | MigrationAction::ModifyColumnComment { table, .. }
-        | MigrationAction::AddConstraint { table, .. }
-        | MigrationAction::RemoveConstraint { table, .. }
-        | MigrationAction::ReplaceConstraint { table, .. } => Some(table),
         MigrationAction::RenameTable { .. } | MigrationAction::RawSql { .. } => None,
+        _ => action.table_name(),
     }
 }
 
+/// Build SQL queries for a full migration plan with sequential schema evolution.
+///
+/// Each action is built against the schema state AFTER previous actions have been
+/// applied; this is required for `SQLite` temp-table rebuilds that need the
+/// current column list.
+///
+/// # Errors
+/// Returns [`QueryError`] if any action fails to compile to SQL.
 pub fn build_plan_queries(
     plan: &MigrationPlan,
     current_schema: &[TableDef],
@@ -84,19 +142,19 @@ pub fn build_plan_queries(
 
         // Build queries with the current state of the schema
         let postgres_queries = build_action_queries_with_pending(
-            &DatabaseBackend::Postgres,
+            DatabaseBackend::Postgres,
             action,
             &evolving_schema,
             &pending_constraints,
         )?;
         let mysql_queries = build_action_queries_with_pending(
-            &DatabaseBackend::MySql,
+            DatabaseBackend::MySql,
             action,
             &evolving_schema,
             &pending_constraints,
         )?;
         let sqlite_queries = build_action_queries_with_pending(
-            &DatabaseBackend::Sqlite,
+            DatabaseBackend::Sqlite,
             action,
             &evolving_schema,
             &pending_constraints,
@@ -115,6 +173,22 @@ pub fn build_plan_queries(
         let _ = apply_action(&mut evolving_schema, action);
     }
     Ok(queries)
+}
+
+/// Build SQL queries with explicit options (e.g., transaction wrapping).
+///
+/// See [`PlanQueriesOptions`] for available knobs.
+pub fn build_plan_queries_with_options(
+    plan: &MigrationPlan,
+    current_schema: &[TableDef],
+    options: PlanQueriesOptions,
+) -> Result<Vec<PlanQueries>, QueryError> {
+    let queries = build_plan_queries(plan, current_schema)?;
+    if options.wrap_in_transaction {
+        Ok(PlanQueries::into_transactional(queries))
+    } else {
+        Ok(queries)
+    }
 }
 
 #[cfg(test)]
@@ -194,6 +268,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn transactional_wrapping_leaves_empty_backend_queries_unchanged() {
+        let action = MigrationAction::RawSql {
+            sql: "-- noop".into(),
+        };
+        let queries = vec![PlanQueries {
+            action,
+            postgres: vec![],
+            mysql: vec![],
+            sqlite: vec![],
+        }];
+
+        let wrapped = PlanQueries::into_transactional(queries);
+
+        assert!(wrapped[0].postgres.is_empty());
+        assert!(wrapped[0].mysql.is_empty());
+        assert!(wrapped[0].sqlite.is_empty());
+    }
+
+    #[test]
+    fn transactional_wrapping_has_no_expect_on_last_non_empty_query() {
+        let source = include_str!("builder.rs");
+
+        assert!(!source.contains("expect(\"first non-empty backend query implies"));
+    }
+
     fn build_sql_snapshot(result: &[BuiltQuery], backend: DatabaseBackend) -> String {
         result
             .iter()
@@ -202,10 +302,10 @@ mod tests {
             .join(";\n")
     }
 
-    /// Regression test: SQLite must emit DROP INDEX before DROP COLUMN when
+    /// Regression test: `SQLite` must emit DROP INDEX before DROP COLUMN when
     /// the column was created with inline `unique: true` (no explicit table constraint).
-    /// Previously, apply_action didn't normalize inline constraints, so the evolving
-    /// schema had empty constraints and SQLite's DROP COLUMN failed.
+    /// Previously, `apply_action` didn't normalize inline constraints, so the evolving
+    /// schema had empty constraints and `SQLite`'s DROP COLUMN failed.
     #[rstest]
     #[case::postgres("postgres", DatabaseBackend::Postgres)]
     #[case::mysql("mysql", DatabaseBackend::MySql)]
@@ -433,7 +533,7 @@ mod tests {
         }
     }
 
-    /// Schema with an existing table that has NO constraints on category_id (for add tests).
+    /// Schema with an existing table that has NO constraints on `category_id` (for add tests).
     fn base_schema_no_constraints() -> Vec<TableDef> {
         vec![TableDef {
             name: "product".into(),
@@ -443,7 +543,7 @@ mod tests {
         }]
     }
 
-    /// Schema with an existing table that HAS FK + Unique + Index on category_id (for remove tests).
+    /// Schema with an existing table that HAS FK + Unique + Index on `category_id` (for remove tests).
     fn base_schema_with_all_constraints() -> Vec<TableDef> {
         vec![TableDef {
             name: "product".into(),
@@ -475,7 +575,7 @@ mod tests {
     }
 
     /// Assert no duplicate CREATE INDEX / CREATE UNIQUE INDEX within a single
-    /// action's SQLite output. Cross-action duplicates are allowed because a
+    /// action's `SQLite` output. Cross-action duplicates are allowed because a
     /// temp table rebuild (DROP + RENAME) legitimately destroys and recreates
     /// indexes that a prior action already created.
     fn assert_no_duplicate_indexes_per_action(result: &[PlanQueries]) {
@@ -501,7 +601,7 @@ mod tests {
                     stmt,
                     index_stmts
                         .iter()
-                        .map(|s| format!("  {}", s))
+                        .map(|s| format!("  {s}"))
                         .collect::<Vec<_>>()
                         .join("\n")
                 );
@@ -509,10 +609,10 @@ mod tests {
         }
     }
 
-    /// Assert that no AddConstraint Index/Unique action produces an index that
+    /// Assert that no `AddConstraint` Index/Unique action produces an index that
     /// was already recreated by a preceding temp-table rebuild within the same plan.
     /// This catches the original bug: FK temp-table rebuild creating an index that
-    /// a later AddConstraint INDEX also creates (without DROP TABLE in between).
+    /// a later `AddConstraint` INDEX also creates (without DROP TABLE in between).
     fn assert_no_orphan_duplicate_indexes(result: &[PlanQueries]) {
         // Track indexes that exist after each action.
         // A DROP TABLE resets the set; CREATE INDEX adds to it.
@@ -539,7 +639,7 @@ mod tests {
                         stmt,
                         live_indexes
                             .iter()
-                            .map(|s| format!("  {}", s))
+                            .map(|s| format!("  {s}"))
                             .collect::<Vec<_>>()
                             .join("\n")
                     );
@@ -555,7 +655,7 @@ mod tests {
                             .strip_prefix("DROP INDEX \"")
                             .and_then(|s| s.strip_suffix('"'));
                         if let Some(name) = drop_name {
-                            !s.contains(&format!("\"{}\"", name))
+                            !s.contains(&format!("\"{name}\""))
                         } else {
                             true
                         }
@@ -687,10 +787,10 @@ mod tests {
 
     // ── Duplicate FK in temp table CREATE TABLE ──────────────────────────
 
-    /// Regression test: when AddColumn adds a column with an inline FK, the
+    /// Regression test: when `AddColumn` adds a column with an inline FK, the
     /// evolving schema already contains the FK constraint (from normalization).
-    /// Then AddConstraint FK pushes the same FK again into new_constraints,
-    /// producing a duplicate FOREIGN KEY clause in the SQLite temp table.
+    /// Then `AddConstraint` FK pushes the same FK again into `new_constraints`,
+    /// producing a duplicate FOREIGN KEY clause in the `SQLite` temp table.
     #[rstest]
     #[case::postgres("postgres", DatabaseBackend::Postgres)]
     #[case::mysql("mysql", DatabaseBackend::MySql)]
@@ -794,11 +894,11 @@ mod tests {
     // ── Two NOT NULL AddColumns with inline index + AddConstraint ────────
 
     /// Regression test: when two NOT NULL columns with inline `index: true`
-    /// are added sequentially, the second AddColumn triggers a SQLite temp
+    /// are added sequentially, the second `AddColumn` triggers a `SQLite` temp
     /// table rebuild. At that point the evolving schema already contains the
     /// first column's index (from normalization). Without pending constraint
     /// awareness, the rebuild recreates that index, and the later
-    /// AddConstraint for the same index fails with "index already exists".
+    /// `AddConstraint` for the same index fails with "index already exists".
     #[rstest]
     #[case::postgres("postgres", DatabaseBackend::Postgres)]
     #[case::mysql("mysql", DatabaseBackend::MySql)]

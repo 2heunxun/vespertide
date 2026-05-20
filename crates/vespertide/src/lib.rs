@@ -1,3 +1,12 @@
+//! # Vespertide
+//!
+//! Declarative database schema management for Rust. Define schemas in JSON,
+//! generate migration plans, emit SQL for PostgreSQL/MySQL/SQLite, and export
+//! ORM models for SeaORM/SQLAlchemy/SQLModel/JPA.
+//!
+//! This is the facade crate; runtime migrations use [`vespertide_migration!`].
+//! Advanced users may depend on `vespertide-core` directly for typed data structures.
+
 pub mod runtime;
 
 // Re-export macro for convenient usage

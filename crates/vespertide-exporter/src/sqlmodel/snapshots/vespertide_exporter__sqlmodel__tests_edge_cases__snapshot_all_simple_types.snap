@@ -1,0 +1,35 @@
+---
+source: crates/vespertide-exporter/src/sqlmodel/tests_edge_cases.rs
+expression: rendered
+---
+from __future__ import annotations
+
+from datetime import date, datetime, time
+from typing import Optional
+from uuid import UUID
+
+from sqlmodel import Field, SQLModel
+
+
+class TypeMatrix(SQLModel, table=True):
+    __tablename__ = "type_matrix"
+
+    c_int: int = Field(...)
+    c_bigint: int = Field(...)
+    c_smallint: int = Field(...)
+    c_text: Optional[str] = Field(default=None)
+    c_bool: bool = Field(...)
+    c_real: float = Field(...)
+    c_double: float = Field(...)
+    c_date: Optional[date] = Field(default=None)
+    c_time: Optional[time] = Field(default=None)
+    c_ts: Optional[datetime] = Field(default=None)
+    c_tstz: Optional[datetime] = Field(default=None)
+    c_interval: Optional[str] = Field(default=None)
+    c_uuid: UUID = Field(...)
+    c_json: Optional[dict] = Field(default=None)
+    c_bytea: Optional[bytes] = Field(default=None)
+    c_inet: Optional[str] = Field(default=None)
+    c_cidr: Optional[str] = Field(default=None)
+    c_macaddr: Optional[str] = Field(default=None)
+    c_xml: Optional[str] = Field(default=None)

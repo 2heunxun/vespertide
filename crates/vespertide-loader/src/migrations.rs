@@ -63,7 +63,7 @@ pub fn load_migrations_from_dir(
 
     // Read vespertide.json or use defaults
     let config = crate::config::load_config_or_default(Some(project_root.clone()))
-        .map_err(|e| format!("Failed to load config: {}", e))?;
+        .map_err(|e| format!("Failed to load config: {e}"))?;
 
     // Read migrations directory
     let migrations_dir = project_root.join(config.migrations_dir());
@@ -73,10 +73,10 @@ pub fn load_migrations_from_dir(
 
     let mut plans = Vec::new();
     let entries = fs::read_dir(&migrations_dir)
-        .map_err(|e| format!("Failed to read migrations directory: {}", e))?;
+        .map_err(|e| format!("Failed to read migrations directory: {e}"))?;
 
     for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {e}"))?;
         let path = entry.path();
         if path.is_file() {
             let ext = path.extension().and_then(|s| s.to_str());
@@ -93,6 +93,10 @@ pub fn load_migrations_from_dir(
                         format!("Failed to parse YAML migration {}: {}", path.display(), e)
                     })?
                 };
+
+                validate_migration_plan(&plan).map_err(|e| {
+                    format!("Failed to validate migration {}: {}", path.display(), e)
+                })?;
 
                 plans.push(plan);
             }
@@ -258,7 +262,7 @@ mod tests {
         let migrations_dir = temp_dir.path().join("migrations");
         fs::create_dir_all(&migrations_dir).unwrap();
 
-        let migration_content = r#"---
+        let migration_content = r"---
 version: 1
 actions:
   - type: create_table
@@ -268,7 +272,7 @@ actions:
         type: integer
         nullable: false
     constraints: []
-"#;
+";
 
         fs::write(migrations_dir.join("0001_test.yaml"), migration_content).unwrap();
 
@@ -285,7 +289,7 @@ actions:
         let migrations_dir = temp_dir.path().join("migrations");
         fs::create_dir_all(&migrations_dir).unwrap();
 
-        let migration_content = r#"---
+        let migration_content = r"---
 version: 1
 actions:
   - type: create_table
@@ -295,7 +299,7 @@ actions:
         type: integer
         nullable: false
     constraints: []
-"#;
+";
 
         fs::write(migrations_dir.join("0001_test.yml"), migration_content).unwrap();
 
@@ -314,7 +318,7 @@ actions:
         write_config(temp_dir.path());
         fs::create_dir_all("migrations").unwrap();
 
-        let migration_content = r#"---
+        let migration_content = r"---
 version: 1
 actions:
   - type: create_table
@@ -324,7 +328,7 @@ actions:
         type: integer
         nullable: false
     constraints: []
-"#;
+";
         fs::write("migrations/0001_test.yaml", migration_content).unwrap();
 
         let plans = load_migrations(&VespertideConfig::default()).unwrap();
@@ -353,17 +357,49 @@ actions:
         let migrations_dir = temp_dir.path().join("migrations");
         fs::create_dir_all(&migrations_dir).unwrap();
 
-        let invalid_yaml = r#"---
+        let invalid_yaml = r"---
 version: 1
 actions:
   - invalid: [syntax
-"#;
+";
         fs::write(migrations_dir.join("0001_invalid.yaml"), invalid_yaml).unwrap();
 
         let result = load_migrations_from_dir(Some(temp_dir.path().to_path_buf()));
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("Failed to parse YAML migration"));
+    }
+
+    #[test]
+    fn test_load_migrations_from_dir_rejects_invalid_plan_with_file_path() {
+        let temp_dir = TempDir::new().unwrap();
+        let migrations_dir = temp_dir.path().join("migrations");
+        fs::create_dir_all(&migrations_dir).unwrap();
+
+        let migration_path = migrations_dir.join("0001_invalid_plan.json");
+        let invalid_plan = r#"{
+            "version": 1,
+            "actions": [
+                {
+                    "type": "add_column",
+                    "table": "nonexistent",
+                    "column": {
+                        "name": "required_value",
+                        "type": "integer",
+                        "nullable": false
+                    }
+                }
+            ]
+        }"#;
+        fs::write(&migration_path, invalid_plan).unwrap();
+
+        let result = load_migrations_from_dir(Some(temp_dir.path().to_path_buf()));
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains(&migration_path.display().to_string()),
+            "error did not include file path {migration_path:?}: {err_msg}"
+        );
     }
 
     #[test]

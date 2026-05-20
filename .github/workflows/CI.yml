@@ -1,3 +1,10 @@
+# AGENTS.md policy: Every `.rs` file must stay ≤ 1000 lines.
+#
+# GitHub Actions pinning policy: third-party actions use major version tags
+# only (e.g. `@v6`, not `@v6.0.2`) so security patches and bug fixes within
+# the same major are picked up automatically. Dependabot proposes only
+# major bumps (see `.github/dependabot.yml`). The `changepacks/action@main`
+# reference is intentionally kept on `main` per project policy.
 name: CI
 
 on:
@@ -5,9 +12,9 @@ on:
     branches:
       - main
     paths-ignore:
-      - '**/*.md'
+      - "**/*.md"
       - LICENSE
-      - '**/*.gitignore'
+      - "**/*.gitignore"
       - .editorconfig
   pull_request:
   workflow_dispatch:
@@ -17,27 +24,172 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
   test:
-    name: Test
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Test
+        run: cargo test --workspace --all-features
+
+  # SQL validity gates: daemon-free real-engine and parser-level validation.
+  # - SQLite: in-memory execution via rusqlite (bundled = static link)
+  # - PG/MySQL/SQLite syntax: sqlparser-rs pure Rust 3-dialect parser
+  # - PG strict: pg_query = PG's real C parser (FFI, Linux/macOS only)
+  # No Docker, no daemon, no service container — runs on plain ubuntu-latest.
+  sql-validity:
+    name: SQL validity (daemon-free)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Install build-essential for pg_query (PG C parser)
+        run: sudo apt-get update && sudo apt-get install -y build-essential libreadline-dev zlib1g-dev flex bison
+      - name: Run SQLite in-memory exec property test
+        run: cargo test -p vespertide-query --test sql_sqlite_exec --release
+      - name: Run sqlparser 3-dialect parse property test
+        run: cargo test -p vespertide-query --test sql_dialect_parse --release
+      - name: Run pg_query (real PG parser) property test
+        run: cargo test -p vespertide-query --test sql_pg_query --release
+
+  # cargo-deny enforces license/advisory/multiple-version policy; cargo-semver-checks blocks accidental semver-major API changes.
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check all
+
+  semver-checks:
+    name: cargo-semver-checks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          # Only check published crates; skip cli (binary) and schema-gen (publish=false)
+          package: vespertide,vespertide-core,vespertide-config,vespertide-loader,vespertide-naming,vespertide-planner,vespertide-query,vespertide-exporter,vespertide-macro
+          feature-group: default-features
+
+  # publish
+  changepacks:
+    name: changepacks
+    runs-on: ubuntu-latest
+    needs:
+      - fmt
+      - clippy
+      - test
+      - sql-validity
+      - doc
+      - schema-drift
+      - insta-pending
+      - line-budget
+      - coverage
+      - deny
+      - semver-checks
+    permissions:
+      # create pull request comments
+      pull-requests: write
+
+      # Actions > General > Workflow permissions for creating pull request
+      # Create brench to create pull request
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      # changepacks/action@main: project-internal action intentionally tracks main.
+      - uses: changepacks/action@main
+        id: changepacks
+        with:
+          publish: true
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  doc:
+    name: doc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Check docs
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace
+
+  schema-drift:
+    name: schema-drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Regenerate schemas
+        run: cargo run -p vespertide-schema-gen -- --out _tmp_schemas
+      - name: Check schema drift
+        run: git diff --no-index --exit-code -- schemas _tmp_schemas
+
+  insta-pending:
+    name: insta-pending
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Run exporter snapshots
+        run: cargo test -p vespertide-exporter
+      - name: Fail on pending snapshots
+        run: |
+          pending=$(find . -name '*.snap.new' -type f -print)
+          if [ -n "$pending" ]; then
+            printf '%s\n' "Pending insta snapshots:" "$pending"
+            exit 1
+          fi
+
+  line-budget:
+    name: line-budget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check Rust line budget
+        run: sh scripts/check-line-budget.sh
+
+  coverage:
+    name: coverage
     runs-on: ubuntu-latest
     container:
       image: xd009642/tarpaulin:develop-nightly
       options: --security-opt seccomp=unconfined
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - name: Install
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-      - name: Build
-        run: cargo check
-      - name: Lint
-        run: cargo clippy --all-targets --all-features -- -D warnings && cargo fmt --check
-      - name: Test
+      - name: Coverage
         run: |
           # rust coverage issue
           echo 'max_width = 100000' > .rustfmt.toml
@@ -51,30 +203,9 @@ jobs:
           cargo fmt
           cargo tarpaulin --engine llvm --out Lcov Stdout --workspace --exclude app
       - name: Upload to codecov.io
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
           files: lcov.info
         if: github.ref == 'refs/heads/main'
-
-  # publish
-  changepacks:
-    name: changepacks
-    runs-on: ubuntu-latest
-    needs: test
-    permissions:
-      # create pull request comments
-      pull-requests: write
-
-      # Actions > General > Workflow permissions for creating pull request
-      # Create brench to create pull request
-      contents: write
-    steps:
-      - uses: actions/checkout@v5
-      - uses: changepacks/action@main
-        id: changepacks
-        with:
-          publish: true
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

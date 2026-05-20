@@ -4,7 +4,7 @@ use vespertide_core::{ColumnDef, TableDef};
 
 use super::helpers::{
     build_sea_column_def_with_table, build_sqlite_temp_table_create, normalize_enum_default,
-    recreate_indexes_after_rebuild,
+    quote_ident, recreate_indexes_after_rebuild,
 };
 use super::rename_table::build_rename_table;
 use super::types::{BuiltQuery, DatabaseBackend, RawSql};
@@ -12,7 +12,7 @@ use crate::error::QueryError;
 
 /// Build SQL for changing column default value.
 pub fn build_modify_column_default(
-    backend: &DatabaseBackend,
+    backend: DatabaseBackend,
     table: &str,
     column: &str,
     new_default: Option<&str>,
@@ -23,6 +23,8 @@ pub fn build_modify_column_default(
 
     match backend {
         DatabaseBackend::Postgres => {
+            let quoted_table = quote_ident(table, backend);
+            let quoted_column = quote_ident(column, backend);
             let alter_sql = if let Some(default_value) = new_default {
                 // Look up column type to properly quote enum defaults
                 let column_type = current_schema
@@ -38,14 +40,10 @@ pub fn build_modify_column_default(
                 };
 
                 format!(
-                    "ALTER TABLE \"{}\" ALTER COLUMN \"{}\" SET DEFAULT {}",
-                    table, column, normalized_default
+                    "ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} SET DEFAULT {normalized_default}"
                 )
             } else {
-                format!(
-                    "ALTER TABLE \"{}\" ALTER COLUMN \"{}\" DROP DEFAULT",
-                    table, column
-                )
+                format!("ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} DROP DEFAULT")
             };
             queries.push(BuiltQuery::Raw(RawSql::uniform(alter_sql)));
         }
@@ -55,7 +53,7 @@ pub fn build_modify_column_default(
                 .iter()
                 .find(|t| t.name == table)
                 .ok_or_else(|| {
-                    QueryError::Other(format!("Table '{}' not found in current schema.", table))
+                    QueryError::Other(format!("Table '{table}' not found in current schema."))
                 })?;
 
             let column_def = table_def
@@ -63,15 +61,12 @@ pub fn build_modify_column_default(
                 .iter()
                 .find(|c| c.name == column)
                 .ok_or_else(|| {
-                    QueryError::Other(format!(
-                        "Column '{}' not found in table '{}'.",
-                        column, table
-                    ))
+                    QueryError::Other(format!("Column '{column}' not found in table '{table}'."))
                 })?;
 
             // Create a modified column def with the new default
             let modified_col_def = ColumnDef {
-                default: new_default.map(|s| s.into()),
+                default: new_default.map(std::convert::Into::into),
                 ..column_def.clone()
             };
 
@@ -90,17 +85,17 @@ pub fn build_modify_column_default(
                 .iter()
                 .find(|t| t.name == table)
                 .ok_or_else(|| {
-                    QueryError::Other(format!("Table '{}' not found in current schema.", table))
+                    QueryError::Other(format!("Table '{table}' not found in current schema."))
                 })?;
 
             // Create modified columns with the new default
             let mut new_columns = table_def.columns.clone();
             if let Some(col) = new_columns.iter_mut().find(|c| c.name == column) {
-                col.default = new_default.map(|s| s.into());
+                col.default = new_default.map(std::convert::Into::into);
             }
 
             // Generate temporary table name
-            let temp_table = format!("{}_temp", table);
+            let temp_table = format!("{table}_temp");
 
             // 1. Create temporary table with modified column + CHECK constraints
             let create_query = build_sqlite_temp_table_create(
@@ -120,9 +115,9 @@ pub fn build_modify_column_default(
                 .collect();
             let mut select_query = Query::select();
             for col_alias in &column_aliases {
-                select_query = select_query.column(col_alias.clone()).to_owned();
+                select_query.column(col_alias.clone());
             }
-            select_query = select_query.from(Alias::new(table)).to_owned();
+            select_query.from(Alias::new(table));
 
             let insert_stmt = Query::insert()
                 .into_table(Alias::new(&temp_table))
@@ -206,7 +201,7 @@ mod tests {
         )];
 
         let result =
-            build_modify_column_default(&backend, "users", "email", new_default, &schema, &[]);
+            build_modify_column_default(backend, "users", "email", new_default, &schema, &[]);
         assert!(result.is_ok());
         let queries = result.unwrap();
         let sql = queries
@@ -246,7 +241,7 @@ mod tests {
         }
 
         let result =
-            build_modify_column_default(&backend, "users", "email", Some("'default'"), &[], &[]);
+            build_modify_column_default(backend, "users", "email", Some("'default'"), &[], &[]);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("Table 'users' not found"));
@@ -274,21 +269,15 @@ mod tests {
             vec![],
         )];
 
-        let result = build_modify_column_default(
-            &backend,
-            "users",
-            "email",
-            Some("'default'"),
-            &schema,
-            &[],
-        );
+        let result =
+            build_modify_column_default(backend, "users", "email", Some("'default'"), &schema, &[]);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("Column 'email' not found"));
     }
 
     /// Test Postgres default change when column is not in schema
-    /// This covers the fallback path where column_type is None
+    /// This covers the fallback path where `column_type` is None
     #[test]
     fn test_postgres_column_not_in_schema_uses_default_as_is() {
         let schema = vec![table_def(
@@ -304,7 +293,7 @@ mod tests {
 
         // Postgres doesn't error when column isn't found - it just uses the default as-is
         let result = build_modify_column_default(
-            &DatabaseBackend::Postgres,
+            DatabaseBackend::Postgres,
             "users",
             "status", // column not in schema
             Some("'active'"),
@@ -323,7 +312,7 @@ mod tests {
         assert!(sql.contains("ALTER TABLE \"users\" ALTER COLUMN \"status\" SET DEFAULT 'active'"));
     }
 
-    /// Test with index - should recreate index after table rebuild (SQLite)
+    /// Test with index - should recreate index after table rebuild (`SQLite`)
     #[rstest]
     #[case::postgres_with_index(DatabaseBackend::Postgres)]
     #[case::mysql_with_index(DatabaseBackend::MySql)]
@@ -342,7 +331,7 @@ mod tests {
         )];
 
         let result = build_modify_column_default(
-            &backend,
+            backend,
             "users",
             "email",
             Some("'default@example.com'"),
@@ -396,7 +385,7 @@ mod tests {
         )];
 
         let result = build_modify_column_default(
-            &backend,
+            backend,
             "users",
             "email",
             Some("'new@example.com'"),
@@ -445,7 +434,7 @@ mod tests {
         )];
 
         let result =
-            build_modify_column_default(&backend, "products", "quantity", Some("0"), &schema, &[]);
+            build_modify_column_default(backend, "products", "quantity", Some("0"), &schema, &[]);
         assert!(result.is_ok());
         let queries = result.unwrap();
         let sql = queries
@@ -488,7 +477,7 @@ mod tests {
         )];
 
         let result =
-            build_modify_column_default(&backend, "users", "is_active", Some("true"), &schema, &[]);
+            build_modify_column_default(backend, "users", "is_active", Some("true"), &schema, &[]);
         assert!(result.is_ok());
         let queries = result.unwrap();
         let sql = queries
@@ -511,7 +500,7 @@ mod tests {
         });
     }
 
-    /// Test with function default (e.g., NOW(), CURRENT_TIMESTAMP)
+    /// Test with function default (e.g., `NOW()`, `CURRENT_TIMESTAMP`)
     #[rstest]
     #[case::postgres_function_default(DatabaseBackend::Postgres)]
     #[case::mysql_function_default(DatabaseBackend::MySql)]
@@ -532,12 +521,11 @@ mod tests {
 
         let default_value = match backend {
             DatabaseBackend::Postgres => "NOW()",
-            DatabaseBackend::MySql => "CURRENT_TIMESTAMP",
-            DatabaseBackend::Sqlite => "CURRENT_TIMESTAMP",
+            DatabaseBackend::MySql | DatabaseBackend::Sqlite => "CURRENT_TIMESTAMP",
         };
 
         let result = build_modify_column_default(
-            &backend,
+            backend,
             "events",
             "created_at",
             Some(default_value),
@@ -585,7 +573,7 @@ mod tests {
         )];
 
         let result = build_modify_column_default(
-            &backend,
+            backend,
             "orders",
             "status",
             None, // Drop default
