@@ -4422,7 +4422,6 @@ dependencies = [
  "predicates",
  "rayon",
  "rstest",
- "schemars",
  "serde_json",
  "serde_yaml",
  "serial_test",

@@ -30,45 +30,46 @@ pub(super) fn as_fk(constraint: &TableConstraint) -> Option<(&[String], &str, &[
 
 /// Resolve FK chain to find the ultimate target table.
 /// If the referenced column is itself a FK, follow the chain.
+#[cfg(test)]
 pub(super) fn resolve_fk_target<'a>(
     ref_table: &'a str,
     ref_columns: &[String],
     schema: &'a [TableDef],
 ) -> (&'a str, Vec<String>) {
+    let table_map: BTreeMap<&str, &TableDef> =
+        schema.iter().map(|t| (t.name.as_str(), t)).collect();
     let mut visited = BTreeSet::new();
-    resolve_fk_target_inner(ref_table, ref_columns, schema, &mut visited)
+    resolve_fk_target_inner(ref_table, ref_columns, &table_map, &mut visited)
 }
 
-pub(super) fn resolve_fk_target_inner<'a>(
+pub(super) fn resolve_fk_target_inner<'a, 'b>(
     ref_table: &'a str,
-    ref_columns: &[String],
-    schema: &'a [TableDef],
-    visited: &mut BTreeSet<(String, String)>,
-) -> (&'a str, Vec<String>) {
-    if schema.is_empty() || ref_columns.len() != 1 {
+    ref_columns: &'b [String],
+    table_map: &BTreeMap<&'a str, &'a TableDef>,
+    visited: &mut BTreeSet<(&'a str, &'b str)>,
+) -> (&'a str, Vec<String>)
+where
+    'a: 'b,
+{
+    if table_map.is_empty() || ref_columns.len() != 1 {
         return (ref_table, ref_columns.to_vec());
     }
-
     let ref_col = &ref_columns[0];
-    visited.insert((ref_table.to_string(), ref_col.clone()));
-
-    let Some(target_table) = schema.iter().find(|t| t.name == ref_table) else {
+    let Some(target_table) = table_map.get(ref_table).copied() else {
         return (ref_table, ref_columns.to_vec());
     };
-
     for constraint in &target_table.constraints {
         let fk_match =
             as_fk(constraint).filter(|(cols, _, _)| cols.len() == 1 && cols[0] == *ref_col);
         if let Some((_, next_table, next_cols)) = fk_match {
-            let next_key = (next_table.to_string(), next_cols[0].clone());
+            visited.insert((ref_table, ref_col.as_str()));
+            let next_key = (next_table, next_cols[0].as_str());
             if visited.contains(&next_key) {
                 return (ref_table, ref_columns.to_vec());
             }
-
-            return resolve_fk_target_inner(next_table, next_cols, schema, visited);
+            return resolve_fk_target_inner(next_table, next_cols, table_map, visited);
         }
     }
-
     (ref_table, ref_columns.to_vec())
 }
 
@@ -82,20 +83,21 @@ fn resolve_table_fks_pure<'a>(
     table: &'a TableDef,
     schema: &'a [TableDef],
 ) -> Vec<ForwardRelationResolution<'a>> {
+    let table_map: BTreeMap<&str, &TableDef> =
+        schema.iter().map(|t| (t.name.as_str(), t)).collect();
     let fks = table
         .constraints
         .iter()
         .filter_map(as_fk)
         .collect::<Vec<_>>();
-
     if schema.len() < SEAORM_RELATION_PAR_FK_THRESHOLD {
         fks.iter()
-            .map(|fk| resolve_fk_relation_pure(fk.0, fk.1, fk.2, schema))
+            .map(|fk| resolve_fk_relation_pure(fk.0, fk.1, fk.2, &table_map))
             .collect()
     } else {
         fks.par_iter()
             .with_min_len(SEAORM_RELATION_PAR_FK_MIN_LEN)
-            .map(|fk| resolve_fk_relation_pure(fk.0, fk.1, fk.2, schema))
+            .map(|fk| resolve_fk_relation_pure(fk.0, fk.1, fk.2, &table_map))
             .collect()
     }
 }
@@ -104,9 +106,11 @@ fn resolve_fk_relation_pure<'a>(
     columns: &'a [String],
     ref_table: &'a str,
     ref_columns: &'a [String],
-    schema: &'a [TableDef],
+    table_map: &BTreeMap<&'a str, &'a TableDef>,
 ) -> ForwardRelationResolution<'a> {
-    let (resolved_table, resolved_columns) = resolve_fk_target(ref_table, ref_columns, schema);
+    let mut visited = BTreeSet::new();
+    let (resolved_table, resolved_columns) =
+        resolve_fk_target_inner(ref_table, ref_columns, table_map, &mut visited);
     ForwardRelationResolution {
         columns,
         resolved_table,
@@ -123,27 +127,21 @@ pub(super) fn relation_field_defs_with_schema(
     let mut out = Vec::new();
     let mut used = HashSet::new();
     let forward_relations = resolve_table_fks_pure(table, schema);
-
     let mut all_target_entities: Vec<String> = forward_relations
         .iter()
         .map(|relation| relation.resolved_table.to_string())
         .collect();
-
     let reverse_targets = collect_reverse_relation_targets(table, schema);
     all_target_entities.extend(reverse_targets);
-
-    let mut entity_count: BTreeMap<String, usize> = BTreeMap::new();
+    let mut entity_count: BTreeMap<&str, usize> = BTreeMap::new();
     for entity in &all_target_entities {
-        *entity_count.entry(entity.clone()).or_insert(0) += 1;
+        *entity_count.entry(entity.as_str()).or_insert(0) += 1;
     }
-
     let mut fk_by_table: BTreeMap<&str, usize> = BTreeMap::new();
     for relation in &forward_relations {
         *fk_by_table.entry(relation.resolved_table).or_insert(0) += 1;
     }
-
     let mut used_relation_enums: HashSet<String> = HashSet::new();
-
     for relation in &forward_relations {
         let columns = relation.columns;
         let resolved_table = relation.resolved_table;
@@ -646,7 +644,7 @@ pub(super) fn reverse_relation_field_defs(
     table: &TableDef,
     schema: &[TableDef],
     used: &mut HashSet<String>,
-    entity_count: &BTreeMap<String, usize>,
+    entity_count: &BTreeMap<&str, usize>,
     used_relation_enums: &mut HashSet<String>,
     module_paths: &HashMap<String, Vec<String>>,
     crate_prefix: &str,
@@ -666,7 +664,7 @@ struct ReverseRelationFieldCtx<'a> {
     table: &'a TableDef,
     schema: &'a [TableDef],
     used: &'a mut HashSet<String>,
-    entity_count: &'a BTreeMap<String, usize>,
+    entity_count: &'a BTreeMap<&'a str, usize>,
     used_relation_enums: &'a mut HashSet<String>,
     module_paths: &'a HashMap<String, Vec<String>>,
     crate_prefix: &'a str,
@@ -801,8 +799,10 @@ fn reverse_relation_field_defs_inner(ctx: ReverseRelationFieldCtx<'_>) -> Vec<St
         // Determine if we need relation_enum:
         // 1. Multiple FKs from same source table, OR
         // 2. Multiple relations targeting the same entity (across ALL relations including forward)
-        let needs_relation_enum =
-            rel.has_multiple_fks || entity_count.get(&rel.target_entity).is_some_and(|c| *c > 1);
+        let needs_relation_enum = rel.has_multiple_fks
+            || entity_count
+                .get(rel.target_entity.as_str())
+                .is_some_and(|c| *c > 1);
 
         let attr = if needs_relation_enum {
             let preferred_relation_enum_name = if rel.is_m2m {
