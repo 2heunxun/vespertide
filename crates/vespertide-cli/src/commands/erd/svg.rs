@@ -141,6 +141,12 @@ struct EdgeSpec {
     child_row: usize,
     parent_row: usize,
     label: String,
+    cardinality_label: &'static str,
+    /// 0-based index among parallel edges sharing the same (child, parent)
+    /// unordered pair. Used to spread cardinality labels along the curve.
+    parallel_index: u32,
+    /// Total number of parallel edges in the same group.
+    parallel_count: u32,
 }
 
 fn build_boxes(tables: &[TableDef]) -> Vec<TableBox> {
@@ -269,8 +275,29 @@ fn build_edges(
             child_row,
             parent_row,
             label,
+            cardinality_label: rel.cardinality.label(),
+            parallel_index: 0,
+            parallel_count: 1,
         });
     }
+
+    // Group parallel edges sharing the same unordered (child, parent) pair so
+    // labels and curves can be spread along the bundle instead of stacking.
+    let mut group_map: BTreeMap<(usize, usize), Vec<usize>> = BTreeMap::new();
+    for (i, edge) in edges.iter().enumerate() {
+        let lo = edge.child_idx.min(edge.parent_idx);
+        let hi = edge.child_idx.max(edge.parent_idx);
+        group_map.entry((lo, hi)).or_default().push(i);
+    }
+    for indices in group_map.values() {
+        let count = u32::try_from(indices.len()).unwrap_or(1);
+        for (slot, &edge_idx) in indices.iter().enumerate() {
+            let parallel_index = u32::try_from(slot).unwrap_or(0);
+            edges[edge_idx].parallel_index = parallel_index;
+            edges[edge_idx].parallel_count = count;
+        }
+    }
+
     edges
 }
 
@@ -412,10 +439,12 @@ fn render_doc(boxes: &[TableBox], edges: &[EdgeSpec], vw: f64, vh: f64) -> Strin
         bg = BG,
     );
 
-    // Edges first, so tables render above.
+    // Pass 1: draw every edge path. Doing all paths before any labels
+    // guarantees label pills are never overdrawn by another edge in a
+    // dense bundle (junction tables, self-references, etc.).
     out.push_str("  <g class=\"edges\" fill=\"none\">\n");
     for edge in edges {
-        render_edge(
+        render_edge_path(
             &mut out,
             &boxes[edge.child_idx],
             &boxes[edge.parent_idx],
@@ -424,10 +453,24 @@ fn render_doc(boxes: &[TableBox], edges: &[EdgeSpec], vw: f64, vh: f64) -> Strin
     }
     out.push_str("  </g>\n");
 
-    // Tables.
+    // Tables — rendered above edge paths but below labels so column rows are
+    // legible and FK badges line up with their anchor points.
     out.push_str("  <g class=\"tables\">\n");
     for bx in boxes {
         render_table(&mut out, bx);
+    }
+    out.push_str("  </g>\n");
+
+    // Pass 2: cardinality labels (pill + text). Always on top so they stay
+    // readable regardless of how many curves cross their location.
+    out.push_str("  <g class=\"edge-labels\">\n");
+    for edge in edges {
+        render_edge_label(
+            &mut out,
+            &boxes[edge.child_idx],
+            &boxes[edge.parent_idx],
+            edge,
+        );
     }
     out.push_str("  </g>\n");
 
@@ -676,14 +719,21 @@ fn rounded_bottom_path(w: f64, top_y: f64, h: f64, r: f64) -> String {
 // Edge routing
 // ---------------------------------------------------------------------------
 
-fn render_edge(out: &mut String, child: &TableBox, parent: &TableBox, edge: &EdgeSpec) {
+fn edge_geometry(
+    child: &TableBox,
+    parent: &TableBox,
+    edge: &EdgeSpec,
+) -> (f64, f64, f64, f64, Side, Side, f64) {
     let child_y = child.y + HEADER_H + edge.child_row as f64 * ROW_H + ROW_H / 2.0;
     let parent_y = parent.y + HEADER_H + edge.parent_row as f64 * ROW_H + ROW_H / 2.0;
-
-    // Pick the sides closest to each other.
     let (sx, sy, ex, ey, sdir, edir) = pick_anchors(child, parent, child_y, parent_y);
+    let curvature = parallel_curvature_offset(edge.parallel_index, edge.parallel_count);
+    (sx, sy, ex, ey, sdir, edir, curvature)
+}
 
-    let path = bezier_path(sx, sy, ex, ey, sdir, edir);
+fn render_edge_path(out: &mut String, child: &TableBox, parent: &TableBox, edge: &EdgeSpec) {
+    let (sx, sy, ex, ey, sdir, edir, curvature) = edge_geometry(child, parent, edge);
+    let path = bezier_path(sx, sy, ex, ey, sdir, edir, curvature);
 
     // Two-layer stroke: subtle wide halo + crisp narrow stroke for a soft look.
     let _ = writeln!(
@@ -698,9 +748,64 @@ fn render_edge(out: &mut String, child: &TableBox, parent: &TableBox, edge: &Edg
         stroke = EDGE_STROKE,
         title = escape_xml(&format!("{} {} → {}", child.name, edge.label, parent.name)),
     );
+}
 
-    // Suppress unused-variable warning for EDGE_END when not referenced elsewhere.
-    let _ = EDGE_END;
+fn render_edge_label(out: &mut String, child: &TableBox, parent: &TableBox, edge: &EdgeSpec) {
+    let (sx, sy, ex, ey, sdir, edir, curvature) = edge_geometry(child, parent, edge);
+
+    // Label position is spread along the curve for parallel edges so the
+    // cardinality badges no longer stack on top of one another.
+    let label_t = label_t_for_parallel(edge.parallel_index, edge.parallel_count);
+    let (label_x, label_y) = bezier_at(sx, sy, ex, ey, sdir, edir, curvature, label_t);
+
+    // Pill-shaped white background guarantees the label stays readable when
+    // curves or other labels cross it.
+    let char_count = edge.cardinality_label.chars().count() as f64;
+    let pill_w = (char_count * 5.6 + 12.0).max(22.0);
+    let pill_h = 15.0;
+    let _ = writeln!(
+        out,
+        "    <rect x=\"{x:.1}\" y=\"{y:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" \
+         rx=\"7\" ry=\"7\" fill=\"#ffffff\" stroke=\"{border}\" stroke-width=\"1\"/>",
+        x = label_x - pill_w / 2.0,
+        y = label_y - pill_h / 2.0,
+        w = pill_w,
+        h = pill_h,
+        border = CARD_BORDER,
+    );
+
+    let _ = writeln!(
+        out,
+        "    <text class=\"edge-cardinality\" x=\"{x:.1}\" y=\"{y:.1}\" \
+         fill=\"{fg}\" font-size=\"9\" font-weight=\"700\" text-anchor=\"middle\" \
+         dominant-baseline=\"central\">{label}</text>",
+        x = label_x,
+        y = label_y,
+        fg = EDGE_END,
+        label = escape_xml(edge.cardinality_label),
+    );
+}
+
+/// Sideways offset applied to a curve's control points so parallel edges fan
+/// out instead of collapsing onto the same arc.
+fn parallel_curvature_offset(index: u32, count: u32) -> f64 {
+    if count <= 1 {
+        return 0.0;
+    }
+    let center = (f64::from(count) - 1.0) / 2.0;
+    (f64::from(index) - center) * 28.0
+}
+
+/// Parameter `t ∈ [0, 1]` along the curve where the cardinality label sits.
+/// For single edges we keep the visual centre (`0.5`); for `N`-way bundles we
+/// spread labels evenly between `0.30` and `0.70`.
+fn label_t_for_parallel(index: u32, count: u32) -> f64 {
+    if count <= 1 {
+        return 0.5;
+    }
+    let span = 0.40;
+    let start = 0.30;
+    start + (f64::from(index) / f64::from(count - 1)) * span
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -772,13 +877,21 @@ fn pick_anchors(
     )
 }
 
-fn bezier_path(sx: f64, sy: f64, ex: f64, ey: f64, s_side: Side, e_side: Side) -> String {
+fn bezier_path(
+    sx: f64,
+    sy: f64,
+    ex: f64,
+    ey: f64,
+    s_side: Side,
+    e_side: Side,
+    lateral_offset: f64,
+) -> String {
     let dx = (ex - sx).abs();
     let dy = (ey - sy).abs();
     let pull = dx.max(dy).max(40.0) * 0.5;
 
-    let (cs_x, cs_y) = control_point(sx, sy, s_side, pull);
-    let (ce_x, ce_y) = control_point(ex, ey, e_side, pull);
+    let (cs_x, cs_y) = control_point(sx, sy, s_side, pull, lateral_offset);
+    let (ce_x, ce_y) = control_point(ex, ey, e_side, pull, lateral_offset);
 
     format!(
         "M {sx:.1} {sy:.1} C {csx:.1} {csy:.1} {cex:.1} {cey:.1} {ex:.1} {ey:.1}",
@@ -793,12 +906,44 @@ fn bezier_path(sx: f64, sy: f64, ex: f64, ey: f64, s_side: Side, e_side: Side) -
     )
 }
 
-fn control_point(x: f64, y: f64, side: Side, pull: f64) -> (f64, f64) {
+/// Evaluate a cubic Bezier at parameter `t ∈ [0, 1]`.
+/// Used to place cardinality labels at varying positions along an edge.
+fn bezier_at(
+    sx: f64,
+    sy: f64,
+    ex: f64,
+    ey: f64,
+    s_side: Side,
+    e_side: Side,
+    lateral_offset: f64,
+    t: f64,
+) -> (f64, f64) {
+    let dx = (ex - sx).abs();
+    let dy = (ey - sy).abs();
+    let pull = dx.max(dy).max(40.0) * 0.5;
+    let (cs_x, cs_y) = control_point(sx, sy, s_side, pull, lateral_offset);
+    let (ce_x, ce_y) = control_point(ex, ey, e_side, pull, lateral_offset);
+
+    let one_minus_t = 1.0 - t;
+    let b0 = one_minus_t * one_minus_t * one_minus_t;
+    let b1 = 3.0 * one_minus_t * one_minus_t * t;
+    let b2 = 3.0 * one_minus_t * t * t;
+    let b3 = t * t * t;
+    (
+        b0 * sx + b1 * cs_x + b2 * ce_x + b3 * ex,
+        b0 * sy + b1 * cs_y + b2 * ce_y + b3 * ey,
+    )
+}
+
+/// Compute a cubic-Bezier control point relative to an anchor side.
+/// `lateral_offset` perpendicular to the pull direction lets parallel edges
+/// fan out so multi-edge bundles don't collapse onto a single arc.
+fn control_point(x: f64, y: f64, side: Side, pull: f64, lateral_offset: f64) -> (f64, f64) {
     match side {
-        Side::Left => (x - pull, y),
-        Side::Right => (x + pull, y),
-        Side::Top => (x, y - pull),
-        Side::Bottom => (x, y + pull),
+        Side::Left => (x - pull, y + lateral_offset),
+        Side::Right => (x + pull, y + lateral_offset),
+        Side::Top => (x + lateral_offset, y - pull),
+        Side::Bottom => (x + lateral_offset, y + pull),
     }
 }
 

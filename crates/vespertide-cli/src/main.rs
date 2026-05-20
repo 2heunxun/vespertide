@@ -7,7 +7,8 @@ mod utils;
 use crate::commands::erd::ErdFormat;
 use crate::commands::export::OrmArg;
 use commands::{
-    cmd_diff, cmd_erd, cmd_export, cmd_init, cmd_log, cmd_new, cmd_revision, cmd_sql, cmd_status,
+    cmd_diff, cmd_erd_with_filters, cmd_export, cmd_init, cmd_log, cmd_new, cmd_revision, cmd_sql,
+    cmd_status,
 };
 use vespertide_config::FileFormat;
 use vespertide_query::DatabaseBackend;
@@ -95,6 +96,15 @@ enum Commands {
         /// Output file path (defaults to stdout if not specified).
         #[arg(short = 'o', long = "output")]
         output: Option<std::path::PathBuf>,
+        /// Include only these tables, plus FK-graph neighbors from --depth.
+        #[arg(long, value_delimiter = ',')]
+        include: Vec<String>,
+        /// Exclude these tables after applying --include and --depth.
+        #[arg(long, value_delimiter = ',')]
+        exclude: Vec<String>,
+        /// FK-graph hop distance from --include tables. 0 = include set only.
+        #[arg(long, default_value = "0")]
+        depth: usize,
     },
 }
 
@@ -115,7 +125,13 @@ async fn main() -> Result<()> {
         }) => cmd_revision(message, fill_with, delete_null_rows).await,
         Some(Commands::Init) => cmd_init().await,
         Some(Commands::Export { orm, export_dir }) => cmd_export(orm, export_dir).await,
-        Some(Commands::Erd { format, output }) => cmd_erd(format, output).await,
+        Some(Commands::Erd {
+            format,
+            output,
+            include,
+            exclude,
+            depth,
+        }) => cmd_erd_with_filters(format, output, include, exclude, depth).await,
         None => {
             // No subcommand: show help and exit successfully.
             Cli::command().print_help()?;

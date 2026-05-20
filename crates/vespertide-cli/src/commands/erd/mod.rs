@@ -5,13 +5,14 @@ pub mod svg;
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::ValueEnum;
 use vespertide_core::schema::foreign_key::ForeignKeySyntax;
-use vespertide_core::{ColumnDef, ReferenceAction, TableConstraint, TableDef};
+use vespertide_core::schema::primary_key::PrimaryKeySyntax;
+use vespertide_core::{ColumnDef, ReferenceAction, StrOrBoolOrArray, TableConstraint, TableDef};
 
 use crate::utils::{load_config, load_models};
 
@@ -22,9 +23,25 @@ pub enum ErdFormat {
     Dot,
 }
 
+#[allow(dead_code)]
 pub async fn cmd_erd(format: ErdFormat, output: Option<PathBuf>) -> Result<()> {
+    cmd_erd_with_filters(format, output, Vec::new(), Vec::new(), 0).await
+}
+
+pub async fn cmd_erd_with_filters(
+    format: ErdFormat,
+    output: Option<PathBuf>,
+    include: Vec<String>,
+    exclude: Vec<String>,
+    depth: usize,
+) -> Result<()> {
     let config = load_config()?;
-    let tables = normalize_tables(load_models(&config)?)?;
+    let tables = filter_tables(
+        normalize_tables(load_models(&config)?)?,
+        &include,
+        &exclude,
+        depth,
+    );
 
     let rendered = match format {
         ErdFormat::Svg => svg::render_svg(&tables).map_err(anyhow::Error::msg)?,
@@ -52,6 +69,72 @@ pub async fn cmd_erd(format: ErdFormat, output: Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+pub(super) fn filter_tables(
+    tables: Vec<TableDef>,
+    include: &[String],
+    exclude: &[String],
+    depth: usize,
+) -> Vec<TableDef> {
+    let (tables, warnings) = filter_tables_with_warnings(tables, include, exclude, depth);
+    for warning in warnings {
+        eprintln!("{warning}");
+    }
+    tables
+}
+
+pub(super) fn filter_tables_with_warnings(
+    tables: Vec<TableDef>,
+    include: &[String],
+    exclude: &[String],
+    depth: usize,
+) -> (Vec<TableDef>, Vec<String>) {
+    if include.is_empty() && exclude.is_empty() {
+        return (tables, Vec::new());
+    }
+
+    let include = normalized_filter_names(include);
+    let exclude = normalized_filter_names(exclude);
+    let all_names: BTreeSet<String> = tables.iter().map(|table| table.name.clone()).collect();
+
+    let mut warnings = filter_warnings(&all_names, "--include", &include);
+    warnings.extend(filter_warnings(&all_names, "--exclude", &exclude));
+
+    let mut kept: BTreeSet<String> = if include.is_empty() {
+        all_names.clone()
+    } else {
+        include
+            .iter()
+            .filter(|name| all_names.contains(*name))
+            .cloned()
+            .collect()
+    };
+
+    let adjacency = build_fk_adjacency(&tables);
+    for _ in 0..depth {
+        let frontier: Vec<String> = kept.iter().cloned().collect();
+        for name in frontier {
+            if let Some(neighbors) = adjacency.get(&name) {
+                kept.extend(
+                    neighbors
+                        .iter()
+                        .filter(|neighbor| all_names.contains(*neighbor))
+                        .cloned(),
+                );
+            }
+        }
+    }
+
+    for name in exclude {
+        kept.remove(&name);
+    }
+
+    let filtered = tables
+        .into_iter()
+        .filter(|table| kept.contains(&table.name))
+        .collect();
+    (filtered, warnings)
+}
+
 fn normalize_tables(tables: Vec<TableDef>) -> Result<Vec<TableDef>> {
     tables
         .into_iter()
@@ -71,10 +154,34 @@ pub(super) struct ForeignKeyRelation {
     pub parent_columns: Vec<String>,
     pub on_delete: Option<ReferenceAction>,
     pub on_update: Option<ReferenceAction>,
+    pub cardinality: Cardinality,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Cardinality {
+    OneToOne,
+    OneToMany,
+    ZeroOrOneToMany,
+    ManyToMany,
+}
+
+impl Cardinality {
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::OneToOne => "1:1",
+            Self::OneToMany => "1:N",
+            Self::ZeroOrOneToMany => "0..1:N",
+            Self::ManyToMany => "M:N",
+        }
+    }
 }
 
 pub(super) fn collect_foreign_key_relations(tables: &[TableDef]) -> BTreeSet<ForeignKeyRelation> {
     let mut relations = BTreeSet::new();
+    let table_lookup: BTreeMap<&str, &TableDef> = tables
+        .iter()
+        .map(|table| (table.name.as_str(), table))
+        .collect();
 
     for table in tables {
         for constraint in &table.constraints {
@@ -87,20 +194,25 @@ pub(super) fn collect_foreign_key_relations(tables: &[TableDef]) -> BTreeSet<For
                 ..
             } = constraint
             {
-                relations.insert(ForeignKeyRelation {
-                    child_table: table.name.clone(),
-                    child_columns: columns.clone(),
-                    parent_table: ref_table.clone(),
-                    parent_columns: ref_columns.clone(),
-                    on_delete: on_delete.clone(),
-                    on_update: on_update.clone(),
-                });
+                let Some(parent_table) = table_lookup.get(ref_table.as_str()).copied() else {
+                    continue;
+                };
+                relations.insert(build_foreign_key_relation(
+                    table,
+                    columns.clone(),
+                    ref_table.clone(),
+                    ref_columns.clone(),
+                    on_delete.clone(),
+                    on_update.clone(),
+                    parent_table,
+                ));
             }
         }
 
         for column in &table.columns {
             if let Some(foreign_key) = &column.foreign_key
-                && let Some(relation) = inline_foreign_key_relation(table, column, foreign_key)
+                && let Some(relation) =
+                    inline_foreign_key_relation(table, column, foreign_key, &table_lookup)
             {
                 relations.insert(relation);
             }
@@ -114,7 +226,7 @@ pub(super) fn is_primary_key_column(table: &TableDef, column_name: &str) -> bool
     table
         .columns
         .iter()
-        .any(|column| column.name == column_name && column.primary_key.is_some())
+        .any(|column| column.name == column_name && is_inline_primary_key(column))
         || table.constraints.iter().any(|constraint| {
             matches!(
                 constraint,
@@ -179,6 +291,7 @@ fn inline_foreign_key_relation(
     table: &TableDef,
     column: &ColumnDef,
     foreign_key: &ForeignKeySyntax,
+    table_lookup: &BTreeMap<&str, &TableDef>,
 ) -> Option<ForeignKeyRelation> {
     let (parent_table, parent_columns, on_delete, on_update) = match foreign_key {
         ForeignKeySyntax::String(reference) => {
@@ -202,14 +315,16 @@ fn inline_foreign_key_relation(
         ),
     };
 
-    Some(ForeignKeyRelation {
-        child_table: table.name.clone(),
-        child_columns: vec![column.name.clone()],
+    let parent_table_def = table_lookup.get(parent_table.as_str()).copied()?;
+    Some(build_foreign_key_relation(
+        table,
+        vec![column.name.clone()],
         parent_table,
         parent_columns,
         on_delete,
         on_update,
-    })
+        parent_table_def,
+    ))
 }
 
 fn parse_reference(reference: &str) -> Option<(String, Vec<String>)> {
@@ -222,4 +337,253 @@ fn parse_reference(reference: &str) -> Option<(String, Vec<String>)> {
     }
 
     Some((table.to_string(), vec![column.to_string()]))
+}
+
+fn build_foreign_key_relation(
+    child_table: &TableDef,
+    child_columns: Vec<String>,
+    parent_table: String,
+    parent_columns: Vec<String>,
+    on_delete: Option<ReferenceAction>,
+    on_update: Option<ReferenceAction>,
+    parent_table_def: &TableDef,
+) -> ForeignKeyRelation {
+    let cardinality = detect_cardinality(child_table, &child_columns, parent_table_def);
+    ForeignKeyRelation {
+        child_table: child_table.name.clone(),
+        child_columns,
+        parent_table,
+        parent_columns,
+        on_delete,
+        on_update,
+        cardinality,
+    }
+}
+
+fn detect_cardinality(
+    child_table: &TableDef,
+    child_columns: &[String],
+    _parent_table: &TableDef,
+) -> Cardinality {
+    if is_junction_table(child_table) {
+        return Cardinality::ManyToMany;
+    }
+
+    if are_columns_unique(child_table, child_columns) {
+        return Cardinality::OneToOne;
+    }
+
+    if child_columns
+        .iter()
+        .any(|column| is_nullable_column(child_table, column))
+    {
+        return Cardinality::ZeroOrOneToMany;
+    }
+
+    Cardinality::OneToMany
+}
+
+fn is_junction_table(table: &TableDef) -> bool {
+    let primary_key_columns = primary_key_columns(table);
+    if primary_key_columns.len() < 2 {
+        return false;
+    }
+
+    let foreign_key_groups = foreign_key_column_groups(table);
+    if foreign_key_groups.len() < 2 {
+        return false;
+    }
+
+    let foreign_key_columns: BTreeSet<&str> = foreign_key_groups
+        .iter()
+        .flat_map(|group| group.iter().map(String::as_str))
+        .collect();
+
+    primary_key_columns
+        .iter()
+        .all(|column| foreign_key_columns.contains(column.as_str()))
+}
+
+fn are_columns_unique(table: &TableDef, columns: &[String]) -> bool {
+    if columns.is_empty() {
+        return false;
+    }
+
+    let primary_key_columns = primary_key_columns(table);
+    if !primary_key_columns.is_empty() && same_column_set(columns, &primary_key_columns) {
+        return true;
+    }
+
+    table.constraints.iter().any(|constraint| {
+        matches!(
+            constraint,
+            TableConstraint::Unique { columns: unique_columns, .. }
+                if same_column_set(columns, unique_columns)
+        )
+    }) || inline_unique_column_groups(table)
+        .iter()
+        .any(|unique_columns| same_column_set(columns, unique_columns))
+}
+
+fn primary_key_columns(table: &TableDef) -> Vec<String> {
+    if let Some(columns) = table.constraints.iter().find_map(|constraint| {
+        if let TableConstraint::PrimaryKey { columns, .. } = constraint {
+            Some(columns.clone())
+        } else {
+            None
+        }
+    }) {
+        return columns;
+    }
+
+    table
+        .columns
+        .iter()
+        .filter(|column| is_inline_primary_key(column))
+        .map(|column| column.name.clone())
+        .collect()
+}
+
+fn foreign_key_column_groups(table: &TableDef) -> Vec<Vec<String>> {
+    let mut groups: Vec<Vec<String>> = Vec::new();
+    for constraint in &table.constraints {
+        if let TableConstraint::ForeignKey { columns, .. } = constraint
+            && !groups.iter().any(|group| same_column_set(group, columns))
+        {
+            groups.push(columns.clone());
+        }
+    }
+
+    for column in &table.columns {
+        if column.foreign_key.is_some() {
+            let group = vec![column.name.clone()];
+            if !groups
+                .iter()
+                .any(|existing| same_column_set(existing, &group))
+            {
+                groups.push(group);
+            }
+        }
+    }
+
+    groups
+}
+
+fn inline_unique_column_groups(table: &TableDef) -> Vec<Vec<String>> {
+    let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for column in &table.columns {
+        let Some(unique) = &column.unique else {
+            continue;
+        };
+
+        match unique {
+            StrOrBoolOrArray::Str(name) => {
+                groups
+                    .entry(name.clone())
+                    .or_default()
+                    .push(column.name.clone());
+            }
+            StrOrBoolOrArray::Array(names) => {
+                for name in names {
+                    groups
+                        .entry(name.clone())
+                        .or_default()
+                        .push(column.name.clone());
+                }
+            }
+            StrOrBoolOrArray::Bool(true) => {
+                groups.insert(format!("__auto_{}", column.name), vec![column.name.clone()]);
+            }
+            _ => {}
+        }
+    }
+    groups.into_values().collect()
+}
+
+fn is_inline_primary_key(column: &ColumnDef) -> bool {
+    matches!(
+        &column.primary_key,
+        Some(PrimaryKeySyntax::Bool(true) | PrimaryKeySyntax::Object(_))
+    )
+}
+
+fn is_nullable_column(table: &TableDef, column_name: &str) -> bool {
+    table
+        .columns
+        .iter()
+        .any(|column| column.name == column_name && column.nullable)
+}
+
+fn same_column_set(left: &[String], right: &[String]) -> bool {
+    let left: BTreeSet<&str> = left.iter().map(String::as_str).collect();
+    let right: BTreeSet<&str> = right.iter().map(String::as_str).collect();
+    left == right
+}
+
+fn normalized_filter_names(names: &[String]) -> Vec<String> {
+    names
+        .iter()
+        .filter_map(|name| {
+            let trimmed = name.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+        .collect()
+}
+
+fn filter_warnings(
+    all_names: &BTreeSet<String>,
+    flag: &str,
+    filter_names: &[String],
+) -> Vec<String> {
+    let unknown: BTreeSet<&str> = filter_names
+        .iter()
+        .map(String::as_str)
+        .filter(|name| !all_names.contains(*name))
+        .collect();
+
+    unknown
+        .into_iter()
+        .map(|name| format!("warning: ERD {flag} references unknown table '{name}'"))
+        .collect()
+}
+
+fn build_fk_adjacency(tables: &[TableDef]) -> BTreeMap<String, BTreeSet<String>> {
+    let mut adjacency: BTreeMap<String, BTreeSet<String>> = tables
+        .iter()
+        .map(|table| (table.name.clone(), BTreeSet::new()))
+        .collect();
+    let mut junction_parents: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+
+    for relation in collect_foreign_key_relations(tables) {
+        if let Some(neighbors) = adjacency.get_mut(&relation.child_table) {
+            neighbors.insert(relation.parent_table.clone());
+        }
+        if let Some(neighbors) = adjacency.get_mut(&relation.parent_table) {
+            neighbors.insert(relation.child_table.clone());
+        }
+        if relation.cardinality == Cardinality::ManyToMany {
+            junction_parents
+                .entry(relation.child_table)
+                .or_default()
+                .insert(relation.parent_table);
+        }
+    }
+
+    for parents in junction_parents.values() {
+        for parent in parents {
+            for peer in parents {
+                if parent != peer
+                    && let Some(neighbors) = adjacency.get_mut(parent)
+                {
+                    neighbors.insert(peer.clone());
+                }
+            }
+        }
+    }
+
+    adjacency
 }

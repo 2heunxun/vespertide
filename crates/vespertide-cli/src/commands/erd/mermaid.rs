@@ -3,8 +3,8 @@ use std::fmt::Write as _;
 use vespertide_core::{ColumnType, ComplexColumnType, EnumValues, SimpleColumnType, TableDef};
 
 use super::{
-    collect_foreign_key_relations, is_foreign_key_column, is_primary_key_column,
-    sanitize_identifier,
+    Cardinality, ForeignKeyRelation, collect_foreign_key_relations, is_foreign_key_column,
+    is_primary_key_column, sanitize_identifier,
 };
 
 pub fn render_mermaid(tables: &[TableDef]) -> String {
@@ -41,17 +41,28 @@ pub fn render_mermaid(tables: &[TableDef]) -> String {
     }
 
     for relation in collect_foreign_key_relations(tables) {
+        let (left_table, connector, right_table) = mermaid_relationship(&relation);
         writeln!(
             output,
-            "  {} ||--o{{ {} : \"{}\"",
-            sanitize_identifier(&relation.parent_table),
-            sanitize_identifier(&relation.child_table),
+            "  {} {} {} : \"{}\"",
+            sanitize_identifier(left_table),
+            connector,
+            sanitize_identifier(right_table),
             escape_mermaid_label(&relation.child_columns.join(", "))
         )
         .expect("write Mermaid relationship");
     }
 
     output
+}
+
+fn mermaid_relationship(relation: &ForeignKeyRelation) -> (&str, &'static str, &str) {
+    match relation.cardinality {
+        Cardinality::OneToOne => (&relation.parent_table, "||--||", &relation.child_table),
+        Cardinality::OneToMany => (&relation.parent_table, "||--o{", &relation.child_table),
+        Cardinality::ZeroOrOneToMany => (&relation.parent_table, "|o--o{", &relation.child_table),
+        Cardinality::ManyToMany => (&relation.child_table, "}o--||", &relation.parent_table),
+    }
 }
 
 fn column_type_to_mermaid(column_type: &ColumnType) -> &'static str {

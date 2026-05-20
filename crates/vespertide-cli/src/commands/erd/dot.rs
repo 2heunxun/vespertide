@@ -1,7 +1,9 @@
 use dot_writer::{Attributes, DotWriter, RankDirection, Shape};
 use vespertide_core::{ColumnDef, TableDef};
 
-use super::{collect_foreign_key_relations, column_markers, sanitize_identifier};
+use super::{
+    ForeignKeyRelation, collect_foreign_key_relations, column_markers, sanitize_identifier,
+};
 
 pub fn render_dot(tables: &[TableDef]) -> String {
     DotWriter::write_string(|writer| {
@@ -35,10 +37,7 @@ pub fn render_dot(tables: &[TableDef]) -> String {
                     sanitize_identifier(&relation.parent_table),
                 )
                 .attributes();
-            edge_attributes.set_label(&relationship_label(
-                &relation.child_columns,
-                &relation.parent_columns,
-            ));
+            edge_attributes.set_label(&relationship_label(&relation));
         }
     })
 }
@@ -63,11 +62,12 @@ fn column_record_field(table: &TableDef, column: &ColumnDef) -> String {
     )
 }
 
-fn relationship_label(child_columns: &[String], parent_columns: &[String]) -> String {
+fn relationship_label(relation: &ForeignKeyRelation) -> String {
     format!(
-        "{} -> {}",
-        child_columns.join(", "),
-        parent_columns.join(", ")
+        "{}: {} -> {}",
+        relation.cardinality.label(),
+        relation.child_columns.join(", "),
+        relation.parent_columns.join(", ")
     )
 }
 
