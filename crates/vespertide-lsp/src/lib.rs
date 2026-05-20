@@ -6,15 +6,25 @@
 //!
 //! Wave 2 adds the data layer: tree-sitter parsing ([`ParserPool`]),
 //! per-document state ([`DocumentState`]), and a concurrent
-//! [`DocumentStore`]. LSP notification handlers (`did_open`,
-//! `did_change`, `did_close`) land in W2-T2.
+//! [`DocumentStore`]. W2-T2 wires the `did_open` / `did_change` /
+//! `did_close` notification handlers and adds UTF-16 ↔ byte offset
+//! conversions; W2-T3 introduces [`WorkspaceIndex`], a cross-file
+//! `table_name → Uri` map maintained by walking each document's
+//! tree-sitter parse.
 
 mod backend;
 mod document;
 mod parser;
+mod position;
 mod store;
+mod workspace_index;
 
 pub use backend::Backend;
 pub use document::DocumentState;
 pub use parser::{DocumentFormat, ParserPool};
+pub use position::{
+    byte_to_lsp_position, ls_to_lsp_position, ls_to_lsp_range, lsp_position_to_byte,
+    lsp_to_ls_position,
+};
 pub use store::DocumentStore;
+pub use workspace_index::{TableLocation, WorkspaceIndex};

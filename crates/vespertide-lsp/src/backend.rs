@@ -1,11 +1,13 @@
-//! LSP backend skeleton.
+//! LSP backend.
 //!
-//! Holds the [`Client`] handle and a shared [`DocumentStore`], and implements
-//! [`LanguageServer`] from tower-lsp-server. Wave 1 only handled the
-//! lifecycle requests (`initialize`, `initialized`, `shutdown`); Wave 2
-//! introduces the document data layer behind the backend. Notification
-//! handlers (`did_open`, `did_change`, `did_close`) and analysis features
-//! (diagnostics, hover, ...) layer on top in subsequent tasks.
+//! Holds the [`Client`] handle, a shared [`DocumentStore`], and a
+//! [`WorkspaceIndex`]; implements [`LanguageServer`] from tower-lsp-server.
+//!
+//! Wave 1 handled only the lifecycle requests (`initialize`, `initialized`,
+//! `shutdown`). Wave 2 (T2 + T3) introduces the document data layer and
+//! cross-file index, wiring `did_open` / `did_change` / `did_close` to
+//! [`DocumentStore`] mutations and [`WorkspaceIndex`] reindexing. Analysis
+//! features (diagnostics, hover, …) layer on top in subsequent tasks.
 //!
 //! Note: tower-lsp-server re-exports the upstream `lsp-types` crate under
 //! the name `ls_types` (NOT `lsp_types`). Using `lsp_types::` directly
@@ -15,24 +17,29 @@ use std::sync::Arc;
 
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::{
+    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     InitializeParams, InitializeResult, InitializedParams, MessageType, ServerCapabilities,
-    ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind,
+    ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
 };
 use tower_lsp_server::{Client, LanguageServer};
 
 use crate::store::DocumentStore;
+use crate::workspace_index::WorkspaceIndex;
 
 /// Vespertide language server backend.
 ///
 /// Owns the [`Client`] handle used to push notifications (log messages,
 /// diagnostics) back to the editor, plus a shared [`DocumentStore`] that
-/// holds parsed state for every open document.
+/// holds parsed state for every open document and a [`WorkspaceIndex`]
+/// mapping table names to URIs.
 #[derive(Debug)]
 pub struct Backend {
     /// LSP client handle for sending notifications to the editor.
     pub client: Client,
-    /// Shared document store; handlers added in W2-T2 will mutate this.
+    /// Shared document store; mutated by the notification handlers.
     pub store: Arc<DocumentStore>,
+    /// Cross-file table-name → URI index; kept in sync with `store`.
+    pub index: Arc<WorkspaceIndex>,
 }
 
 impl Backend {
@@ -44,7 +51,18 @@ impl Backend {
         Self {
             client,
             store: Arc::new(DocumentStore::new()),
+            index: Arc::new(WorkspaceIndex::new()),
         }
+    }
+
+    /// Reindex a document after open/change. No-op if the document was just
+    /// closed or never parsed (tree is `None`).
+    fn reindex(&self, uri: &Uri) {
+        self.store.with_doc(uri, |text, tree| {
+            if let Some(tree) = tree {
+                self.index.upsert(uri, text, tree);
+            }
+        });
     }
 }
 
@@ -75,5 +93,26 @@ impl LanguageServer for Backend {
 
     async fn shutdown(&self) -> Result<()> {
         Ok(())
+    }
+
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        let td = params.text_document;
+        self.store
+            .open(td.uri.clone(), td.language_id.clone(), td.version, td.text);
+        self.reindex(&td.uri);
+    }
+
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let td = params.text_document;
+        // V1 = FULL sync: changes[0].text is the entire new content.
+        if let Some(change) = params.content_changes.into_iter().next() {
+            self.store.update_full(&td.uri, change.text, td.version);
+            self.reindex(&td.uri);
+        }
+    }
+
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        self.store.close(&params.text_document.uri);
+        self.index.remove(&params.text_document.uri);
     }
 }

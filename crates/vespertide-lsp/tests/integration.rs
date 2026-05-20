@@ -77,3 +77,19 @@ fn backend_type_is_publicly_re_exported() {
     // (`LspService::new(Backend::new)` in `main.rs`) expect.
     assert_send_sync::<vespertide_lsp::Backend>();
 }
+
+#[test]
+fn fixtures_have_valid_top_level_name() {
+    // Sanity check: the workspace index should be able to extract a `name`
+    // from our JSON fixtures. (Direct WorkspaceIndex unit tests live in
+    // `workspace_index::tests`.)
+    use std::fs;
+    for name in ["valid_user.json", "invalid_fk.json", "cjk_comment.json"] {
+        let path = fixtures_dir().join(name);
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(
+            content.contains("\"name\""),
+            "fixture {name} missing name field"
+        );
+    }
+}

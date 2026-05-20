@@ -66,6 +66,18 @@ impl DocumentStore {
     pub fn with_text<R>(&self, uri: &Uri, f: impl FnOnce(&str) -> R) -> Option<R> {
         self.docs.get(uri).map(|state| f(state.text()))
     }
+
+    /// Borrow a document's text and tree-sitter tree atomically.
+    /// Returns `None` if the document is not open.
+    pub fn with_doc<R>(
+        &self,
+        uri: &Uri,
+        f: impl FnOnce(&str, Option<&tree_sitter::Tree>) -> R,
+    ) -> Option<R> {
+        self.docs
+            .get(uri)
+            .map(|state| f(state.text(), state.tree.as_ref()))
+    }
 }
 
 impl Default for DocumentStore {
