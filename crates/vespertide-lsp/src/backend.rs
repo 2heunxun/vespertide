@@ -16,8 +16,10 @@ use std::sync::Arc;
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::{
     Diagnostic, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    InitializeParams, InitializeResult, InitializedParams, MessageType, ServerCapabilities,
-    ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
+    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
+    MarkupContent, MarkupKind, MessageType, OneOf, Position, Range, ServerCapabilities, ServerInfo,
+    TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
 };
 use tower_lsp_server::{Client, LanguageServer};
 
@@ -105,6 +107,8 @@ impl LanguageServer for Backend {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
+                definition_provider: Some(OneOf::Left(true)),
                 ..ServerCapabilities::default()
             },
             server_info: Some(ServerInfo {
@@ -125,6 +129,112 @@ impl LanguageServer for Backend {
 
     async fn shutdown(&self) -> Result<()> {
         Ok(())
+    }
+
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let pos_ls = params.text_document_position_params.position;
+        let pos_lsp = crate::position::ls_to_lsp_position(pos_ls);
+        let Some(format) = DocumentFormat::from_uri(uri) else {
+            return Ok(None);
+        };
+
+        let result = self.store.docs_iter_for_uri(uri, |state| {
+            let text = state.text();
+            let byte = crate::position::lsp_position_to_byte(&state.doc, pos_lsp);
+            let domain = crate::hover::compute(
+                text,
+                format,
+                state.tree.as_ref(),
+                self.index.as_ref(),
+                self.store.as_ref(),
+                byte,
+            )?;
+            let start = crate::position::byte_to_lsp_position(&state.doc, domain.byte_range.start);
+            let end = crate::position::byte_to_lsp_position(&state.doc, domain.byte_range.end);
+            Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: domain.markdown,
+                }),
+                range: Some(Range {
+                    start: Position {
+                        line: start.line,
+                        character: start.character,
+                    },
+                    end: Position {
+                        line: end.line,
+                        character: end.character,
+                    },
+                }),
+            })
+        });
+        Ok(result.flatten())
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let pos_ls = params.text_document_position_params.position;
+        let pos_lsp = crate::position::ls_to_lsp_position(pos_ls);
+        let Some(format) = DocumentFormat::from_uri(&uri) else {
+            return Ok(None);
+        };
+
+        let domain = self
+            .store
+            .docs_iter_for_uri(&uri, |state| {
+                let text = state.text();
+                let byte = crate::position::lsp_position_to_byte(&state.doc, pos_lsp);
+                crate::definition::compute(
+                    text,
+                    format,
+                    state.tree.as_ref(),
+                    self.index.as_ref(),
+                    self.store.as_ref(),
+                    byte,
+                )
+            })
+            .flatten();
+
+        let Some(domain) = domain else {
+            return Ok(None);
+        };
+
+        let target_range = self
+            .store
+            .docs_iter_for_uri(&domain.uri, |state| {
+                let start =
+                    crate::position::byte_to_lsp_position(&state.doc, domain.byte_range.start);
+                let end = crate::position::byte_to_lsp_position(&state.doc, domain.byte_range.end);
+                Range {
+                    start: Position {
+                        line: start.line,
+                        character: start.character,
+                    },
+                    end: Position {
+                        line: end.line,
+                        character: end.character,
+                    },
+                }
+            })
+            .unwrap_or(Range {
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: 0,
+                    character: 0,
+                },
+            });
+
+        Ok(Some(GotoDefinitionResponse::Scalar(Location {
+            uri: domain.uri,
+            range: target_range,
+        })))
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {

@@ -13,16 +13,20 @@
 //! tree-sitter parse.
 
 mod backend;
+mod definition;
 mod diagnostics;
 mod document;
+mod hover;
 mod parser;
 mod position;
 mod store;
 mod workspace_index;
 
 pub use backend::Backend;
+pub use definition::{DomainLocation, compute as compute_definition};
 pub use diagnostics::{DomainDiagnostic, Severity, compute as compute_diagnostics};
 pub use document::DocumentState;
+pub use hover::{DomainHover, compute as compute_hover};
 pub use parser::{DocumentFormat, ParserPool};
 pub use position::{
     byte_to_lsp_position, ls_to_lsp_position, ls_to_lsp_range, lsp_position_to_byte,
