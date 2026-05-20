@@ -5,7 +5,7 @@ mod types;
 use crate::orm::OrmExporter;
 use vespertide_core::TableDef;
 
-pub use render::render_entity;
+pub use render::{export, render_entity};
 
 pub struct SqlAlchemyExporter;
 

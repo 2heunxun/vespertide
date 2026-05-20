@@ -21,6 +21,17 @@ pub(super) struct UsedTypes<'a> {
 }
 
 impl UsedTypes<'_> {
+    pub(super) fn merge(&mut self, other: Self) {
+        self.datetime_types.extend(other.datetime_types);
+        self.needs_optional |= other.needs_optional;
+        self.needs_uuid |= other.needs_uuid;
+        self.needs_decimal |= other.needs_decimal;
+        self.needs_index |= other.needs_index;
+        self.needs_unique_constraint |= other.needs_unique_constraint;
+        self.needs_foreign_key_constraint |= other.needs_foreign_key_constraint;
+        self.needs_text |= other.needs_text;
+    }
+
     pub(super) fn add_column_type(&mut self, col_type: &ColumnType, nullable: bool) {
         if nullable {
             self.needs_optional = true;

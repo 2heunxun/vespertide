@@ -2,10 +2,12 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 
 mod commands;
+mod parallel_config;
 mod utils;
+use crate::commands::erd::ErdFormat;
 use crate::commands::export::OrmArg;
 use commands::{
-    cmd_diff, cmd_export, cmd_init, cmd_log, cmd_new, cmd_revision, cmd_sql, cmd_status,
+    cmd_diff, cmd_erd, cmd_export, cmd_init, cmd_log, cmd_new, cmd_revision, cmd_sql, cmd_status,
 };
 use vespertide_config::FileFormat;
 use vespertide_query::DatabaseBackend;
@@ -85,6 +87,15 @@ enum Commands {
         #[arg(short = 'd', long = "export-dir")]
         export_dir: Option<std::path::PathBuf>,
     },
+    /// Export schema as ERD diagrams (SVG, Mermaid, Graphviz DOT).
+    Erd {
+        /// Output format: svg|mermaid|dot.
+        #[arg(short = 'f', long = "format", value_enum, default_value = "svg")]
+        format: ErdFormat,
+        /// Output file path (defaults to stdout if not specified).
+        #[arg(short = 'o', long = "output")]
+        output: Option<std::path::PathBuf>,
+    },
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -104,6 +115,7 @@ async fn main() -> Result<()> {
         }) => cmd_revision(message, fill_with, delete_null_rows).await,
         Some(Commands::Init) => cmd_init().await,
         Some(Commands::Export { orm, export_dir }) => cmd_export(orm, export_dir).await,
+        Some(Commands::Erd { format, output }) => cmd_erd(format, output).await,
         None => {
             // No subcommand: show help and exit successfully.
             Cli::command().print_help()?;

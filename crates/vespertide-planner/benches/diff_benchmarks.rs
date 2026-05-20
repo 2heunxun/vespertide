@@ -1,8 +1,6 @@
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use vespertide_core::schema::primary_key::PrimaryKeySyntax;
-use vespertide_core::{
-    ColumnDef, ColumnType, SimpleColumnType, TableConstraint, TableDef,
-};
+use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType, TableConstraint, TableDef};
 use vespertide_planner::diff_schemas;
 
 fn simple_type(ty: SimpleColumnType) -> ColumnType {
@@ -18,7 +16,11 @@ fn build_schema(n: usize) -> Vec<TableDef> {
                 ColumnDef::new("id", simple_type(SimpleColumnType::Integer), false)
                     .primary_key(PrimaryKeySyntax::Bool(true)),
                 ColumnDef::new("name", simple_type(SimpleColumnType::Text), false),
-                ColumnDef::new("created_at", simple_type(SimpleColumnType::Timestamp), false),
+                ColumnDef::new(
+                    "created_at",
+                    simple_type(SimpleColumnType::Timestamp),
+                    false,
+                ),
             ],
             constraints: vec![],
         })

@@ -1,10 +1,12 @@
 use std::collections::{BTreeMap, HashSet};
 
+use rayon::prelude::*;
 use vespertide_core::{TableConstraint, TableDef, schema::primary_key::PrimaryKeySyntax};
 
 use super::enums::validate_column;
 use super::foreign_keys::validate_foreign_key_constraint;
 use crate::error::PlannerError;
+use crate::parallel_config::{VALIDATE_SCHEMA_PAR_MIN_LEN, validate_schema_par_threshold};
 
 /// Validate a schema for data integrity issues.
 /// Checks for:
@@ -33,15 +35,48 @@ pub fn validate_schema(schema: &[TableDef]) -> Result<(), PlannerError> {
         })
         .collect();
 
-    // Validate each table
-    for table in schema {
-        table
-            .validate_unique_column_names()
-            .map_err(|e| PlannerError::TableValidation(e.to_string()))?;
-        validate_table(table, &table_map)?;
+    // Validate each table. Collect the indexed errors first so parallel validation
+    // reports the same earliest table error as the sequential path.
+    let earliest_err = if schema.len() < validate_schema_par_threshold() {
+        schema
+            .iter()
+            .enumerate()
+            .filter_map(|(index, table)| {
+                validate_table_entry(table, &table_map)
+                    .err()
+                    .map(|e| (index, e))
+            })
+            .min_by_key(|(index, _)| *index)
+            .map(|(_, err)| err)
+    } else {
+        schema
+            .par_iter()
+            .with_min_len(VALIDATE_SCHEMA_PAR_MIN_LEN)
+            .enumerate()
+            .filter_map(|(index, table)| {
+                validate_table_entry(table, &table_map)
+                    .err()
+                    .map(|e| (index, e))
+            })
+            .min_by_key(|(index, _)| *index)
+            .map(|(_, err)| err)
+    };
+
+    if let Some(err) = earliest_err {
+        return Err(err);
     }
 
     Ok(())
+}
+
+fn validate_table_entry(
+    table: &TableDef,
+    table_map: &BTreeMap<&str, HashSet<&str>>,
+) -> Result<(), PlannerError> {
+    table
+        .validate_unique_column_names()
+        .map_err(|e| PlannerError::TableValidation(e.to_string()))?;
+    validate_table(table, table_map)
 }
 
 pub(super) fn validate_table(

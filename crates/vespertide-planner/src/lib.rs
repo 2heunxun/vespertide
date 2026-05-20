@@ -7,6 +7,7 @@
 pub mod apply;
 pub mod diff;
 pub mod error;
+mod parallel_config;
 pub mod plan;
 pub mod schema;
 pub mod validate;

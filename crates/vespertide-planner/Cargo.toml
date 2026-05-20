@@ -12,6 +12,7 @@ categories = ["database"]
 readme = "../../README.md"
 
 [dependencies]
+rayon = { workspace = true }
 vespertide-core = { workspace = true }
 vespertide-naming = { workspace = true }
 thiserror = "2"
@@ -21,6 +22,7 @@ criterion = { version = "0.5", features = ["html_reports"] }
 rstest = "0.26"
 insta = "1.47"
 proptest = "1"
+serial_test = "3.4"
 vespertide-core = { workspace = true }
 
 [[bench]]

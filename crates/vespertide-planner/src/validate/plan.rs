@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use vespertide_core::{
     ColumnType, ComplexColumnType, EnumValues, MigrationAction, MigrationPlan, TableConstraint,
     TableDef,
@@ -5,6 +6,7 @@ use vespertide_core::{
 
 use super::enums::validate_enum_value;
 use crate::error::PlannerError;
+use crate::parallel_config::{VALIDATE_PLAN_PAR_ACTION_MIN_LEN, validate_plan_par_threshold};
 
 /// Validate a migration plan for correctness.
 /// Checks for:
@@ -12,72 +14,92 @@ use crate::error::PlannerError;
 /// - `ModifyColumnNullable` actions changing from nullable to non-nullable must have `fill_with`
 /// - Enum columns with `default/fill_with` values must have valid enum values
 pub fn validate_migration_plan(plan: &MigrationPlan) -> Result<(), PlannerError> {
-    for action in &plan.actions {
-        match action {
-            MigrationAction::AddColumn {
-                table,
-                column,
-                fill_with,
-            } => {
-                // If column is NOT NULL and has no default, fill_with is required
-                if !column.nullable && column.default.is_none() && fill_with.is_none() {
-                    return Err(PlannerError::MissingFillWith(
-                        table.clone(),
-                        column.name.clone(),
-                    ));
-                }
+    let earliest_err = if plan.actions.len() < validate_plan_par_threshold() {
+        plan.actions
+            .iter()
+            .find_map(|action| validate_action(action).err())
+    } else {
+        plan.actions
+            .par_iter()
+            .enumerate()
+            .with_min_len(VALIDATE_PLAN_PAR_ACTION_MIN_LEN)
+            .filter_map(|(idx, action)| validate_action(action).err().map(|err| (idx, err)))
+            .min_by_key(|(idx, _)| *idx)
+            .map(|(_, err)| err)
+    };
 
-                // Validate enum default/fill_with values
-                if let ColumnType::Complex(ComplexColumnType::Enum { name, values }) =
-                    &column.r#type
-                {
-                    if let Some(fill) = fill_with {
-                        validate_enum_value(fill, name, values, table, &column.name, "fill_with")?;
-                    }
-                    if let Some(default) = &column.default {
-                        let default_str = default.to_sql();
-                        validate_enum_value(
-                            &default_str,
-                            name,
-                            values,
-                            table,
-                            &column.name,
-                            "default",
-                        )?;
-                    }
-                }
-            }
-            MigrationAction::ModifyColumnNullable {
-                table,
-                column,
-                nullable,
-                fill_with,
-                delete_null_rows,
-            }
-                // If changing from nullable to non-nullable, fill_with is required
-                if !nullable && fill_with.is_none() && !delete_null_rows.unwrap_or(false) => {
-                    return Err(PlannerError::MissingFillWith(table.clone(), column.clone()));
-                }
-            MigrationAction::ModifyColumnType {
-                table,
-                column,
-                new_type,
-                fill_with,
-            } => {
-                // Validate that fill_with replacement values are valid enum values in the NEW type
-                if let (
-                    Some(fw),
-                    ColumnType::Complex(ComplexColumnType::Enum { name, values, .. }),
-                ) = (fill_with, new_type)
-                {
-                    for replacement in fw.values() {
-                        validate_enum_value(replacement, name, values, table, column, "fill_with")?;
-                    }
-                }
-            }
-            _ => {}
-        }
+    if let Some(err) = earliest_err {
+        return Err(err);
     }
+
+    Ok(())
+}
+
+fn validate_action(action: &MigrationAction) -> Result<(), PlannerError> {
+    match action {
+        MigrationAction::AddColumn {
+            table,
+            column,
+            fill_with,
+        } => {
+            // If column is NOT NULL and has no default, fill_with is required
+            if !column.nullable && column.default.is_none() && fill_with.is_none() {
+                return Err(PlannerError::MissingFillWith(
+                    table.clone(),
+                    column.name.clone(),
+                ));
+            }
+
+            // Validate enum default/fill_with values
+            if let ColumnType::Complex(ComplexColumnType::Enum { name, values }) = &column.r#type {
+                if let Some(fill) = fill_with {
+                    validate_enum_value(fill, name, values, table, &column.name, "fill_with")?;
+                }
+                if let Some(default) = &column.default {
+                    let default_str = default.to_sql();
+                    validate_enum_value(
+                        &default_str,
+                        name,
+                        values,
+                        table,
+                        &column.name,
+                        "default",
+                    )?;
+                }
+            }
+        }
+        MigrationAction::ModifyColumnNullable {
+            table,
+            column,
+            nullable,
+            fill_with,
+            delete_null_rows,
+        }
+            // If changing from nullable to non-nullable, fill_with is required
+            if !nullable && fill_with.is_none() && !delete_null_rows.unwrap_or(false) =>
+        {
+            return Err(PlannerError::MissingFillWith(table.clone(), column.clone()));
+        }
+        MigrationAction::ModifyColumnType {
+            table,
+            column,
+            new_type,
+            fill_with,
+        } => {
+            // Validate that fill_with replacement values are valid enum values in the NEW type
+            if let (
+                Some(fw),
+                ColumnType::Complex(ComplexColumnType::Enum { name, values, .. }),
+            ) = (fill_with, new_type)
+            {
+                for replacement in fw.values() {
+                    validate_enum_value(replacement, name, values, table, column, "fill_with")?;
+                }
+            }
+        }
+        _ => {}
+    }
+
     Ok(())
 }
 
@@ -109,76 +131,95 @@ pub fn find_missing_fill_with(
     plan: &MigrationPlan,
     current_schema: &[TableDef],
 ) -> Vec<FillWithRequired> {
-    let mut missing = Vec::new();
-
-    for (idx, action) in plan.actions.iter().enumerate() {
-        match action {
-            MigrationAction::AddColumn {
-                table,
-                column,
-                fill_with,
-            }
-                // If column is NOT NULL and has no default, fill_with is required
-                if !column.nullable && column.default.is_none() && fill_with.is_none() => {
-                    missing.push(FillWithRequired {
-                        action_index: idx,
-                        table: table.clone(),
-                        column: column.name.clone(),
-                        action_type: "AddColumn",
-                        column_type: column.r#type.to_display_string(),
-                        default_value: column.r#type.default_fill_value().to_string(),
-                        enum_values: column.r#type.enum_variant_names(),
-                        has_foreign_key: false,
-                    });
-                }
-            MigrationAction::ModifyColumnNullable {
-                table,
-                column,
-                nullable,
-                fill_with,
-                delete_null_rows,
-            }
-                // If changing from nullable to non-nullable, fill_with is required
-                // UNLESS the column already has a default value (which will be used)
-                if !nullable && fill_with.is_none() && !delete_null_rows.unwrap_or(false) => {
-                    // Look up column from the current schema
-                    let table_def = current_schema.iter().find(|t| t.name == *table);
-
-                    let col_def =
-                        table_def.and_then(|t| t.columns.iter().find(|c| c.name == *column));
-
-                    let has_foreign_key = table_def.is_some_and(|t| t.constraints.iter().any(|constraint| matches!(constraint, TableConstraint::ForeignKey { columns, .. } if columns.iter().any(|col_name| col_name == column))));
-
-                    // If column has a default value, fill_with is not needed
-                    if col_def.is_some_and(|c| c.default.is_some()) {
-                        continue;
-                    }
-
-                    let (col_type_str, default_val, enum_vals) = match col_def {
-                        Some(c) => (
-                            c.r#type.to_display_string(),
-                            c.r#type.default_fill_value().to_string(),
-                            c.r#type.enum_variant_names(),
-                        ),
-                        None => (column.clone(), "''".to_string(), None),
-                    };
-
-                    missing.push(FillWithRequired {
-                        action_index: idx,
-                        table: table.clone(),
-                        column: column.clone(),
-                        action_type: "ModifyColumnNullable",
-                        column_type: col_type_str,
-                        default_value: default_val,
-                        enum_values: enum_vals,
-                        has_foreign_key,
-                    });
-                }
-            _ => {}
-        }
+    if plan.actions.len() < validate_plan_par_threshold() {
+        plan.actions
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, action)| missing_fill_with_for_action(idx, action, current_schema))
+            .collect()
+    } else {
+        let mut missing: Vec<_> = plan
+            .actions
+            .par_iter()
+            .enumerate()
+            .with_min_len(VALIDATE_PLAN_PAR_ACTION_MIN_LEN)
+            .filter_map(|(idx, action)| missing_fill_with_for_action(idx, action, current_schema))
+            .collect();
+        missing.sort_by_key(|item| item.action_index);
+        missing
     }
+}
 
-    missing
+fn missing_fill_with_for_action(
+    idx: usize,
+    action: &MigrationAction,
+    current_schema: &[TableDef],
+) -> Option<FillWithRequired> {
+    match action {
+        MigrationAction::AddColumn {
+            table,
+            column,
+            fill_with,
+        }
+            // If column is NOT NULL and has no default, fill_with is required
+            if !column.nullable && column.default.is_none() && fill_with.is_none() =>
+        {
+            Some(FillWithRequired {
+                action_index: idx,
+                table: table.clone(),
+                column: column.name.clone(),
+                action_type: "AddColumn",
+                column_type: column.r#type.to_display_string(),
+                default_value: column.r#type.default_fill_value().to_string(),
+                enum_values: column.r#type.enum_variant_names(),
+                has_foreign_key: false,
+            })
+        }
+        MigrationAction::ModifyColumnNullable {
+            table,
+            column,
+            nullable,
+            fill_with,
+            delete_null_rows,
+        }
+            // If changing from nullable to non-nullable, fill_with is required
+            // UNLESS the column already has a default value (which will be used)
+            if !nullable && fill_with.is_none() && !delete_null_rows.unwrap_or(false) =>
+        {
+            // Look up column from the current schema
+            let table_def = current_schema.iter().find(|t| t.name == *table);
+
+            let col_def = table_def.and_then(|t| t.columns.iter().find(|c| c.name == *column));
+
+            let has_foreign_key = table_def.is_some_and(|t| t.constraints.iter().any(|constraint| matches!(constraint, TableConstraint::ForeignKey { columns, .. } if columns.iter().any(|col_name| col_name == column))));
+
+            // If column has a default value, fill_with is not needed
+            if col_def.is_some_and(|c| c.default.is_some()) {
+                return None;
+            }
+
+            let (col_type_str, default_val, enum_vals) = match col_def {
+                Some(c) => (
+                    c.r#type.to_display_string(),
+                    c.r#type.default_fill_value().to_string(),
+                    c.r#type.enum_variant_names(),
+                ),
+                None => (column.clone(), "''".to_string(), None),
+            };
+
+            Some(FillWithRequired {
+                action_index: idx,
+                table: table.clone(),
+                column: column.clone(),
+                action_type: "ModifyColumnNullable",
+                column_type: col_type_str,
+                default_value: default_val,
+                enum_values: enum_vals,
+                has_foreign_key,
+            })
+        }
+        _ => None,
+    }
 }
 
 /// Describes an enum-narrowing action whose `fill_with` is required but missing.
@@ -203,72 +244,100 @@ pub fn find_missing_enum_fill_with(
     plan: &MigrationPlan,
     current_schema: &[TableDef],
 ) -> Vec<EnumFillWithRequired> {
-    let mut missing = Vec::new();
+    if plan.actions.len() < validate_plan_par_threshold() {
+        plan.actions
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, action)| {
+                missing_enum_fill_with_for_action(idx, action, current_schema)
+            })
+            .collect()
+    } else {
+        let mut missing: Vec<_> = plan
+            .actions
+            .par_iter()
+            .enumerate()
+            .with_min_len(VALIDATE_PLAN_PAR_ACTION_MIN_LEN)
+            .filter_map(|(idx, action)| {
+                missing_enum_fill_with_for_action(idx, action, current_schema)
+            })
+            .collect();
+        missing.sort_by_key(|item| item.action_index);
+        missing
+    }
+}
 
-    for (idx, action) in plan.actions.iter().enumerate() {
-        if let MigrationAction::ModifyColumnType {
-            table,
-            column,
-            new_type,
-            fill_with,
-        } = action
-        {
-            // Only applies to string enum → string enum changes
-            let old_type = current_schema
-                .iter()
-                .find(|t| t.name == *table)
-                .and_then(|t| t.columns.iter().find(|c| c.name == *column))
-                .map(|c| &c.r#type);
+fn missing_enum_fill_with_for_action(
+    idx: usize,
+    action: &MigrationAction,
+    current_schema: &[TableDef],
+) -> Option<EnumFillWithRequired> {
+    let MigrationAction::ModifyColumnType {
+        table,
+        column,
+        new_type,
+        fill_with,
+    } = action
+    else {
+        return None;
+    };
 
-            if let (
-                Some(ColumnType::Complex(ComplexColumnType::Enum {
-                    values: EnumValues::String(old_values),
-                    ..
-                })),
-                ColumnType::Complex(ComplexColumnType::Enum {
-                    values: EnumValues::String(new_values),
-                    ..
-                }),
-            ) = (old_type, new_type)
-            {
-                // Find removed values (in old but not in new)
-                let removed: Vec<String> = old_values
-                    .iter()
-                    .filter(|v| !new_values.contains(v))
-                    .cloned()
-                    .collect();
+    // Only applies to string enum → string enum changes
+    let old_type = current_schema
+        .iter()
+        .find(|t| t.name == *table)
+        .and_then(|t| t.columns.iter().find(|c| c.name == *column))
+        .map(|c| &c.r#type);
 
-                if removed.is_empty() {
-                    continue;
-                }
+    let (
+        Some(ColumnType::Complex(ComplexColumnType::Enum {
+            values: EnumValues::String(old_values),
+            ..
+        })),
+        ColumnType::Complex(ComplexColumnType::Enum {
+            values: EnumValues::String(new_values),
+            ..
+        }),
+    ) = (old_type, new_type)
+    else {
+        return None;
+    };
 
-                // Check if fill_with covers all removed values
-                let all_covered = match fill_with {
-                    Some(fw) => removed.iter().all(|r| fw.contains_key(r)),
-                    None => false,
-                };
+    // Find removed values (in old but not in new)
+    let removed: Vec<String> = old_values
+        .iter()
+        .filter(|v| !new_values.contains(v))
+        .cloned()
+        .collect();
 
-                if !all_covered {
-                    // Filter to only uncovered removed values
-                    let uncovered: Vec<String> = match fill_with {
-                        Some(fw) => removed
-                            .into_iter()
-                            .filter(|r| !fw.contains_key(r))
-                            .collect(),
-                        None => removed,
-                    };
-
-                    missing.push(EnumFillWithRequired {
-                        action_index: idx,
-                        table: table.clone(),
-                        column: column.clone(),
-                        removed_values: uncovered,
-                        remaining_values: new_values.clone(),
-                    });
-                }
-            }
-        }
+    if removed.is_empty() {
+        return None;
     }
 
-    missing
+    // Check if fill_with covers all removed values
+    let all_covered = match fill_with {
+        Some(fw) => removed.iter().all(|r| fw.contains_key(r)),
+        None => false,
+    };
+
+    if all_covered {
+        return None;
+    }
+
+    // Filter to only uncovered removed values
+    let uncovered: Vec<String> = match fill_with {
+        Some(fw) => removed
+            .into_iter()
+            .filter(|r| !fw.contains_key(r))
+            .collect(),
+        None => removed,
+    };
+
+    Some(EnumFillWithRequired {
+        action_index: idx,
+        table: table.clone(),
+        column: column.clone(),
+        removed_values: uncovered,
+        remaining_values: new_values.clone(),
+    })
 }

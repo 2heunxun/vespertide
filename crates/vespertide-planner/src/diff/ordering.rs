@@ -12,6 +12,7 @@ use crate::error::PlannerError;
 pub(super) fn topological_sort_tables<'a>(
     tables: &[&'a TableDef],
 ) -> Result<Vec<&'a TableDef>, PlannerError> {
+    // SEQUENTIAL BY NATURE: Kahn's algorithm requires in-degree state evolution.
     if tables.is_empty() {
         return Ok(vec![]);
     }
@@ -120,6 +121,7 @@ pub(super) fn sort_delete_tables(
     actions: &mut [MigrationAction],
     all_tables: &BTreeMap<&str, &TableDef>,
 ) {
+    // SEQUENTIAL BY NATURE: Kahn's algorithm requires in-degree state evolution.
     // Collect DeleteTable actions and their indices
     let delete_indices: Vec<usize> = actions
         .iter()
@@ -279,6 +281,7 @@ pub(super) fn compare_actions_for_create_order(
 /// Sort actions so that `CreateTable` actions come before `AddConstraint` actions
 /// that reference those newly created tables via foreign keys.
 pub(super) fn sort_create_before_add_constraint(actions: &mut [MigrationAction]) {
+    // SEQUENTIAL: mutates the full action list after all table diffs are known.
     // Collect names of tables being created
     let created_tables: BTreeSet<String> = actions
         .iter()
@@ -357,6 +360,7 @@ pub(super) fn sort_enum_default_dependencies(
     actions: &mut [MigrationAction],
     from_map: &BTreeMap<&str, &TableDef>,
 ) {
+    // SEQUENTIAL: dependent action swaps require a complete ordered action list.
     // Find indices of ModifyColumnType and ModifyColumnDefault actions
     // Group by (table, column)
     let mut type_changes: BTreeMap<(&str, &str), (usize, &ColumnType)> = BTreeMap::new();

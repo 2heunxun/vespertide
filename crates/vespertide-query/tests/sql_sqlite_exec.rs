@@ -127,8 +127,10 @@ fn arb_backend_sensitive_column_type() -> impl Strategy<Value = ColumnType> {
         Just(ColumnType::Simple(SimpleColumnType::Cidr)),
         Just(ColumnType::Simple(SimpleColumnType::Macaddr)),
         Just(ColumnType::Simple(SimpleColumnType::Xml)),
-        (1_u32..=100).prop_flat_map(|precision| (Just(precision), 0..=precision.min(20))).prop_map(|(precision, scale)| {
-            ColumnType::Complex(ComplexColumnType::Numeric { precision, scale })
-        }),
+        (1_u32..=100)
+            .prop_flat_map(|precision| (Just(precision), 0..=precision.min(20)))
+            .prop_map(|(precision, scale)| {
+                ColumnType::Complex(ComplexColumnType::Numeric { precision, scale })
+            }),
     ]
 }

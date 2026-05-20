@@ -81,15 +81,20 @@ fn bench_render_entity(c: &mut Criterion) {
 
     for orm in [Orm::SeaOrm, Orm::SqlAlchemy, Orm::SqlModel, Orm::Jpa] {
         for n_columns in [10, 50, 200] {
-            for (with_fk, with_enum) in [(false, false), (true, false), (false, true), (true, true)] {
+            for (with_fk, with_enum) in [(false, false), (true, false), (false, true), (true, true)]
+            {
                 let table = build_table(n_columns, with_fk, with_enum);
                 let schema = vec![parent.clone(), table.clone()];
                 let case = format!("{orm:?}/cols={n_columns}/fk={with_fk}/enum={with_enum}");
                 group.bench_with_input(BenchmarkId::from_parameter(case), &orm, |b, orm| {
                     b.iter(|| {
                         black_box(
-                            render_entity_with_schema(black_box(*orm), black_box(&table), black_box(&schema))
-                                .expect("code generation should succeed"),
+                            render_entity_with_schema(
+                                black_box(*orm),
+                                black_box(&table),
+                                black_box(&schema),
+                            )
+                            .expect("code generation should succeed"),
                         )
                     });
                 });

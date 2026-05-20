@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+use rayon::prelude::*;
 use vespertide_core::{TableConstraint, TableDef};
+
+use crate::parallel_config::{SEAORM_RELATION_PAR_FK_MIN_LEN, SEAORM_RELATION_PAR_FK_THRESHOLD};
 
 use super::imports::{
     absolute_module_path, resolve_relation_entity_module_path, sanitize_field_name, to_pascal_case,
@@ -42,7 +45,6 @@ pub(super) fn resolve_fk_target_inner<'a>(
     schema: &'a [TableDef],
     visited: &mut BTreeSet<(String, String)>,
 ) -> (&'a str, Vec<String>) {
-    // If no schema context or ref_columns is not a single column, return as-is
     if schema.is_empty() || ref_columns.len() != 1 {
         return (ref_table, ref_columns.to_vec());
     }
@@ -50,12 +52,10 @@ pub(super) fn resolve_fk_target_inner<'a>(
     let ref_col = &ref_columns[0];
     visited.insert((ref_table.to_string(), ref_col.clone()));
 
-    // Find the referenced table in schema
     let Some(target_table) = schema.iter().find(|t| t.name == ref_table) else {
         return (ref_table, ref_columns.to_vec());
     };
 
-    // Check if the referenced column has a FK constraint and follow the chain
     for constraint in &target_table.constraints {
         let fk_match =
             as_fk(constraint).filter(|(cols, _, _)| cols.len() == 1 && cols[0] == *ref_col);
@@ -69,8 +69,49 @@ pub(super) fn resolve_fk_target_inner<'a>(
         }
     }
 
-    // No further FK chain, return current target
     (ref_table, ref_columns.to_vec())
+}
+
+struct ForwardRelationResolution<'a> {
+    columns: &'a [String],
+    resolved_table: &'a str,
+    resolved_columns: Vec<String>,
+}
+
+fn resolve_table_fks_pure<'a>(
+    table: &'a TableDef,
+    schema: &'a [TableDef],
+) -> Vec<ForwardRelationResolution<'a>> {
+    let fks = table
+        .constraints
+        .iter()
+        .filter_map(as_fk)
+        .collect::<Vec<_>>();
+
+    if schema.len() < SEAORM_RELATION_PAR_FK_THRESHOLD {
+        fks.iter()
+            .map(|fk| resolve_fk_relation_pure(fk.0, fk.1, fk.2, schema))
+            .collect()
+    } else {
+        fks.par_iter()
+            .with_min_len(SEAORM_RELATION_PAR_FK_MIN_LEN)
+            .map(|fk| resolve_fk_relation_pure(fk.0, fk.1, fk.2, schema))
+            .collect()
+    }
+}
+
+fn resolve_fk_relation_pure<'a>(
+    columns: &'a [String],
+    ref_table: &'a str,
+    ref_columns: &'a [String],
+    schema: &'a [TableDef],
+) -> ForwardRelationResolution<'a> {
+    let (resolved_table, resolved_columns) = resolve_fk_target(ref_table, ref_columns, schema);
+    ForwardRelationResolution {
+        columns,
+        resolved_table,
+        resolved_columns,
+    }
 }
 
 pub(super) fn relation_field_defs_with_schema(
@@ -81,124 +122,78 @@ pub(super) fn relation_field_defs_with_schema(
 ) -> Vec<String> {
     let mut out = Vec::new();
     let mut used = HashSet::new();
+    let forward_relations = resolve_table_fks_pure(table, schema);
 
-    // First, collect ALL target entities from both forward and reverse relations
-    // to detect when relation_enum is needed (same entity appears multiple times)
-    let mut all_target_entities: Vec<String> = Vec::new();
+    let mut all_target_entities: Vec<String> = forward_relations
+        .iter()
+        .map(|relation| relation.resolved_table.to_string())
+        .collect();
 
-    // Collect forward relation targets (belongs_to)
-    for constraint in &table.constraints {
-        if let TableConstraint::ForeignKey {
-            ref_table,
-            ref_columns,
-            ..
-        } = constraint
-        {
-            let (resolved_table, _) = resolve_fk_target(ref_table, ref_columns, schema);
-            all_target_entities.push(resolved_table.to_string());
-        }
-    }
-
-    // Collect reverse relation targets (has_one/has_many)
     let reverse_targets = collect_reverse_relation_targets(table, schema);
     all_target_entities.extend(reverse_targets);
 
-    // Count occurrences of each target entity
-    // perf: BTreeMap keeps generated relation analysis deterministic without hashing small maps.
     let mut entity_count: BTreeMap<String, usize> = BTreeMap::new();
     for entity in &all_target_entities {
         *entity_count.entry(entity.clone()).or_insert(0) += 1;
     }
 
-    // Group FKs by their target table to detect duplicates within forward relations
-    // perf: BTreeMap keeps duplicate-FK grouping deterministic and avoids hash setup overhead.
-    let mut fk_by_table: BTreeMap<String, Vec<&TableConstraint>> = BTreeMap::new();
-    for constraint in &table.constraints {
-        if let TableConstraint::ForeignKey {
-            ref_table,
-            ref_columns,
-            ..
-        } = constraint
-        {
-            let (resolved_table, _) = resolve_fk_target(ref_table, ref_columns, schema);
-            fk_by_table
-                .entry(resolved_table.to_string())
-                .or_default()
-                .push(constraint);
-        }
+    let mut fk_by_table: BTreeMap<&str, usize> = BTreeMap::new();
+    for relation in &forward_relations {
+        *fk_by_table.entry(relation.resolved_table).or_insert(0) += 1;
     }
 
-    // Track used relation_enum names across all relations
     let mut used_relation_enums: HashSet<String> = HashSet::new();
 
-    // belongs_to relations (this table has FK to other tables)
-    for constraint in &table.constraints {
-        if let TableConstraint::ForeignKey {
-            columns,
-            ref_table,
-            ref_columns,
-            ..
-        } = constraint
-        {
-            // Resolve FK chain to find ultimate target
-            let (resolved_table, resolved_columns) =
-                resolve_fk_target(ref_table, ref_columns, schema);
+    for relation in &forward_relations {
+        let columns = relation.columns;
+        let resolved_table = relation.resolved_table;
+        let resolved_columns = &relation.resolved_columns;
 
-            let from = fk_attr_value(columns);
-            let to = fk_attr_value(&resolved_columns);
+        let from = fk_attr_value(columns);
+        let to = fk_attr_value(resolved_columns);
 
-            // Check if there are multiple FKs to the same target table (within forward relations)
-            let fks_to_this_table = fk_by_table
-                .get(resolved_table)
-                .map_or(0, std::vec::Vec::len);
+        let fks_to_this_table = fk_by_table.get(resolved_table).copied().unwrap_or(0);
 
-            // Check if this target entity appears multiple times across ALL relations
-            let entity_appears_multiple_times =
-                entity_count.get(resolved_table).is_some_and(|c| *c > 1);
+        let entity_appears_multiple_times =
+            entity_count.get(resolved_table).is_some_and(|c| *c > 1);
 
-            // Smart field name inference from FK column names
-            let field_base = if columns.len() == 1 {
-                infer_field_name_from_fk_column(&columns[0], resolved_table, &to)
+        let field_base = if columns.len() == 1 {
+            infer_field_name_from_fk_column(&columns[0], resolved_table, &to)
+        } else {
+            sanitize_field_name(resolved_table)
+        };
+
+        let field_name = unique_name(&field_base, &mut used);
+
+        let needs_relation_enum = fks_to_this_table > 1 || entity_appears_multiple_times;
+
+        let attr = if needs_relation_enum {
+            let base_relation_enum = generate_relation_enum_name(columns);
+            let relation_enum_name = if used_relation_enums.contains(&base_relation_enum) {
+                format!("{}{}", base_relation_enum, to_pascal_case(&table.name))
             } else {
-                sanitize_field_name(resolved_table)
+                base_relation_enum.clone()
             };
+            used_relation_enums.insert(relation_enum_name.clone());
+            format!(
+                "    #[sea_orm(belongs_to, relation_enum = \"{relation_enum_name}\", from = \"{from}\", to = \"{to}\")]"
+            )
+        } else {
+            format!("    #[sea_orm(belongs_to, from = \"{from}\", to = \"{to}\")]")
+        };
 
-            let field_name = unique_name(&field_base, &mut used);
-
-            // Generate relation_enum if:
-            // 1. Multiple FKs to same table within this table's forward relations, OR
-            // 2. This target entity appears in both forward and reverse relations
-            let needs_relation_enum = fks_to_this_table > 1 || entity_appears_multiple_times;
-
-            let attr = if needs_relation_enum {
-                let base_relation_enum = generate_relation_enum_name(columns);
-                let relation_enum_name = if used_relation_enums.contains(&base_relation_enum) {
-                    format!("{}{}", base_relation_enum, to_pascal_case(&table.name))
-                } else {
-                    base_relation_enum.clone()
-                };
-                used_relation_enums.insert(relation_enum_name.clone());
-                format!(
-                    "    #[sea_orm(belongs_to, relation_enum = \"{relation_enum_name}\", from = \"{from}\", to = \"{to}\")]"
-                )
-            } else {
-                format!("    #[sea_orm(belongs_to, from = \"{from}\", to = \"{to}\")]")
-            };
-
-            out.push(attr);
-            let entity_path = resolve_relation_entity_module_path(
-                &table.name,
-                resolved_table,
-                module_paths,
-                crate_prefix,
-            );
-            out.push(format!(
-                "    pub {field_name}: HasOne<{entity_path}::Entity>,"
-            ));
-        }
+        out.push(attr);
+        let entity_path = resolve_relation_entity_module_path(
+            &table.name,
+            resolved_table,
+            module_paths,
+            crate_prefix,
+        );
+        out.push(format!(
+            "    pub {field_name}: HasOne<{entity_path}::Entity>,"
+        ));
     }
 
-    // has_one/has_many relations (other tables have FK to this table)
     let reverse_relations = reverse_relation_field_defs(
         table,
         schema,
@@ -941,26 +936,20 @@ pub(super) fn collect_many_to_many_relations(
 
     // Then add has_many with via for the target tables (M2M relations)
     for (_columns, ref_table) in &fks {
-        // Skip the FK to the current table itself
         if ref_table == &current_table.name {
             continue;
         }
 
-        // Find the target table in schema
         let target_exists = schema.iter().any(|t| &t.name == ref_table);
         if !target_exists {
             continue;
         }
 
-        // M2M field name: {target}_via_{junction} to distinguish from direct relations
-        // e.g., "medias_via_user_media_role" instead of "medias" (which collides with direct FK)
         let field_base = format!(
             "{}_via_{}",
             pluralize(&sanitize_field_name(ref_table)),
             sanitize_field_name(&junction_table.name)
         );
-        // M2M relation_enum: {Target}Via{Junction} pattern
-        // e.g., "MediaViaUserMediaRole" for media through user_media_role
         let base_relation_enum = format!(
             "{}Via{}",
             to_pascal_case(ref_table),
@@ -983,7 +972,6 @@ pub(super) fn collect_many_to_many_relations(
     Some(relations)
 }
 
-/// Simple pluralization for field names (adds 's' suffix).
 pub(super) fn pluralize(name: &str) -> String {
     if name.ends_with('s') || name.ends_with("es") {
         name.to_string()
@@ -993,7 +981,6 @@ pub(super) fn pluralize(name: &str) -> String {
         && !name.ends_with("oy")
         && !name.ends_with("uy")
     {
-        // e.g., category -> categories
         format!("{}ies", name.strip_suffix('y').unwrap_or(name))
     } else {
         format!("{name}s")

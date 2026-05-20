@@ -1,4 +1,9 @@
-use crate::utils::python::collect_composite_fks;
+use rayon::prelude::*;
+
+use crate::parallel_config::{
+    PYTHON_EXPORT_PAR_TABLE_MIN_LEN, SQLMODEL_EXPORT_PAR_TABLE_THRESHOLD,
+};
+use crate::utils::python::{CompositeFk, collect_composite_fks};
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ColumnDef, TableDef};
@@ -6,48 +11,132 @@ use vespertide_core::{ColumnDef, TableDef};
 use super::enums::{render_enum, to_pascal_case};
 use super::types::{UsedTypes, column_type_to_python};
 
-/// Render a `SQLModel` model for the given table definition.
-#[expect(
-    clippy::too_many_lines,
-    reason = "SQLModel entity rendering is a linear template emitter"
-)]
-pub fn render_entity(table: &TableDef) -> Result<String, String> {
-    let mut lines: Vec<String> = Vec::new();
+#[derive(Default)]
+struct RenderAccumulator {
+    rendered: Vec<(usize, String)>,
+    used_types: UsedTypes<'static>,
+    needs_enum: bool,
+}
 
-    // Collect enums for this table
-    let enums: Vec<(&str, &EnumValues)> = table
-        .columns
-        .iter()
-        .filter_map(|col| {
-            if let ColumnType::Complex(ComplexColumnType::Enum { name, values }) = &col.r#type {
-                Some((name.as_str(), values))
-            } else {
-                None
+impl RenderAccumulator {
+    fn push(&mut self, entity: RenderedEntity) {
+        self.rendered.push((entity.index, entity.code));
+        self.used_types.merge(entity.used_types);
+        self.needs_enum |= entity.needs_enum;
+    }
+
+    fn finish(mut self) -> String {
+        self.rendered.sort_by_key(|(index, _)| *index);
+
+        let mut lines = render_imports(&self.used_types, self.needs_enum);
+        if !self.rendered.is_empty() {
+            lines.push(String::new());
+            lines.push(String::new());
+        }
+
+        let mut output = lines.join("\n");
+        for (position, (_, code)) in self.rendered.into_iter().enumerate() {
+            if position > 0 || !output.is_empty() {
+                output.push('\n');
             }
-        })
-        .collect();
+            output.push_str(&code);
+        }
+        output
+    }
+}
 
-    // Collect used types
+struct RenderedEntity {
+    index: usize,
+    code: String,
+    used_types: UsedTypes<'static>,
+    needs_enum: bool,
+}
+
+struct TableUsage<'a> {
+    used_types: UsedTypes<'static>,
+    needs_enum: bool,
+    composite_fks: Vec<CompositeFk<'a>>,
+}
+
+/// Render all `SQLModel` models for the given schema into a single Python module.
+pub fn render_entities(schema: &[TableDef]) -> Result<String, String> {
+    let accumulator = if schema.len() < SQLMODEL_EXPORT_PAR_TABLE_THRESHOLD {
+        render_entities_sequential(schema)
+    } else {
+        let rendered = schema
+            .par_iter()
+            .enumerate()
+            .with_min_len(PYTHON_EXPORT_PAR_TABLE_MIN_LEN)
+            .map(|(index, table)| Ok::<_, String>(render_entity_without_imports(index, table)))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut accumulator = RenderAccumulator::default();
+        for entity in rendered {
+            accumulator.push(entity);
+        }
+        accumulator
+    };
+
+    Ok(accumulator.finish())
+}
+
+/// Render a `SQLModel` model for the given table definition.
+pub fn render_entity(table: &TableDef) -> Result<String, String> {
+    let usage = analyze_table(table);
+    let mut lines = render_imports(&usage.used_types, usage.needs_enum);
+    lines.push(String::new());
+    lines.push(String::new());
+    lines.extend(render_entity_body(table, &usage.composite_fks));
+
+    Ok(lines.join("\n"))
+}
+
+fn render_entities_sequential(schema: &[TableDef]) -> RenderAccumulator {
+    let mut accumulator = RenderAccumulator::default();
+    for (index, table) in schema.iter().enumerate() {
+        accumulator.push(render_entity_without_imports(index, table));
+    }
+    accumulator
+}
+
+fn render_entity_without_imports(index: usize, table: &TableDef) -> RenderedEntity {
+    let usage = analyze_table(table);
+    let code = render_entity_body(table, &usage.composite_fks).join("\n");
+
+    RenderedEntity {
+        index,
+        code,
+        used_types: usage.used_types,
+        needs_enum: usage.needs_enum,
+    }
+}
+
+fn analyze_table(table: &TableDef) -> TableUsage<'_> {
     let mut used_types = UsedTypes::default();
     for col in &table.columns {
         used_types.add_column_type(&col.r#type, col.nullable);
     }
 
-    // Check for composite indexes
-    let has_composite_index = table
+    let needs_enum = table.columns.iter().any(|col| {
+        matches!(
+            col.r#type,
+            ColumnType::Complex(ComplexColumnType::Enum { .. })
+        )
+    });
+
+    if table
         .constraints
         .iter()
-        .any(|c| matches!(c, TableConstraint::Index { columns, .. } if columns.len() > 1));
-    if has_composite_index {
+        .any(|c| matches!(c, TableConstraint::Index { columns, .. } if columns.len() > 1))
+    {
         used_types.needs_index = true;
     }
 
-    // Check for composite unique constraints
-    let has_composite_unique = table
+    if table
         .constraints
         .iter()
-        .any(|c| matches!(c, TableConstraint::Unique { columns, .. } if columns.len() > 1));
-    if has_composite_unique {
+        .any(|c| matches!(c, TableConstraint::Unique { columns, .. } if columns.len() > 1))
+    {
         used_types.needs_unique_constraint = true;
     }
 
@@ -56,23 +145,27 @@ pub fn render_entity(table: &TableDef) -> Result<String, String> {
         used_types.needs_foreign_key_constraint = true;
     }
 
-    // Check for server defaults (function calls like now())
-    let has_server_default = table
+    if table
         .columns
         .iter()
-        .any(|c| c.default.as_ref().is_some_and(|d| d.to_sql().contains('(')));
-    if has_server_default {
+        .any(|c| c.default.as_ref().is_some_and(|d| d.to_sql().contains('(')))
+    {
         used_types.needs_text = true;
     }
 
-    // Generate imports
-    lines.push("from __future__ import annotations".into());
-    lines.push(String::new());
-    if !enums.is_empty() {
+    TableUsage {
+        used_types,
+        needs_enum,
+        composite_fks,
+    }
+}
+
+fn render_imports(used_types: &UsedTypes<'_>, needs_enum: bool) -> Vec<String> {
+    let mut lines = vec!["from __future__ import annotations".into(), String::new()];
+    if needs_enum {
         lines.push("import enum".into());
     }
 
-    // datetime imports
     let mut datetime_imports: Vec<&str> = used_types.datetime_types.iter().copied().collect();
     datetime_imports.sort_unstable();
     if !datetime_imports.is_empty() {
@@ -97,7 +190,6 @@ pub fn render_entity(table: &TableDef) -> Result<String, String> {
     lines.push(String::new());
     lines.push("from sqlmodel import Field, SQLModel".into());
 
-    // SQLAlchemy imports (only if needed)
     let mut sa_imports: Vec<&str> = Vec::new();
     if used_types.needs_index {
         sa_imports.push("Index");
@@ -115,8 +207,27 @@ pub fn render_entity(table: &TableDef) -> Result<String, String> {
         lines.push(format!("from sqlalchemy import {}", sa_imports.join(", ")));
     }
 
-    lines.push(String::new());
-    lines.push(String::new());
+    lines
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "SQLModel entity body rendering is a linear template emitter"
+)]
+fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+
+    let enums: Vec<(&str, &EnumValues)> = table
+        .columns
+        .iter()
+        .filter_map(|col| {
+            if let ColumnType::Complex(ComplexColumnType::Enum { name, values }) = &col.r#type {
+                Some((name.as_str(), values))
+            } else {
+                None
+            }
+        })
+        .collect();
 
     // Render enum classes
     for (enum_name, values) in &enums {
@@ -287,7 +398,7 @@ pub fn render_entity(table: &TableDef) -> Result<String, String> {
             }
         }
 
-        for fk in &composite_fks {
+        for fk in composite_fks {
             let local_cols = fk
                 .local_cols
                 .iter()
@@ -310,7 +421,7 @@ pub fn render_entity(table: &TableDef) -> Result<String, String> {
 
     lines.push(String::new());
 
-    Ok(lines.join("\n"))
+    lines
 }
 
 pub(super) fn render_column(

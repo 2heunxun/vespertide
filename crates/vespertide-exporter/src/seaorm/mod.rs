@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
 use crate::orm::OrmExporter;
+use crate::parallel_config::{SEAORM_EXPORT_PAR_TABLE_MIN_LEN, SEAORM_EXPORT_PAR_TABLE_THRESHOLD};
+use rayon::prelude::*;
 use vespertide_config::SeaOrmConfig;
 use vespertide_core::TableDef;
 
@@ -124,4 +126,27 @@ pub fn render_entity_with_config(
     prefix: &str,
 ) -> String {
     render_entity_with_config_and_paths(table, schema, config, prefix, &HashMap::new(), "")
+}
+
+/// Render a complete `SeaORM` schema as ordered entity modules.
+///
+/// Per-table rendering is pure (`&TableDef` + immutable schema context -> `String`),
+/// so larger schemas render in parallel while collecting into a `Vec` to preserve
+/// input order byte-for-byte.
+pub fn export(schema: &[TableDef]) -> Result<String, String> {
+    let rendered: Result<Vec<String>, String> = if schema.len() < SEAORM_EXPORT_PAR_TABLE_THRESHOLD
+    {
+        schema
+            .iter()
+            .map(|table| Ok(render_entity_with_schema(table, schema)))
+            .collect()
+    } else {
+        schema
+            .par_iter()
+            .with_min_len(SEAORM_EXPORT_PAR_TABLE_MIN_LEN)
+            .map(|table| Ok(render_entity_with_schema(table, schema)))
+            .collect()
+    };
+
+    rendered.map(|parts| parts.join("\n\n"))
 }

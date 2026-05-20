@@ -3,7 +3,7 @@ use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType, TableConstraint, 
 use vespertide_planner::{apply_action, diff_schemas};
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(128))]
+    #![proptest_config(ProptestConfig::with_cases(256))]
 
     /// For any acyclic schema pair (from, to), applying diff(from, to) must
     /// make the replayed schema equivalent to to, modulo normalization.

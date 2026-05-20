@@ -92,19 +92,23 @@ fn bench_representative_actions(c: &mut Criterion) {
             DatabaseBackend::MySql,
             DatabaseBackend::Sqlite,
         ] {
-            group.bench_with_input(BenchmarkId::new(name, format!("{backend:?}")), &backend, |b, backend| {
-                b.iter(|| {
-                    let queries = build_action_queries(
-                        black_box(*backend),
-                        black_box(&action),
-                        black_box(&schema),
-                    )
-                    .expect("representative action SQL generation should succeed");
-                    for query in &queries {
-                        black_box(query.build(*backend));
-                    }
-                });
-            });
+            group.bench_with_input(
+                BenchmarkId::new(name, format!("{backend:?}")),
+                &backend,
+                |b, backend| {
+                    b.iter(|| {
+                        let queries = build_action_queries(
+                            black_box(*backend),
+                            black_box(&action),
+                            black_box(&schema),
+                        )
+                        .expect("representative action SQL generation should succeed");
+                        for query in &queries {
+                            black_box(query.build(*backend));
+                        }
+                    });
+                },
+            );
         }
     }
     group.finish();
@@ -112,7 +116,11 @@ fn bench_representative_actions(c: &mut Criterion) {
 
 fn bench_quote_ident(c: &mut Criterion) {
     let mut group = c.benchmark_group("quote_ident");
-    for name in ["short", "medium_table_name", "a_very_long_table_name_indeed"] {
+    for name in [
+        "short",
+        "medium_table_name",
+        "a_very_long_table_name_indeed",
+    ] {
         group.bench_with_input(BenchmarkId::from_parameter(name), &name, |b, name| {
             b.iter(|| quote_ident(black_box(name), black_box(DatabaseBackend::Postgres)));
         });

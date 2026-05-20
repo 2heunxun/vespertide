@@ -12,6 +12,7 @@ categories = ["database"]
 readme = "../../README.md"
 
 [dependencies]
+rayon = { workspace = true }
 vespertide-core = { workspace = true }
 vespertide-config = { workspace = true }
 vespertide-planner = { workspace = true }

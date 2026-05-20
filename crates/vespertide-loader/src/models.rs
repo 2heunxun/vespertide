@@ -1,10 +1,13 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use rayon::prelude::*;
 use vespertide_config::VespertideConfig;
 use vespertide_core::TableDef;
 use vespertide_planner::validate_schema;
+
+use crate::parallel_config::{LOAD_FILES_PAR_MIN_LEN, LOAD_FILES_PAR_THRESHOLD};
 
 /// Load all model definitions from the models directory (recursively).
 pub fn load_models(config: &VespertideConfig) -> Result<Vec<TableDef>> {
@@ -36,43 +39,68 @@ pub fn load_models(config: &VespertideConfig) -> Result<Vec<TableDef>> {
 
 /// Recursively walk directory and load model files.
 fn load_models_recursive(dir: &Path, tables: &mut Vec<TableDef>) -> Result<()> {
+    let paths = collect_model_paths(dir)?;
+    let results: Vec<Result<TableDef>> = if paths.len() < LOAD_FILES_PAR_THRESHOLD {
+        paths.iter().map(|path| load_model_file(path)).collect()
+    } else {
+        paths
+            .par_iter()
+            .with_min_len(LOAD_FILES_PAR_MIN_LEN)
+            .map(|path| load_model_file(path))
+            .collect()
+    };
+
+    for result in results {
+        tables.push(result?);
+    }
+
+    Ok(())
+}
+
+fn collect_model_paths(dir: &Path) -> Result<Vec<PathBuf>> {
     let entries =
         fs::read_dir(dir).with_context(|| format!("read models directory: {}", dir.display()))?;
+    let mut paths = Vec::new();
 
     for entry in entries {
         let entry = entry.context("read directory entry")?;
         let path = entry.path();
 
         if path.is_dir() {
-            // Recursively process subdirectories
-            load_models_recursive(&path, tables)?;
-            continue;
-        }
-
-        if path.is_file() {
-            let ext = path.extension().and_then(|s| s.to_str());
-            if matches!(ext, Some("json" | "yaml" | "yml")) {
-                let content = fs::read_to_string(&path)
-                    .with_context(|| format!("read model file: {}", path.display()))?;
-
-                let table: TableDef = if ext == Some("json") {
-                    serde_json::from_str(&content)
-                        .with_context(|| format!("parse JSON model: {}", path.display()))?
-                } else {
-                    serde_yaml::from_str(&content)
-                        .with_context(|| format!("parse YAML model: {}", path.display()))?
-                };
-
-                table
-                    .validate_unique_column_names()
-                    .with_context(|| format!("validate model: {}", path.display()))?;
-
-                tables.push(table);
-            }
+            paths.extend(collect_model_paths(&path)?);
+        } else if path.is_file() && has_model_extension(&path) {
+            paths.push(path);
         }
     }
 
-    Ok(())
+    Ok(paths)
+}
+
+fn has_model_extension(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|s| s.to_str()),
+        Some("json" | "yaml" | "yml")
+    )
+}
+
+fn load_model_file(path: &Path) -> Result<TableDef> {
+    let ext = path.extension().and_then(|s| s.to_str());
+    let content =
+        fs::read_to_string(path).with_context(|| format!("read model file: {}", path.display()))?;
+
+    let table: TableDef = if ext == Some("json") {
+        serde_json::from_str(&content)
+            .with_context(|| format!("parse JSON model: {}", path.display()))?
+    } else {
+        serde_yaml::from_str(&content)
+            .with_context(|| format!("parse YAML model: {}", path.display()))?
+    };
+
+    table
+        .validate_unique_column_names()
+        .with_context(|| format!("validate model: {}", path.display()))?;
+
+    Ok(table)
 }
 
 /// Load models from a specific directory (for compile-time use in macros).
@@ -105,17 +133,7 @@ pub fn load_models_from_dir(
     load_models_recursive_internal(&models_dir, &mut tables)
         .map_err(|e| format!("Failed to load models: {e}"))?;
 
-    // Normalize tables
-    let normalized_tables: Vec<TableDef> = tables
-        .into_iter()
-        .map(|t| {
-            t.normalize()
-                .map_err(|e| format!("Failed to normalize table '{}': {}", t.name, e))
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.clone())?;
-
-    Ok(normalized_tables)
+    Ok(tables)
 }
 
 /// Internal recursive function for loading models (used by both runtime and compile-time).
@@ -123,47 +141,66 @@ fn load_models_recursive_internal(
     dir: &Path,
     tables: &mut Vec<TableDef>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use std::fs;
+    let paths = collect_model_paths_internal(dir)?;
+    let results: Vec<Result<TableDef, String>> = if paths.len() < LOAD_FILES_PAR_THRESHOLD {
+        paths
+            .iter()
+            .map(|path| load_normalized_model_file_internal(path))
+            .collect()
+    } else {
+        paths
+            .par_iter()
+            .with_min_len(LOAD_FILES_PAR_MIN_LEN)
+            .map(|path| load_normalized_model_file_internal(path))
+            .collect()
+    };
 
+    for result in results {
+        tables.push(result.map_err(|e| -> Box<dyn std::error::Error> { e.into() })?);
+    }
+
+    Ok(())
+}
+
+fn collect_model_paths_internal(dir: &Path) -> Result<Vec<PathBuf>, String> {
     let entries = fs::read_dir(dir)
         .map_err(|e| format!("Failed to read models directory {}: {}", dir.display(), e))?;
+    let mut paths = Vec::new();
 
     for entry in entries {
         let entry = entry.map_err(|e| format!("Failed to read directory entry: {e}"))?;
         let path = entry.path();
 
         if path.is_dir() {
-            // Recursively process subdirectories
-            load_models_recursive_internal(&path, tables)?;
-            continue;
-        }
-
-        if path.is_file() {
-            let ext = path.extension().and_then(|s| s.to_str());
-            if matches!(ext, Some("json" | "yaml" | "yml")) {
-                let content = fs::read_to_string(&path)
-                    .map_err(|e| format!("Failed to read model file {}: {}", path.display(), e))?;
-
-                let table: TableDef = if ext == Some("json") {
-                    serde_json::from_str(&content).map_err(|e| {
-                        format!("Failed to parse JSON model {}: {}", path.display(), e)
-                    })?
-                } else {
-                    serde_yaml::from_str(&content).map_err(|e| {
-                        format!("Failed to parse YAML model {}: {}", path.display(), e)
-                    })?
-                };
-
-                table
-                    .validate_unique_column_names()
-                    .map_err(|e| format!("Failed to validate model {}: {}", path.display(), e))?;
-
-                tables.push(table);
-            }
+            paths.extend(collect_model_paths_internal(&path)?);
+        } else if path.is_file() && has_model_extension(&path) {
+            paths.push(path);
         }
     }
 
-    Ok(())
+    Ok(paths)
+}
+
+fn load_normalized_model_file_internal(path: &Path) -> Result<TableDef, String> {
+    let ext = path.extension().and_then(|s| s.to_str());
+    let content = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read model file {}: {}", path.display(), e))?;
+
+    let table: TableDef = if ext == Some("json") {
+        serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse JSON model {}: {}", path.display(), e))?
+    } else {
+        serde_yaml::from_str(&content)
+            .map_err(|e| format!("Failed to parse YAML model {}: {}", path.display(), e))?
+    };
+
+    table
+        .validate_unique_column_names()
+        .map_err(|e| format!("Failed to validate model {}: {}", path.display(), e))?;
+
+    table
+        .normalize()
+        .map_err(|e| format!("Failed to normalize table '{}': {}", table.name, e))
 }
 
 /// Load models at compile time (for macro use).

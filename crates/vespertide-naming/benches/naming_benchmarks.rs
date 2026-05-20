@@ -1,12 +1,8 @@
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
-use vespertide_naming::{
-    build_foreign_key_name, build_index_name, build_unique_constraint_name,
-};
+use vespertide_naming::{build_foreign_key_name, build_index_name, build_unique_constraint_name};
 
 fn columns(n: usize, sorted: bool) -> Vec<String> {
-    let mut columns = (0..n)
-        .map(|i| format!("column_{i:02}"))
-        .collect::<Vec<_>>();
+    let mut columns = (0..n).map(|i| format!("column_{i:02}")).collect::<Vec<_>>();
     if !sorted {
         columns.reverse();
     }
@@ -40,7 +36,9 @@ fn bench_constraint_names(c: &mut Criterion) {
                 BenchmarkId::new("foreign_key", format!("{n_columns}_{suffix}")),
                 &columns,
                 |b, columns| {
-                    b.iter(|| build_foreign_key_name(black_box("orders"), black_box(columns), None));
+                    b.iter(|| {
+                        build_foreign_key_name(black_box("orders"), black_box(columns), None)
+                    });
                 },
             );
         }

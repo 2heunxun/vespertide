@@ -1,10 +1,22 @@
 # ─── Rust build artifacts ─────────────────────────────────────────────
 /target
-target/criterion/         # criterion benchmark HTML reports
-*.profraw                 # cargo profile-guided / llvm coverage raw data
-*.profdata                # processed profile data
-flamegraph.svg            # profiling visualization output
-perf.data                 # linux perf record output
+# criterion benchmark HTML reports
+target/criterion/
+# cargo profile-guided / llvm coverage raw data
+*.profraw
+# processed profile data
+*.profdata
+# Windows PDB debug symbols (occasionally leak outside target/)
+*.pdb
+# Windows cargo / rustc link tempfiles (e.g. tmp3vwkcx.exe, tmpXYZ.dll)
+tmp*.exe
+tmp*.dll
+tmp*.lib
+tmp*.exp
+# profiling visualization output
+flamegraph.svg
+# linux perf record output
+perf.data
 perf.data.old
 
 # ─── Insta snapshot review queue ──────────────────────────────────────
@@ -24,15 +36,28 @@ fuzz/corpus/*
 !fuzz/corpus/*/.gitkeep
 
 # ─── CI temp / drift detection ────────────────────────────────────────
-_tmp_schemas/             # schema-drift job regenerated schemas for diff
+# schema-drift job regenerated schemas for diff
+_tmp_schemas/
 
 # ─── Coverage output ──────────────────────────────────────────────────
 coverage/
 lcov.info
+# cargo-tarpaulin HTML report
+tarpaulin-report.html
+# cargo-tarpaulin XML report
+cobertura.xml
 
 # ─── Vespertide local / dev-only files ────────────────────────────────
-local.db                  # ad-hoc local SQLite for manual testing
-settings.local.json       # local overrides not committed
+# ad-hoc local SQLite for manual testing
+local.db
+# local overrides not committed
+settings.local.json
+
+# ─── Vespertide ERD CLI outputs (smoke tests / ad-hoc renders) ────────
+examples/**/erd.svg
+examples/**/erd.dot
+examples/**/erd.mermaid
+examples/**/erd.md
 
 # ─── OhMyOpenCode / agent infrastructure ──────────────────────────────
 .sisyphus
@@ -44,6 +69,8 @@ settings.local.json       # local overrides not committed
 .env
 .env.local
 .env.*.local
+# direnv auto-load (may contain secrets)
+.envrc
 
 # ─── Patch / conflict artifacts ───────────────────────────────────────
 *.bak
@@ -62,9 +89,37 @@ settings.local.json       # local overrides not committed
 # vim / emacs swap files
 *.swp
 *.swo
+*.swn
+*.swm
 *~
 
 # ─── OS junk ──────────────────────────────────────────────────────────
-.DS_Store                 # macOS Finder metadata
-Thumbs.db                 # Windows Explorer thumbnails
-desktop.ini               # Windows folder settings
+# macOS Finder metadata
+.DS_Store
+# macOS resource forks
+._*
+# macOS metadata
+.AppleDouble
+.LSOverride
+# Windows Explorer thumbnails (current + encrypted + legacy)
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+# Windows folder settings
+desktop.ini
+# Windows recycle bin
+$RECYCLE.BIN/
+# Windows shortcuts
+*.lnk
+
+# ─── Nix build artifacts ──────────────────────────────────────────────
+# nix-build symlink
+result
+# nix-build flake outputs
+result-*
+
+# ─── Generic temp / scratch files ─────────────────────────────────────
+*.tmp
+*.temp
+# LibreOffice / OpenOffice lock files
+.~lock.*

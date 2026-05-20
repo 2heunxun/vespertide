@@ -2,17 +2,60 @@ use std::collections::{HashMap, HashSet};
 
 use super::enums::render_enum;
 use super::types::{UsedTypes, column_type_to_python, column_type_to_sqlalchemy};
+use crate::parallel_config::{
+    PYTHON_EXPORT_PAR_TABLE_MIN_LEN, SQLALCHEMY_EXPORT_PAR_TABLE_THRESHOLD,
+};
 use crate::utils::python::collect_composite_fks;
+use rayon::prelude::*;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ColumnDef, TableDef};
 
-/// Render a `SQLAlchemy` model for the given table definition.
+pub fn render_entity(table: &TableDef) -> Result<String, String> {
+    let mut used_types = UsedTypes::default();
+    let part = render_entity_part(table, &mut used_types);
+
+    Ok(assemble_with_imports(&used_types, &[part]))
+}
+
+pub fn export(schema: &[TableDef]) -> Result<String, String> {
+    let (parts, used_types): (Vec<String>, UsedTypes<'static>) =
+        if schema.len() < SQLALCHEMY_EXPORT_PAR_TABLE_THRESHOLD {
+            let mut used_types = UsedTypes::default();
+            let parts = schema
+                .iter()
+                .map(|table| render_entity_part(table, &mut used_types))
+                .collect::<Vec<_>>();
+            (parts, used_types)
+        } else {
+            schema
+                .par_iter()
+                .with_min_len(PYTHON_EXPORT_PAR_TABLE_MIN_LEN)
+                .map(|table| {
+                    let mut local_used = UsedTypes::default();
+                    let rendered = render_entity_part(table, &mut local_used);
+                    (rendered, local_used)
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .fold(
+                    (Vec::new(), UsedTypes::default()),
+                    |(mut parts, mut acc_used), (part, local_used)| {
+                        parts.push(part);
+                        acc_used.merge(local_used);
+                        (parts, acc_used)
+                    },
+                )
+        };
+
+    Ok(assemble_with_imports(&used_types, &parts))
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "SQLAlchemy entity rendering is a linear template emitter"
 )]
-pub fn render_entity(table: &TableDef) -> Result<String, String> {
+fn render_entity_part(table: &TableDef, used_types: &mut UsedTypes<'static>) -> String {
     let mut lines: Vec<String> = Vec::new();
 
     // Collect enums for this table
@@ -29,7 +72,6 @@ pub fn render_entity(table: &TableDef) -> Result<String, String> {
         .collect();
 
     // Collect used types
-    let mut used_types = UsedTypes::default();
     for col in &table.columns {
         used_types.add_column_type(&col.r#type, col.nullable);
     }
@@ -75,45 +117,6 @@ pub fn render_entity(table: &TableDef) -> Result<String, String> {
     if has_server_default {
         used_types.sa_types.insert("text");
     }
-
-    // Generate imports
-    lines.push("from __future__ import annotations".into());
-    lines.push(String::new());
-    if !enums.is_empty() {
-        lines.push("import enum".into());
-    }
-
-    // datetime imports
-    let mut datetime_imports: Vec<&str> = used_types.datetime_types.iter().copied().collect();
-    datetime_imports.sort_unstable();
-    if !datetime_imports.is_empty() {
-        lines.push(format!(
-            "from datetime import {}",
-            datetime_imports.join(", ")
-        ));
-    }
-
-    if used_types.needs_decimal {
-        lines.push("from decimal import Decimal".into());
-    }
-
-    if used_types.needs_optional {
-        lines.push("from typing import Optional".into());
-    }
-
-    if used_types.needs_uuid {
-        lines.push("from uuid import UUID".into());
-    }
-
-    lines.push(String::new());
-
-    // SQLAlchemy imports
-    let mut sa_imports: Vec<&str> = used_types.sa_types.iter().copied().collect();
-    sa_imports.sort_unstable();
-    lines.push(format!("from sqlalchemy import {}", sa_imports.join(", ")));
-    lines.push("from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column".into());
-    lines.push(String::new());
-    lines.push(String::new());
 
     // Render enum classes
     for (enum_name, values) in &enums {
@@ -288,7 +291,51 @@ pub fn render_entity(table: &TableDef) -> Result<String, String> {
 
     lines.push(String::new());
 
-    Ok(lines.join("\n"))
+    lines.join("\n")
+}
+
+fn assemble_with_imports(used_types: &UsedTypes<'_>, parts: &[String]) -> String {
+    let mut lines: Vec<String> = Vec::new();
+
+    lines.push("from __future__ import annotations".into());
+    lines.push(String::new());
+    if parts.iter().any(|part| part.contains("enum.")) {
+        lines.push("import enum".into());
+    }
+
+    let datetime_imports: Vec<&str> = used_types.datetime_types.iter().copied().collect();
+    if !datetime_imports.is_empty() {
+        lines.push(format!(
+            "from datetime import {}",
+            datetime_imports.join(", ")
+        ));
+    }
+
+    if used_types.needs_decimal {
+        lines.push("from decimal import Decimal".into());
+    }
+
+    if used_types.needs_optional {
+        lines.push("from typing import Optional".into());
+    }
+
+    if used_types.needs_uuid {
+        lines.push("from uuid import UUID".into());
+    }
+
+    lines.push(String::new());
+
+    let mut sa_imports: Vec<&str> = used_types.sa_types.iter().copied().collect();
+    sa_imports.sort_unstable();
+    if !sa_imports.is_empty() {
+        lines.push(format!("from sqlalchemy import {}", sa_imports.join(", ")));
+    }
+    lines.push("from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column".into());
+    lines.push(String::new());
+    lines.push(String::new());
+
+    lines.push(parts.join("\n"));
+    lines.join("\n")
 }
 
 fn render_column(

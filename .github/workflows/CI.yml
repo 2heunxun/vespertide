@@ -55,6 +55,20 @@ jobs:
       - name: Test
         run: cargo test --workspace --all-features
 
+  test-parallelism:
+    name: Parallelism (RAYON_NUM_THREADS=${{ matrix.threads }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        threads: ["1", "4"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Test with Rayon thread count
+        run: cargo test --workspace --all-features --exclude vespertide-fuzz
+        env:
+          RAYON_NUM_THREADS: ${{ matrix.threads }}
+
   # SQL validity gates: daemon-free real-engine and parser-level validation.
   # - SQLite: in-memory execution via rusqlite (bundled = static link)
   # - PG/MySQL/SQLite syntax: sqlparser-rs pure Rust 3-dialect parser
@@ -109,6 +123,7 @@ jobs:
       - fmt
       - clippy
       - test
+      - test-parallelism
       - sql-validity
       - doc
       - schema-drift

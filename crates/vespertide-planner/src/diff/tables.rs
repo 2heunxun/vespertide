@@ -46,6 +46,7 @@ pub(super) fn diff_created_tables(
         .map(|(_, tbl)| *tbl)
         .collect();
 
+    // SEQUENTIAL BY NATURE: Kahn's algorithm requires in-degree state evolution.
     let sorted_new_tables = topological_sort_tables(&new_tables)?;
 
     for tbl in sorted_new_tables {

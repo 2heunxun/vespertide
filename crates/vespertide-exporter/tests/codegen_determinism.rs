@@ -1,8 +1,9 @@
 use proptest::prelude::*;
+use rayon::ThreadPoolBuilder;
 use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType, TableDef};
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 256, max_shrink_iters: 5000, ..ProptestConfig::default() })]
+    #![proptest_config(ProptestConfig { cases: 1000, max_shrink_iters: 5000, ..ProptestConfig::default() })]
 
     #[test]
     fn python_codegen_is_deterministic(table in arb_table_def()) {
@@ -34,6 +35,75 @@ proptest! {
             prop_assert_eq!(j1, j2, "jpa non-deterministic");
         }
     }
+}
+
+#[test]
+fn sqlmodel_parallel_render_entities_is_thread_count_deterministic() {
+    let schema = wide_schema(200);
+    let one_thread = ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .expect("build one-thread rayon pool");
+    let eight_threads = ThreadPoolBuilder::new()
+        .num_threads(8)
+        .build()
+        .expect("build eight-thread rayon pool");
+
+    for _ in 0..100 {
+        let single = one_thread
+            .install(|| vespertide_exporter::sqlmodel::render_entities(&schema))
+            .expect("render sqlmodel entities with one rayon thread");
+        let parallel = eight_threads
+            .install(|| vespertide_exporter::sqlmodel::render_entities(&schema))
+            .expect("render sqlmodel entities with eight rayon threads");
+
+        assert_eq!(single, parallel);
+    }
+}
+
+fn wide_schema(table_count: usize) -> Vec<TableDef> {
+    (0..table_count)
+        .map(|index| TableDef {
+            name: format!("table_{index:03}"),
+            description: Some(format!("Table {index}")),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    r#type: ColumnType::Simple(SimpleColumnType::Integer),
+                    nullable: false,
+                    default: None,
+                    comment: None,
+                    primary_key: None,
+                    unique: None,
+                    index: None,
+                    foreign_key: None,
+                },
+                ColumnDef {
+                    name: "name".into(),
+                    r#type: ColumnType::Simple(SimpleColumnType::Text),
+                    nullable: false,
+                    default: None,
+                    comment: Some(format!("Name for table {index}")),
+                    primary_key: None,
+                    unique: None,
+                    index: None,
+                    foreign_key: None,
+                },
+                ColumnDef {
+                    name: "created_at".into(),
+                    r#type: ColumnType::Simple(SimpleColumnType::Timestamptz),
+                    nullable: false,
+                    default: None,
+                    comment: None,
+                    primary_key: None,
+                    unique: None,
+                    index: None,
+                    foreign_key: None,
+                },
+            ],
+            constraints: Vec::new(),
+        })
+        .collect()
 }
 
 fn arb_table_def() -> impl Strategy<Value = TableDef> {

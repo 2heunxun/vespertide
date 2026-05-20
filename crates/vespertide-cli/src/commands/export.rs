@@ -4,11 +4,13 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::ValueEnum;
 use futures::future::try_join_all;
+use rayon::prelude::*;
 use tokio::fs;
 use vespertide_config::VespertideConfig;
 use vespertide_core::TableDef;
 use vespertide_exporter::{Orm, render_entity_with_schema, seaorm::SeaOrmExporterWithConfig};
 
+use crate::parallel_config::{EXPORT_RENDER_PAR_MIN_LEN, EXPORT_RENDER_PAR_THRESHOLD};
 use crate::utils::load_config;
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -77,27 +79,29 @@ pub async fn cmd_export(orm: OrmArg, export_dir: Option<PathBuf>) -> Result<()> 
 
     // Create SeaORM exporter with config if needed
     let seaorm_exporter = SeaOrmExporterWithConfig::new(config.seaorm(), config.prefix());
+    let render_context = ExportRenderContext {
+        target_root: &target_root,
+        all_tables: &all_tables,
+        module_paths: &module_paths,
+        crate_prefix: &crate_prefix,
+        seaorm_exporter: &seaorm_exporter,
+        orm_kind,
+    };
 
     // Generate all entity code (CPU-bound, done synchronously)
-    let entities: Vec<(String, PathBuf, String)> = normalized_models
-        .iter()
-        .map(|(table, rel_path)| {
-            let code = match orm_kind {
-                Orm::SeaOrm => seaorm_exporter
-                    .render_entity_with_schema_and_paths(
-                        table,
-                        &all_tables,
-                        &module_paths,
-                        &crate_prefix,
-                    )
-                    .map_err(|e| anyhow::anyhow!(e)),
-                _ => render_entity_with_schema(orm_kind, table, &all_tables)
-                    .map_err(|e| anyhow::anyhow!(e)),
-            }?;
-            let out_path = build_output_path(&target_root, rel_path, orm_kind);
-            Ok((table.name.clone(), out_path, code))
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let entities: Vec<(String, PathBuf, String)> =
+        if normalized_models.len() < EXPORT_RENDER_PAR_THRESHOLD {
+            normalized_models
+                .iter()
+                .map(|model| render_export_entity(model, &render_context))
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            normalized_models
+                .par_iter()
+                .with_min_len(EXPORT_RENDER_PAR_MIN_LEN)
+                .map(|model| render_export_entity(model, &render_context))
+                .collect::<Result<Vec<_>>>()?
+        };
 
     // Write all files in parallel
     let write_futures: Vec<_> = entities
@@ -134,6 +138,37 @@ pub async fn cmd_export(orm: OrmArg, export_dir: Option<PathBuf>) -> Result<()> 
     }
 
     Ok(())
+}
+
+struct ExportRenderContext<'a> {
+    target_root: &'a Path,
+    all_tables: &'a [TableDef],
+    module_paths: &'a HashMap<String, Vec<String>>,
+    crate_prefix: &'a str,
+    seaorm_exporter: &'a SeaOrmExporterWithConfig<'a>,
+    orm_kind: Orm,
+}
+
+fn render_export_entity(
+    (table, rel_path): &(TableDef, PathBuf),
+    context: &ExportRenderContext<'_>,
+) -> Result<(String, PathBuf, String)> {
+    let code = match context.orm_kind {
+        Orm::SeaOrm => context
+            .seaorm_exporter
+            .render_entity_with_schema_and_paths(
+                table,
+                context.all_tables,
+                context.module_paths,
+                context.crate_prefix,
+            )
+            .map_err(|e| anyhow::anyhow!(e)),
+        _ => render_entity_with_schema(context.orm_kind, table, context.all_tables)
+            .map_err(|e| anyhow::anyhow!(e)),
+    }?;
+    let out_path = build_output_path(context.target_root, rel_path, context.orm_kind);
+
+    Ok((table.name.clone(), out_path, code))
 }
 
 /// Derive `crate::` prefix from the export directory path.

@@ -10,7 +10,7 @@ mod tests_edge_cases;
 use crate::orm::OrmExporter;
 use vespertide_core::TableDef;
 
-pub use render::render_entity;
+pub use render::{render_entities, render_entity};
 
 pub struct SqlModelExporter;
 

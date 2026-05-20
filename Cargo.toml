@@ -41,6 +41,7 @@ missing_panics_doc = "allow"       # same as above; we don't panic in production
 return_self_not_must_use = "allow" # builder patterns are obvious from context
 
 [workspace.dependencies]
+rayon = "1.12"
 vespertide-core = { path = "crates/vespertide-core", version = "=0.1.61", default-features = false }
 vespertide-config = { path = "crates/vespertide-config", version = "=0.1.61", default-features = false }
 vespertide-loader = { path = "crates/vespertide-loader", version = "=0.1.61", default-features = false }

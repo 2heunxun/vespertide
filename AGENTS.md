@@ -122,24 +122,53 @@ cargo insta test -p vespertide-exporter
 cargo insta accept
 ```
 
-## COMPLEXITY HOTSPOTS (subject to 1000-line split)
+## COMPLEXITY HOTSPOTS (≤ 1000-line policy enforced)
+
+**Policy**: Every `.rs` file must stay ≤ 1000 lines. CI enforces; current state: ✅ zero violations.
+
+Largest production files (margin 임박 = next split candidates):
 
 | File | Lines | What |
 |------|-------|------|
-| `planner/src/diff.rs` | 4739 | Schema diffing with topological FK sort |
-| `exporter/src/seaorm/mod.rs` | 4122 | SeaORM codegen with relation inference |
-| `cli/src/commands/revision.rs` | 3064 | Revision generation, prompts, action emit |
-| `planner/src/validate.rs` | 2299 | Schema/migration validation |
-| `planner/src/apply.rs` | 1534 | Action replay onto baseline schema |
-| `core/src/schema/table.rs` | 1526 | Table normalization logic |
-| `query/src/sql/mod.rs` | 1507 | Dispatch and shared builder helpers |
-| `query/src/sql/remove_constraint.rs` | 1465 | SQLite temp-table workarounds |
-| `exporter/src/sqlalchemy/mod.rs` | 1383 | SQLAlchemy 2.x codegen |
-| `query/src/sql/add_constraint.rs` | 1356 | PK/FK/Unique/CHECK emission |
-| `exporter/src/sqlmodel/mod.rs` | 1274 | SQLModel/FastAPI codegen |
-| `core/src/action.rs` | 1236 | 14 `MigrationAction` variants + helpers |
-| `exporter/src/jpa/mod.rs` | 1122 | JPA codegen |
-| `query/src/sql/delete_column.rs` | 1084 | DROP COLUMN with SQLite rebuild |
+| `exporter/src/seaorm/relations.rs` | 996 | SeaORM FK relation resolution + sequential aggregation |
+| `cli/src/commands/export.rs` | 991 | CLI export command for 4 ORMs |
+| `query/src/sql/create_table.rs` | 750 | CREATE TABLE statement generation |
+| `query/src/sql/add_column.rs` | 732 | ADD COLUMN with SQLite temp-table for non-nullable/enum |
+| `query/src/sql/helpers.rs` | 706 | Column type mapping, FK actions, enum/naming helpers |
+| `cli/src/commands/diff.rs` | 659 | Diff CLI command |
+| `loader/src/models.rs` | 641 | Model file loading with rayon parallelization |
+| `naming/src/lib.rs` | 630 | Naming convention utilities |
+| `query/src/sql/modify_column_default.rs` | 604 | ALTER COLUMN SET/DROP DEFAULT |
+
+Largest test files (snapshot-locked; split costs snapshot rename):
+
+| File | Lines | What |
+|------|-------|------|
+| `exporter/src/seaorm/tests.rs` | 990 | SeaORM codegen snapshots |
+| `core/src/schema/table/tests.rs` | 986 | Table normalization tests |
+| `exporter/src/sqlalchemy/tests.rs` | 988 | SQLAlchemy snapshots |
+| `query/src/sql/delete_column/tests.rs` | 954 | DROP COLUMN tests |
+| `planner/src/validate/tests/plan_validation.rs` | 954 | Plan validation tests |
+
+**Historical splits** (Waves 1-9 of optimization work):
+- `planner/src/diff.rs` (4739) → `diff/{mod,columns,constraints,ordering,tables}.rs`
+- `exporter/src/seaorm/mod.rs` (4122) → split into `mod.rs` + `relations.rs` + `helper_tests.rs`
+- `cli/src/commands/revision.rs` (3064) → `revision/{mod,prompts,recreate,tests}.rs`
+- `planner/src/validate.rs` (2299) → `validate/{plan,schema,foreign_keys,tests}.rs`
+- `planner/src/apply.rs` (1534) → `apply/{mod,tests}.rs`
+- `core/src/schema/table.rs` (1526) → `table/{mod,tests}.rs`
+- `query/src/sql/mod.rs` (1507) → `sql/{mod,tests}.rs`
+- `query/src/sql/remove_constraint.rs` (1465) → `remove_constraint/{mod,sqlite,...}.rs`
+- `exporter/src/sqlalchemy/mod.rs` (1383) → `sqlalchemy/{mod,render,types,tests}.rs`
+- `query/src/sql/add_constraint.rs` (1356) → `add_constraint/{mod,tests}.rs`
+- `exporter/src/sqlmodel/mod.rs` (1274) → `sqlmodel/{mod,render,types,tests}.rs`
+- `core/src/action.rs` (1236) → `action/{mod,tests}.rs`
+- `exporter/src/jpa/mod.rs` (1122) → `jpa/{mod,render,types}.rs`
+- `query/src/sql/delete_column.rs` (1084) → `delete_column/{mod,tests}.rs`
+- `query/src/sql/modify_column_type.rs` (1056, Wave 9) → `modify_column_type/{mod,direct,sqlite_rebuild,tests}.rs`
+- `query/src/builder.rs` (995, Wave 9 preventive) → `builder/{mod,sequential,transaction,parallel,tests}.rs`
+
+Verify line policy: `python -c "import os, glob; files = []; [files.extend(glob.glob(os.path.join(r,'*.rs'))) for r,_,_ in os.walk('crates')]; over = [(sum(1 for _ in open(f, encoding='utf-8', errors='ignore')), f) for f in files]; result = sorted([x for x in over if x[0] > 1000], reverse=True); print('\n'.join(f'{l:5} {p}' for l, p in result) if result else 'OK: zero files >1000 lines')"`
 
 ## TESTING
 

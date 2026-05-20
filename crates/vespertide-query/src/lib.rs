@@ -6,6 +6,7 @@
 
 pub mod builder;
 pub mod error;
+mod parallel_config;
 pub mod sql;
 
 pub use builder::{

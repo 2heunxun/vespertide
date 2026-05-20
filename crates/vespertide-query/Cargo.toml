@@ -12,17 +12,19 @@ categories = ["database"]
 readme = "../../README.md"
 
 [dependencies]
+rayon = { workspace = true }
 vespertide-core = { workspace = true }
 vespertide-naming = { workspace = true }
 vespertide-planner = { workspace = true }
 thiserror = "2"
-sea-query = "0.32"
+sea-query = { version = "0.32", features = ["thread-safe"] }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 rstest = "0.26"
 insta = "1.47"
 proptest = "1"
+serial_test = "3.4"
 vespertide-core = { workspace = true, features = ["arbitrary"] }
 # Daemon-free SQL validation:
 # - rusqlite (bundled): in-memory SQLite for real execution checks (no system libsqlite needed)
