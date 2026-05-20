@@ -11,6 +11,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 vespertide-core = { path = "../crates/vespertide-core", features = ["arbitrary"] }
+vespertide-lsp = { path = "../crates/vespertide-lsp" }
 vespertide-planner = { path = "../crates/vespertide-planner" }
 vespertide-query = { path = "../crates/vespertide-query" }
 arbitrary = { version = "1", features = ["derive"] }
@@ -33,6 +34,13 @@ bench = false
 [[bin]]
 name = "fuzz_migration_apply"
 path = "fuzz_targets/fuzz_migration_apply.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_lsp_request"
+path = "fuzz_targets/fuzz_lsp_request.rs"
 test = false
 doc = false
 bench = false

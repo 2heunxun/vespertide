@@ -4729,6 +4729,7 @@ dependencies = [
  "libfuzzer-sys",
  "serde_json",
  "vespertide-core",
+ "vespertide-lsp",
  "vespertide-planner",
  "vespertide-query",
 ]

@@ -24,6 +24,7 @@ jobs:
           - fuzz_model_deser
           - fuzz_sql_identifier
           - fuzz_migration_apply
+          - fuzz_lsp_request
     steps:
       - uses: actions/checkout@v6
 
