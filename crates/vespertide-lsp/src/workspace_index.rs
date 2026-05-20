@@ -94,6 +94,16 @@ impl WorkspaceIndex {
             .map(|uri| TableLocation { uri: uri.clone() })
     }
 
+    /// Snapshot of all known table names. Sorted by [`BTreeMap`] iteration order.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
+    #[must_use]
+    pub fn tables(&self) -> Vec<String> {
+        let inner = self.inner.read().unwrap();
+        inner.by_name.keys().cloned().collect()
+    }
+
     /// Number of indexed tables.
     ///
     /// # Panics

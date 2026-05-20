@@ -15,9 +15,11 @@ use std::sync::Arc;
 
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::{
-    Diagnostic, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
-    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
+    CompletionItem, CompletionItemKind as LspCompletionItemKind, CompletionOptions,
+    CompletionParams, CompletionResponse, Diagnostic, DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
+    InitializeParams, InitializeResult, InitializedParams, InsertTextFormat, Location,
     MarkupContent, MarkupKind, MessageType, OneOf, Position, Range, ServerCapabilities, ServerInfo,
     TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
 };
@@ -109,6 +111,10 @@ impl LanguageServer for Backend {
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                completion_provider: Some(CompletionOptions {
+                    trigger_characters: Some(vec!["\"".to_string(), ":".to_string()]),
+                    ..CompletionOptions::default()
+                }),
                 ..ServerCapabilities::default()
             },
             server_info: Some(ServerInfo {
@@ -129,6 +135,52 @@ impl LanguageServer for Backend {
 
     async fn shutdown(&self) -> Result<()> {
         Ok(())
+    }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let pos_ls = params.text_document_position.position;
+        let pos_lsp = crate::position::ls_to_lsp_position(pos_ls);
+        let Some(format) = DocumentFormat::from_uri(uri) else {
+            return Ok(None);
+        };
+
+        let items = self.store.docs_iter_for_uri(uri, |state| {
+            let text = state.text();
+            let byte = crate::position::lsp_position_to_byte(&state.doc, pos_lsp);
+            crate::completion::compute(
+                text,
+                format,
+                state.tree.as_ref(),
+                self.index.as_ref(),
+                self.store.as_ref(),
+                byte,
+            )
+            .into_iter()
+            .map(|item| CompletionItem {
+                label: item.label.clone(),
+                kind: Some(match item.kind {
+                    crate::completion::CompletionItemKind::Value => LspCompletionItemKind::VALUE,
+                    crate::completion::CompletionItemKind::Property => {
+                        LspCompletionItemKind::PROPERTY
+                    }
+                    crate::completion::CompletionItemKind::Reference => {
+                        LspCompletionItemKind::REFERENCE
+                    }
+                    crate::completion::CompletionItemKind::Snippet => {
+                        LspCompletionItemKind::SNIPPET
+                    }
+                }),
+                detail: item.detail,
+                insert_text_format: item.insert_text.as_ref().map(|_| InsertTextFormat::SNIPPET),
+                insert_text: item.insert_text,
+                sort_text: Some(format!("{:03}{}", item.sort_priority, item.label)),
+                ..CompletionItem::default()
+            })
+            .collect::<Vec<_>>()
+        });
+
+        Ok(items.map(CompletionResponse::Array))
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {

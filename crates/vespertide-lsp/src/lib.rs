@@ -13,6 +13,7 @@
 //! tree-sitter parse.
 
 mod backend;
+mod completion;
 mod definition;
 mod diagnostics;
 mod document;
@@ -23,6 +24,7 @@ mod store;
 mod workspace_index;
 
 pub use backend::Backend;
+pub use completion::{CompletionItemKind, DomainCompletion, compute as compute_completion};
 pub use definition::{DomainLocation, compute as compute_definition};
 pub use diagnostics::{DomainDiagnostic, Severity, compute as compute_diagnostics};
 pub use document::DocumentState;
