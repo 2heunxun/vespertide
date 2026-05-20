@@ -123,3 +123,6 @@ result-*
 *.temp
 # LibreOffice / OpenOffice lock files
 .~lock.*
+
+# ─── Node.js (apps/landing Next.js project from origin/main) ──────────
+node_modules
