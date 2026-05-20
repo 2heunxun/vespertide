@@ -13,6 +13,7 @@
 //! tree-sitter parse.
 
 mod backend;
+mod diagnostics;
 mod document;
 mod parser;
 mod position;
@@ -20,6 +21,7 @@ mod store;
 mod workspace_index;
 
 pub use backend::Backend;
+pub use diagnostics::{DomainDiagnostic, Severity, compute as compute_diagnostics};
 pub use document::DocumentState;
 pub use parser::{DocumentFormat, ParserPool};
 pub use position::{

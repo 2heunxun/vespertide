@@ -4,10 +4,8 @@
 //! [`WorkspaceIndex`]; implements [`LanguageServer`] from tower-lsp-server.
 //!
 //! Wave 1 handled only the lifecycle requests (`initialize`, `initialized`,
-//! `shutdown`). Wave 2 (T2 + T3) introduces the document data layer and
-//! cross-file index, wiring `did_open` / `did_change` / `did_close` to
-//! [`DocumentStore`] mutations and [`WorkspaceIndex`] reindexing. Analysis
-//! features (diagnostics, hover, …) layer on top in subsequent tasks.
+//! `shutdown`). Wave 2 (T2 + T3) introduced the document data layer and
+//! cross-file index. Wave 3 wires diagnostics publication on open/change/close.
 //!
 //! Note: tower-lsp-server re-exports the upstream `lsp-types` crate under
 //! the name `ls_types` (NOT `lsp_types`). Using `lsp_types::` directly
@@ -17,12 +15,14 @@ use std::sync::Arc;
 
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::{
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    Diagnostic, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     InitializeParams, InitializeResult, InitializedParams, MessageType, ServerCapabilities,
     ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
 };
 use tower_lsp_server::{Client, LanguageServer};
 
+use crate::diagnostics::{self, mapper};
+use crate::parser::DocumentFormat;
 use crate::store::DocumentStore;
 use crate::workspace_index::WorkspaceIndex;
 
@@ -64,6 +64,38 @@ impl Backend {
             }
         });
     }
+
+    /// Compute and publish diagnostics for a document.
+    ///
+    /// V1 publishes immediately on full-sync events. A 100ms debounce can be
+    /// added later if clients report noisy updates during rapid editing.
+    async fn publish(&self, uri: Uri) {
+        let diagnostics = self.compute_lsp_diagnostics(&uri);
+        self.client
+            .publish_diagnostics(uri, diagnostics, None)
+            .await;
+    }
+
+    fn compute_lsp_diagnostics(&self, uri: &Uri) -> Vec<Diagnostic> {
+        let Some(format) = DocumentFormat::from_uri(uri) else {
+            return Vec::new();
+        };
+
+        self.store
+            .docs_iter_for_uri(uri, |state| {
+                let domain = diagnostics::compute(
+                    state.text(),
+                    format,
+                    state.tree.as_ref(),
+                    self.index.as_ref(),
+                );
+                domain
+                    .iter()
+                    .map(|diag| mapper::to_lsp(diag, &state.doc))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
 }
 
 impl LanguageServer for Backend {
@@ -97,22 +129,28 @@ impl LanguageServer for Backend {
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let td = params.text_document;
+        let uri = td.uri.clone();
         self.store
-            .open(td.uri.clone(), td.language_id.clone(), td.version, td.text);
-        self.reindex(&td.uri);
+            .open(uri.clone(), td.language_id, td.version, td.text);
+        self.reindex(&uri);
+        self.publish(uri).await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let td = params.text_document;
         // V1 = FULL sync: changes[0].text is the entire new content.
         if let Some(change) = params.content_changes.into_iter().next() {
-            self.store.update_full(&td.uri, change.text, td.version);
-            self.reindex(&td.uri);
+            let uri = td.uri;
+            self.store.update_full(&uri, change.text, td.version);
+            self.reindex(&uri);
+            self.publish(uri).await;
         }
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        self.store.close(&params.text_document.uri);
-        self.index.remove(&params.text_document.uri);
+        let uri = params.text_document.uri;
+        self.store.close(&uri);
+        self.index.remove(&uri);
+        self.client.publish_diagnostics(uri, Vec::new(), None).await;
     }
 }

@@ -78,6 +78,18 @@ impl DocumentStore {
             .get(uri)
             .map(|state| f(state.text(), state.tree.as_ref()))
     }
+
+    /// Apply a closure to the full document state. Returns `None` if not open.
+    ///
+    /// Used by diagnostic publication to access text, tree, and
+    /// [`lsp_textdocument::FullTextDocument`] together.
+    pub fn docs_iter_for_uri<R>(
+        &self,
+        uri: &Uri,
+        f: impl FnOnce(&DocumentState) -> R,
+    ) -> Option<R> {
+        self.docs.get(uri).map(|state| f(&state))
+    }
 }
 
 impl Default for DocumentStore {
