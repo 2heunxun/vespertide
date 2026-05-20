@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/*", "examples/app", "fuzz"]
+exclude = ["apps/zed-extension"]
 default-members = [
     "crates/vespertide",
     "crates/vespertide-cli",
