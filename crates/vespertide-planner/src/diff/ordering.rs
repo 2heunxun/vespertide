@@ -23,7 +23,7 @@ pub(super) fn topological_sort_tables<'a>(
     // Build adjacency list: for each table, list the tables it depends on (via FK)
     // Use BTreeMap for consistent ordering
     // Use BTreeSet to avoid duplicate dependencies (e.g., multiple FKs referencing the same table)
-    let mut dependencies: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    let mut dependencies: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
     for table in tables {
         let mut deps_set: BTreeSet<&str> = BTreeSet::new();
         for constraint in &table.constraints {
@@ -34,7 +34,7 @@ pub(super) fn topological_sort_tables<'a>(
                 }
             }
         }
-        dependencies.insert(table.name.as_str(), deps_set.into_iter().collect());
+        dependencies.insert(table.name.as_str(), deps_set);
     }
 
     // Kahn's algorithm for topological sort
@@ -64,7 +64,7 @@ pub(super) fn topological_sort_tables<'a>(
         .map(|(name, _)| *name)
         .collect();
 
-    let mut result: Vec<&TableDef> = Vec::new();
+    let mut result: Vec<&TableDef> = Vec::with_capacity(tables.len());
     let table_map: BTreeMap<&str, &TableDef> =
         tables.iter().map(|t| (t.name.as_str(), *t)).collect();
 
@@ -150,7 +150,7 @@ pub(super) fn sort_delete_tables(
     // dependencies[A] = [B] means A has FK referencing B
     // Use BTreeMap for consistent ordering
     // Use BTreeSet to avoid duplicate dependencies (e.g., multiple FKs referencing the same table)
-    let mut dependencies: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    let mut dependencies: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
     for &table_name in &delete_table_names {
         let mut deps_set: BTreeSet<&str> = BTreeSet::new();
         if let Some(table_def) = all_tables.get(table_name) {
@@ -163,7 +163,7 @@ pub(super) fn sort_delete_tables(
                 }
             }
         }
-        dependencies.insert(table_name, deps_set.into_iter().collect());
+        dependencies.insert(table_name, deps_set);
     }
 
     // Use Kahn's algorithm for topological sort
@@ -173,7 +173,9 @@ pub(super) fn sort_delete_tables(
     for &table_name in &delete_table_names {
         in_degree.insert(
             table_name,
-            dependencies.get(table_name).map_or(0, std::vec::Vec::len),
+            dependencies
+                .get(table_name)
+                .map_or(0, std::collections::BTreeSet::len),
         );
     }
 
@@ -185,7 +187,7 @@ pub(super) fn sort_delete_tables(
         .map(|(name, _)| *name)
         .collect();
 
-    let mut sorted_tables: Vec<&str> = Vec::new();
+    let mut sorted_tables: Vec<&str> = Vec::with_capacity(delete_table_names.len());
     while let Some(table_name) = queue.pop_front() {
         sorted_tables.push(table_name);
 
@@ -210,6 +212,12 @@ pub(super) fn sort_delete_tables(
     // Reverse to get deletion order (tables with dependencies should be deleted first)
     sorted_tables.reverse();
 
+    let sorted_positions: BTreeMap<&str, usize> = sorted_tables
+        .iter()
+        .enumerate()
+        .map(|(idx, &name)| (name, idx))
+        .collect();
+
     // Reorder the DeleteTable actions according to sorted order
     let mut delete_actions: Vec<MigrationAction> =
         delete_indices.iter().map(|&i| actions[i].clone()).collect();
@@ -218,8 +226,8 @@ pub(super) fn sort_delete_tables(
         let a_name = extract_delete_table_name(a);
         let b_name = extract_delete_table_name(b);
 
-        let a_pos = sorted_tables.iter().position(|&t| t == a_name).unwrap_or(0);
-        let b_pos = sorted_tables.iter().position(|&t| t == b_name).unwrap_or(0);
+        let a_pos = sorted_positions.get(a_name).copied().unwrap_or(0);
+        let b_pos = sorted_positions.get(b_name).copied().unwrap_or(0);
         a_pos.cmp(&b_pos)
     });
 

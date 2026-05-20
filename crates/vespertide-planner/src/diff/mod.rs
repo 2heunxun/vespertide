@@ -24,7 +24,8 @@ pub fn diff_schemas(from: &[TableDef], to: &[TableDef]) -> Result<MigrationPlan,
             .map_err(|e| PlannerError::TableValidation(e.to_string()))?;
     }
 
-    let mut actions: Vec<MigrationAction> = Vec::new();
+    let estimated_actions = from.len().saturating_add(to.len());
+    let mut actions: Vec<MigrationAction> = Vec::with_capacity(estimated_actions);
 
     let from_normalized = tables::normalize_schema(from)?;
     let to_normalized = tables::normalize_schema(to)?;
@@ -90,7 +91,7 @@ fn diff_existing_table(
     from_map: &BTreeMap<&str, &TableDef>,
     to_tbl: &TableDef,
 ) -> Vec<MigrationAction> {
-    let mut local_actions = Vec::new();
+    let mut local_actions = Vec::with_capacity(4);
     diff_existing_table_into(&mut local_actions, name, from_map, to_tbl);
     local_actions
 }
