@@ -11,17 +11,19 @@
 //! the name `ls_types` (NOT `lsp_types`). Using `lsp_types::` directly
 //! would fail to resolve.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::{
     CompletionItem, CompletionItemKind as LspCompletionItemKind, CompletionOptions,
-    CompletionParams, CompletionResponse, Diagnostic, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, GotoDefinitionParams,
-    GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
-    InitializeParams, InitializeResult, InitializedParams, InsertTextFormat, Location,
-    MarkupContent, MarkupKind, MessageType, OneOf, Position, Range, ServerCapabilities, ServerInfo,
-    TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
+    CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
+    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DocumentFormattingParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
+    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
+    InsertTextFormat, Location, MarkupContent, MarkupKind, MessageType, NumberOrString, OneOf,
+    Position, Range, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextEdit, Uri,
 };
 use tower_lsp_server::{Client, LanguageServer};
 
@@ -85,7 +87,8 @@ impl Backend {
             return Vec::new();
         };
 
-        self.store
+        let mut diagnostics: Vec<Diagnostic> = self
+            .store
             .docs_iter_for_uri(uri, |state| {
                 let domain = diagnostics::compute(
                     state.text(),
@@ -98,7 +101,52 @@ impl Backend {
                     .map(|diag| mapper::to_lsp(diag, &state.doc))
                     .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+
+        if let Some(root) = Self::workspace_root_for(uri) {
+            for drift in crate::drift::compute(&root, self.index.as_ref(), self.store.as_ref()) {
+                if drift.uri == *uri {
+                    diagnostics.push(Self::drift_diagnostic(&drift.summary));
+                }
+            }
+        }
+
+        diagnostics
+    }
+
+    fn drift_diagnostic(summary: &str) -> Diagnostic {
+        Diagnostic {
+            range: Range {
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: 0,
+                    character: 0,
+                },
+            },
+            severity: Some(DiagnosticSeverity::INFORMATION),
+            code: Some(NumberOrString::String("drift".to_string())),
+            code_description: None,
+            source: Some("vespertide-lsp".to_string()),
+            message: format!("Model drift detected — {summary}"),
+            related_information: None,
+            tags: None,
+            data: None,
+        }
+    }
+
+    fn workspace_root_for(uri: &Uri) -> Option<PathBuf> {
+        let path = crate::position::uri_to_path(uri)?;
+        let mut current = path.parent();
+        while let Some(dir) = current {
+            if dir.join("vespertide.json").exists() {
+                return Some(dir.to_path_buf());
+            }
+            current = dir.parent();
+        }
+        None
     }
 }
 
@@ -115,6 +163,7 @@ impl LanguageServer for Backend {
                     trigger_characters: Some(vec!["\"".to_string(), ":".to_string()]),
                     ..CompletionOptions::default()
                 }),
+                document_formatting_provider: Some(OneOf::Left(true)),
                 ..ServerCapabilities::default()
             },
             server_info: Some(ServerInfo {
@@ -287,6 +336,38 @@ impl LanguageServer for Backend {
             uri: domain.uri,
             range: target_range,
         })))
+    }
+
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        let uri = &params.text_document.uri;
+        let Some(format) = DocumentFormat::from_uri(uri) else {
+            return Ok(None);
+        };
+
+        let result = self.store.docs_iter_for_uri(uri, |state| {
+            let original = state.text();
+            let formatted = crate::formatting::format_text(original, format)?;
+            if formatted == original {
+                return Some(Vec::new());
+            }
+
+            let end = crate::position::byte_to_lsp_position(&state.doc, original.len());
+            Some(vec![TextEdit {
+                range: Range {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: end.line,
+                        character: end.character,
+                    },
+                },
+                new_text: formatted,
+            }])
+        });
+
+        Ok(result.flatten())
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {

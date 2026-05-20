@@ -10,6 +10,7 @@
 //! analysis engine.
 
 use lsp_textdocument::FullTextDocument;
+use tower_lsp_server::ls_types::Uri;
 
 /// Convert an LSP `lsp_types::Position` to a UTF-8 byte offset.
 #[must_use]
@@ -50,6 +51,29 @@ pub fn ls_to_lsp_range(r: tower_lsp_server::ls_types::Range) -> lsp_types::Range
         start: ls_to_lsp_position(r.start),
         end: ls_to_lsp_position(r.end),
     }
+}
+
+/// Convert a `file://` URI into a local filesystem path.
+#[must_use]
+pub fn uri_to_path(uri: &Uri) -> Option<std::path::PathBuf> {
+    let uri_text = uri.to_string();
+    let path = uri_text.strip_prefix("file://")?;
+
+    let path = if cfg!(windows) {
+        path.strip_prefix('/')
+            .filter(|without_slash| has_windows_drive_prefix(without_slash))
+            .unwrap_or(path)
+            .replace('/', std::path::MAIN_SEPARATOR_STR)
+    } else {
+        path.to_string()
+    };
+
+    Some(std::path::PathBuf::from(path))
+}
+
+fn has_windows_drive_prefix(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic()
 }
 
 #[cfg(test)]

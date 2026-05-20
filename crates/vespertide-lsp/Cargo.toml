@@ -51,6 +51,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Vespertide workspace members
 vespertide-core = { workspace = true }
+vespertide-config = { workspace = true }
 vespertide-planner = { workspace = true }
 vespertide-loader = { workspace = true }
 

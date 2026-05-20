@@ -17,6 +17,8 @@ mod completion;
 mod definition;
 mod diagnostics;
 mod document;
+mod drift;
+mod formatting;
 mod hover;
 mod parser;
 mod position;
@@ -28,11 +30,13 @@ pub use completion::{CompletionItemKind, DomainCompletion, compute as compute_co
 pub use definition::{DomainLocation, compute as compute_definition};
 pub use diagnostics::{DomainDiagnostic, Severity, compute as compute_diagnostics};
 pub use document::DocumentState;
+pub use drift::{DomainDrift, compute as compute_drift};
+pub use formatting::format_text;
 pub use hover::{DomainHover, compute as compute_hover};
 pub use parser::{DocumentFormat, ParserPool};
 pub use position::{
     byte_to_lsp_position, ls_to_lsp_position, ls_to_lsp_range, lsp_position_to_byte,
-    lsp_to_ls_position,
+    lsp_to_ls_position, uri_to_path,
 };
 pub use store::DocumentStore;
 pub use workspace_index::{TableLocation, WorkspaceIndex};

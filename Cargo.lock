@@ -4770,6 +4770,7 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-json",
  "tree-sitter-yaml",
+ "vespertide-config",
  "vespertide-core",
  "vespertide-loader",
  "vespertide-planner",
