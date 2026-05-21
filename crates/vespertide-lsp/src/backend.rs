@@ -82,19 +82,69 @@ impl Backend {
             .await;
     }
 
+    async fn publish_related(&self, changed_uri: &Uri) {
+        let other_uris: Vec<Uri> = self
+            .store
+            .open_uris()
+            .into_iter()
+            .filter(|uri| uri != changed_uri)
+            .collect();
+
+        for uri in other_uris {
+            self.publish(uri).await;
+        }
+    }
+
+    fn collect_workspace_tables(&self) -> Vec<diagnostics::WorkspaceTable> {
+        let mut workspace = Vec::new();
+
+        self.store.for_each(|uri, state| {
+            let text = state.text();
+            let Some(tree) = state.tree.clone() else {
+                return;
+            };
+            let parsed = match state.format {
+                DocumentFormat::Json => {
+                    serde_json::from_str::<vespertide_core::TableDef>(text).ok()
+                }
+                DocumentFormat::Yaml => {
+                    serde_yaml::from_str::<vespertide_core::TableDef>(text).ok()
+                }
+            };
+            let Some(table) = parsed else {
+                return;
+            };
+            let Ok(table) = table.normalize() else {
+                return;
+            };
+
+            workspace.push(diagnostics::WorkspaceTable {
+                uri: uri.clone(),
+                table,
+                source: text.to_string(),
+                tree,
+            });
+        });
+
+        workspace
+    }
+
     fn compute_lsp_diagnostics(&self, uri: &Uri) -> Vec<Diagnostic> {
         let Some(format) = DocumentFormat::from_uri(uri) else {
             return Vec::new();
         };
 
+        let workspace = self.collect_workspace_tables();
+
         let mut diagnostics: Vec<Diagnostic> = self
             .store
             .docs_iter_for_uri(uri, |state| {
-                let domain = diagnostics::compute(
+                let domain = diagnostics::compute_workspace(
                     state.text(),
                     format,
                     state.tree.as_ref(),
-                    self.index.as_ref(),
+                    &workspace,
+                    uri,
                 );
                 domain
                     .iter()
@@ -376,7 +426,8 @@ impl LanguageServer for Backend {
         self.store
             .open(uri.clone(), td.language_id, td.version, td.text);
         self.reindex(&uri);
-        self.publish(uri).await;
+        self.publish(uri.clone()).await;
+        self.publish_related(&uri).await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
@@ -386,7 +437,8 @@ impl LanguageServer for Backend {
             let uri = td.uri;
             self.store.update_full(&uri, change.text, td.version);
             self.reindex(&uri);
-            self.publish(uri).await;
+            self.publish(uri.clone()).await;
+            self.publish_related(&uri).await;
         }
     }
 
@@ -394,6 +446,9 @@ impl LanguageServer for Backend {
         let uri = params.text_document.uri;
         self.store.close(&uri);
         self.index.remove(&uri);
-        self.client.publish_diagnostics(uri, Vec::new(), None).await;
+        self.client
+            .publish_diagnostics(uri.clone(), Vec::new(), None)
+            .await;
+        self.publish_related(&uri).await;
     }
 }
