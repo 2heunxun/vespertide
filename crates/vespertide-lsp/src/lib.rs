@@ -15,7 +15,7 @@
 mod backend;
 mod completion;
 mod definition;
-mod diagnostics;
+pub mod diagnostics;
 mod document;
 mod drift;
 mod formatting;
@@ -28,7 +28,10 @@ mod workspace_index;
 pub use backend::Backend;
 pub use completion::{CompletionItemKind, DomainCompletion, compute as compute_completion};
 pub use definition::{DomainLocation, compute as compute_definition};
-pub use diagnostics::{DomainDiagnostic, Severity, compute as compute_diagnostics};
+pub use diagnostics::{
+    DomainDiagnostic, Severity, compute as compute_diagnostics,
+    compute_workspace as compute_workspace_diagnostics,
+};
 pub use document::DocumentState;
 pub use drift::{DomainDrift, compute as compute_drift};
 pub use formatting::format_text;

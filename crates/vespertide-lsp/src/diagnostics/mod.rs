@@ -14,8 +14,11 @@ use std::ops::Range;
 use crate::parser::DocumentFormat;
 use crate::workspace_index::WorkspaceIndex;
 
+pub mod locator;
 pub mod mapper;
-mod validation;
+pub mod validation;
+
+pub use validation::WorkspaceTable;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DomainDiagnostic {
@@ -59,6 +62,33 @@ pub fn compute(
     // Tier 3: planner validation (only if serde succeeded).
     if let Some(table) = parsed {
         validation::validate_table(&table, &mut diagnostics);
+    }
+
+    diagnostics
+}
+
+/// Compute diagnostics with workspace context for cross-file validation.
+#[must_use]
+pub fn compute_workspace(
+    text: &str,
+    format: DocumentFormat,
+    tree: Option<&tree_sitter::Tree>,
+    workspace: &[WorkspaceTable],
+    current_uri: &tower_lsp_server::ls_types::Uri,
+) -> Vec<DomainDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    if let Some(tree) = tree {
+        validation::collect_syntax_errors(tree, &mut diagnostics);
+    }
+
+    let parsed = match format {
+        DocumentFormat::Json => validation::try_parse_json(text, &mut diagnostics),
+        DocumentFormat::Yaml => validation::try_parse_yaml(text, &mut diagnostics),
+    };
+
+    if parsed.is_some() {
+        validation::validate_workspace(workspace, current_uri, &mut diagnostics);
     }
 
     diagnostics
