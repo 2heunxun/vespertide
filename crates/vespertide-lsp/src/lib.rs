@@ -24,6 +24,7 @@ mod parser;
 mod position;
 mod store;
 mod workspace_index;
+pub mod workspace_tables;
 
 pub use backend::Backend;
 pub use completion::{CompletionItemKind, DomainCompletion, compute as compute_completion};
@@ -43,3 +44,4 @@ pub use position::{
 };
 pub use store::DocumentStore;
 pub use workspace_index::{TableLocation, WorkspaceIndex};
+pub use workspace_tables::WorkspaceTables;
