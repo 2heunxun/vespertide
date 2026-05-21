@@ -11,7 +11,9 @@
 //! the name `ls_types` (NOT `lsp_types`). Using `lsp_types::` directly
 //! would fail to resolve.
 
-use std::path::PathBuf;
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
 
 use tower_lsp_server::jsonrpc::Result;
@@ -19,11 +21,12 @@ use tower_lsp_server::ls_types::{
     CompletionItem, CompletionItemKind as LspCompletionItemKind, CompletionOptions,
     CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DocumentFormattingParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
-    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
-    InsertTextFormat, Location, MarkupContent, MarkupKind, MessageType, NumberOrString, OneOf,
-    Position, Range, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextEdit, Uri,
+    DidSaveTextDocumentParams, DocumentFormattingParams, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
+    InitializeParams, InitializeResult, InitializedParams, InsertTextFormat, Location,
+    MarkupContent, MarkupKind, MessageType, NumberOrString, OneOf, Position, Range,
+    ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit, Uri,
 };
 use tower_lsp_server::{Client, LanguageServer};
 
@@ -31,6 +34,7 @@ use crate::diagnostics::{self, mapper};
 use crate::parser::DocumentFormat;
 use crate::store::DocumentStore;
 use crate::workspace_index::WorkspaceIndex;
+use crate::workspace_tables::WorkspaceTables;
 
 /// Vespertide language server backend.
 ///
@@ -46,6 +50,8 @@ pub struct Backend {
     pub store: Arc<DocumentStore>,
     /// Cross-file table-name → URI index; kept in sync with `store`.
     pub index: Arc<WorkspaceIndex>,
+    /// Disk-discovered model tables loaded from the workspace root.
+    pub workspace_tables: Arc<WorkspaceTables>,
 }
 
 impl Backend {
@@ -58,6 +64,7 @@ impl Backend {
             client,
             store: Arc::new(DocumentStore::new()),
             index: Arc::new(WorkspaceIndex::new()),
+            workspace_tables: Arc::new(WorkspaceTables::new()),
         }
     }
 
@@ -97,6 +104,7 @@ impl Backend {
 
     fn collect_workspace_tables(&self) -> Vec<diagnostics::WorkspaceTable> {
         let mut workspace = Vec::new();
+        let mut seen_names = BTreeSet::new();
 
         self.store.for_each(|uri, state| {
             let text = state.text();
@@ -118,15 +126,49 @@ impl Backend {
                 return;
             };
 
+            seen_names.insert(table.name.clone());
             workspace.push(diagnostics::WorkspaceTable {
                 uri: uri.clone(),
                 table,
                 source: text.to_string(),
-                tree,
+                tree: Some(tree),
             });
         });
 
+        for (name, table) in self.workspace_tables.all() {
+            if !seen_names.insert(name.clone()) {
+                continue;
+            }
+
+            workspace.push(diagnostics::WorkspaceTable {
+                uri: self.disk_table_uri(&name),
+                table,
+                source: String::new(),
+                tree: None,
+            });
+        }
+
         workspace
+    }
+
+    fn disk_table_uri(&self, table_name: &str) -> Uri {
+        self.workspace_tables
+            .model_path(table_name)
+            .and_then(|path| Self::path_to_uri(&path))
+            .unwrap_or_else(|| Self::fallback_disk_uri(table_name))
+    }
+
+    fn path_to_uri(path: &Path) -> Option<Uri> {
+        let mut path_text = path.to_string_lossy().replace('\\', "/");
+        if !path_text.starts_with('/') {
+            path_text = format!("/{path_text}");
+        }
+        Uri::from_str(&format!("file://{path_text}")).ok()
+    }
+
+    fn fallback_disk_uri(table_name: &str) -> Uri {
+        Uri::from_str(&format!("file:///__disk__/{table_name}.json"))
+            .expect("synthetic disk model URI should parse")
     }
 
     fn compute_lsp_diagnostics(&self, uri: &Uri) -> Vec<Diagnostic> {
@@ -198,14 +240,56 @@ impl Backend {
         }
         None
     }
+
+    fn refresh_workspace_tables_for_uri(&self, uri: &Uri) {
+        if let Some(root) = Self::workspace_root_for(uri) {
+            self.workspace_tables.refresh(&root);
+        }
+    }
+
+    fn refresh_workspace_tables_from_initialize(&self, params: &InitializeParams) {
+        if let Some(root_uri) = initialize_root_uri(params) {
+            if let Some(root) = crate::position::uri_to_path(root_uri) {
+                self.workspace_tables.refresh(&root);
+            }
+            return;
+        }
+
+        let Some(folders) = params.workspace_folders.as_ref() else {
+            return;
+        };
+        for folder in folders {
+            if let Some(root) = crate::position::uri_to_path(&folder.uri)
+                && self.workspace_tables.refresh(&root)
+            {
+                break;
+            }
+        }
+    }
+}
+
+#[allow(deprecated)]
+fn initialize_root_uri(params: &InitializeParams) -> Option<&Uri> {
+    // `root_uri` is deprecated in newer LSP versions, but several editors still
+    // send it without `workspace_folders`. Keep it as the first fallback for
+    // workspace discovery while isolating the compatibility warning here.
+    params.root_uri.as_ref()
 }
 
 impl LanguageServer for Backend {
-    async fn initialize(&self, _params: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        self.refresh_workspace_tables_from_initialize(&params);
+
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::FULL,
+                text_document_sync: Some(TextDocumentSyncCapability::Options(
+                    TextDocumentSyncOptions {
+                        open_close: Some(true),
+                        change: Some(TextDocumentSyncKind::FULL),
+                        will_save: None,
+                        will_save_wait_until: None,
+                        save: Some(TextDocumentSyncSaveOptions::Supported(true)),
+                    },
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
@@ -247,12 +331,13 @@ impl LanguageServer for Backend {
         let items = self.store.docs_iter_for_uri(uri, |state| {
             let text = state.text();
             let byte = crate::position::lsp_position_to_byte(&state.doc, pos_lsp);
-            crate::completion::compute(
+            crate::completion::compute_with_workspace_tables(
                 text,
                 format,
                 state.tree.as_ref(),
                 self.index.as_ref(),
                 self.store.as_ref(),
+                self.workspace_tables.as_ref(),
                 byte,
             )
             .into_iter()
@@ -426,6 +511,7 @@ impl LanguageServer for Backend {
         self.store
             .open(uri.clone(), td.language_id, td.version, td.text);
         self.reindex(&uri);
+        self.refresh_workspace_tables_for_uri(&uri);
         self.publish(uri.clone()).await;
         self.publish_related(&uri).await;
     }
@@ -437,15 +523,24 @@ impl LanguageServer for Backend {
             let uri = td.uri;
             self.store.update_full(&uri, change.text, td.version);
             self.reindex(&uri);
+            self.refresh_workspace_tables_for_uri(&uri);
             self.publish(uri.clone()).await;
             self.publish_related(&uri).await;
         }
+    }
+
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        let uri = params.text_document.uri;
+        self.refresh_workspace_tables_for_uri(&uri);
+        self.publish(uri.clone()).await;
+        self.publish_related(&uri).await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
         self.store.close(&uri);
         self.index.remove(&uri);
+        self.refresh_workspace_tables_for_uri(&uri);
         self.client
             .publish_diagnostics(uri.clone(), Vec::new(), None)
             .await;

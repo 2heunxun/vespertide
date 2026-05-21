@@ -6,6 +6,7 @@ mod values;
 use crate::parser::DocumentFormat;
 use crate::store::DocumentStore;
 use crate::workspace_index::WorkspaceIndex;
+use crate::workspace_tables::WorkspaceTables;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DomainCompletion {
@@ -41,6 +42,31 @@ pub fn compute(
     docs: &DocumentStore,
     byte_offset: usize,
 ) -> Vec<DomainCompletion> {
+    compute_inner(text, tree, index, docs, None, byte_offset)
+}
+
+/// Compute completions with disk-discovered workspace tables included.
+#[must_use]
+pub fn compute_with_workspace_tables(
+    text: &str,
+    _format: DocumentFormat,
+    tree: Option<&tree_sitter::Tree>,
+    index: &WorkspaceIndex,
+    docs: &DocumentStore,
+    disk_tables: &WorkspaceTables,
+    byte_offset: usize,
+) -> Vec<DomainCompletion> {
+    compute_inner(text, tree, index, docs, Some(disk_tables), byte_offset)
+}
+
+fn compute_inner(
+    text: &str,
+    tree: Option<&tree_sitter::Tree>,
+    index: &WorkspaceIndex,
+    docs: &DocumentStore,
+    disk_tables: Option<&WorkspaceTables>,
+    byte_offset: usize,
+) -> Vec<DomainCompletion> {
     let Some(tree) = tree else {
         return Vec::new();
     };
@@ -53,9 +79,9 @@ pub fn compute(
         context::Context::Nullable | context::Context::PrimaryKey | context::Context::Unique => {
             values::booleans()
         }
-        context::Context::RefTable => values::tables_in_workspace(index),
+        context::Context::RefTable => values::tables_in_workspace(index, disk_tables),
         context::Context::RefColumns { ref_table } => {
-            values::columns_of(ref_table.as_str(), index, docs)
+            values::columns_of(ref_table.as_str(), index, docs, disk_tables)
         }
         context::Context::None => Vec::new(),
     }

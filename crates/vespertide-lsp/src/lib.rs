@@ -27,7 +27,10 @@ mod workspace_index;
 pub mod workspace_tables;
 
 pub use backend::Backend;
-pub use completion::{CompletionItemKind, DomainCompletion, compute as compute_completion};
+pub use completion::{
+    CompletionItemKind, DomainCompletion, compute as compute_completion,
+    compute_with_workspace_tables as compute_completion_with_workspace_tables,
+};
 pub use definition::{DomainLocation, compute as compute_definition};
 pub use diagnostics::{
     DomainDiagnostic, Severity, compute as compute_diagnostics,

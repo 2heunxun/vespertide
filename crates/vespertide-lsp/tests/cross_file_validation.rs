@@ -33,13 +33,13 @@ fn cross_file_fk_resolves_to_existing_table() {
             uri: uri("user.json"),
             table: user_table,
             source: user_src.to_string(),
-            tree: user_tree,
+            tree: Some(user_tree),
         },
         WorkspaceTable {
             uri: uri("post.json"),
             table: post_table,
             source: post_src.to_string(),
-            tree: post_tree.clone(),
+            tree: Some(post_tree.clone()),
         },
     ];
 
@@ -75,7 +75,7 @@ fn cross_file_fk_missing_target_highlights_correct_column() {
         uri: uri("post.json"),
         table: post_table,
         source: post_src.to_string(),
-        tree: post_tree.clone(),
+        tree: Some(post_tree.clone()),
     }];
 
     let diags = compute_workspace_diagnostics(

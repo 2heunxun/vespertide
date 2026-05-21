@@ -85,12 +85,16 @@ impl ErrorLocation {
 ///
 /// Falls back to the table's top-level `name` value, then `0..1`.
 pub(super) fn locate_column(
-    tree: &tree_sitter::Tree,
+    tree: Option<&tree_sitter::Tree>,
     source: &str,
     column_name: &str,
 ) -> Range<usize> {
+    let Some(tree) = tree else {
+        return 0..1;
+    };
+
     locate_named_object(tree, source, "columns", column_name)
-        .or_else(|| locate_top_name(tree, source))
+        .or_else(|| locate_top_name(Some(tree), source))
         .unwrap_or(0..1)
 }
 
@@ -98,17 +102,25 @@ pub(super) fn locate_column(
 ///
 /// Falls back to the table's top-level `name` value, then `0..1`.
 pub(super) fn locate_constraint(
-    tree: &tree_sitter::Tree,
+    tree: Option<&tree_sitter::Tree>,
     source: &str,
     constraint_name: &str,
 ) -> Range<usize> {
+    let Some(tree) = tree else {
+        return 0..1;
+    };
+
     locate_named_object(tree, source, "constraints", constraint_name)
-        .or_else(|| locate_top_name(tree, source))
+        .or_else(|| locate_top_name(Some(tree), source))
         .unwrap_or(0..1)
 }
 
 /// Find the source range for the top-level `name` value.
-pub(super) fn locate_top_name(tree: &tree_sitter::Tree, source: &str) -> Option<Range<usize>> {
+pub(super) fn locate_top_name(
+    tree: Option<&tree_sitter::Tree>,
+    source: &str,
+) -> Option<Range<usize>> {
+    let tree = tree?;
     walk_for_name_pair(tree.root_node(), source.as_bytes())
 }
 
@@ -233,7 +245,7 @@ mod tests {
         let pool = ParserPool::new();
         let src = r#"{"name":"user","columns":[{"name":"id","type":"integer"},{"name":"email","type":"text"}]}"#;
         let tree = pool.parse(src, DocumentFormat::Json).unwrap();
-        let range = locate_column(&tree, src, "email");
+        let range = locate_column(Some(&tree), src, "email");
         let snippet = &src[range];
 
         assert!(snippet.contains(r#""email""#), "got: {snippet}");
@@ -244,7 +256,7 @@ mod tests {
         let pool = ParserPool::new();
         let src = r#"{"name":"user","columns":[]}"#;
         let tree = pool.parse(src, DocumentFormat::Json).unwrap();
-        let range = locate_column(&tree, src, "nonexistent");
+        let range = locate_column(Some(&tree), src, "nonexistent");
 
         assert!(src[range].contains("user"));
     }

@@ -1,8 +1,11 @@
 //! Concrete completion values: schema literals and cross-file table lookups.
 
+use std::collections::BTreeSet;
+
 use super::{CompletionItemKind, DomainCompletion};
 use crate::store::DocumentStore;
 use crate::workspace_index::WorkspaceIndex;
+use crate::workspace_tables::WorkspaceTables;
 
 const COLUMN_TYPES: &[&str] = &[
     "small_int",
@@ -86,45 +89,78 @@ pub(super) fn booleans() -> Vec<DomainCompletion> {
         .collect()
 }
 
-pub(super) fn tables_in_workspace(index: &WorkspaceIndex) -> Vec<DomainCompletion> {
-    index
-        .tables()
-        .into_iter()
-        .map(|name| DomainCompletion {
-            detail: Some(format!("Table: {name}")),
-            label: name,
-            kind: CompletionItemKind::Reference,
-            insert_text: None,
-            sort_priority: 1,
-        })
-        .collect()
+pub(super) fn tables_in_workspace(
+    index: &WorkspaceIndex,
+    disk_tables: Option<&WorkspaceTables>,
+) -> Vec<DomainCompletion> {
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+
+    for name in index.tables() {
+        seen.insert(name.clone());
+        out.push(table_completion(name));
+    }
+
+    if let Some(disk_tables) = disk_tables {
+        for name in disk_tables.names() {
+            if seen.insert(name.clone()) {
+                out.push(table_completion(name));
+            }
+        }
+    }
+
+    out
 }
 
 pub(super) fn columns_of(
     table_name: &str,
     index: &WorkspaceIndex,
     docs: &DocumentStore,
+    disk_tables: Option<&WorkspaceTables>,
 ) -> Vec<DomainCompletion> {
-    let Some(loc) = index.lookup(table_name) else {
-        return Vec::new();
-    };
+    if let Some(loc) = index.lookup(table_name) {
+        let open_columns = docs
+            .with_doc(&loc.uri, |text, _tree| {
+                parse_table(text)
+                    .map_or_else(Vec::new, |table| column_completions(table_name, &table))
+            })
+            .unwrap_or_default();
 
-    docs.with_doc(&loc.uri, |text, _tree| {
-        parse_table(text).map_or_else(Vec::new, |table| {
-            table
-                .columns
-                .iter()
-                .map(|column| DomainCompletion {
-                    label: column.name.as_str().to_string(),
-                    kind: CompletionItemKind::Reference,
-                    detail: Some(format!("Column in {table_name}")),
-                    insert_text: None,
-                    sort_priority: 1,
-                })
-                .collect()
+        if !open_columns.is_empty() {
+            return open_columns;
+        }
+    }
+
+    disk_tables
+        .and_then(|tables| tables.get(table_name))
+        .map_or_else(Vec::new, |table| column_completions(table_name, &table))
+}
+
+fn table_completion(name: String) -> DomainCompletion {
+    DomainCompletion {
+        detail: Some(format!("Table: {name}")),
+        label: name,
+        kind: CompletionItemKind::Reference,
+        insert_text: None,
+        sort_priority: 1,
+    }
+}
+
+fn column_completions(
+    table_name: &str,
+    table: &vespertide_core::TableDef,
+) -> Vec<DomainCompletion> {
+    table
+        .columns
+        .iter()
+        .map(|column| DomainCompletion {
+            label: column.name.as_str().to_string(),
+            kind: CompletionItemKind::Reference,
+            detail: Some(format!("Column in {table_name}")),
+            insert_text: None,
+            sort_priority: 1,
         })
-    })
-    .unwrap_or_default()
+        .collect()
 }
 
 fn value(label: &str, detail: String) -> DomainCompletion {

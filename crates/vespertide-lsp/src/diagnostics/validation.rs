@@ -14,7 +14,7 @@ pub struct WorkspaceTable {
     /// Raw document text used for byte-range location.
     pub source: String,
     /// Parsed tree-sitter tree for source range lookup.
-    pub tree: tree_sitter::Tree,
+    pub tree: Option<tree_sitter::Tree>,
 }
 
 pub(super) fn collect_syntax_errors(tree: &tree_sitter::Tree, out: &mut Vec<DomainDiagnostic>) {
@@ -134,11 +134,11 @@ pub(super) fn validate_workspace(
     }
 
     let byte_range = if let Some(column) = &location.column {
-        super::locator::locate_column(&target.tree, &target.source, column)
+        super::locator::locate_column(target.tree.as_ref(), &target.source, column)
     } else if let Some(constraint) = &location.constraint {
-        super::locator::locate_constraint(&target.tree, &target.source, constraint)
+        super::locator::locate_constraint(target.tree.as_ref(), &target.source, constraint)
     } else {
-        super::locator::locate_top_name(&target.tree, &target.source).unwrap_or(0..1)
+        super::locator::locate_top_name(target.tree.as_ref(), &target.source).unwrap_or(0..1)
     };
 
     push_validate_error(out, byte_range, err.to_string());
