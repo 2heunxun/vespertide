@@ -72,17 +72,54 @@ pub fn render_entity_with_schema(table: &TableDef, schema: &[TableDef]) -> Resul
 fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> Result<String, String> {
     let mut lines: Vec<String> = Vec::new();
 
-    // Collect enums defined in this table's columns
-    let enums: Vec<(&str, &EnumValues)> = table
+    let struct_name = to_pascal_case(&table.name);
+
+    // Find enum names that appear in multiple schema tables (need qualified Go type names)
+    let conflicting_enums: HashSet<String> = {
+        let mut counts: HashMap<String, usize> = HashMap::new();
+        for col in &table.columns {
+            if let ColumnType::Complex(ComplexColumnType::Enum { name, .. }) = &col.r#type {
+                counts.entry(to_pascal_case(name)).or_insert(1);
+            }
+        }
+        for other in schema {
+            if other.name == table.name {
+                continue;
+            }
+            let mut seen = HashSet::new();
+            for col in &other.columns {
+                if let ColumnType::Complex(ComplexColumnType::Enum { name, .. }) = &col.r#type {
+                    let pascal = to_pascal_case(name);
+                    if seen.insert(pascal.clone()) {
+                        *counts.entry(pascal).or_default() += 1;
+                    }
+                }
+            }
+        }
+        counts.into_iter().filter(|(_, c)| *c > 1).map(|(n, _)| n).collect()
+    };
+
+    // Collect enums defined in this table's columns, with qualified names where needed
+    let enums: Vec<(&str, &EnumValues, String)> = table
         .columns
         .iter()
         .filter_map(|col| {
             if let ColumnType::Complex(ComplexColumnType::Enum { name, values }) = &col.r#type {
-                Some((name.as_str(), values))
+                let pascal = to_pascal_case(name);
+                let qualified = if conflicting_enums.contains(&pascal) {
+                    format!("{struct_name}{pascal}")
+                } else {
+                    pascal
+                };
+                Some((name.as_str(), values, qualified))
             } else {
                 None
             }
         })
+        .collect();
+    let enum_name_map: HashMap<&str, String> = enums
+        .iter()
+        .map(|(name, _, qualified)| (*name, qualified.clone()))
         .collect();
 
     let fk_by_column = collect_fk_info(&table.constraints);
@@ -159,14 +196,12 @@ fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> Result<String, 
     }
 
     // --- Enum type declarations ---
-    for (enum_name, values) in &enums {
-        render_enum(&mut lines, enum_name, values);
+    for (_, values, qualified_name) in &enums {
+        render_enum(&mut lines, qualified_name, values);
         lines.push(String::new());
     }
 
     // --- Struct definition ---
-    let struct_name = to_pascal_case(&table.name);
-
     if let Some(ref desc) = table.description {
         lines.push(format!("// {}", desc.replace('\n', " ")));
     }
@@ -191,6 +226,7 @@ fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> Result<String, 
             is_unique,
             indexes,
             composite_unique_name,
+            &enum_name_map,
         );
 
         if let Some(fk) = fk_by_column.get(&col.name) {
@@ -315,7 +351,7 @@ struct ReverseRelation {
 }
 
 fn find_reverse_relations(table_name: &str, schema: &[TableDef]) -> Vec<ReverseRelation> {
-    let mut relations = Vec::new();
+    let mut raw: Vec<(String, String, String)> = Vec::new();
     for other in schema {
         if other.name == table_name {
             continue;
@@ -327,17 +363,28 @@ fn find_reverse_relations(table_name: &str, schema: &[TableDef]) -> Vec<ReverseR
             {
                 if ref_table.as_str() == table_name && columns.len() == 1 {
                     let fk_col = columns[0].clone();
-                    let field_name = format!("{}s", to_pascal_case(&other.name));
-                    relations.push(ReverseRelation {
-                        field_name,
-                        ref_table: other.name.clone(),
-                        fk_column: fk_col,
-                    });
+                    let base_name = format!("{}s", to_pascal_case(&other.name));
+                    raw.push((other.name.clone(), fk_col, base_name));
                 }
             }
         }
     }
-    relations
+
+    let mut name_count: HashMap<String, usize> = HashMap::new();
+    for (_, _, base_name) in &raw {
+        *name_count.entry(base_name.clone()).or_default() += 1;
+    }
+
+    raw.into_iter()
+        .map(|(ref_table, fk_col, base_name)| {
+            let field_name = if *name_count.get(&base_name).unwrap_or(&0) > 1 {
+                format!("{}By{}", base_name, to_go_field_name(&fk_col))
+            } else {
+                base_name
+            };
+            ReverseRelation { field_name, ref_table, fk_column: fk_col }
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -383,8 +430,9 @@ fn render_column_field(
     is_unique: bool,
     indexes: &[IndexInfo],
     composite_unique_name: Option<&String>,
+    enum_name_map: &HashMap<&str, String>,
 ) {
-    let go_type = go_type_for_column(&col.r#type, col.nullable);
+    let go_type = go_type_for_column_mapped(&col.r#type, col.nullable, enum_name_map);
     let field_name = to_go_field_name(&col.name);
     let gorm_tag = build_gorm_tag(col, is_pk, auto_increment, is_unique, indexes, composite_unique_name);
 
@@ -397,7 +445,10 @@ fn render_column_field(
 fn render_fk_relation_field(lines: &mut Vec<String>, col: &ColumnDef, fk: &FkInfo) {
     let ref_struct = to_pascal_case(&fk.ref_table);
     let fk_field_name = to_go_field_name(&col.name);
-    let relation_field_name = infer_relation_field_name(&col.name);
+    let mut relation_field_name = infer_relation_field_name(&col.name);
+    if relation_field_name == fk_field_name {
+        relation_field_name = format!("{relation_field_name}{ref_struct}");
+    }
 
     let mut constraint_parts: Vec<String> = Vec::new();
     if let Some(ref action) = fk.on_delete {
@@ -507,13 +558,14 @@ fn build_default_tag(default: &DefaultValue) -> Option<String> {
 // Type mapping
 // ---------------------------------------------------------------------------
 
-fn go_type_for_column(col_type: &ColumnType, nullable: bool) -> String {
-    let base = go_base_type(col_type);
-    if nullable {
-        format!("*{base}")
-    } else {
-        base
-    }
+fn go_type_for_column_mapped(col_type: &ColumnType, nullable: bool, enum_map: &HashMap<&str, String>) -> String {
+    let base = match col_type {
+        ColumnType::Complex(ComplexColumnType::Enum { name, .. }) => {
+            enum_map.get(name.as_str()).cloned().unwrap_or_else(|| to_pascal_case(name))
+        }
+        _ => go_base_type(col_type),
+    };
+    if nullable { format!("*{base}") } else { base }
 }
 
 fn go_base_type(col_type: &ColumnType) -> String {
