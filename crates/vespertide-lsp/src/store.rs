@@ -90,6 +90,24 @@ impl DocumentStore {
     ) -> Option<R> {
         self.docs.get(uri).map(|state| f(&state))
     }
+
+    /// Snapshot all open document URIs, sorted for deterministic iteration.
+    #[must_use]
+    pub fn open_uris(&self) -> Vec<Uri> {
+        let mut uris: Vec<Uri> = self.docs.iter().map(|entry| entry.key().clone()).collect();
+        uris.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+        uris
+    }
+
+    /// Apply a closure to every open document in sorted URI order.
+    pub fn for_each(&self, mut f: impl FnMut(&Uri, &DocumentState)) {
+        let uris = self.open_uris();
+        for uri in &uris {
+            if let Some(entry) = self.docs.get(uri) {
+                f(uri, entry.value());
+            }
+        }
+    }
 }
 
 impl Default for DocumentStore {
@@ -130,5 +148,23 @@ mod tests {
 
         store.close(&u);
         assert!(store.is_empty());
+    }
+
+    #[test]
+    fn open_uris_are_sorted() {
+        let store = DocumentStore::new();
+        let b = uri("b.json");
+        let a = uri("a.json");
+
+        for u in [b.clone(), a.clone()] {
+            store.open(
+                u,
+                "json".to_string(),
+                1,
+                r#"{"name": "x", "columns": []}"#.to_string(),
+            );
+        }
+
+        assert_eq!(store.open_uris(), vec![a, b]);
     }
 }
