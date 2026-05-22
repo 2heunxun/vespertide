@@ -18,23 +18,25 @@ use std::sync::Arc;
 
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::{
-    CompletionOptions, CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentFormattingParams, GotoDefinitionParams,
-    GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
-    InitializeParams, InitializeResult, InitializedParams, Location, MarkupContent, MarkupKind,
-    MessageType, NumberOrString, OneOf, Position, Range, CodeAction,
-    CodeActionKind as LspCodeActionKind, CodeActionOptions, CodeActionOrCommand,
-    CodeActionParams, CodeActionProviderCapability, CodeActionResponse,
-    DidChangeWatchedFilesParams, InlayHint, InlayHintKind as LspInlayHintKind, InlayHintLabel,
-    InlayHintOptions, InlayHintParams, InlayHintServerCapabilities, PrepareRenameResponse,
-    ReferenceParams, RenameOptions, RenameParams, SemanticTokensFullOptions, SemanticTokensOptions,
+    CodeAction, CodeActionKind as LspCodeActionKind, CodeActionOptions, CodeActionOrCommand,
+    CodeActionParams, CodeActionProviderCapability, CodeActionResponse, CompletionOptions,
+    CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentFormattingParams,
+    DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams,
+    DocumentSymbolResponse, FoldingRange,
+    FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
+    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
+    InlayHint, InlayHintKind as LspInlayHintKind, InlayHintLabel, InlayHintOptions,
+    InlayHintParams, InlayHintServerCapabilities, Location, MarkupContent, MarkupKind,
+    MessageType, NumberOrString, OneOf, Position, PrepareRenameResponse, Range, ReferenceParams,
+    RenameOptions, RenameParams, SelectionRange, SelectionRangeParams,
+    SelectionRangeProviderCapability, SemanticTokensFullOptions, SemanticTokensOptions,
     SemanticTokensParams, SemanticTokensRangeParams, SemanticTokensRangeResult,
     SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo,
-    SymbolInformation, TextDocumentPositionParams,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
-    TextDocumentSyncSaveOptions, TextEdit, Uri, WorkDoneProgressOptions, WorkspaceEdit,
-    WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    SymbolInformation, TextDocumentPositionParams, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit, Uri,
+    WorkDoneProgressOptions, WorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use tower_lsp_server::{Client, LanguageServer};
 
@@ -369,6 +371,12 @@ impl LanguageServer for Backend {
                         },
                     ),
                 ),
+                document_symbol_provider: Some(OneOf::Left(true)),
+                document_highlight_provider: Some(OneOf::Left(true)),
+                folding_range_provider: Some(
+                    tower_lsp_server::ls_types::FoldingRangeProviderCapability::Simple(true),
+                ),
+                selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions {
                     // `"` triggers key/value strings, `:` value position,
                     // `,` opens a new pair, `{` and `[` open new objects.
@@ -837,6 +845,34 @@ impl LanguageServer for Backend {
         }
     }
 
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        handler_file_features::document_symbol_impl(self, params).await
+    }
+
+    async fn folding_range(
+        &self,
+        params: FoldingRangeParams,
+    ) -> Result<Option<Vec<FoldingRange>>> {
+        handler_file_features::folding_range_impl(self, params).await
+    }
+
+    async fn document_highlight(
+        &self,
+        params: DocumentHighlightParams,
+    ) -> Result<Option<Vec<DocumentHighlight>>> {
+        handler_file_features::document_highlight_impl(self, params).await
+    }
+
+    async fn selection_range(
+        &self,
+        params: SelectionRangeParams,
+    ) -> Result<Option<Vec<SelectionRange>>> {
+        handler_file_features::selection_range_impl(self, params).await
+    }
+
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
         let uri = &params.text_document.uri;
         let Some(format) = DocumentFormat::from_uri(uri) else {
@@ -937,6 +973,7 @@ impl LanguageServer for Backend {
     }
 }
 
+mod handler_file_features;
 mod handler_rename;
 mod helpers;
 use helpers::{

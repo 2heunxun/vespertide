@@ -19,6 +19,7 @@ mod definition;
 pub mod diagnostics;
 mod document;
 mod drift;
+mod file_features;
 mod formatting;
 mod hover;
 mod inlay_hints;
@@ -46,6 +47,12 @@ pub use diagnostics::{
 };
 pub use document::DocumentState;
 pub use drift::{DomainDrift, compute as compute_drift};
+pub use file_features::{
+    DomainDocumentHighlight, DomainDocumentHighlightKind, DomainDocumentSymbol,
+    DomainDocumentSymbolKind, DomainFoldingRange, DomainSelectionRange,
+    compute_document_highlight, compute_document_symbols, compute_folding_ranges,
+    compute_selection_ranges,
+};
 pub use formatting::format_text;
 pub use hover::{DomainHover, compute as compute_hover};
 pub use inlay_hints::{DomainInlayHint, compute as compute_inlay_hints};
