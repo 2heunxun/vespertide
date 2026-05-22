@@ -54,21 +54,59 @@ pub fn ls_to_lsp_range(r: tower_lsp_server::ls_types::Range) -> lsp_types::Range
 }
 
 /// Convert a `file://` URI into a local filesystem path.
+///
+/// Handles percent-encoding (VS Code sends `file:///c%3A/...`, Zed sends
+/// `file:///C:/...`) and Windows drive-letter prefixes uniformly so the
+/// resulting `PathBuf` can be compared, opened, and canonicalized.
 #[must_use]
 pub fn uri_to_path(uri: &Uri) -> Option<std::path::PathBuf> {
     let uri_text = uri.to_string();
-    let path = uri_text.strip_prefix("file://")?;
+    let raw = uri_text.strip_prefix("file://")?;
+    let decoded = percent_decode(raw);
 
     let path = if cfg!(windows) {
-        path.strip_prefix('/')
+        decoded
+            .strip_prefix('/')
             .filter(|without_slash| has_windows_drive_prefix(without_slash))
-            .unwrap_or(path)
+            .unwrap_or(&decoded)
             .replace('/', std::path::MAIN_SEPARATOR_STR)
     } else {
-        path.to_string()
+        decoded
     };
 
     Some(std::path::PathBuf::from(path))
+}
+
+/// Decode `%XX` triplets into raw bytes, then re-validate as UTF-8.
+/// Invalid sequences are left as-is so we never destroy unrelated text.
+fn percent_decode(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let (Some(hi), Some(lo)) = (hex_value(bytes[i + 1]), hex_value(bytes[i + 2]))
+        {
+            out.push((hi << 4) | lo);
+            i += 3;
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    // Lossy-convert to keep the function infallible; URIs we receive are
+    // already supposed to be valid UTF-8 once decoded.
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn has_windows_drive_prefix(path: &str) -> bool {
@@ -161,5 +199,52 @@ mod tests {
         assert_eq!(r.start.character, 2);
         assert_eq!(r.end.line, 3);
         assert_eq!(r.end.character, 4);
+    }
+
+    /// Regression — VS Code on Windows sends `file:///c%3A/Users/...`.
+    /// Without percent-decoding, `uri_to_path` produced `\c%3A\Users\...`
+    /// which never matches anything on disk → `workspace_tables.refresh()`
+    /// failed silently → every cross-file FK reported "table not found".
+    #[test]
+    #[cfg(windows)]
+    fn uri_to_path_decodes_vscode_percent_encoded_drive_letter() {
+        use std::str::FromStr;
+        use tower_lsp_server::ls_types::Uri;
+
+        let uri =
+            Uri::from_str("file:///c%3A/Users/owjs3/Desktop/projects/vespertide/examples/app")
+                .unwrap();
+        let path = uri_to_path(&uri).expect("path");
+        assert_eq!(
+            path,
+            std::path::PathBuf::from(r"C:\Users\owjs3\Desktop\projects\vespertide\examples\app"),
+            "VS Code percent-encoded drive letter must decode to a real path"
+        );
+    }
+
+    /// Plain `C:` (without percent-encoding) used by Zed, neovim, etc.
+    /// must keep working as before.
+    #[test]
+    #[cfg(windows)]
+    fn uri_to_path_handles_raw_drive_letter() {
+        use std::str::FromStr;
+        use tower_lsp_server::ls_types::Uri;
+
+        let uri = Uri::from_str("file:///C:/Users/owjs3/Desktop").unwrap();
+        let path = uri_to_path(&uri).expect("path");
+        assert_eq!(path, std::path::PathBuf::from(r"C:\Users\owjs3\Desktop"));
+    }
+
+    #[test]
+    fn uri_to_path_decodes_spaces_and_unicode() {
+        use std::str::FromStr;
+        use tower_lsp_server::ls_types::Uri;
+
+        let uri =
+            Uri::from_str("file:///tmp/with%20space/%ED%95%9C%EA%B8%80.json").unwrap();
+        let path = uri_to_path(&uri).expect("path");
+        let text = path.to_string_lossy();
+        assert!(text.contains("with space"), "got: {text}");
+        assert!(text.contains("한글.json"), "got: {text}");
     }
 }

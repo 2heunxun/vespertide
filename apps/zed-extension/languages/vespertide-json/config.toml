@@ -1,4 +1,4 @@
-name = "Vespertide JSON"
+name = "Vespertide Model"
 grammar = "json"
 path_suffixes = ["vespertide", "vespertide.json"]
 line_comments = ["// "]

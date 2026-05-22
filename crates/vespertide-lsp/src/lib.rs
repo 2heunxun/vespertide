@@ -13,6 +13,7 @@
 //! tree-sitter parse.
 
 mod backend;
+mod code_actions;
 mod completion;
 mod definition;
 pub mod diagnostics;
@@ -20,8 +21,11 @@ mod document;
 mod drift;
 mod formatting;
 mod hover;
+pub mod logging;
 mod parser;
 mod position;
+mod references;
+mod rename;
 mod store;
 mod workspace_index;
 pub mod workspace_tables;
@@ -41,6 +45,14 @@ pub use drift::{DomainDrift, compute as compute_drift};
 pub use formatting::format_text;
 pub use hover::{DomainHover, compute as compute_hover};
 pub use parser::{DocumentFormat, ParserPool};
+pub use references::{
+    DomainReference, ReferenceSymbol, compute as compute_references,
+    resolve_symbol as resolve_reference_symbol,
+};
+pub use code_actions::{
+    CodeActionKind as DomainCodeActionKind, DomainCodeAction, compute as compute_code_actions,
+};
+pub use rename::{DomainRename, DomainTextEdit, compute as compute_rename};
 pub use position::{
     byte_to_lsp_position, ls_to_lsp_position, ls_to_lsp_range, lsp_position_to_byte,
     lsp_to_ls_position, uri_to_path,

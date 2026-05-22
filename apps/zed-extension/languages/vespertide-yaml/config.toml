@@ -1,4 +1,4 @@
-name = "Vespertide YAML"
+name = "Vespertide Model YAML"
 grammar = "yaml"
 path_suffixes = ["vespertide.yaml", "vespertide.yml"]
 tab_size = 2

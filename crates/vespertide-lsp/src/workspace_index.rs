@@ -120,25 +120,39 @@ impl WorkspaceIndex {
     }
 }
 
-/// Walk the tree-sitter tree to find the top-level `name` string value.
-/// Works for both JSON (`object` → `pair` → `string`) and YAML
-/// (`block_mapping` → `block_mapping_pair` → `flow_node`:`string`).
+/// Walk the tree-sitter tree to find the TOP-LEVEL `name` string value.
+///
+/// Critically, we look only at direct children of the document's outermost
+/// mapping. A previous version recursed unconditionally and would pick up
+/// the `name` field of the first column when the file happened to put
+/// `columns` before `name` — that polluted the workspace index with column
+/// names like `id` and `media_id` as if they were tables.
 fn extract_top_level_name(source: &str, tree: &Tree) -> Option<String> {
-    let root = tree.root_node();
-    walk_for_name(root, source.as_bytes())
+    let mapping = find_outer_mapping(tree.root_node())?;
+    find_direct_name_value(mapping, source.as_bytes())
 }
 
-fn walk_for_name(node: Node<'_>, source: &[u8]) -> Option<String> {
+fn find_outer_mapping(node: Node<'_>) -> Option<Node<'_>> {
+    if matches!(node.kind(), "object" | "block_mapping" | "flow_mapping") {
+        return Some(node);
+    }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
+        if let Some(found) = find_outer_mapping(child) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn find_direct_name_value(mapping: Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = mapping.walk();
+    for child in mapping.children(&mut cursor) {
         if is_name_key_node(child, source)
             && let Some(value) = find_value_sibling(child)
         {
             let text = &source[value.byte_range()];
             return Some(strip_quotes(std::str::from_utf8(text).ok()?).to_string());
-        }
-        if let Some(found) = walk_for_name(child, source) {
-            return Some(found);
         }
     }
     None
@@ -241,6 +255,26 @@ mod tests {
         let tree = pool.parse(src, DocumentFormat::Json).unwrap();
         idx.upsert(&u, src, &tree);
         assert!(idx.lookup("도서").is_some());
+    }
+
+    #[test]
+    fn column_name_is_not_picked_up_when_columns_precedes_name() {
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let u = uri("article.json");
+        // `columns` appears BEFORE `name`. A naive recursive walk would
+        // surface `id` (the first column's name) as if it were a table.
+        let src = r#"{
+            "columns": [{"name": "id", "type": "uuid"}],
+            "name": "article"
+        }"#;
+        let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+        idx.upsert(&u, src, &tree);
+
+        let tables = idx.tables();
+        assert_eq!(tables, vec!["article".to_string()]);
+        assert!(idx.lookup("id").is_none(), "must NOT register column name");
+        assert!(idx.lookup("article").is_some());
     }
 
     #[test]

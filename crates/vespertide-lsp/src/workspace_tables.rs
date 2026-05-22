@@ -20,8 +20,12 @@ pub struct WorkspaceTables {
 #[derive(Debug, Default)]
 struct Inner {
     root: Option<PathBuf>,
-    models_dir: Option<PathBuf>,
     by_name: BTreeMap<String, TableDef>,
+    /// `table_name → absolute file path` recorded during refresh. Needed
+    /// because filenames don't always match the declared `name`
+    /// (`media.vespertide.json` declares `name: media`, but
+    /// `models/my_table.json` is also valid and declares `name: user`).
+    path_by_name: BTreeMap<String, PathBuf>,
 }
 
 impl WorkspaceTables {
@@ -42,22 +46,20 @@ impl WorkspaceTables {
         else {
             return false;
         };
-        let Ok(tables) = vespertide_loader::load_models_from_dir(Some(root.clone())) else {
-            return false;
-        };
-
-        let by_name: BTreeMap<String, TableDef> = tables
-            .into_iter()
-            .filter_map(|table| table.normalize().ok())
-            .map(|table| (table.name.clone(), table))
-            .collect();
-        let count = by_name.len();
         let models_dir = root.join(config.models_dir());
+
+        // Walk the models directory ourselves so we capture
+        // (table_name, file_path) — vespertide-loader's public API only
+        // returns the parsed tables and drops the filename.
+        let mut by_name: BTreeMap<String, TableDef> = BTreeMap::new();
+        let mut path_by_name: BTreeMap<String, PathBuf> = BTreeMap::new();
+        collect_models(&models_dir, &mut by_name, &mut path_by_name);
+        let count = by_name.len();
 
         *self.inner.write().unwrap() = Inner {
             root: Some(root),
-            models_dir: Some(models_dir),
             by_name,
+            path_by_name,
         };
 
         count > 0
@@ -85,13 +87,72 @@ impl WorkspaceTables {
         self.inner.read().unwrap().root.clone()
     }
 
+    /// Look up the on-disk file path that declared `table_name`. Cached at
+    /// `refresh()` time so the lookup is filename-agnostic — works for
+    /// `media.json`, `media.vespertide.json`, or `models/whatever.json`
+    /// regardless of the filename convention.
     pub fn model_path(&self, table_name: &str) -> Option<PathBuf> {
-        let inner = self.inner.read().unwrap();
-        let models_dir = inner.models_dir.as_ref()?;
-        ["json", "yaml", "yml"]
-            .into_iter()
-            .map(|extension| models_dir.join(format!("{table_name}.{extension}")))
-            .find(|path| path.exists())
+        self.inner
+            .read()
+            .unwrap()
+            .path_by_name
+            .get(table_name)
+            .cloned()
+    }
+}
+
+/// Recursively walk `dir` collecting every `.json` / `.yaml` / `.yml`
+/// model file. For each file we parse + normalize the `TableDef` and
+/// record `(name → table)` alongside `(name → path)`.
+///
+/// On parse / normalize failure we silently skip the file: the diagnostics
+/// engine will surface a parse error for any opened model, and silently
+/// skipping disk-only invalid files keeps the workspace cache from
+/// blocking on a single corrupted model.
+fn collect_models(
+    dir: &Path,
+    by_name: &mut BTreeMap<String, TableDef>,
+    path_by_name: &mut BTreeMap<String, PathBuf>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_models(&path, by_name, path_by_name);
+            continue;
+        }
+        if !is_model_file(&path) {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Some(table) = parse_table(&path, &content) else {
+            continue;
+        };
+        let Ok(normalized) = table.normalize() else {
+            continue;
+        };
+        let name = normalized.name.clone();
+        by_name.insert(name.clone(), normalized);
+        path_by_name.insert(name, path);
+    }
+}
+
+fn is_model_file(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("json" | "yaml" | "yml")
+    )
+}
+
+fn parse_table(path: &Path, content: &str) -> Option<TableDef> {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("json") => serde_json::from_str(content).ok(),
+        Some("yaml" | "yml") => serde_yaml::from_str(content).ok(),
+        _ => None,
     }
 }
 
@@ -154,6 +215,64 @@ mod tests {
         assert_eq!(
             tables.model_path("user"),
             Some(models_dir.join("user.json"))
+        );
+    }
+
+    /// Regression — `media.vespertide.json` declares `name: media`. The
+    /// old `model_path` only tried `media.json`, missed the double
+    /// extension, and made `collect_workspace_tables` drop the model. The
+    /// planner then reported `foreign key references non-existent table`
+    /// even though hover (which uses `get(name)` directly) showed
+    /// `Target table: media (on disk)`.
+    #[test]
+    fn model_path_resolves_double_extension_filenames() {
+        let tmp = tempdir().unwrap();
+        let models_dir = tmp.path().join("models");
+        fs::create_dir_all(&models_dir).unwrap();
+        fs::write(
+            tmp.path().join("vespertide.json"),
+            r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#,
+        )
+        .unwrap();
+        fs::write(
+            models_dir.join("media.vespertide.json"),
+            r#"{"name":"media","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#,
+        )
+        .unwrap();
+
+        let tables = WorkspaceTables::new();
+        assert!(tables.refresh(tmp.path()));
+        assert!(tables.names().contains(&"media".to_string()));
+        assert_eq!(
+            tables.model_path("media"),
+            Some(models_dir.join("media.vespertide.json")),
+            "double-extension files must be discoverable by their `name`"
+        );
+    }
+
+    #[test]
+    fn model_path_resolves_when_filename_disagrees_with_name() {
+        let tmp = tempdir().unwrap();
+        let models_dir = tmp.path().join("models");
+        fs::create_dir_all(&models_dir).unwrap();
+        fs::write(
+            tmp.path().join("vespertide.json"),
+            r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#,
+        )
+        .unwrap();
+        // Filename `something_weird.json` but the declared name is `user`.
+        fs::write(
+            models_dir.join("something_weird.json"),
+            r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#,
+        )
+        .unwrap();
+
+        let tables = WorkspaceTables::new();
+        assert!(tables.refresh(tmp.path()));
+        assert_eq!(
+            tables.model_path("user"),
+            Some(models_dir.join("something_weird.json")),
+            "model_path must follow the declared `name`, not the filename"
         );
     }
 }

@@ -17,6 +17,9 @@
     "workspaceContains:**/models/*.json",
     "workspaceContains:**/models/*.yaml",
     "workspaceContains:**/models/*.yml",
+    "workspaceContains:**/*.vespertide.json",
+    "workspaceContains:**/*.vespertide.yaml",
+    "workspaceContains:**/*.vespertide.yml",
     "workspaceContains:vespertide.json",
     "onLanguage:vespertide-json",
     "onLanguage:vespertide-yaml"
@@ -28,15 +31,36 @@
     "languages": [
       {
         "id": "vespertide-json",
-        "aliases": ["Vespertide JSON"],
-        "filenamePatterns": ["**/models/*.json", "vespertide.json"],
+        "aliases": ["Vespertide Model", "Vespertide JSON"],
+        "filenamePatterns": [
+          "**/models/*.json",
+          "**/*.vespertide.json",
+          "vespertide.json"
+        ],
         "configuration": "./language-configuration.json"
       },
       {
         "id": "vespertide-yaml",
-        "aliases": ["Vespertide YAML"],
-        "filenamePatterns": ["**/models/*.yaml", "**/models/*.yml"],
+        "aliases": ["Vespertide Model", "Vespertide YAML"],
+        "filenamePatterns": [
+          "**/models/*.yaml",
+          "**/models/*.yml",
+          "**/*.vespertide.yaml",
+          "**/*.vespertide.yml"
+        ],
         "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "vespertide-json",
+        "scopeName": "source.vespertide.json",
+        "path": "./syntaxes/vespertide-json.tmLanguage.json"
+      },
+      {
+        "language": "vespertide-yaml",
+        "scopeName": "source.vespertide.yaml",
+        "path": "./syntaxes/vespertide-yaml.tmLanguage.json"
       }
     ],
     "configuration": {

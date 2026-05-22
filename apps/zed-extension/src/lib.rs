@@ -18,12 +18,21 @@ impl zed::Extension for VespertideExtension {
         worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
         // 1. PATH lookup (for `cargo install` users or local dev).
-        if let Some(path) = worktree.which("vespertide-lsp") {
-            return Ok(zed::Command {
-                command: path,
-                args: vec![],
-                env: Default::default(),
-            });
+        // On Windows, `worktree.which()` does NOT auto-append `.exe`, so try
+        // platform-appropriate names in order.
+        let (os, _arch) = zed::current_platform();
+        let candidates: &[&str] = match os {
+            zed::Os::Windows => &["vespertide-lsp.exe", "vespertide-lsp"],
+            _ => &["vespertide-lsp"],
+        };
+        for name in candidates {
+            if let Some(path) = worktree.which(name) {
+                return Ok(zed::Command {
+                    command: path,
+                    args: vec![],
+                    env: Default::default(),
+                });
+            }
         }
 
         // 2. Cached binary from a previous download.

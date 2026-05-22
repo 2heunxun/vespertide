@@ -37,36 +37,185 @@ const REFERENCE_ACTIONS: &[&str] = &[
     "no_action",
 ];
 
-pub(super) fn column_types() -> Vec<DomainCompletion> {
-    let mut completions = COLUMN_TYPES
+/// Top-level keys of a Vespertide model file. Ordered by typical write
+/// order so completion ranking matches the schema layout.
+const TABLE_TOP_LEVEL_KEYS: &[(&str, &str)] = &[
+    ("$schema", "JSON Schema reference for IDE validation"),
+    ("name", "Table name"),
+    ("columns", "Column definitions"),
+    ("constraints", "Table-level constraints (CHECK, etc.)"),
+    ("indexes", "Composite indexes"),
+    ("comment", "Optional table comment"),
+];
+
+/// Keys inside a `columns[N]` object.
+const COLUMN_OBJECT_KEYS: &[(&str, &str)] = &[
+    ("name", "Column name"),
+    ("type", "Column type (string or {kind: ...} object)"),
+    ("nullable", "Whether NULL is allowed"),
+    ("default", "Default value expression"),
+    ("primary_key", "Mark as primary key (composite if used on >1 column)"),
+    ("unique", "Add a UNIQUE constraint"),
+    ("index", "Add an index"),
+    ("foreign_key", "Foreign-key reference"),
+    ("comment", "Optional column comment"),
+];
+
+/// Keys inside a `foreign_key` object.
+const FOREIGN_KEY_OBJECT_KEYS: &[(&str, &str)] = &[
+    ("ref_table", "Referenced table name"),
+    ("ref_columns", "Referenced column list"),
+    ("on_delete", "ON DELETE action"),
+    ("on_update", "ON UPDATE action"),
+    ("name", "Optional constraint name"),
+];
+
+/// Keys inside a complex `type` object (varchar/numeric/enum/custom).
+const TYPE_OBJECT_KEYS: &[(&str, &str)] = &[
+    ("kind", "Type kind: varchar, char, numeric, enum, custom"),
+    ("length", "Length (varchar/char)"),
+    ("precision", "Precision (numeric)"),
+    ("scale", "Scale (numeric)"),
+    ("name", "Enum type name"),
+    ("values", "Enum values"),
+    ("custom_type", "Raw SQL type (kind=custom)"),
+];
+
+/// Scalar `type` completions valid inside a JSON/YAML string literal —
+/// no replacement metadata, the client just inserts at the cursor.
+pub(super) fn column_types_simple() -> Vec<DomainCompletion> {
+    COLUMN_TYPES
         .iter()
         .map(|column_type| value(column_type, format!("Column type: {column_type}")))
+        .collect()
+}
+
+/// Full `type` completions for a string-literal slot. Simple types insert
+/// in place; complex object kinds (varchar/char/numeric/enum) replace the
+/// **entire** string node — quotes and current content — with a full
+/// object literal so the JSON parses cleanly.
+pub(super) fn column_types_in_string(
+    string_byte_range: std::ops::Range<usize>,
+) -> Vec<DomainCompletion> {
+    let mut completions = column_types_simple();
+    completions.extend(complex_type_snippets(Some(&string_byte_range)));
+    completions
+}
+
+/// Full `type` completions for a bare value slot (no surrounding quotes).
+/// Both simple strings and complex object snippets are valid.
+pub(super) fn column_types_full() -> Vec<DomainCompletion> {
+    let mut completions = COLUMN_TYPES
+        .iter()
+        .map(|column_type| {
+            value_with_insert(
+                column_type,
+                format!("Column type: {column_type}"),
+                format!("\"{column_type}\""),
+            )
+        })
         .collect::<Vec<_>>();
 
-    completions.extend([
-        snippet(
+    completions.extend(complex_type_snippets(None));
+    completions
+}
+
+fn complex_type_snippets(
+    replace_range: Option<&std::ops::Range<usize>>,
+) -> Vec<DomainCompletion> {
+    [
+        (
             "varchar(N)",
             "Variable-length string",
             r#"{"kind":"varchar","length":${1:255}}"#,
         ),
-        snippet(
+        (
             "char(N)",
             "Fixed-length string",
             r#"{"kind":"char","length":${1:2}}"#,
         ),
-        snippet(
+        (
             "numeric(P,S)",
             "Fixed-precision decimal",
             r#"{"kind":"numeric","precision":${1:10},"scale":${2:2}}"#,
         ),
-        snippet(
+        (
             "enum",
             "Native string enum",
             r#"{"kind":"enum","name":"${1:status}","values":["${2:active}","${3:inactive}"]}"#,
         ),
-    ]);
+    ]
+    .into_iter()
+    .map(|(label, detail, insert_text)| DomainCompletion {
+        label: label.to_string(),
+        kind: CompletionItemKind::Snippet,
+        detail: Some(detail.to_string()),
+        insert_text: Some(insert_text.to_string()),
+        sort_priority: 2,
+        replace_range_bytes: replace_range.cloned(),
+    })
+    .collect()
+}
 
-    completions
+/// `kind` candidates for a complex `type` object. When the cursor sits
+/// inside a string literal, accepting a suggestion replaces just the
+/// inner content so partial typing (e.g. `var`) is wiped while the
+/// surrounding quotes stay intact. In a bare value slot the suggestion
+/// inserts the full JSON-quoted form.
+///
+/// Critically the INNER range (without quotes) is used as the replace
+/// range. Outer-quote ranges would force the LSP client to filter
+/// completions against the leading `"`, which VS Code (correctly) rejects
+/// because `varchar` does not match a `"` prefix — that is why this
+/// completion appeared "broken" in VS Code but worked in Zed (Zed is
+/// more lenient about filter prefixes).
+pub(super) fn type_kind_values(
+    string_byte_range: Option<&std::ops::Range<usize>>,
+) -> Vec<DomainCompletion> {
+    const KINDS: &[(&str, &str)] = &[
+        ("varchar", "Variable-length string"),
+        ("char", "Fixed-length string"),
+        ("numeric", "Fixed-precision decimal"),
+        ("enum", "Native enum"),
+        ("custom", "Raw SQL type"),
+    ];
+
+    let inner_range = string_byte_range.map(outer_to_inner_range);
+    let in_string = string_byte_range.is_some();
+
+    KINDS
+        .iter()
+        .enumerate()
+        .map(|(idx, (kind, detail))| {
+            // Inside a string literal: replace only the contents
+            // (`"v"` → `"varchar"`). Outside: emit a JSON-quoted literal
+            // so the value slot becomes syntactically valid.
+            let insert_text = if in_string {
+                (*kind).to_string()
+            } else {
+                format!("\"{kind}\"")
+            };
+            DomainCompletion {
+                label: (*kind).to_string(),
+                kind: CompletionItemKind::Value,
+                detail: Some((*detail).to_string()),
+                insert_text: Some(insert_text),
+                sort_priority: u8::try_from(idx + 1).unwrap_or(u8::MAX),
+                replace_range_bytes: inner_range.clone(),
+            }
+        })
+        .collect()
+}
+
+/// Strip one byte from each side of a JSON/YAML quoted scalar range so
+/// the result covers only the text content. Falls back to the original
+/// range when the literal is too short to have quotes (defensive).
+fn outer_to_inner_range(range: &std::ops::Range<usize>) -> std::ops::Range<usize> {
+    if range.end.saturating_sub(range.start) >= 2 {
+        (range.start + 1)..(range.end - 1)
+    } else {
+        range.clone()
+    }
 }
 
 pub(super) fn reference_actions() -> Vec<DomainCompletion> {
@@ -76,15 +225,241 @@ pub(super) fn reference_actions() -> Vec<DomainCompletion> {
         .collect()
 }
 
+/// Default-value variants the LSP knows how to format.
+#[derive(Debug, Clone, Copy)]
+enum DefaultKind {
+    /// Bare JSON literal (`null`, `true`, `false`, `0`, `1`, `-1`).
+    /// Inside a quoted slot we still want the literal — quotes get wiped.
+    JsonLiteral,
+    /// SQL expression that must live inside a JSON string
+    /// (`now()`, `gen_random_uuid()`, `'active'`, `''`).
+    SqlExpression,
+    /// Same as [`SqlExpression`] but carries snippet placeholders such as
+    /// `'${1:value}'`. Emitted as `InsertTextFormat::SNIPPET`.
+    SqlSnippet,
+}
+
+struct DefaultCandidate {
+    /// Label shown in the popup, in canonical SQL form (without JSON quotes).
+    label: &'static str,
+    detail: &'static str,
+    kind: DefaultKind,
+}
+
+/// Candidate values for `default`, tuned to the sibling `type`.
+///
+/// When the cursor is inside an existing `"..."` literal, every candidate
+/// REPLACES that whole string node (quotes included) so the user never sees
+/// the suggestion appended to leftover text.
+pub(super) fn default_values(
+    type_kind: Option<&str>,
+    enum_values: &[String],
+    string_byte_range: Option<&std::ops::Range<usize>>,
+) -> Vec<DomainCompletion> {
+    let mut candidates = type_candidates(type_kind, enum_values);
+    // `null` is always valid as a SQL default.
+    candidates.push(DefaultCandidate {
+        label: "null",
+        detail: "SQL NULL",
+        kind: DefaultKind::JsonLiteral,
+    });
+
+    candidates
+        .into_iter()
+        .enumerate()
+        .map(|(idx, candidate)| {
+            let sort_priority = u8::try_from(idx + 1).unwrap_or(u8::MAX);
+            build_default_completion(&candidate, string_byte_range, sort_priority)
+        })
+        .collect()
+}
+
+fn type_candidates(
+    type_kind: Option<&str>,
+    enum_values: &[String],
+) -> Vec<DefaultCandidate> {
+    match type_kind {
+        Some("enum") => enum_candidates(enum_values),
+        Some("timestamp" | "timestamptz") => vec![
+            sql_expr("now()", "Postgres: current timestamp"),
+            sql_expr("CURRENT_TIMESTAMP", "ANSI SQL: current timestamp"),
+            sql_expr("CURRENT_DATE", "ANSI SQL: current date"),
+            sql_expr("CURRENT_TIME", "ANSI SQL: current time"),
+        ],
+        Some("date") => vec![sql_expr("CURRENT_DATE", "Current date")],
+        Some("time") => vec![sql_expr("CURRENT_TIME", "Current time (no date)")],
+        Some("uuid") => vec![
+            sql_expr("gen_random_uuid()", "Postgres 13+ built-in"),
+            sql_expr("uuid_generate_v4()", "Postgres uuid-ossp extension"),
+        ],
+        Some("boolean") => vec![
+            json_literal("true", "Boolean true"),
+            json_literal("false", "Boolean false"),
+        ],
+        Some("text" | "varchar" | "char") => vec![
+            sql_expr("''", "Empty string literal"),
+            DefaultCandidate {
+                label: "'${1:value}'",
+                detail: "Custom string literal",
+                kind: DefaultKind::SqlSnippet,
+            },
+        ],
+        Some("integer" | "big_int" | "small_int" | "numeric" | "real" | "double_precision") => {
+            vec![
+                json_literal("0", "Zero"),
+                json_literal("1", "One"),
+                json_literal("-1", "Negative one"),
+            ]
+        }
+        Some("json" | "jsonb") => vec![
+            sql_expr("'{}'", "Empty JSON object"),
+            sql_expr("'[]'", "Empty JSON array"),
+        ],
+        // Unknown / partial type — surface a generous fallback so the
+        // user always sees SOMETHING. Once the `type` value firms up the
+        // list narrows to type-appropriate candidates only.
+        _ => generic_default_fallback(),
+    }
+}
+
+/// Catch-all default candidates for columns whose `type` could not be
+/// statically resolved (typing in progress, custom type, etc.).
+fn generic_default_fallback() -> Vec<DefaultCandidate> {
+    vec![
+        json_literal("0", "Zero"),
+        json_literal("true", "Boolean true"),
+        json_literal("false", "Boolean false"),
+        sql_expr("''", "Empty string literal"),
+        sql_expr("now()", "Current timestamp"),
+        sql_expr("CURRENT_TIMESTAMP", "ANSI SQL: current timestamp"),
+        sql_expr("gen_random_uuid()", "Random UUID v4"),
+    ]
+}
+
+fn enum_candidates(enum_values: &[String]) -> Vec<DefaultCandidate> {
+    // Leak each formatted label so its lifetime matches the `'static`
+    // candidate descriptors. Completion is requested rarely enough that the
+    // allocation is fine; the cost is paid once per enum.
+    enum_values
+        .iter()
+        .map(|name| {
+            let label: &'static str = Box::leak(format!("'{name}'").into_boxed_str());
+            let detail: &'static str =
+                Box::leak(format!("Enum value: {name}").into_boxed_str());
+            DefaultCandidate {
+                label,
+                detail,
+                kind: DefaultKind::SqlExpression,
+            }
+        })
+        .collect()
+}
+
+fn sql_expr(literal: &'static str, detail: &'static str) -> DefaultCandidate {
+    DefaultCandidate {
+        label: literal,
+        detail,
+        kind: DefaultKind::SqlExpression,
+    }
+}
+
+fn json_literal(literal: &'static str, detail: &'static str) -> DefaultCandidate {
+    DefaultCandidate {
+        label: literal,
+        detail,
+        kind: DefaultKind::JsonLiteral,
+    }
+}
+
+/// Translate a [`DefaultCandidate`] into the final [`DomainCompletion`].
+///
+/// * When `string_byte_range` is `Some(range)` — the cursor sits inside a
+///   `"..."` literal — only the INNER content is replaced. Surrounding
+///   quotes stay in place; the inserted text fills them. This keeps VS
+///   Code's prefix-filter happy (it rejects labels that do not match
+///   against a leading `"` when the textEdit range starts on the quote).
+/// * When `string_byte_range` is `None` — bare value slot — the completion
+///   inserts at the cursor with an appropriately quoted form so the JSON
+///   value is syntactically complete.
+fn build_default_completion(
+    candidate: &DefaultCandidate,
+    string_byte_range: Option<&std::ops::Range<usize>>,
+    sort_priority: u8,
+) -> DomainCompletion {
+    let in_string = string_byte_range.is_some();
+    // Two cases:
+    //   * Inside a string — the surrounding quotes already exist, so
+    //     insert the raw text (`'active'`, `now()`, `null`). The user's
+    //     `default` ends up as a JSON string wrapping a SQL expression /
+    //     literal, which is exactly the schema's convention.
+    //   * Bare value slot — JSON literals stay bare (`null`/`true`/`0`);
+    //     SQL expressions get JSON-quoted so the slot remains valid.
+    let insert_text = if in_string {
+        candidate.label.to_string()
+    } else {
+        match candidate.kind {
+            DefaultKind::JsonLiteral => candidate.label.to_string(),
+            DefaultKind::SqlExpression | DefaultKind::SqlSnippet => {
+                format!("\"{}\"", candidate.label)
+            }
+        }
+    };
+    let kind = match candidate.kind {
+        DefaultKind::SqlSnippet => CompletionItemKind::Snippet,
+        _ => CompletionItemKind::Value,
+    };
+
+    DomainCompletion {
+        label: candidate.label.to_string(),
+        kind,
+        detail: Some(candidate.detail.to_string()),
+        insert_text: Some(insert_text),
+        sort_priority,
+        // Inner-only range avoids VS Code's prefix-filter rejecting items
+        // whose label does not start with `"`.
+        replace_range_bytes: string_byte_range.map(outer_to_inner_range),
+    }
+}
+
+pub(super) fn table_top_level_keys() -> Vec<DomainCompletion> {
+    object_keys(TABLE_TOP_LEVEL_KEYS)
+}
+
+pub(super) fn column_object_keys() -> Vec<DomainCompletion> {
+    object_keys(COLUMN_OBJECT_KEYS)
+}
+
+pub(super) fn foreign_key_object_keys() -> Vec<DomainCompletion> {
+    object_keys(FOREIGN_KEY_OBJECT_KEYS)
+}
+
+pub(super) fn type_object_keys() -> Vec<DomainCompletion> {
+    object_keys(TYPE_OBJECT_KEYS)
+}
+
+fn object_keys(entries: &[(&str, &str)]) -> Vec<DomainCompletion> {
+    entries
+        .iter()
+        .enumerate()
+        .map(|(idx, (label, detail))| DomainCompletion {
+            label: (*label).to_string(),
+            kind: CompletionItemKind::Property,
+            detail: Some((*detail).to_string()),
+            // Preserve the curated order via sort_priority.
+            sort_priority: u8::try_from(idx + 1).unwrap_or(u8::MAX),
+            ..DomainCompletion::default()
+        })
+        .collect()
+}
+
 pub(super) fn booleans() -> Vec<DomainCompletion> {
     ["true", "false"]
         .into_iter()
         .map(|label| DomainCompletion {
             label: label.to_string(),
             kind: CompletionItemKind::Value,
-            detail: None,
-            insert_text: None,
             sort_priority: 1,
+            ..DomainCompletion::default()
         })
         .collect()
 }
@@ -141,8 +516,8 @@ fn table_completion(name: String) -> DomainCompletion {
         detail: Some(format!("Table: {name}")),
         label: name,
         kind: CompletionItemKind::Reference,
-        insert_text: None,
         sort_priority: 1,
+        ..DomainCompletion::default()
     }
 }
 
@@ -157,8 +532,8 @@ fn column_completions(
             label: column.name.as_str().to_string(),
             kind: CompletionItemKind::Reference,
             detail: Some(format!("Column in {table_name}")),
-            insert_text: None,
             sort_priority: 1,
+            ..DomainCompletion::default()
         })
         .collect()
 }
@@ -168,18 +543,19 @@ fn value(label: &str, detail: String) -> DomainCompletion {
         label: label.to_string(),
         kind: CompletionItemKind::Value,
         detail: Some(detail),
-        insert_text: None,
         sort_priority: 1,
+        ..DomainCompletion::default()
     }
 }
 
-fn snippet(label: &str, detail: &str, insert_text: &str) -> DomainCompletion {
+fn value_with_insert(label: &str, detail: String, insert_text: String) -> DomainCompletion {
     DomainCompletion {
         label: label.to_string(),
-        kind: CompletionItemKind::Snippet,
-        detail: Some(detail.to_string()),
-        insert_text: Some(insert_text.to_string()),
-        sort_priority: 2,
+        kind: CompletionItemKind::Value,
+        detail: Some(detail),
+        insert_text: Some(insert_text),
+        sort_priority: 1,
+        ..DomainCompletion::default()
     }
 }
 

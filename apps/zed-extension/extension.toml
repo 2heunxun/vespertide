@@ -8,4 +8,4 @@ repository = "https://github.com/dev-five-git/vespertide"
 
 [language_servers.vespertide-lsp]
 name = "Vespertide LSP"
-languages = ["Vespertide JSON", "Vespertide YAML"]
+languages = ["Vespertide Model", "Vespertide Model YAML"]

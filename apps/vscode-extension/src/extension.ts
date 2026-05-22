@@ -29,6 +29,17 @@ function getPlatformDir(): string {
   return dir;
 }
 
+function findOnPath(exe: string): string | undefined {
+  const env = process.env.PATH ?? "";
+  const sep = os.platform() === "win32" ? ";" : ":";
+  for (const dir of env.split(sep)) {
+    if (!dir) continue;
+    const candidate = path.join(dir, exe);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
 function resolveServerBinary(context: vscode.ExtensionContext): string {
   const config = vscode.workspace.getConfiguration("vespertide");
   const override = config.get<string>("serverPath");
@@ -38,15 +49,28 @@ function resolveServerBinary(context: vscode.ExtensionContext): string {
     }
     return override;
   }
+
   const exe = os.platform() === "win32" ? "vespertide-lsp.exe" : "vespertide-lsp";
   const bundled = context.asAbsolutePath(path.join("bin", getPlatformDir(), exe));
-  if (!fs.existsSync(bundled)) {
-    throw new Error(
-      `Bundled Vespertide LSP binary not found at: ${bundled}\n` +
-        `Set "vespertide.serverPath" to the binary location, or reinstall the extension.`
-    );
+  if (fs.existsSync(bundled)) {
+    return bundled;
   }
-  return bundled;
+
+  // Dev convenience: when the bundled binary is missing (`cargo install` /
+  // local debug builds), fall back to whatever `vespertide-lsp` exists on
+  // PATH. This is the same UX Zed offers and removes the need to set
+  // `vespertide.serverPath` while iterating on the LSP.
+  const onPath = findOnPath(exe);
+  if (onPath) {
+    return onPath;
+  }
+
+  throw new Error(
+    `Vespertide LSP binary not found.\n` +
+      `Looked for bundled: ${bundled}\n` +
+      `Looked on PATH for: ${exe}\n` +
+      `Set "vespertide.serverPath", install via \`cargo install vespertide-cli\`, or reinstall the extension.`
+  );
 }
 
 function createStatusBarItem(): vscode.StatusBarItem {
@@ -67,6 +91,12 @@ async function startClient(context: vscode.ExtensionContext): Promise<void> {
     void vscode.window.showErrorMessage(`Vespertide: ${(err as Error).message}`);
     return;
   }
+
+  // Surface the binary path so a stale F5 / cached dev-host can be
+  // diagnosed at a glance. The full path lives in the status bar tooltip
+  // and is logged so it ends up in both VS Code's output channel and the
+  // LSP's own file log.
+  console.log(`[vespertide] launching LSP server from: ${serverPath}`);
 
   const config = vscode.workspace.getConfiguration("vespertide");
   const logLevel = config.get<string>("logLevel", "info");
@@ -105,7 +135,7 @@ async function startClient(context: vscode.ExtensionContext): Promise<void> {
   try {
     await client.start();
     statusBarItem.text = "$(check) Vespertide";
-    statusBarItem.tooltip = "Vespertide Language Server (connected)";
+    statusBarItem.tooltip = `Vespertide LSP (connected)\nBinary: ${serverPath}`;
   } catch (err) {
     statusBarItem.text = "$(error) Vespertide";
     void vscode.window.showErrorMessage(`Vespertide LSP failed to start: ${err}`);
