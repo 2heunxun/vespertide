@@ -27,8 +27,10 @@ mod parser;
 mod position;
 mod references;
 mod rename;
+mod semantic_tokens;
 mod store;
 mod symbols;
+mod watched_files;
 mod workspace_index;
 pub mod workspace_tables;
 

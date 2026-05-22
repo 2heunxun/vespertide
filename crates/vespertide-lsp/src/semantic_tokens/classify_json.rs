@@ -1,0 +1,460 @@
+//! Tree-sitter walk that classifies every interesting JSON node in a
+//! Vespertide model file into a semantic token type / modifier set.
+//!
+//! Classification rules:
+//!
+//! | JSON shape                                | Token type / modifier             |
+//! |-------------------------------------------|-----------------------------------|
+//! | Top-level `"name": "X"` value             | `class` + `declaration`           |
+//! | `columns[*].name` value                   | `property` + `declaration`        |
+//! | `columns[*].type` simple string           | `type`                            |
+//! | `columns[*].type.kind` value              | `enumMember`                      |
+//! | `columns[*].type.values[*]` (string enum) | `enumMember`                      |
+//! | `columns[*].type.values[*].name` (int enum) | `enumMember`                    |
+//! | `foreign_key.ref_table` value             | `class` + `definition`            |
+//! | `foreign_key.ref_columns[*]` entry        | `property` + `definition`         |
+//! | `foreign_key.on_delete` / `on_update` value | `enumMember`                    |
+//! | `default` value (string)                  | `string`                          |
+//! | `default` literal `true`/`false`/`null`   | `keyword`                         |
+//! | Any numeric literal                       | `number`                          |
+//!
+//! Inner content ranges (without surrounding `"`) are used so themes
+//! highlight the identifier alone — quotes stay neutral and match the
+//! rest of the JSON punctuation.
+
+#![allow(clippy::struct_excessive_bools)]
+
+use super::{legend::ModIdx, legend::TokenIdx, RawToken};
+
+/// Classify the entire JSON document.
+#[must_use]
+pub fn classify(source: &str, tree: &tree_sitter::Tree) -> Vec<RawToken> {
+    let mut out = Vec::new();
+    let source_bytes = source.as_bytes();
+    walk(tree.root_node(), source_bytes, Ctx::default(), &mut out);
+    out
+}
+
+/// Cursor state passed down the recursion — tells the value-classifier
+/// which key it's underneath so we can disambiguate same-shaped strings
+/// (`"text"` in `"type"` vs `"text"` in `"comment"`).
+#[derive(Debug, Clone, Copy, Default)]
+struct Ctx {
+    inside_columns: bool,
+    /// Owning column object — set when we recurse into a column body.
+    inside_column: bool,
+    /// `"type": { ... }` inner mapping.
+    inside_complex_type_object: bool,
+    /// `enum` values array — children are valid enum members.
+    inside_enum_values_array: bool,
+    /// `foreign_key` value object.
+    inside_foreign_key: bool,
+    /// `ref_columns` array under a `foreign_key`.
+    inside_ref_columns: bool,
+    /// Depth of object nesting we've already walked. The TOP-LEVEL
+    /// object (the table itself) is depth 1.
+    object_depth: u32,
+}
+
+fn walk(node: tree_sitter::Node<'_>, source: &[u8], ctx: Ctx, out: &mut Vec<RawToken>) {
+    if node.kind() == "object" {
+        let new_ctx = Ctx {
+            object_depth: ctx.object_depth + 1,
+            ..ctx
+        };
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            walk(child, source, new_ctx, out);
+        }
+        return;
+    }
+
+    if node.kind() == "pair" {
+        classify_pair(node, source, ctx, out);
+        return;
+    }
+
+    // For other interior nodes (`array`, `document`, etc.) just recurse.
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        walk(child, source, ctx, out);
+    }
+}
+
+fn classify_pair(
+    pair: tree_sitter::Node<'_>,
+    source: &[u8],
+    ctx: Ctx,
+    out: &mut Vec<RawToken>,
+) {
+    let Some(key) = pair.named_child(0) else {
+        return;
+    };
+    let Some(value) = pair.named_child(1) else {
+        return;
+    };
+    let Some(key_text) = scalar_text(key, source) else {
+        return;
+    };
+
+    match key_text {
+        // Top-level table identifier — `object_depth == 1` distinguishes
+        // it from nested `name` keys (column.name, enum member.name).
+        "name" if ctx.object_depth == 1 && !ctx.inside_columns => {
+            push_string_inner(value, TokenIdx::Class, ModIdx::Declaration as u32, out);
+        }
+        "name" if ctx.inside_column && !ctx.inside_complex_type_object => {
+            push_string_inner(value, TokenIdx::Property, ModIdx::Declaration as u32, out);
+        }
+        "name" if ctx.inside_enum_values_array => {
+            // integer-enum member `{"name":"low", "value":0}` — the name
+            // is the enum-member identifier.
+            push_string_inner(value, TokenIdx::EnumMember, 0, out);
+        }
+        "columns" => {
+            let new_ctx = Ctx {
+                inside_columns: true,
+                ..ctx
+            };
+            recurse_into_value(value, source, new_ctx, out);
+            return;
+        }
+        "type" if ctx.inside_columns => {
+            classify_type_value(value, source, ctx, out);
+            return;
+        }
+        "kind" if ctx.inside_complex_type_object => {
+            push_string_inner(value, TokenIdx::EnumMember, 0, out);
+        }
+        "values" if ctx.inside_complex_type_object => {
+            let new_ctx = Ctx {
+                inside_enum_values_array: true,
+                ..ctx
+            };
+            recurse_into_value(value, source, new_ctx, out);
+            return;
+        }
+        "foreign_key" => {
+            let new_ctx = Ctx {
+                inside_foreign_key: true,
+                ..ctx
+            };
+            recurse_into_value(value, source, new_ctx, out);
+            return;
+        }
+        "ref_table" if ctx.inside_foreign_key => {
+            push_string_inner(value, TokenIdx::Class, ModIdx::Definition as u32, out);
+        }
+        "ref_columns" if ctx.inside_foreign_key => {
+            let new_ctx = Ctx {
+                inside_ref_columns: true,
+                ..ctx
+            };
+            recurse_into_value(value, source, new_ctx, out);
+            return;
+        }
+        "on_delete" | "on_update" if ctx.inside_foreign_key => {
+            push_string_inner(value, TokenIdx::EnumMember, 0, out);
+        }
+        "default" if ctx.inside_column => {
+            classify_default_value(value, out);
+        }
+        _ => {}
+    }
+
+    // Recurse into the value so we still surface nested literals.
+    recurse_into_value(value, source, ctx, out);
+}
+
+/// Recurse into the value of a pair, propagating context updates we may
+/// have set right before this call. Specific contexts (`ref_columns`,
+/// `enum_values_array`) are checked BEFORE the general columns-array
+/// case because they are nested inside `columns` and would otherwise
+/// be shadowed by the broader branch.
+fn recurse_into_value(
+    value: tree_sitter::Node<'_>,
+    source: &[u8],
+    ctx: Ctx,
+    out: &mut Vec<RawToken>,
+) {
+    if value.kind() == "array" && ctx.inside_ref_columns {
+        let mut cursor = value.walk();
+        for child in value.children(&mut cursor) {
+            if child.kind() == "string" {
+                push_string_inner(child, TokenIdx::Property, ModIdx::Definition as u32, out);
+            } else {
+                walk(child, source, ctx, out);
+            }
+        }
+        return;
+    }
+
+    if value.kind() == "array" && ctx.inside_enum_values_array {
+        let mut cursor = value.walk();
+        for child in value.children(&mut cursor) {
+            if child.kind() == "string" {
+                push_string_inner(child, TokenIdx::EnumMember, 0, out);
+            } else {
+                // integer-enum objects — recurse so the `name` key
+                // emits its own enumMember token via the normal path.
+                walk(child, source, ctx, out);
+            }
+        }
+        return;
+    }
+
+    // `array` itself isn't an object — but if we're inside `columns`
+    // each element is a column object: flip `inside_column` for them.
+    if value.kind() == "array" && ctx.inside_columns {
+        let mut cursor = value.walk();
+        for child in value.children(&mut cursor) {
+            let element_ctx = if child.kind() == "object" {
+                Ctx {
+                    inside_column: true,
+                    ..ctx
+                }
+            } else {
+                ctx
+            };
+            walk(child, source, element_ctx, out);
+        }
+        return;
+    }
+
+    walk(value, source, ctx, out);
+}
+
+fn classify_type_value(
+    value: tree_sitter::Node<'_>,
+    source: &[u8],
+    ctx: Ctx,
+    out: &mut Vec<RawToken>,
+) {
+    match value.kind() {
+        "string" => {
+            push_string_inner(value, TokenIdx::Type, 0, out);
+        }
+        "object" => {
+            let inner_ctx = Ctx {
+                inside_complex_type_object: true,
+                ..ctx
+            };
+            // Counts as +1 object depth via the regular `object` arm.
+            walk(value, source, inner_ctx, out);
+        }
+        _ => {
+            walk(value, source, ctx, out);
+        }
+    }
+}
+
+fn classify_default_value(value: tree_sitter::Node<'_>, out: &mut Vec<RawToken>) {
+    match value.kind() {
+        "string" => push_string_inner(value, TokenIdx::String, 0, out),
+        "true" | "false" | "null" => out.push(RawToken {
+            byte_range: value.byte_range(),
+            token_type: TokenIdx::Keyword as u32,
+            token_modifiers: 0,
+        }),
+        "number" => out.push(RawToken {
+            byte_range: value.byte_range(),
+            token_type: TokenIdx::Number as u32,
+            token_modifiers: 0,
+        }),
+        _ => {}
+    }
+}
+
+/// Emit a token covering only the INNER content of a JSON string node
+/// (i.e. the bytes between the surrounding `"`). Drops zero-length
+/// inner spans (empty strings) defensively — the encoder would discard
+/// them anyway, but we save it the work.
+fn push_string_inner(
+    string_node: tree_sitter::Node<'_>,
+    token_type: TokenIdx,
+    token_modifiers: u32,
+    out: &mut Vec<RawToken>,
+) {
+    if string_node.kind() != "string" {
+        return;
+    }
+    let range = string_node.named_child(0).map_or_else(
+        || {
+            let r = string_node.byte_range();
+            if r.end.saturating_sub(r.start) >= 2 {
+                (r.start + 1)..(r.end - 1)
+            } else {
+                r
+            }
+        },
+        |inner| inner.byte_range(),
+    );
+    if range.end <= range.start {
+        return;
+    }
+    out.push(RawToken {
+        byte_range: range,
+        token_type: token_type as u32,
+        token_modifiers,
+    });
+}
+
+fn scalar_text<'a>(node: tree_sitter::Node<'_>, source: &'a [u8]) -> Option<&'a str> {
+    let raw = std::str::from_utf8(source.get(node.byte_range())?).ok()?;
+    Some(raw.trim().trim_matches('"').trim_matches('\''))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::{DocumentFormat, ParserPool};
+
+    fn classify_src(src: &str) -> Vec<RawToken> {
+        let tree = ParserPool::new()
+            .parse(src, DocumentFormat::Json)
+            .expect("parse");
+        classify(src, &tree)
+    }
+
+    fn types_present(tokens: &[RawToken]) -> Vec<u32> {
+        let mut types: Vec<u32> = tokens.iter().map(|t| t.token_type).collect();
+        types.sort_unstable();
+        types.dedup();
+        types
+    }
+
+    #[test]
+    fn top_level_name_becomes_class_declaration() {
+        let src = r#"{"name":"user","columns":[]}"#;
+        let tokens = classify_src(src);
+        let name_start = src.find(r#""name":"user""#).unwrap() + 8;
+        let class_tok = tokens
+            .iter()
+            .find(|t| t.byte_range.start == name_start)
+            .expect("class token at user");
+        assert_eq!(class_tok.token_type, TokenIdx::Class as u32);
+        assert_eq!(class_tok.token_modifiers, ModIdx::Declaration as u32);
+    }
+
+    #[test]
+    fn column_name_becomes_property_declaration() {
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"integer"}]}"#;
+        let tokens = classify_src(src);
+        let id_start = src.find(r#""name":"id""#).unwrap() + 8;
+        let tok = tokens
+            .iter()
+            .find(|t| t.byte_range.start == id_start)
+            .expect("column name token");
+        assert_eq!(tok.token_type, TokenIdx::Property as u32);
+        assert_eq!(tok.token_modifiers, ModIdx::Declaration as u32);
+    }
+
+    #[test]
+    fn simple_type_becomes_type_token() {
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"integer"}]}"#;
+        let tokens = classify_src(src);
+        let integer_start = src.find(r#""type":"integer""#).unwrap() + 8;
+        let tok = tokens
+            .iter()
+            .find(|t| t.byte_range.start == integer_start)
+            .expect("type token");
+        assert_eq!(tok.token_type, TokenIdx::Type as u32);
+    }
+
+    #[test]
+    fn complex_type_kind_value_is_enum_member() {
+        let src = r#"{"name":"u","columns":[{"name":"t","type":{"kind":"varchar","length":255}}]}"#;
+        let tokens = classify_src(src);
+        let kind_start = src.find(r#""kind":"varchar""#).unwrap() + 8;
+        let tok = tokens
+            .iter()
+            .find(|t| t.byte_range.start == kind_start)
+            .expect("kind token");
+        assert_eq!(tok.token_type, TokenIdx::EnumMember as u32);
+    }
+
+    #[test]
+    fn enum_string_values_are_enum_members() {
+        let src = r#"{"name":"u","columns":[{"name":"s","type":{"kind":"enum","name":"st","values":["active","banned"]}}]}"#;
+        let tokens = classify_src(src);
+        let active_start = src.find(r#""active""#).unwrap() + 1;
+        let banned_start = src.find(r#""banned""#).unwrap() + 1;
+        let active = tokens
+            .iter()
+            .find(|t| t.byte_range.start == active_start)
+            .expect("active");
+        let banned = tokens
+            .iter()
+            .find(|t| t.byte_range.start == banned_start)
+            .expect("banned");
+        assert_eq!(active.token_type, TokenIdx::EnumMember as u32);
+        assert_eq!(banned.token_type, TokenIdx::EnumMember as u32);
+    }
+
+    #[test]
+    fn ref_table_value_is_class_definition() {
+        let src = r#"{"name":"p","columns":[{"name":"a","type":"integer","foreign_key":{"ref_table":"user","ref_columns":["id"]}}]}"#;
+        let tokens = classify_src(src);
+        let user_start = src.find(r#""ref_table":"user""#).unwrap() + 13;
+        let tok = tokens
+            .iter()
+            .find(|t| t.byte_range.start == user_start)
+            .expect("ref_table token");
+        assert_eq!(tok.token_type, TokenIdx::Class as u32);
+        assert_eq!(tok.token_modifiers, ModIdx::Definition as u32);
+    }
+
+    #[test]
+    fn ref_columns_entries_are_property_definition() {
+        let src = r#"{"name":"p","columns":[{"name":"a","type":"integer","foreign_key":{"ref_table":"user","ref_columns":["id"]}}]}"#;
+        let tokens = classify_src(src);
+        let id_start = src.find(r#"["id"]"#).unwrap() + 2;
+        let tok = tokens
+            .iter()
+            .find(|t| t.byte_range.start == id_start)
+            .expect("ref_columns id token");
+        assert_eq!(tok.token_type, TokenIdx::Property as u32);
+        assert_eq!(tok.token_modifiers, ModIdx::Definition as u32);
+    }
+
+    #[test]
+    fn on_delete_action_is_enum_member() {
+        let src = r#"{"name":"p","columns":[{"name":"a","type":"integer","foreign_key":{"ref_table":"u","ref_columns":["id"],"on_delete":"cascade"}}]}"#;
+        let tokens = classify_src(src);
+        let action_start = src.find(r#""on_delete":"cascade""#).unwrap() + 13;
+        let tok = tokens
+            .iter()
+            .find(|t| t.byte_range.start == action_start)
+            .expect("on_delete token");
+        assert_eq!(tok.token_type, TokenIdx::EnumMember as u32);
+    }
+
+    #[test]
+    fn default_keyword_literals_are_keyword_tokens() {
+        let src = r#"{"name":"u","columns":[{"name":"x","type":"boolean","default":true}]}"#;
+        let tokens = classify_src(src);
+        let true_start = src.find(r#""default":true"#).unwrap() + 10;
+        let tok = tokens
+            .iter()
+            .find(|t| t.byte_range.start == true_start)
+            .expect("keyword token");
+        assert_eq!(tok.token_type, TokenIdx::Keyword as u32);
+    }
+
+    #[test]
+    fn types_are_classified_correctly_in_a_realistic_doc() {
+        let src = r#"{
+            "name": "post",
+            "columns": [
+                {"name":"id","type":"integer","primary_key":true},
+                {"name":"author_id","type":"integer","foreign_key":{"ref_table":"user","ref_columns":["id"]}}
+            ]
+        }"#;
+        let tokens = classify_src(src);
+        let present = types_present(&tokens);
+        // Must surface ALL of class, property, type, and the FK reference.
+        assert!(present.contains(&(TokenIdx::Class as u32)));
+        assert!(present.contains(&(TokenIdx::Property as u32)));
+        assert!(present.contains(&(TokenIdx::Type as u32)));
+    }
+}

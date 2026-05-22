@@ -53,21 +53,169 @@ pub fn compute(
         return Vec::new();
     };
     let mut actions = Vec::new();
+    actions.extend(flag_toggles(column, source_bytes));
+    actions.extend(type_conversions(column, source_bytes));
+    actions.extend(enum_extraction(column, source_bytes));
+    actions.extend(fk_skeleton(column, source_bytes));
+    actions
+}
+
+fn flag_toggles(column: tree_sitter::Node<'_>, source: &[u8]) -> Vec<DomainCodeAction> {
+    let mut actions = Vec::new();
     for (flag, on_title, off_title) in [
         ("primary_key", "Mark column as primary key", "Unmark primary key"),
         ("unique", "Mark column as unique", "Remove unique"),
         ("index", "Add index to column", "Remove index"),
     ] {
-        actions.extend(toggle_bool_flag(
-            column,
-            source_bytes,
-            flag,
-            on_title,
-            off_title,
-        ));
+        actions.extend(toggle_bool_flag(column, source, flag, on_title, off_title));
     }
-    actions.extend(toggle_nullable(column, source_bytes));
+    actions.extend(toggle_nullable(column, source));
     actions
+}
+
+/// Convert a simple string column type (`"text"`, `"integer"`) into its
+/// parametric complex form (`{kind: varchar, length: 255}`,
+/// `{kind: numeric, precision: 10, scale: 2}`). Only fires when the
+/// existing type is a plain string — complex object types are already
+/// parametrised, so offering the conversion again would just clobber
+/// the user's `length` / `precision`.
+fn type_conversions(column: tree_sitter::Node<'_>, source: &[u8]) -> Vec<DomainCodeAction> {
+    let Some(type_pair) = find_pair(column, source, "type") else {
+        return Vec::new();
+    };
+    let Some(type_value) = type_pair.named_child(1) else {
+        return Vec::new();
+    };
+    // Only operate on a simple string type; object types are already
+    // parametric.
+    if type_value.kind() != "string" {
+        return Vec::new();
+    }
+    let Some(text) = std::str::from_utf8(&source[type_value.byte_range()]).ok() else {
+        return Vec::new();
+    };
+    let kind = strip_quotes(text);
+    let mut out = Vec::new();
+    match kind {
+        // Variable-width strings: offer varchar(255).
+        "text" | "varchar" | "char" => {
+            out.push(replace_type_action(
+                "Convert to varchar(255)",
+                type_value,
+                r#"{"kind":"varchar","length":255}"#,
+            ));
+        }
+        // Whole-number numeric types: offer numeric(10,2) — typical money-ish default.
+        "integer" | "big_int" | "small_int" | "real" | "double_precision" => {
+            out.push(replace_type_action(
+                "Convert to numeric(10,2)",
+                type_value,
+                r#"{"kind":"numeric","precision":10,"scale":2}"#,
+            ));
+        }
+        _ => {}
+    }
+    out
+}
+
+fn replace_type_action(
+    title: &str,
+    type_value: tree_sitter::Node<'_>,
+    new_value: &str,
+) -> DomainCodeAction {
+    DomainCodeAction {
+        title: title.to_string(),
+        kind: CodeActionKind::Refactor,
+        edits: vec![DomainTextEdit {
+            byte_range: type_value.byte_range(),
+            new_text: new_value.to_string(),
+        }],
+    }
+}
+
+/// Promote a column's `default: "'literal'"` into a full enum type
+/// definition. V1 is single-column: we synthesise an enum whose only
+/// value is the existing default. The user can extend `values` after.
+///
+/// Skipped when:
+///   * cursor's column has no `default` pair,
+///   * default isn't a SQL string literal of the form `'…'`,
+///   * column type isn't a simple string (we'd be clobbering object type).
+fn enum_extraction(column: tree_sitter::Node<'_>, source: &[u8]) -> Vec<DomainCodeAction> {
+    let Some(default_pair) = find_pair(column, source, "default") else {
+        return Vec::new();
+    };
+    let Some(default_value) = default_pair.named_child(1) else {
+        return Vec::new();
+    };
+    if default_value.kind() != "string" {
+        return Vec::new();
+    }
+    let Some(raw) = std::str::from_utf8(&source[default_value.byte_range()]).ok() else {
+        return Vec::new();
+    };
+    let default_text = strip_quotes(raw);
+    // Look for `'literal'` pattern — SQL single-quote literal inside JSON string.
+    let inner = default_text
+        .strip_prefix('\'')
+        .and_then(|s| s.strip_suffix('\''))
+        .filter(|s| !s.is_empty());
+    let Some(inner) = inner else {
+        return Vec::new();
+    };
+
+    // Type must currently be a simple string; otherwise the user has
+    // already shaped it (varchar / numeric / existing enum).
+    let Some(type_pair) = find_pair(column, source, "type") else {
+        return Vec::new();
+    };
+    let Some(type_value) = type_pair.named_child(1) else {
+        return Vec::new();
+    };
+    if type_value.kind() != "string" {
+        return Vec::new();
+    }
+
+    let column_name = find_pair(column, source, "name")
+        .and_then(|p| p.named_child(1))
+        .and_then(|v| std::str::from_utf8(&source[v.byte_range()]).ok())
+        .map_or("status", strip_quotes)
+        .to_string();
+
+    let enum_name = format!("{column_name}_kind");
+    let new_type = format!(
+        r#"{{"kind":"enum","name":"{enum_name}","values":["{inner}"]}}"#
+    );
+    vec![DomainCodeAction {
+        title: format!("Extract default into enum `{enum_name}`"),
+        kind: CodeActionKind::Refactor,
+        edits: vec![DomainTextEdit {
+            byte_range: type_value.byte_range(),
+            new_text: new_type,
+        }],
+    }]
+}
+
+/// Insert a `foreign_key` skeleton when the column doesn't yet have one.
+/// Reuses [`insert_pair_edit`] so we share the comma-aware insertion
+/// behaviour with the boolean-flag toggles.
+fn fk_skeleton(column: tree_sitter::Node<'_>, source: &[u8]) -> Vec<DomainCodeAction> {
+    if find_pair(column, source, "foreign_key").is_some() {
+        return Vec::new();
+    }
+    let Some(edit) = insert_pair_edit(
+        column,
+        source,
+        "foreign_key",
+        r#"{"ref_table":"","ref_columns":["id"],"on_delete":"cascade"}"#,
+    ) else {
+        return Vec::new();
+    };
+    vec![DomainCodeAction {
+        title: "Add foreign_key skeleton".to_string(),
+        kind: CodeActionKind::Refactor,
+        edits: vec![edit],
+    }]
 }
 
 fn toggle_bool_flag(
@@ -340,6 +488,100 @@ mod tests {
             actions.is_empty(),
             "no actions expected outside a column, got: {actions:?}"
         );
+    }
+
+    #[test]
+    fn text_column_offers_varchar_conversion() {
+        let src = r#"{"name":"u","columns":[{"name":"title","type":"text"}]}"#;
+        let tree = parse(src);
+        let cursor = src.find(r#""title""#).unwrap() + 2;
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        let convert = actions
+            .iter()
+            .find(|a| a.title == "Convert to varchar(255)")
+            .expect("text → varchar action");
+        let edit = &convert.edits[0];
+        let mut after = String::from(&src[..edit.byte_range.start]);
+        after.push_str(&edit.new_text);
+        after.push_str(&src[edit.byte_range.end..]);
+        assert!(after.contains(r#""kind":"varchar""#));
+        serde_json::from_str::<serde_json::Value>(&after).expect("valid JSON");
+    }
+
+    #[test]
+    fn integer_column_offers_numeric_conversion() {
+        let src = r#"{"name":"u","columns":[{"name":"amount","type":"integer"}]}"#;
+        let tree = parse(src);
+        let cursor = src.find(r#""amount""#).unwrap() + 2;
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        let convert = actions
+            .iter()
+            .find(|a| a.title == "Convert to numeric(10,2)")
+            .expect("integer → numeric action");
+        let edit = &convert.edits[0];
+        assert!(edit.new_text.contains(r#""kind":"numeric""#));
+    }
+
+    #[test]
+    fn complex_type_already_does_not_offer_conversion() {
+        let src = r#"{"name":"u","columns":[{"name":"t","type":{"kind":"varchar","length":100}}]}"#;
+        let tree = parse(src);
+        let cursor = src.find(r#""t""#).unwrap() + 1;
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        assert!(actions.iter().all(|a| !a.title.starts_with("Convert to")));
+    }
+
+    #[test]
+    fn extract_default_to_enum_offered_when_default_is_sql_literal() {
+        let src = r#"{"name":"u","columns":[{"name":"status","type":"text","default":"'pending'"}]}"#;
+        let tree = parse(src);
+        let cursor = src.find(r#""status""#).unwrap() + 2;
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        let extract = actions
+            .iter()
+            .find(|a| a.title.starts_with("Extract default into enum"))
+            .expect("enum extraction action");
+        let edit = &extract.edits[0];
+        assert!(edit.new_text.contains(r#""kind":"enum""#));
+        assert!(edit.new_text.contains(r#""pending""#));
+    }
+
+    #[test]
+    fn extract_default_to_enum_skipped_when_default_is_bare() {
+        let src = r#"{"name":"u","columns":[{"name":"x","type":"integer","default":0}]}"#;
+        let tree = parse(src);
+        let cursor = src.find(r#""x""#).unwrap() + 1;
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        assert!(actions
+            .iter()
+            .all(|a| !a.title.starts_with("Extract default")));
+    }
+
+    #[test]
+    fn add_foreign_key_skeleton_offered_when_absent() {
+        let src = r#"{"name":"u","columns":[{"name":"author_id","type":"integer"}]}"#;
+        let tree = parse(src);
+        let cursor = src.find(r#""author_id""#).unwrap() + 2;
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        let fk = actions
+            .iter()
+            .find(|a| a.title == "Add foreign_key skeleton")
+            .expect("foreign_key skeleton action");
+        let edit = &fk.edits[0];
+        let mut after = String::from(&src[..edit.byte_range.start]);
+        after.push_str(&edit.new_text);
+        after.push_str(&src[edit.byte_range.end..]);
+        assert!(after.contains(r#""foreign_key""#));
+        serde_json::from_str::<serde_json::Value>(&after).expect("valid JSON");
+    }
+
+    #[test]
+    fn add_foreign_key_skeleton_skipped_when_already_present() {
+        let src = r#"{"name":"u","columns":[{"name":"author_id","type":"integer","foreign_key":{"ref_table":"user","ref_columns":["id"]}}]}"#;
+        let tree = parse(src);
+        let cursor = src.find(r#""author_id""#).unwrap() + 2;
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        assert!(actions.iter().all(|a| a.title != "Add foreign_key skeleton"));
     }
 
     #[test]

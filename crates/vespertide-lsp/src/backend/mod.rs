@@ -18,21 +18,23 @@ use std::sync::Arc;
 
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::{
-    CompletionItem, CompletionItemKind as LspCompletionItemKind, CompletionOptions,
-    CompletionParams, CompletionResponse, CompletionTextEdit, Diagnostic, DiagnosticSeverity,
+    CompletionOptions, CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, DocumentFormattingParams, GotoDefinitionParams,
     GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
-    InitializeParams, InitializeResult, InitializedParams, InsertTextFormat, Location,
-    MarkupContent, MarkupKind, MessageType, NumberOrString, OneOf, Position, Range,
-    CodeAction, CodeActionKind as LspCodeActionKind, CodeActionOptions, CodeActionOrCommand,
-    CodeActionParams, CodeActionProviderCapability, CodeActionResponse, InlayHint,
-    InlayHintKind as LspInlayHintKind, InlayHintLabel, InlayHintOptions, InlayHintParams,
-    InlayHintServerCapabilities, PrepareRenameResponse, ReferenceParams, RenameOptions,
-    RenameParams, ServerCapabilities, ServerInfo, SymbolInformation,
-    SymbolKind as LspSymbolKind, TextDocumentPositionParams, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit, Uri,
-    WorkDoneProgressOptions, WorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    InitializeParams, InitializeResult, InitializedParams, Location, MarkupContent, MarkupKind,
+    MessageType, NumberOrString, OneOf, Position, Range, CodeAction,
+    CodeActionKind as LspCodeActionKind, CodeActionOptions, CodeActionOrCommand,
+    CodeActionParams, CodeActionProviderCapability, CodeActionResponse,
+    DidChangeWatchedFilesParams, InlayHint, InlayHintKind as LspInlayHintKind, InlayHintLabel,
+    InlayHintOptions, InlayHintParams, InlayHintServerCapabilities, PrepareRenameResponse,
+    ReferenceParams, RenameOptions, RenameParams, SemanticTokensFullOptions, SemanticTokensOptions,
+    SemanticTokensParams, SemanticTokensRangeParams, SemanticTokensRangeResult,
+    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo,
+    SymbolInformation, TextDocumentPositionParams,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    TextDocumentSyncSaveOptions, TextEdit, Uri, WorkDoneProgressOptions, WorkspaceEdit,
+    WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use tower_lsp_server::{Client, LanguageServer};
 
@@ -357,6 +359,16 @@ impl LanguageServer for Backend {
                         }),
                     ),
                 ),
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            work_done_progress_options: WorkDoneProgressOptions::default(),
+                            legend: crate::semantic_tokens::legend(),
+                            range: Some(true),
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                        },
+                    ),
+                ),
                 completion_provider: Some(CompletionOptions {
                     // `"` triggers key/value strings, `:` value position,
                     // `,` opens a new pair, `{` and `[` open new objects.
@@ -392,6 +404,19 @@ impl LanguageServer for Backend {
             log_path.display()
         );
         self.client.log_message(MessageType::INFO, &message).await;
+
+        // Ask the client to watch model + migration files. Clients that
+        // don't support dynamic registration (older Zed builds, basic
+        // LSP clients) simply ignore this — they'll still work via the
+        // editor's own save / change notifications.
+        let registration = crate::watched_files::build_registration();
+        if let Err(err) = self.client.register_capability(vec![registration]).await {
+            tracing::warn!(
+                target: "vespertide_lsp::handler",
+                error = %err,
+                "client refused workspace/didChangeWatchedFiles registration; relying on editor save events"
+            );
+        }
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -748,109 +773,68 @@ impl LanguageServer for Backend {
         &self,
         params: TextDocumentPositionParams,
     ) -> Result<Option<PrepareRenameResponse>> {
-        let uri = params.text_document.uri;
-        let pos_ls = params.position;
-        let pos_lsp = crate::position::ls_to_lsp_position(pos_ls);
-        let Some(format) = DocumentFormat::from_uri(&uri) else {
-            return Ok(None);
-        };
-
-        let domain = self.store.docs_iter_for_uri(&uri, |state| {
-            let text = state.text();
-            let byte = crate::position::lsp_position_to_byte(&state.doc, pos_lsp);
-            crate::rename::prepare(text, format, state.tree.as_ref(), &uri, byte)
-        });
-        let Some(Some(domain)) = domain else {
-            tracing::debug!(
-                target: "vespertide_lsp::handler",
-                uri = %uri.as_str(),
-                "prepare_rename: position is not renameable"
-            );
-            return Ok(None);
-        };
-
-        let range = self
-            .store
-            .docs_iter_for_uri(&uri, |state| Range {
-                start: byte_to_ls_position(&state.doc, domain.byte_range.start),
-                end: byte_to_ls_position(&state.doc, domain.byte_range.end),
-            })
-            .unwrap_or(Range {
-                start: Position {
-                    line: 0,
-                    character: 0,
-                },
-                end: Position {
-                    line: 0,
-                    character: 0,
-                },
-            });
-
-        tracing::info!(
-            target: "vespertide_lsp::handler",
-            uri = %uri.as_str(),
-            placeholder = %domain.placeholder,
-            "prepare_rename"
-        );
-
-        Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
-            range,
-            placeholder: domain.placeholder,
-        }))
+        handler_rename::prepare_rename_impl(self, params).await
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        let uri = params.text_document_position.text_document.uri;
-        let pos_ls = params.text_document_position.position;
-        let pos_lsp = crate::position::ls_to_lsp_position(pos_ls);
-        let new_name = params.new_name;
-        let Some(format) = DocumentFormat::from_uri(&uri) else {
-            return Ok(None);
+        handler_rename::rename_impl(self, params).await
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        Ok(crate::semantic_tokens::handler::compute_full(
+            self.store.as_ref(),
+            &params,
+        ))
+    }
+
+    async fn semantic_tokens_range(
+        &self,
+        params: SemanticTokensRangeParams,
+    ) -> Result<Option<SemanticTokensRangeResult>> {
+        Ok(crate::semantic_tokens::handler::compute_range(
+            self.store.as_ref(),
+            &params,
+        ))
+    }
+
+    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+        let Some(root) = self.workspace_tables.root() else {
+            return;
         };
+        let models_dir = root.join("models");
+        let migrations_dir = root.join("migrations");
 
-        let domain = self.store.docs_iter_for_uri(&uri, |state| {
-            let text = state.text();
-            let byte = crate::position::lsp_position_to_byte(&state.doc, pos_lsp);
-            crate::rename::compute(
-                text,
-                format,
-                state.tree.as_ref(),
-                &uri,
-                self.index.as_ref(),
-                self.store.as_ref(),
-                Some(self.workspace_tables.as_ref()),
-                byte,
-                &new_name,
-            )
-        });
-        let Some(Some(domain)) = domain else {
-            return Ok(None);
-        };
-
-        tracing::info!(
-            target: "vespertide_lsp::handler",
-            uri = %uri.as_str(),
-            new_name = %new_name,
-            files = domain.edits.len(),
-            total_edits = domain.edits.values().map(Vec::len).sum::<usize>(),
-            "rename"
-        );
-
-        let mut changes = std::collections::HashMap::new();
-        for (target_uri, domain_edits) in domain.edits {
-            let Some(text_edits) = domain_edits_to_lsp(&target_uri, &domain_edits, self) else {
+        let mut touched = false;
+        for event in &params.changes {
+            let Some(path) = crate::position::uri_to_path(&event.uri) else {
                 continue;
             };
-            changes.insert(target_uri, text_edits);
+            if crate::watched_files::should_refresh_for(
+                &root,
+                &models_dir,
+                &migrations_dir,
+                &path,
+            ) {
+                touched = true;
+                break;
+            }
+        }
+        if !touched {
+            return;
         }
 
-        if changes.is_empty() {
-            return Ok(None);
+        self.workspace_tables.refresh(&root);
+        tracing::info!(
+            target: "vespertide_lsp::handler",
+            changes = params.changes.len(),
+            "did_change_watched_files: refreshed workspace_tables"
+        );
+        for uri in self.store.open_uris() {
+            self.publish(uri).await;
         }
-        Ok(Some(WorkspaceEdit {
-            changes: Some(changes),
-            ..WorkspaceEdit::default()
-        }))
     }
 
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
@@ -953,216 +937,9 @@ impl LanguageServer for Backend {
     }
 }
 
-#[derive(Default)]
-struct DiagnosticSeverityCounts {
-    errors: usize,
-    warnings: usize,
-}
-
-fn diagnostic_severity_counts(diagnostics: &[Diagnostic]) -> DiagnosticSeverityCounts {
-    let mut counts = DiagnosticSeverityCounts::default();
-    for diag in diagnostics {
-        match diag.severity {
-            Some(DiagnosticSeverity::ERROR) => counts.errors += 1,
-            Some(DiagnosticSeverity::WARNING) => counts.warnings += 1,
-            _ => {}
-        }
-    }
-    counts
-}
-
-/// Translate a [`crate::completion::DomainCompletion`] into the LSP wire
-/// shape. When the domain layer supplies a byte range to replace, we lower
-/// it to a `TextEdit` so the client wipes the existing string (quotes and
-/// all) before inserting the snippet — that is what makes typing `varchar`
-/// inside `""` collapse the quotes and unfold into a `{...}` object literal.
-fn domain_to_lsp(
-    item: crate::completion::DomainCompletion,
-    doc: &lsp_textdocument::FullTextDocument,
-) -> CompletionItem {
-    let kind = Some(match item.kind {
-        crate::completion::CompletionItemKind::Value => LspCompletionItemKind::VALUE,
-        crate::completion::CompletionItemKind::Property => LspCompletionItemKind::PROPERTY,
-        crate::completion::CompletionItemKind::Reference => LspCompletionItemKind::REFERENCE,
-        crate::completion::CompletionItemKind::Snippet => LspCompletionItemKind::SNIPPET,
-    });
-
-    let text_edit = item.replace_range_bytes.as_ref().map(|range| {
-        let start = byte_to_ls_position(doc, range.start);
-        let end = byte_to_ls_position(doc, range.end);
-        let new_text = item
-            .insert_text
-            .clone()
-            .unwrap_or_else(|| item.label.clone());
-        CompletionTextEdit::Edit(TextEdit {
-            range: Range { start, end },
-            new_text,
-        })
-    });
-
-    let insert_text_format = item.insert_text.as_ref().map(|_| InsertTextFormat::SNIPPET);
-    // Per LSP spec: when text_edit is set, the client ignores insert_text.
-    // Suppress it so the two never disagree.
-    let insert_text = if text_edit.is_some() {
-        None
-    } else {
-        item.insert_text
-    };
-    let sort_text = Some(format!("{:03}{}", item.sort_priority, item.label));
-
-    CompletionItem {
-        label: item.label,
-        kind,
-        detail: item.detail,
-        text_edit,
-        insert_text_format,
-        insert_text,
-        sort_text,
-        ..CompletionItem::default()
-    }
-}
-
-fn byte_to_ls_position(
-    doc: &lsp_textdocument::FullTextDocument,
-    byte_offset: usize,
-) -> tower_lsp_server::ls_types::Position {
-    crate::position::lsp_to_ls_position(crate::position::byte_to_lsp_position(doc, byte_offset))
-}
-
-/// Best-effort filesystem path normalization for workspace dedup.
-///
-/// 1. `std::fs::canonicalize` when the file exists — that is the most
-///    reliable cross-tool match (resolves symlinks + UNC + casing).
-/// 2. Fallback to forward-slash + lowercase rewrite so Windows files that
-///    differ only in drive-letter case still compare equal.
-fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
-    if let Ok(canonical) = std::fs::canonicalize(path) {
-        return canonical;
-    }
-    let lossy = path.to_string_lossy().replace('\\', "/");
-    if cfg!(windows) {
-        std::path::PathBuf::from(lossy.to_lowercase())
-    } else {
-        std::path::PathBuf::from(lossy)
-    }
-}
-
-/// Lower a domain symbol into LSP `SymbolInformation`, resolving the byte
-/// range via either the open document or the on-disk file.
-#[allow(deprecated)]
-fn symbol_to_lsp(symbol: &crate::symbols::DomainSymbol, backend: &Backend) -> Option<SymbolInformation> {
-    let range = backend.store.docs_iter_for_uri(&symbol.uri, |state| Range {
-        start: byte_to_ls_position(&state.doc, symbol.byte_range.start),
-        end: byte_to_ls_position(&state.doc, symbol.byte_range.end),
-    });
-    let range = if let Some(r) = range {
-        r
-    } else {
-        // Disk-only file — read it once to get a UTF-16-aware doc.
-        let path = crate::position::uri_to_path(&symbol.uri)?;
-        let text = std::fs::read_to_string(&path).ok()?;
-        let language_id = match path.extension().and_then(|e| e.to_str()) {
-            Some("yaml" | "yml") => "yaml",
-            _ => "json",
-        };
-        let doc = lsp_textdocument::FullTextDocument::new(language_id.to_string(), 1, text);
-        Range {
-            start: byte_to_ls_position(&doc, symbol.byte_range.start),
-            end: byte_to_ls_position(&doc, symbol.byte_range.end),
-        }
-    };
-
-    Some(SymbolInformation {
-        name: symbol.name.clone(),
-        kind: match symbol.kind {
-            crate::symbols::SymbolKind::Table => LspSymbolKind::CLASS,
-            crate::symbols::SymbolKind::Column => LspSymbolKind::FIELD,
-        },
-        location: Location {
-            uri: symbol.uri.clone(),
-            range,
-        },
-        container_name: symbol.container.clone(),
-        tags: None,
-        deprecated: None,
-    })
-}
-
-/// Convert a list of [`crate::rename::DomainTextEdit`] into LSP `TextEdit`s
-/// for `target_uri`. Mirrors the open-vs-disk fallback used by references.
-fn domain_edits_to_lsp(
-    target_uri: &Uri,
-    domain_edits: &[crate::rename::DomainTextEdit],
-    backend: &Backend,
-) -> Option<Vec<TextEdit>> {
-    let to_lsp = |doc: &lsp_textdocument::FullTextDocument| {
-        domain_edits
-            .iter()
-            .map(|edit| TextEdit {
-                range: Range {
-                    start: byte_to_ls_position(doc, edit.byte_range.start),
-                    end: byte_to_ls_position(doc, edit.byte_range.end),
-                },
-                new_text: edit.new_text.clone(),
-            })
-            .collect()
-    };
-
-    if let Some(edits) = backend
-        .store
-        .docs_iter_for_uri(target_uri, |state| to_lsp(&state.doc))
-    {
-        return Some(edits);
-    }
-
-    let path = crate::position::uri_to_path(target_uri)?;
-    let text = std::fs::read_to_string(&path).ok()?;
-    let language_id = match path.extension().and_then(|e| e.to_str()) {
-        Some("yaml" | "yml") => "yaml",
-        _ => "json",
-    };
-    let doc = lsp_textdocument::FullTextDocument::new(language_id.to_string(), 1, text);
-    Some(to_lsp(&doc))
-}
-
-/// Convert a [`crate::references::DomainReference`] into an LSP [`Location`].
-///
-/// When the target URI is an open document we use its `FullTextDocument`
-/// for accurate UTF-16 offset conversion. For disk-only files we read the
-/// source and build a transient document. Returns `None` only when both
-/// fail.
-fn domain_reference_to_location(
-    reference: &crate::references::DomainReference,
-    backend: &Backend,
-) -> Option<Location> {
-    if let Some(range) = backend
-        .store
-        .docs_iter_for_uri(&reference.uri, |state| {
-            Range {
-                start: byte_to_ls_position(&state.doc, reference.byte_range.start),
-                end: byte_to_ls_position(&state.doc, reference.byte_range.end),
-            }
-        })
-    {
-        return Some(Location {
-            uri: reference.uri.clone(),
-            range,
-        });
-    }
-
-    // Disk-only file — read source on demand.
-    let path = crate::position::uri_to_path(&reference.uri)?;
-    let text = std::fs::read_to_string(&path).ok()?;
-    let language_id = match path.extension().and_then(|e| e.to_str()) {
-        Some("yaml" | "yml") => "yaml",
-        _ => "json",
-    };
-    let doc = lsp_textdocument::FullTextDocument::new(language_id.to_string(), 1, text);
-    Some(Location {
-        uri: reference.uri.clone(),
-        range: Range {
-            start: byte_to_ls_position(&doc, reference.byte_range.start),
-            end: byte_to_ls_position(&doc, reference.byte_range.end),
-        },
-    })
-}
+mod handler_rename;
+mod helpers;
+use helpers::{
+    byte_to_ls_position, diagnostic_severity_counts, domain_edits_to_lsp,
+    domain_reference_to_location, domain_to_lsp, normalize_path, symbol_to_lsp,
+};
