@@ -21,12 +21,14 @@ mod document;
 mod drift;
 mod formatting;
 mod hover;
+mod inlay_hints;
 pub mod logging;
 mod parser;
 mod position;
 mod references;
 mod rename;
 mod store;
+mod symbols;
 mod workspace_index;
 pub mod workspace_tables;
 
@@ -44,6 +46,7 @@ pub use document::DocumentState;
 pub use drift::{DomainDrift, compute as compute_drift};
 pub use formatting::format_text;
 pub use hover::{DomainHover, compute as compute_hover};
+pub use inlay_hints::{DomainInlayHint, compute as compute_inlay_hints};
 pub use parser::{DocumentFormat, ParserPool};
 pub use references::{
     DomainReference, ReferenceSymbol, compute as compute_references,
@@ -52,7 +55,13 @@ pub use references::{
 pub use code_actions::{
     CodeActionKind as DomainCodeActionKind, DomainCodeAction, compute as compute_code_actions,
 };
-pub use rename::{DomainRename, DomainTextEdit, compute as compute_rename};
+pub use rename::{
+    DomainPrepareRename, DomainRename, DomainTextEdit, compute as compute_rename,
+    prepare as prepare_rename,
+};
+pub use symbols::{
+    DomainSymbol, SymbolKind as DomainSymbolKind, compute as compute_workspace_symbols,
+};
 pub use position::{
     byte_to_lsp_position, ls_to_lsp_position, ls_to_lsp_range, lsp_position_to_byte,
     lsp_to_ls_position, uri_to_path,

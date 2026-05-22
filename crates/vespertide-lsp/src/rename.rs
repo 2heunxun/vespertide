@@ -19,6 +19,114 @@ use crate::store::DocumentStore;
 use crate::workspace_index::WorkspaceIndex;
 use crate::workspace_tables::WorkspaceTables;
 
+/// Result of `textDocument/prepareRename`. When the cursor is on a
+/// renameable symbol we return both the byte range of the existing
+/// identifier (for the editor's "select-on-rename" UI) and a placeholder
+/// value (the current name pre-filled in the rename input).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DomainPrepareRename {
+    pub byte_range: Range<usize>,
+    pub placeholder: String,
+}
+
+/// Resolve the renameable symbol under the cursor and return its inner
+/// content range — same byte range used by references and the rename
+/// edit itself. Returning `None` makes the editor refuse the rename
+/// prompt entirely, which is what we want on non-renameable positions
+/// (whitespace, braces, key strings the user did not intend to rename).
+#[must_use]
+pub fn prepare(
+    source: &str,
+    _format: DocumentFormat,
+    tree: Option<&tree_sitter::Tree>,
+    current_uri: &Uri,
+    byte_offset: usize,
+) -> Option<DomainPrepareRename> {
+    let symbol = references::resolve_symbol(source, tree, current_uri, byte_offset)?;
+    let placeholder = match &symbol {
+        ReferenceSymbol::Table { name } => name.clone(),
+        ReferenceSymbol::Column { column, .. } => column.clone(),
+    };
+    let range = locate_symbol_inner_range(tree?, source, byte_offset)?;
+    Some(DomainPrepareRename {
+        byte_range: range,
+        placeholder,
+    })
+}
+
+/// Find the inner content range of the JSON/YAML string scalar that the
+/// cursor sits in. Mirrors how [`references::compute`] decides which
+/// range to replace, so prepare + rename agree byte-for-byte.
+fn locate_symbol_inner_range(
+    tree: &tree_sitter::Tree,
+    source: &str,
+    byte_offset: usize,
+) -> Option<Range<usize>> {
+    let node = node_at_byte(tree, byte_offset)?;
+    let string_node = enclosing_string(node)?;
+    Some(inner_content_range(string_node, source))
+}
+
+fn enclosing_string(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    let mut current = Some(node);
+    while let Some(candidate) = current {
+        match candidate.kind() {
+            "string"
+            | "double_quote_scalar"
+            | "single_quote_scalar"
+            | "string_scalar"
+            | "plain_scalar" => return Some(candidate),
+            "string_content" => return candidate.parent(),
+            "array" | "object" | "pair" | "block_mapping_pair" | "block_mapping"
+            | "block_sequence" | "flow_mapping" | "flow_sequence" => return None,
+            _ => {}
+        }
+        current = candidate.parent();
+    }
+    None
+}
+
+fn inner_content_range(node: tree_sitter::Node<'_>, source: &str) -> Range<usize> {
+    let raw = node.byte_range();
+    // JSON `string` node has a `string_content` named child (without quotes)
+    // when non-empty; YAML quoted scalars include their delimiters. Strip
+    // one byte from each side when the literal looks quoted.
+    match node.kind() {
+        "string" => node
+            .named_child(0)
+            .map_or_else(|| trim_one_byte(&raw), |inner| inner.byte_range()),
+        "double_quote_scalar" | "single_quote_scalar" => trim_one_byte(&raw),
+        _ => {
+            // Defensive: ensure the range is in-bounds before returning.
+            let _ = source;
+            raw
+        }
+    }
+}
+
+fn trim_one_byte(range: &Range<usize>) -> Range<usize> {
+    if range.end.saturating_sub(range.start) >= 2 {
+        (range.start + 1)..(range.end - 1)
+    } else {
+        range.clone()
+    }
+}
+
+fn node_at_byte(tree: &tree_sitter::Tree, byte_offset: usize) -> Option<tree_sitter::Node<'_>> {
+    let root = tree.root_node();
+    let mut current = root;
+    'outer: loop {
+        let mut cursor = current.walk();
+        for child in current.children(&mut cursor) {
+            if child.byte_range().contains(&byte_offset) {
+                current = child;
+                continue 'outer;
+            }
+        }
+        return Some(current);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DomainTextEdit {
     pub byte_range: Range<usize>,
@@ -244,6 +352,45 @@ mod tests {
         assert!(after.contains(r#""a""#), "result must keep the quotes: {after}");
         serde_json::from_str::<serde_json::Value>(&after)
             .expect("rename output must still parse as JSON");
+    }
+
+    #[test]
+    fn prepare_returns_range_and_placeholder_for_top_level_name() {
+        let pool = ParserPool::new();
+        let src = r#"{"name":"user","columns":[{"name":"id","type":"integer"}]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+        // Cursor inside `"user"` value.
+        let pos = src.find(r#""name":"user""#).unwrap() + 9;
+        let result = prepare(src, DocumentFormat::Json, Some(&tree), &uri("user.json"), pos)
+            .expect("table name should be renameable");
+        assert_eq!(result.placeholder, "user");
+        assert_eq!(
+            &src[result.byte_range.clone()],
+            "user",
+            "range must select INNER content only (quotes preserved)"
+        );
+    }
+
+    #[test]
+    fn prepare_returns_range_for_column_name() {
+        let pool = ParserPool::new();
+        let src = r#"{"name":"u","columns":[{"name":"email","type":"text"}]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+        let pos = src.find(r#""name":"email""#).unwrap() + 10;
+        let result = prepare(src, DocumentFormat::Json, Some(&tree), &uri("u.json"), pos)
+            .expect("column name should be renameable");
+        assert_eq!(result.placeholder, "email");
+        assert_eq!(&src[result.byte_range.clone()], "email");
+    }
+
+    #[test]
+    fn prepare_returns_none_outside_renameable_positions() {
+        let pool = ParserPool::new();
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"integer"}]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+        // Cursor on the opening brace — not a symbol.
+        let result = prepare(src, DocumentFormat::Json, Some(&tree), &uri("u.json"), 0);
+        assert!(result.is_none(), "non-symbol positions must not be renameable");
     }
 
     #[test]

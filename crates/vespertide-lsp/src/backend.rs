@@ -26,10 +26,13 @@ use tower_lsp_server::ls_types::{
     InitializeParams, InitializeResult, InitializedParams, InsertTextFormat, Location,
     MarkupContent, MarkupKind, MessageType, NumberOrString, OneOf, Position, Range,
     CodeAction, CodeActionKind as LspCodeActionKind, CodeActionOptions, CodeActionOrCommand,
-    CodeActionParams, CodeActionProviderCapability, CodeActionResponse, ReferenceParams,
-    RenameParams, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
+    CodeActionParams, CodeActionProviderCapability, CodeActionResponse, InlayHint,
+    InlayHintKind as LspInlayHintKind, InlayHintLabel, InlayHintOptions, InlayHintParams,
+    InlayHintServerCapabilities, PrepareRenameResponse, ReferenceParams, RenameOptions,
+    RenameParams, ServerCapabilities, ServerInfo, SymbolInformation,
+    SymbolKind as LspSymbolKind, TextDocumentPositionParams, TextDocumentSyncCapability,
     TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit, Uri,
-    WorkDoneProgressOptions, WorkspaceEdit,
+    WorkDoneProgressOptions, WorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use tower_lsp_server::{Client, LanguageServer};
 
@@ -334,7 +337,10 @@ impl LanguageServer for Backend {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
-                rename_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: WorkDoneProgressOptions::default(),
+                })),
                 code_action_provider: Some(CodeActionProviderCapability::Options(
                     CodeActionOptions {
                         code_action_kinds: Some(vec![LspCodeActionKind::REFACTOR]),
@@ -342,6 +348,15 @@ impl LanguageServer for Backend {
                         work_done_progress_options: WorkDoneProgressOptions::default(),
                     },
                 )),
+                workspace_symbol_provider: Some(OneOf::Left(true)),
+                inlay_hint_provider: Some(
+                    tower_lsp_server::ls_types::OneOf::Right(
+                        InlayHintServerCapabilities::Options(InlayHintOptions {
+                            work_done_progress_options: WorkDoneProgressOptions::default(),
+                            resolve_provider: Some(false),
+                        }),
+                    ),
+                ),
                 completion_provider: Some(CompletionOptions {
                     // `"` triggers key/value strings, `:` value position,
                     // `,` opens a new pair, `{` and `[` open new objects.
@@ -652,6 +667,138 @@ impl LanguageServer for Backend {
         }
     }
 
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        let uri = params.text_document.uri;
+        let range_ls = params.range;
+        let range_lsp = crate::position::ls_to_lsp_range(range_ls);
+        let Some(_format) = DocumentFormat::from_uri(&uri) else {
+            return Ok(None);
+        };
+
+        let hints = self.store.docs_iter_for_uri(&uri, |state| {
+            let text = state.text();
+            let start = crate::position::lsp_position_to_byte(&state.doc, range_lsp.start);
+            let end = crate::position::lsp_position_to_byte(&state.doc, range_lsp.end);
+            let domain =
+                crate::inlay_hints::compute(text, state.tree.as_ref(), start..end);
+            domain
+                .into_iter()
+                .map(|hint| InlayHint {
+                    position: byte_to_ls_position(&state.doc, hint.byte_offset),
+                    label: InlayHintLabel::String(hint.label),
+                    kind: Some(LspInlayHintKind::TYPE),
+                    text_edits: None,
+                    tooltip: None,
+                    padding_left: Some(false),
+                    padding_right: Some(false),
+                    data: None,
+                })
+                .collect::<Vec<_>>()
+        });
+
+        let Some(hints) = hints else {
+            return Ok(None);
+        };
+
+        tracing::debug!(
+            target: "vespertide_lsp::handler",
+            uri = %uri.as_str(),
+            count = hints.len(),
+            "inlay_hint"
+        );
+
+        if hints.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(hints))
+        }
+    }
+
+    #[allow(deprecated)]
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> Result<Option<WorkspaceSymbolResponse>> {
+        let query = params.query;
+        let domain = crate::symbols::compute(
+            &query,
+            self.store.as_ref(),
+            Some(self.workspace_tables.as_ref()),
+        );
+
+        tracing::info!(
+            target: "vespertide_lsp::handler",
+            query = %query,
+            results = domain.len(),
+            "workspace symbol"
+        );
+
+        let lsp_symbols: Vec<SymbolInformation> = domain
+            .into_iter()
+            .filter_map(|sym| symbol_to_lsp(&sym, self))
+            .collect();
+        if lsp_symbols.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(WorkspaceSymbolResponse::Flat(lsp_symbols)))
+        }
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = params.text_document.uri;
+        let pos_ls = params.position;
+        let pos_lsp = crate::position::ls_to_lsp_position(pos_ls);
+        let Some(format) = DocumentFormat::from_uri(&uri) else {
+            return Ok(None);
+        };
+
+        let domain = self.store.docs_iter_for_uri(&uri, |state| {
+            let text = state.text();
+            let byte = crate::position::lsp_position_to_byte(&state.doc, pos_lsp);
+            crate::rename::prepare(text, format, state.tree.as_ref(), &uri, byte)
+        });
+        let Some(Some(domain)) = domain else {
+            tracing::debug!(
+                target: "vespertide_lsp::handler",
+                uri = %uri.as_str(),
+                "prepare_rename: position is not renameable"
+            );
+            return Ok(None);
+        };
+
+        let range = self
+            .store
+            .docs_iter_for_uri(&uri, |state| Range {
+                start: byte_to_ls_position(&state.doc, domain.byte_range.start),
+                end: byte_to_ls_position(&state.doc, domain.byte_range.end),
+            })
+            .unwrap_or(Range {
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: 0,
+                    character: 0,
+                },
+            });
+
+        tracing::info!(
+            target: "vespertide_lsp::handler",
+            uri = %uri.as_str(),
+            placeholder = %domain.placeholder,
+            "prepare_rename"
+        );
+
+        Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+            range,
+            placeholder: domain.placeholder,
+        }))
+    }
+
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
         let uri = params.text_document_position.text_document.uri;
         let pos_ls = params.text_document_position.position;
@@ -898,6 +1045,47 @@ fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
     } else {
         std::path::PathBuf::from(lossy)
     }
+}
+
+/// Lower a domain symbol into LSP `SymbolInformation`, resolving the byte
+/// range via either the open document or the on-disk file.
+#[allow(deprecated)]
+fn symbol_to_lsp(symbol: &crate::symbols::DomainSymbol, backend: &Backend) -> Option<SymbolInformation> {
+    let range = backend.store.docs_iter_for_uri(&symbol.uri, |state| Range {
+        start: byte_to_ls_position(&state.doc, symbol.byte_range.start),
+        end: byte_to_ls_position(&state.doc, symbol.byte_range.end),
+    });
+    let range = if let Some(r) = range {
+        r
+    } else {
+        // Disk-only file — read it once to get a UTF-16-aware doc.
+        let path = crate::position::uri_to_path(&symbol.uri)?;
+        let text = std::fs::read_to_string(&path).ok()?;
+        let language_id = match path.extension().and_then(|e| e.to_str()) {
+            Some("yaml" | "yml") => "yaml",
+            _ => "json",
+        };
+        let doc = lsp_textdocument::FullTextDocument::new(language_id.to_string(), 1, text);
+        Range {
+            start: byte_to_ls_position(&doc, symbol.byte_range.start),
+            end: byte_to_ls_position(&doc, symbol.byte_range.end),
+        }
+    };
+
+    Some(SymbolInformation {
+        name: symbol.name.clone(),
+        kind: match symbol.kind {
+            crate::symbols::SymbolKind::Table => LspSymbolKind::CLASS,
+            crate::symbols::SymbolKind::Column => LspSymbolKind::FIELD,
+        },
+        location: Location {
+            uri: symbol.uri.clone(),
+            range,
+        },
+        container_name: symbol.container.clone(),
+        tags: None,
+        deprecated: None,
+    })
 }
 
 /// Convert a list of [`crate::rename::DomainTextEdit`] into LSP `TextEdit`s

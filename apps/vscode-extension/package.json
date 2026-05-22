@@ -20,9 +20,7 @@
     "workspaceContains:**/*.vespertide.json",
     "workspaceContains:**/*.vespertide.yaml",
     "workspaceContains:**/*.vespertide.yml",
-    "workspaceContains:vespertide.json",
-    "onLanguage:vespertide-json",
-    "onLanguage:vespertide-yaml"
+    "workspaceContains:vespertide.json"
   ],
 
   "main": "./dist/extension.js",
