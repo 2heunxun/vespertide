@@ -126,3 +126,14 @@ result-*
 
 # ─── Node.js (apps/landing Next.js project from origin/main) ──────────
 node_modules
+
+# ─── Excluded workspace members ───────────────────────────────────────
+# `examples/app` and `tests/runtime-sqlite` live outside the main workspace
+# (see root Cargo.toml comment) because their `sqlx-sqlite` dep collides
+# with vespertide-query's rusqlite on `links = "sqlite3"`. Each has its
+# own build artefacts and lockfile; both are treated as local-only so
+# main workspace dep bumps never have to chase a second Cargo.lock.
+examples/app/target/
+examples/app/Cargo.lock
+tests/runtime-sqlite/target/
+tests/runtime-sqlite/Cargo.lock

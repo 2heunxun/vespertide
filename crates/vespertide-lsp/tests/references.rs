@@ -36,8 +36,8 @@ fn resolve_cursor_on_column_name_returns_column_symbol() {
     let src = r#"{"name":"user","columns":[{"name":"email","type":"text"}]}"#;
     let tree = pool.parse(src, DocumentFormat::Json).unwrap();
     let pos = src.find(r#""name":"email""#).unwrap() + 10;
-    let symbol = resolve_reference_symbol(src, Some(&tree), &uri("user.json"), pos)
-        .expect("column symbol");
+    let symbol =
+        resolve_reference_symbol(src, Some(&tree), &uri("user.json"), pos).expect("column symbol");
     assert_eq!(
         symbol,
         ReferenceSymbol::Column {
@@ -128,13 +128,23 @@ fn references_excludes_declaration_when_flag_is_false() {
     let user_uri = uri("user.json");
     let user_tree = pool.parse(user_src, DocumentFormat::Json).unwrap();
     idx.upsert(&user_uri, user_src, &user_tree);
-    docs.open(user_uri.clone(), "json".to_string(), 1, user_src.to_string());
+    docs.open(
+        user_uri.clone(),
+        "json".to_string(),
+        1,
+        user_src.to_string(),
+    );
 
     let post_src = r#"{"name":"post","columns":[{"name":"author_id","type":"integer","foreign_key":{"ref_table":"user","ref_columns":["id"]}}]}"#;
     let post_uri = uri("post.json");
     let post_tree = pool.parse(post_src, DocumentFormat::Json).unwrap();
     idx.upsert(&post_uri, post_src, &post_tree);
-    docs.open(post_uri.clone(), "json".to_string(), 1, post_src.to_string());
+    docs.open(
+        post_uri.clone(),
+        "json".to_string(),
+        1,
+        post_src.to_string(),
+    );
 
     let pos = user_src.find(r#""name":"user""#).unwrap() + 9;
     let refs = compute_references(
@@ -182,11 +192,15 @@ fn references_for_column_find_cross_file_ref_columns_only_for_matching_table() {
     let post_tree = pool.parse(post_src, DocumentFormat::Json).unwrap();
     let post_uri = uri("post.json");
     idx.upsert(&post_uri, post_src, &post_tree);
-    docs.open(post_uri.clone(), "json".to_string(), 1, post_src.to_string());
+    docs.open(
+        post_uri.clone(),
+        "json".to_string(),
+        1,
+        post_src.to_string(),
+    );
 
     // other.json has a column literally named "email" but it's not a FK to user — must NOT match.
-    let other_src =
-        r#"{"name":"other","columns":[{"name":"email","type":"text"}]}"#;
+    let other_src = r#"{"name":"other","columns":[{"name":"email","type":"text"}]}"#;
     let other_uri = uri("other.json");
     let other_tree = pool.parse(other_src, DocumentFormat::Json).unwrap();
     idx.upsert(&other_uri, other_src, &other_tree);
@@ -300,13 +314,23 @@ fn references_yaml_cross_file_table() {
     let user_uri = uri("user.yaml");
     let user_tree = pool.parse(user_src, DocumentFormat::Yaml).unwrap();
     idx.upsert(&user_uri, user_src, &user_tree);
-    docs.open(user_uri.clone(), "yaml".to_string(), 1, user_src.to_string());
+    docs.open(
+        user_uri.clone(),
+        "yaml".to_string(),
+        1,
+        user_src.to_string(),
+    );
 
     let post_src = "name: post\ncolumns:\n  - name: author_id\n    type: integer\n    foreign_key:\n      ref_table: user\n      ref_columns: [id]\n";
     let post_uri = uri("post.yaml");
     let post_tree = pool.parse(post_src, DocumentFormat::Yaml).unwrap();
     idx.upsert(&post_uri, post_src, &post_tree);
-    docs.open(post_uri.clone(), "yaml".to_string(), 1, post_src.to_string());
+    docs.open(
+        post_uri.clone(),
+        "yaml".to_string(),
+        1,
+        post_src.to_string(),
+    );
 
     let pos = user_src.find("name: user").unwrap() + 6;
     let refs = compute_references(

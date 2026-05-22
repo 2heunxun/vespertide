@@ -17,9 +17,10 @@ async fn main() {
 
     let pid = std::process::id();
     let version = env!("CARGO_PKG_VERSION");
-    let exe = std::env::current_exe()
-        .ok()
-        .map_or_else(|| "<unknown>".to_string(), |p| p.to_string_lossy().into_owned());
+    let exe = std::env::current_exe().ok().map_or_else(
+        || "<unknown>".to_string(),
+        |p| p.to_string_lossy().into_owned(),
+    );
     let build_time = env!("CARGO_PKG_VERSION");
     if let Some(path) = log_path.as_ref() {
         tracing::info!(

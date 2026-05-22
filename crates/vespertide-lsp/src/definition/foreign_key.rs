@@ -55,7 +55,13 @@ fn try_ref_table_definition(
     let value = pair.named_child(1)?;
     let target_name = strip_quotes(&source[value.byte_range()]).to_string();
 
-    resolve_target(&target_name, &TargetLookup::TableName, index, docs, disk_tables)
+    resolve_target(
+        &target_name,
+        &TargetLookup::TableName,
+        index,
+        docs,
+        disk_tables,
+    )
 }
 
 fn try_ref_columns_definition(

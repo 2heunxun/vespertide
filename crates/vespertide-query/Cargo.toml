@@ -20,7 +20,7 @@ thiserror = "2"
 sea-query = { version = "0.32", features = ["thread-safe"] }
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 rstest = "0.26"
 insta = "1.47"
 proptest = "1"
@@ -29,8 +29,8 @@ vespertide-core = { workspace = true, features = ["arbitrary"] }
 # Daemon-free SQL validation:
 # - rusqlite (bundled): in-memory SQLite for real execution checks (no system libsqlite needed)
 # - sqlparser:          pure-Rust 3-dialect SQL parser for Postgres/MySQL/SQLite syntax checks
-rusqlite = { version = "0.32", features = ["bundled"] }
-sqlparser = "0.52"
+rusqlite = { version = "0.39", features = ["bundled"] }
+sqlparser = "0.62"
 
 # pg_query is PostgreSQL's real C parser via FFI. It does not build on Windows
 # (PG itself is Linux/macOS-first), but CI runs on Ubuntu so this gate is enforced there.

@@ -256,5 +256,3 @@ fn yaml_default_for_string_enum_offers_only_its_values() {
         "enum column must not leak timestamp defaults, got: {labels:?}"
     );
 }
-
-

@@ -45,9 +45,7 @@ pub(super) fn try_hover(
     }
 
     Some(DomainHover {
-        markdown: format!(
-            "**Target table**: `{target_name}`\n\n⚠ table not found in workspace"
-        ),
+        markdown: format!("**Target table**: `{target_name}`\n\n⚠ table not found in workspace"),
         byte_range: value.byte_range(),
     })
 }

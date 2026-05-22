@@ -179,10 +179,7 @@ pub(super) fn collect_duplicate_column_names(
 /// punctuation / comments.
 fn direct_column_objects(columns_value: tree_sitter::Node<'_>) -> Vec<tree_sitter::Node<'_>> {
     let array = unwrap_yaml_node(columns_value);
-    if !matches!(
-        array.kind(),
-        "array" | "block_sequence" | "flow_sequence"
-    ) {
+    if !matches!(array.kind(), "array" | "block_sequence" | "flow_sequence") {
         return Vec::new();
     }
 
@@ -198,10 +195,7 @@ fn direct_column_objects(columns_value: tree_sitter::Node<'_>) -> Vec<tree_sitte
                 let mut inner_cursor = child.walk();
                 for inner in child.children(&mut inner_cursor) {
                     let inner = unwrap_yaml_node(inner);
-                    if matches!(
-                        inner.kind(),
-                        "object" | "block_mapping" | "flow_mapping"
-                    ) {
+                    if matches!(inner.kind(), "object" | "block_mapping" | "flow_mapping") {
                         out.push(inner);
                     }
                 }
@@ -315,7 +309,11 @@ fn inspect_complex_type(
     let kind = match scalar_text(kind_pair, source) {
         Some(text) if !text.is_empty() => text.to_string(),
         _ => {
-            push_complex(out, kind_pair.byte_range(), "`kind` must be a non-empty string");
+            push_complex(
+                out,
+                kind_pair.byte_range(),
+                "`kind` must be a non-empty string",
+            );
             return;
         }
     };
@@ -470,7 +468,10 @@ fn collect_enum_value_descriptors(
     for raw_child in array.children(&mut cursor) {
         let child = unwrap_yaml_node(raw_child);
         match child.kind() {
-            "string" | "double_quote_scalar" | "single_quote_scalar" | "string_scalar"
+            "string"
+            | "double_quote_scalar"
+            | "single_quote_scalar"
+            | "string_scalar"
             | "plain_scalar" => {
                 if let Some(name) = scalar_string(child, source) {
                     out.push(EnumValueDescriptor {
@@ -496,14 +497,9 @@ fn collect_enum_value_descriptors(
                 };
                 let (integer_value, integer_range) = match value_pair {
                     Some(pair) => {
-                        let v = pair
-                            .named_child(1)
-                            .map(unwrap_yaml_node);
+                        let v = pair.named_child(1).map(unwrap_yaml_node);
                         match v {
-                            Some(node) => (
-                                scalar_string(node, source),
-                                node.byte_range(),
-                            ),
+                            Some(node) => (scalar_string(node, source), node.byte_range()),
                             None => (None, 0..0),
                         }
                     }
@@ -522,8 +518,11 @@ fn collect_enum_value_descriptors(
                 for inner in child.children(&mut inner_cursor) {
                     let inner = unwrap_yaml_node(inner);
                     match inner.kind() {
-                        "string" | "double_quote_scalar" | "single_quote_scalar"
-                        | "string_scalar" | "plain_scalar" => {
+                        "string"
+                        | "double_quote_scalar"
+                        | "single_quote_scalar"
+                        | "string_scalar"
+                        | "plain_scalar" => {
                             if let Some(name) = scalar_string(inner, source) {
                                 out.push(EnumValueDescriptor {
                                     name,
@@ -550,7 +549,8 @@ fn check_duplicate_enum_values(
     let mut seen_names: std::collections::BTreeMap<&str, std::ops::Range<usize>> =
         std::collections::BTreeMap::new();
     for descriptor in descriptors {
-        if let Some(_prev) = seen_names.insert(descriptor.name.as_str(), descriptor.byte_range.clone())
+        if let Some(_prev) =
+            seen_names.insert(descriptor.name.as_str(), descriptor.byte_range.clone())
         {
             push_complex(
                 out,
@@ -580,7 +580,11 @@ fn check_duplicate_enum_values(
     }
 }
 
-fn push_complex(out: &mut Vec<DomainDiagnostic>, byte_range: std::ops::Range<usize>, message: &str) {
+fn push_complex(
+    out: &mut Vec<DomainDiagnostic>,
+    byte_range: std::ops::Range<usize>,
+    message: &str,
+) {
     out.push(DomainDiagnostic {
         byte_range,
         severity: Severity::Error,
@@ -589,10 +593,7 @@ fn push_complex(out: &mut Vec<DomainDiagnostic>, byte_range: std::ops::Range<usi
     });
 }
 
-fn scalar_text<'a>(
-    pair: tree_sitter::Node<'_>,
-    source: &'a [u8],
-) -> Option<&'a str> {
+fn scalar_text<'a>(pair: tree_sitter::Node<'_>, source: &'a [u8]) -> Option<&'a str> {
     let value_raw = pair.named_child(1)?;
     let value = unwrap_yaml_node(value_raw);
     let text = std::str::from_utf8(&source[value.byte_range()]).ok()?;
@@ -650,7 +651,11 @@ fn strip_quotes_str(s: &str) -> &str {
     trimmed
         .strip_prefix('"')
         .and_then(|w| w.strip_suffix('"'))
-        .or_else(|| trimmed.strip_prefix('\'').and_then(|w| w.strip_suffix('\'')))
+        .or_else(|| {
+            trimmed
+                .strip_prefix('\'')
+                .and_then(|w| w.strip_suffix('\''))
+        })
         .unwrap_or(trimmed)
 }
 
@@ -813,12 +818,7 @@ pub(super) fn validate_workspace(
 
     let byte_range = if let Some(column) = &location.column {
         if let Some(field) = location.field {
-            super::locator::locate_column_field(
-                target.tree.as_ref(),
-                &target.source,
-                column,
-                field,
-            )
+            super::locator::locate_column_field(target.tree.as_ref(), &target.source, column, field)
         } else {
             super::locator::locate_column(target.tree.as_ref(), &target.source, column)
         }

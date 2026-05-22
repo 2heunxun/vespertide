@@ -1,4 +1,6 @@
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use vespertide_core::schema::foreign_key::{ForeignKeyDef, ForeignKeySyntax};
 use vespertide_core::schema::primary_key::PrimaryKeySyntax;
 use vespertide_core::{

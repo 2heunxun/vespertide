@@ -91,19 +91,19 @@ pub fn compute_document_symbols(
             columns_value.kind(),
             "array" | "block_sequence" | "flow_sequence"
         ) {
-                for column in direct_column_objects(columns_value) {
-                    if let Some((col_name, col_name_range)) =
-                        direct_string_value(column, source_bytes, "name")
-                    {
-                        children.push(DomainDocumentSymbol {
-                            name: col_name,
-                            kind: DomainDocumentSymbolKind::Column,
-                            byte_range: column.byte_range(),
-                            selection_byte_range: col_name_range,
-                            children: Vec::new(),
-                        });
-                    }
+            for column in direct_column_objects(columns_value) {
+                if let Some((col_name, col_name_range)) =
+                    direct_string_value(column, source_bytes, "name")
+                {
+                    children.push(DomainDocumentSymbol {
+                        name: col_name,
+                        kind: DomainDocumentSymbolKind::Column,
+                        byte_range: column.byte_range(),
+                        selection_byte_range: col_name_range,
+                        children: Vec::new(),
+                    });
                 }
+            }
         }
     }
 
@@ -138,12 +138,7 @@ fn collect_foldable(node: tree_sitter::Node<'_>, out: &mut Vec<DomainFoldingRang
     // Both JSON containers and YAML block structures fold by line.
     if matches!(
         node.kind(),
-        "object"
-            | "array"
-            | "block_mapping"
-            | "block_sequence"
-            | "flow_mapping"
-            | "flow_sequence"
+        "object" | "array" | "block_mapping" | "block_sequence" | "flow_mapping" | "flow_sequence"
     ) {
         let r = node.byte_range();
         // Don't bother emitting a fold marker for empty / one-line spans.
@@ -207,11 +202,7 @@ fn collect_matching_strings(
 ) {
     if matches!(
         node.kind(),
-        "string"
-            | "double_quote_scalar"
-            | "single_quote_scalar"
-            | "string_scalar"
-            | "plain_scalar"
+        "string" | "double_quote_scalar" | "single_quote_scalar" | "string_scalar" | "plain_scalar"
     ) && let Some((text, range)) = inner_string_range_text(node, source)
         && text == target
     {
@@ -319,23 +310,23 @@ fn inner_string_range_text(
     source: &[u8],
 ) -> Option<(String, Range<usize>)> {
     let range = match node.kind() {
-        "string" => node
-            .named_child(0)
-            .map_or_else(|| trim_one_byte(&node.byte_range()), |inner| inner.byte_range()),
+        "string" => node.named_child(0).map_or_else(
+            || trim_one_byte(&node.byte_range()),
+            |inner| inner.byte_range(),
+        ),
         "double_quote_scalar" | "single_quote_scalar" => trim_one_byte(&node.byte_range()),
         "plain_scalar" | "string_scalar" => node.byte_range(),
         _ => return None,
     };
-    let text = std::str::from_utf8(source.get(range.clone())?).ok()?.to_string();
+    let text = std::str::from_utf8(source.get(range.clone())?)
+        .ok()?
+        .to_string();
     Some((text, range))
 }
 
 fn direct_column_objects(columns_value: tree_sitter::Node<'_>) -> Vec<tree_sitter::Node<'_>> {
     let array = unwrap_yaml(columns_value);
-    if !matches!(
-        array.kind(),
-        "array" | "block_sequence" | "flow_sequence"
-    ) {
+    if !matches!(array.kind(), "array" | "block_sequence" | "flow_sequence") {
         return Vec::new();
     }
     let mut out = Vec::new();
@@ -348,10 +339,7 @@ fn direct_column_objects(columns_value: tree_sitter::Node<'_>) -> Vec<tree_sitte
                 let mut inner_cursor = child.walk();
                 for inner in child.children(&mut inner_cursor) {
                     let inner = unwrap_yaml(inner);
-                    if matches!(
-                        inner.kind(),
-                        "object" | "block_mapping" | "flow_mapping"
-                    ) {
+                    if matches!(inner.kind(), "object" | "block_mapping" | "flow_mapping") {
                         out.push(inner);
                     }
                 }
@@ -476,8 +464,14 @@ mod tests {
         let hits = compute_document_highlight(src, Some(&tree), cursor);
         assert!(hits.len() >= 2, "should find both occurrences: {hits:?}");
         let _ = cursor; // exact byte comparison not portable across grammars
-        assert!(hits.iter().any(|h| h.kind == DomainDocumentHighlightKind::Read));
-        assert!(hits.iter().any(|h| h.kind == DomainDocumentHighlightKind::Reference));
+        assert!(
+            hits.iter()
+                .any(|h| h.kind == DomainDocumentHighlightKind::Read)
+        );
+        assert!(
+            hits.iter()
+                .any(|h| h.kind == DomainDocumentHighlightKind::Reference)
+        );
     }
 
     #[test]
@@ -486,7 +480,10 @@ mod tests {
         let tree = parse_json(src);
         let cursor = src.find(r#""id""#).unwrap() + 1;
         let chain = compute_selection_ranges(src, Some(&tree), cursor);
-        assert!(chain.len() >= 3, "expected token → pair → object → ..., got: {chain:?}");
+        assert!(
+            chain.len() >= 3,
+            "expected token → pair → object → ..., got: {chain:?}"
+        );
         // Strictly expanding ranges.
         for win in chain.windows(2) {
             assert!(

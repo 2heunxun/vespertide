@@ -54,6 +54,12 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Test
         run: cargo test --workspace --all-features
+      # tests/runtime-sqlite is intentionally outside the workspace because
+      # its `sqlx-sqlite` dep conflicts on `links = "sqlite3"` with
+      # vespertide-query's rusqlite dev-dep. Run it separately so the
+      # sea-orm runtime integration tests still gate every PR.
+      - name: Test (runtime-sqlite excluded crate)
+        run: cargo test --manifest-path tests/runtime-sqlite/Cargo.toml
 
   test-parallelism:
     name: Parallelism (RAYON_NUM_THREADS=${{ matrix.threads }})

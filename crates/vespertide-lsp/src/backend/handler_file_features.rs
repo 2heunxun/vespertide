@@ -12,8 +12,8 @@ use tower_lsp_server::ls_types::{
     SelectionRange, SelectionRangeParams, SymbolKind as LspSymbolKind,
 };
 
-use super::helpers::byte_to_ls_position;
 use super::Backend;
+use super::helpers::byte_to_ls_position;
 
 pub(super) async fn document_symbol_impl(
     backend: &Backend,

@@ -3,9 +3,7 @@
 //! after which it emits indices into those lists for every reported
 //! token. Both vectors MUST stay stable for the connection's lifetime.
 
-use tower_lsp_server::ls_types::{
-    SemanticTokenModifier, SemanticTokenType, SemanticTokensLegend,
-};
+use tower_lsp_server::ls_types::{SemanticTokenModifier, SemanticTokenType, SemanticTokensLegend};
 
 /// Indices into [`TOKEN_TYPE_NAMES`]. Kept as a typed enum so the
 /// classifier never hand-codes magic numbers.
@@ -78,8 +76,16 @@ mod tests {
     #[test]
     fn legend_lengths_match_index_enums() {
         let legend = legend();
-        assert_eq!(legend.token_types.len(), 7, "TokenIdx variants must be reflected");
-        assert_eq!(legend.token_modifiers.len(), 2, "ModIdx variants must be reflected");
+        assert_eq!(
+            legend.token_types.len(),
+            7,
+            "TokenIdx variants must be reflected"
+        );
+        assert_eq!(
+            legend.token_modifiers.len(),
+            2,
+            "ModIdx variants must be reflected"
+        );
         assert_eq!(legend.token_types, TOKEN_TYPE_NAMES);
         assert_eq!(legend.token_modifiers, TOKEN_MODIFIER_NAMES);
     }

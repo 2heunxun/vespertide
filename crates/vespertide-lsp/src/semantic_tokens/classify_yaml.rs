@@ -19,12 +19,17 @@
 
 #![allow(clippy::struct_excessive_bools)]
 
-use super::{legend::ModIdx, legend::TokenIdx, RawToken};
+use super::{RawToken, legend::ModIdx, legend::TokenIdx};
 
 #[must_use]
 pub fn classify(source: &str, tree: &tree_sitter::Tree) -> Vec<RawToken> {
     let mut out = Vec::new();
-    walk(tree.root_node(), source.as_bytes(), Ctx::default(), &mut out);
+    walk(
+        tree.root_node(),
+        source.as_bytes(),
+        Ctx::default(),
+        &mut out,
+    );
     out
 }
 
@@ -63,12 +68,7 @@ fn walk(node: tree_sitter::Node<'_>, source: &[u8], ctx: Ctx, out: &mut Vec<RawT
     }
 }
 
-fn classify_pair(
-    pair: tree_sitter::Node<'_>,
-    source: &[u8],
-    ctx: Ctx,
-    out: &mut Vec<RawToken>,
-) {
+fn classify_pair(pair: tree_sitter::Node<'_>, source: &[u8], ctx: Ctx, out: &mut Vec<RawToken>) {
     let Some(key_node) = pair.named_child(0) else {
         return;
     };
@@ -86,7 +86,12 @@ fn classify_pair(
             push_scalar(value_node, TokenIdx::Class, ModIdx::Declaration as u32, out);
         }
         "name" if ctx.inside_column && !ctx.inside_complex_type_object => {
-            push_scalar(value_node, TokenIdx::Property, ModIdx::Declaration as u32, out);
+            push_scalar(
+                value_node,
+                TokenIdx::Property,
+                ModIdx::Declaration as u32,
+                out,
+            );
         }
         "name" if ctx.inside_enum_values_array => {
             push_scalar(value_node, TokenIdx::EnumMember, 0, out);
@@ -145,12 +150,7 @@ fn classify_pair(
     recurse_value(value_node, source, ctx, out);
 }
 
-fn recurse_value(
-    value: tree_sitter::Node<'_>,
-    source: &[u8],
-    ctx: Ctx,
-    out: &mut Vec<RawToken>,
-) {
+fn recurse_value(value: tree_sitter::Node<'_>, source: &[u8], ctx: Ctx, out: &mut Vec<RawToken>) {
     let v = unwrap_yaml(value);
 
     if ctx.inside_ref_columns && matches!(v.kind(), "block_sequence" | "flow_sequence") {

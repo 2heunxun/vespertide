@@ -409,7 +409,10 @@ mod tests {
         // Generic fallback always includes a handful of common literals so
         // the client never sees an empty / single-item list (which some
         // editors silently auto-accept).
-        assert!(labels.len() > 1, "should offer >1 fallback item, got: {labels:?}");
+        assert!(
+            labels.len() > 1,
+            "should offer >1 fallback item, got: {labels:?}"
+        );
         assert!(labels.contains(&"0"));
         assert!(labels.contains(&"true"));
     }
@@ -523,7 +526,14 @@ mod tests {
         let src = r#"{"name":"u","columns":[{"name":"active","type":"boolean","default":"true"}]}"#;
         let tree = pool.parse(src, DocumentFormat::Json);
         let cursor_pos = src.find(r#""true""#).unwrap() + 1;
-        let items = compute(src, DocumentFormat::Json, tree.as_ref(), &idx, &docs, cursor_pos);
+        let items = compute(
+            src,
+            DocumentFormat::Json,
+            tree.as_ref(),
+            &idx,
+            &docs,
+            cursor_pos,
+        );
 
         let false_item = items.iter().find(|i| i.label == "false").unwrap();
         assert_eq!(
@@ -603,10 +613,7 @@ mod tests {
         );
         // Should NOT leak timestamp/uuid defaults for an enum column.
         assert!(!labels.contains(&"now()"), "no timestamp helpers");
-        assert!(
-            !labels.contains(&"gen_random_uuid()"),
-            "no uuid helpers"
-        );
+        assert!(!labels.contains(&"gen_random_uuid()"), "no uuid helpers");
     }
 
     #[test]
@@ -620,7 +627,10 @@ mod tests {
         let items = compute(src, DocumentFormat::Json, tree.as_ref(), &idx, &docs, pos);
 
         let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
-        assert!(labels.contains(&"'low'"), "int-enum names too, got {labels:?}");
+        assert!(
+            labels.contains(&"'low'"),
+            "int-enum names too, got {labels:?}"
+        );
         assert!(labels.contains(&"'high'"));
     }
 

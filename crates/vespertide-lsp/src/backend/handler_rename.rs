@@ -14,12 +14,11 @@ use std::collections::HashMap;
 
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::{
-    PrepareRenameResponse, Range, Position, RenameParams, TextDocumentPositionParams,
-    WorkspaceEdit,
+    Position, PrepareRenameResponse, Range, RenameParams, TextDocumentPositionParams, WorkspaceEdit,
 };
 
-use super::helpers::{byte_to_ls_position, domain_edits_to_lsp};
 use super::Backend;
+use super::helpers::{byte_to_ls_position, domain_edits_to_lsp};
 use crate::parser::DocumentFormat;
 
 pub(super) async fn prepare_rename_impl(

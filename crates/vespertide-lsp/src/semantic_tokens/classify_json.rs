@@ -24,7 +24,7 @@
 
 #![allow(clippy::struct_excessive_bools)]
 
-use super::{legend::ModIdx, legend::TokenIdx, RawToken};
+use super::{RawToken, legend::ModIdx, legend::TokenIdx};
 
 /// Classify the entire JSON document.
 #[must_use]
@@ -81,12 +81,7 @@ fn walk(node: tree_sitter::Node<'_>, source: &[u8], ctx: Ctx, out: &mut Vec<RawT
     }
 }
 
-fn classify_pair(
-    pair: tree_sitter::Node<'_>,
-    source: &[u8],
-    ctx: Ctx,
-    out: &mut Vec<RawToken>,
-) {
+fn classify_pair(pair: tree_sitter::Node<'_>, source: &[u8], ctx: Ctx, out: &mut Vec<RawToken>) {
     let Some(key) = pair.named_child(0) else {
         return;
     };

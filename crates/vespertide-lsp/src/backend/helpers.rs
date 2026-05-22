@@ -20,9 +20,7 @@ pub(super) struct DiagnosticSeverityCounts {
     pub warnings: usize,
 }
 
-pub(super) fn diagnostic_severity_counts(
-    diagnostics: &[Diagnostic],
-) -> DiagnosticSeverityCounts {
+pub(super) fn diagnostic_severity_counts(diagnostics: &[Diagnostic]) -> DiagnosticSeverityCounts {
     let mut counts = DiagnosticSeverityCounts::default();
     for diag in diagnostics {
         match diag.severity {
@@ -113,7 +111,10 @@ pub(super) fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
 /// Lower a domain symbol into LSP `SymbolInformation`, resolving the byte
 /// range via either the open document or the on-disk file.
 #[allow(deprecated)]
-pub(super) fn symbol_to_lsp(symbol: &crate::symbols::DomainSymbol, backend: &Backend) -> Option<SymbolInformation> {
+pub(super) fn symbol_to_lsp(
+    symbol: &crate::symbols::DomainSymbol,
+    backend: &Backend,
+) -> Option<SymbolInformation> {
     let range = backend.store.docs_iter_for_uri(&symbol.uri, |state| Range {
         start: byte_to_ls_position(&state.doc, symbol.byte_range.start),
         end: byte_to_ls_position(&state.doc, symbol.byte_range.end),
@@ -200,11 +201,9 @@ pub(super) fn domain_reference_to_location(
 ) -> Option<Location> {
     if let Some(range) = backend
         .store
-        .docs_iter_for_uri(&reference.uri, |state| {
-            Range {
-                start: byte_to_ls_position(&state.doc, reference.byte_range.start),
-                end: byte_to_ls_position(&state.doc, reference.byte_range.end),
-            }
+        .docs_iter_for_uri(&reference.uri, |state| Range {
+            start: byte_to_ls_position(&state.doc, reference.byte_range.start),
+            end: byte_to_ls_position(&state.doc, reference.byte_range.end),
         })
     {
         return Some(Location {

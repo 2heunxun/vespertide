@@ -42,7 +42,11 @@ pub enum SymbolKind {
 /// Collect every table and column matching `query` (case-insensitive
 /// substring; empty query returns everything).
 #[must_use]
-pub fn compute(query: &str, docs: &DocumentStore, disk_tables: Option<&WorkspaceTables>) -> Vec<DomainSymbol> {
+pub fn compute(
+    query: &str,
+    docs: &DocumentStore,
+    disk_tables: Option<&WorkspaceTables>,
+) -> Vec<DomainSymbol> {
     let needle = query.trim().to_ascii_lowercase();
     let mut out = Vec::new();
 
@@ -85,7 +89,11 @@ pub fn compute(query: &str, docs: &DocumentStore, disk_tables: Option<&Workspace
     }
 
     // Sort by (name, kind) for deterministic output across runs / clients.
-    out.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| (a.kind as u8).cmp(&(b.kind as u8))));
+    out.sort_by(|a, b| {
+        a.name
+            .cmp(&b.name)
+            .then_with(|| (a.kind as u8).cmp(&(b.kind as u8)))
+    });
     out
 }
 
@@ -180,9 +188,10 @@ fn direct_pair_value<'a>(
     let stripped = strip_quotes(text);
     // Adjust byte range to skip quotes when the value is a quoted string.
     let range = match value.kind() {
-        "string" => value
-            .named_child(0)
-            .map_or_else(|| trim_one_byte(&value.byte_range()), |inner| inner.byte_range()),
+        "string" => value.named_child(0).map_or_else(
+            || trim_one_byte(&value.byte_range()),
+            |inner| inner.byte_range(),
+        ),
         "double_quote_scalar" | "single_quote_scalar" => trim_one_byte(&value.byte_range()),
         _ => value.byte_range(),
     };

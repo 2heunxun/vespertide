@@ -54,7 +54,10 @@ const COLUMN_OBJECT_KEYS: &[(&str, &str)] = &[
     ("type", "Column type (string or {kind: ...} object)"),
     ("nullable", "Whether NULL is allowed"),
     ("default", "Default value expression"),
-    ("primary_key", "Mark as primary key (composite if used on >1 column)"),
+    (
+        "primary_key",
+        "Mark as primary key (composite if used on >1 column)",
+    ),
     ("unique", "Add a UNIQUE constraint"),
     ("index", "Add an index"),
     ("foreign_key", "Foreign-key reference"),
@@ -120,9 +123,7 @@ pub(super) fn column_types_full() -> Vec<DomainCompletion> {
     completions
 }
 
-fn complex_type_snippets(
-    replace_range: Option<&std::ops::Range<usize>>,
-) -> Vec<DomainCompletion> {
+fn complex_type_snippets(replace_range: Option<&std::ops::Range<usize>>) -> Vec<DomainCompletion> {
     [
         (
             "varchar(N)",
@@ -274,10 +275,7 @@ pub(super) fn default_values(
         .collect()
 }
 
-fn type_candidates(
-    type_kind: Option<&str>,
-    enum_values: &[String],
-) -> Vec<DefaultCandidate> {
+fn type_candidates(type_kind: Option<&str>, enum_values: &[String]) -> Vec<DefaultCandidate> {
     match type_kind {
         Some("enum") => enum_candidates(enum_values),
         Some("timestamp" | "timestamptz") => vec![
@@ -344,8 +342,7 @@ fn enum_candidates(enum_values: &[String]) -> Vec<DefaultCandidate> {
         .iter()
         .map(|name| {
             let label: &'static str = Box::leak(format!("'{name}'").into_boxed_str());
-            let detail: &'static str =
-                Box::leak(format!("Enum value: {name}").into_boxed_str());
+            let detail: &'static str = Box::leak(format!("Enum value: {name}").into_boxed_str());
             DefaultCandidate {
                 label,
                 detail,

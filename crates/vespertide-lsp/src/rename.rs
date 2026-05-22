@@ -190,10 +190,13 @@ pub fn compute(
 
     let mut edits: BTreeMap<Uri, Vec<DomainTextEdit>> = BTreeMap::new();
     for reference in refs {
-        edits.entry(reference.uri).or_default().push(DomainTextEdit {
-            byte_range: reference.byte_range,
-            new_text: new_name.to_string(),
-        });
+        edits
+            .entry(reference.uri)
+            .or_default()
+            .push(DomainTextEdit {
+                byte_range: reference.byte_range,
+                new_text: new_name.to_string(),
+            });
     }
 
     // Sort within each file by reverse byte order so applying edits front-to-back
@@ -270,17 +273,28 @@ mod tests {
         let idx = WorkspaceIndex::new();
         let docs = DocumentStore::new();
 
-        let user_src = r#"{"name":"user","columns":[{"name":"id","type":"integer","primary_key":true}]}"#;
+        let user_src =
+            r#"{"name":"user","columns":[{"name":"id","type":"integer","primary_key":true}]}"#;
         let user_uri = uri("user.json");
         let user_tree = pool.parse(user_src, DocumentFormat::Json).unwrap();
         idx.upsert(&user_uri, user_src, &user_tree);
-        docs.open(user_uri.clone(), "json".to_string(), 1, user_src.to_string());
+        docs.open(
+            user_uri.clone(),
+            "json".to_string(),
+            1,
+            user_src.to_string(),
+        );
 
         let post_src = r#"{"name":"post","columns":[{"name":"author_id","type":"integer","foreign_key":{"ref_table":"user","ref_columns":["id"]}}]}"#;
         let post_uri = uri("post.json");
         let post_tree = pool.parse(post_src, DocumentFormat::Json).unwrap();
         idx.upsert(&post_uri, post_src, &post_tree);
-        docs.open(post_uri.clone(), "json".to_string(), 1, post_src.to_string());
+        docs.open(
+            post_uri.clone(),
+            "json".to_string(),
+            1,
+            post_src.to_string(),
+        );
 
         let pos = user_src.find(r#""name":"user""#).unwrap() + 9;
         let plan = compute(
@@ -320,7 +334,8 @@ mod tests {
         let pool = ParserPool::new();
         let idx = WorkspaceIndex::new();
         let docs = DocumentStore::new();
-        let src = r#"{"name":"user","columns":[{"name":"id","type":"integer","primary_key":true}]}"#;
+        let src =
+            r#"{"name":"user","columns":[{"name":"id","type":"integer","primary_key":true}]}"#;
         let user_uri = uri("user.json");
         let tree = pool.parse(src, DocumentFormat::Json).unwrap();
         idx.upsert(&user_uri, src, &tree);
@@ -343,13 +358,20 @@ mod tests {
         let file_edits = plan.edits.get(&user_uri).expect("edits for user.json");
         assert_eq!(file_edits.len(), 1);
         let edit = &file_edits[0];
-        assert_eq!(&src[edit.byte_range.clone()], "id", "must replace ONLY inside the quotes");
+        assert_eq!(
+            &src[edit.byte_range.clone()],
+            "id",
+            "must replace ONLY inside the quotes"
+        );
 
         // Apply the edit and confirm the result is still valid JSON.
         let mut after = String::from(&src[..edit.byte_range.start]);
         after.push_str(&edit.new_text);
         after.push_str(&src[edit.byte_range.end..]);
-        assert!(after.contains(r#""a""#), "result must keep the quotes: {after}");
+        assert!(
+            after.contains(r#""a""#),
+            "result must keep the quotes: {after}"
+        );
         serde_json::from_str::<serde_json::Value>(&after)
             .expect("rename output must still parse as JSON");
     }
@@ -361,8 +383,14 @@ mod tests {
         let tree = pool.parse(src, DocumentFormat::Json).unwrap();
         // Cursor inside `"user"` value.
         let pos = src.find(r#""name":"user""#).unwrap() + 9;
-        let result = prepare(src, DocumentFormat::Json, Some(&tree), &uri("user.json"), pos)
-            .expect("table name should be renameable");
+        let result = prepare(
+            src,
+            DocumentFormat::Json,
+            Some(&tree),
+            &uri("user.json"),
+            pos,
+        )
+        .expect("table name should be renameable");
         assert_eq!(result.placeholder, "user");
         assert_eq!(
             &src[result.byte_range.clone()],
@@ -390,7 +418,10 @@ mod tests {
         let tree = pool.parse(src, DocumentFormat::Json).unwrap();
         // Cursor on the opening brace — not a symbol.
         let result = prepare(src, DocumentFormat::Json, Some(&tree), &uri("u.json"), 0);
-        assert!(result.is_none(), "non-symbol positions must not be renameable");
+        assert!(
+            result.is_none(),
+            "non-symbol positions must not be renameable"
+        );
     }
 
     #[test]
@@ -399,24 +430,40 @@ mod tests {
         let idx = WorkspaceIndex::new();
         let docs = DocumentStore::new();
 
-        let user_src = r#"{"name":"user","columns":[{"name":"email","type":"text","unique":true}]}"#;
+        let user_src =
+            r#"{"name":"user","columns":[{"name":"email","type":"text","unique":true}]}"#;
         let user_uri = uri("user.json");
         let user_tree = pool.parse(user_src, DocumentFormat::Json).unwrap();
         idx.upsert(&user_uri, user_src, &user_tree);
-        docs.open(user_uri.clone(), "json".to_string(), 1, user_src.to_string());
+        docs.open(
+            user_uri.clone(),
+            "json".to_string(),
+            1,
+            user_src.to_string(),
+        );
 
         let post_src = r#"{"name":"post","columns":[{"name":"author_email","type":"text","foreign_key":{"ref_table":"user","ref_columns":["email"]}}]}"#;
         let post_uri = uri("post.json");
         let post_tree = pool.parse(post_src, DocumentFormat::Json).unwrap();
         idx.upsert(&post_uri, post_src, &post_tree);
-        docs.open(post_uri.clone(), "json".to_string(), 1, post_src.to_string());
+        docs.open(
+            post_uri.clone(),
+            "json".to_string(),
+            1,
+            post_src.to_string(),
+        );
 
         // An unrelated `email` column on another table — must NOT be renamed.
         let other_src = r#"{"name":"other","columns":[{"name":"email","type":"text"}]}"#;
         let other_uri = uri("other.json");
         let other_tree = pool.parse(other_src, DocumentFormat::Json).unwrap();
         idx.upsert(&other_uri, other_src, &other_tree);
-        docs.open(other_uri.clone(), "json".to_string(), 1, other_src.to_string());
+        docs.open(
+            other_uri.clone(),
+            "json".to_string(),
+            1,
+            other_src.to_string(),
+        );
 
         let pos = user_src.find(r#""name":"email""#).unwrap() + 10;
         let plan = compute(

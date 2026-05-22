@@ -240,8 +240,7 @@ mod tests {
         use std::str::FromStr;
         use tower_lsp_server::ls_types::Uri;
 
-        let uri =
-            Uri::from_str("file:///tmp/with%20space/%ED%95%9C%EA%B8%80.json").unwrap();
+        let uri = Uri::from_str("file:///tmp/with%20space/%ED%95%9C%EA%B8%80.json").unwrap();
         let path = uri_to_path(&uri).expect("path");
         let text = path.to_string_lossy();
         assert!(text.contains("with space"), "got: {text}");

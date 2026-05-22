@@ -173,9 +173,7 @@ fn cross_file_fk_missing_target_column_highlights_ref_columns() {
 
     let err = diags
         .iter()
-        .find(|d| {
-            d.code == "validate-schema" && d.message.contains("non-existent column")
-        })
+        .find(|d| d.code == "validate-schema" && d.message.contains("non-existent column"))
         .unwrap_or_else(|| {
             panic!("expected FK column error, got diags: {diags:#?}");
         });
@@ -460,5 +458,3 @@ fn yaml_cross_file_fk_resolves_against_open_workspace() {
         "valid YAML cross-file FK must not warn, got: {fk_errors:?}"
     );
 }
-
-

@@ -23,14 +23,13 @@ use tower_lsp_server::ls_types::{
     CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentFormattingParams,
-    DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams,
-    DocumentSymbolResponse, FoldingRange,
-    FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
-    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
-    InlayHint, InlayHintKind as LspInlayHintKind, InlayHintLabel, InlayHintOptions,
-    InlayHintParams, InlayHintServerCapabilities, Location, MarkupContent, MarkupKind,
-    MessageType, NumberOrString, OneOf, Position, PrepareRenameResponse, Range, ReferenceParams,
-    RenameOptions, RenameParams, SelectionRange, SelectionRangeParams,
+    DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse,
+    FoldingRange, FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse, Hover,
+    HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
+    InitializedParams, InlayHint, InlayHintKind as LspInlayHintKind, InlayHintLabel,
+    InlayHintOptions, InlayHintParams, InlayHintServerCapabilities, Location, MarkupContent,
+    MarkupKind, MessageType, NumberOrString, OneOf, Position, PrepareRenameResponse, Range,
+    ReferenceParams, RenameOptions, RenameParams, SelectionRange, SelectionRangeParams,
     SelectionRangeProviderCapability, SemanticTokensFullOptions, SemanticTokensOptions,
     SemanticTokensParams, SemanticTokensRangeParams, SemanticTokensRangeResult,
     SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo,
@@ -173,8 +172,8 @@ impl Backend {
                 continue;
             }
 
-            let disk_uri = Self::path_to_uri(&disk_path)
-                .unwrap_or_else(|| Self::fallback_disk_uri(&name));
+            let disk_uri =
+                Self::path_to_uri(&disk_path).unwrap_or_else(|| Self::fallback_disk_uri(&name));
             workspace.push(diagnostics::WorkspaceTable {
                 uri: disk_uri,
                 table,
@@ -353,14 +352,12 @@ impl LanguageServer for Backend {
                     },
                 )),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
-                inlay_hint_provider: Some(
-                    tower_lsp_server::ls_types::OneOf::Right(
-                        InlayHintServerCapabilities::Options(InlayHintOptions {
-                            work_done_progress_options: WorkDoneProgressOptions::default(),
-                            resolve_provider: Some(false),
-                        }),
-                    ),
-                ),
+                inlay_hint_provider: Some(tower_lsp_server::ls_types::OneOf::Right(
+                    InlayHintServerCapabilities::Options(InlayHintOptions {
+                        work_done_progress_options: WorkDoneProgressOptions::default(),
+                        resolve_provider: Some(false),
+                    }),
+                )),
                 semantic_tokens_provider: Some(
                     SemanticTokensServerCapabilities::SemanticTokensOptions(
                         SemanticTokensOptions {
@@ -404,8 +401,10 @@ impl LanguageServer for Backend {
 
     async fn initialized(&self, _params: InitializedParams) {
         tracing::info!(target: "vespertide_lsp::handler", "initialized");
-        let log_path = std::env::var_os("VESPERTIDE_LSP_LOG")
-            .map_or_else(|| std::env::temp_dir().join("vespertide-lsp.log"), std::path::PathBuf::from);
+        let log_path = std::env::var_os("VESPERTIDE_LSP_LOG").map_or_else(
+            || std::env::temp_dir().join("vespertide-lsp.log"),
+            std::path::PathBuf::from,
+        );
         let message = format!(
             "vespertide-lsp v{} initialized. File log: {}",
             env!("CARGO_PKG_VERSION"),
@@ -647,10 +646,7 @@ impl LanguageServer for Backend {
         }
     }
 
-    async fn code_action(
-        &self,
-        params: CodeActionParams,
-    ) -> Result<Option<CodeActionResponse>> {
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let uri = params.text_document.uri;
         let range_ls = params.range;
         let range_lsp = crate::position::ls_to_lsp_range(range_ls);
@@ -712,8 +708,7 @@ impl LanguageServer for Backend {
             let text = state.text();
             let start = crate::position::lsp_position_to_byte(&state.doc, range_lsp.start);
             let end = crate::position::lsp_position_to_byte(&state.doc, range_lsp.end);
-            let domain =
-                crate::inlay_hints::compute(text, state.tree.as_ref(), start..end);
+            let domain = crate::inlay_hints::compute(text, state.tree.as_ref(), start..end);
             domain
                 .into_iter()
                 .map(|hint| InlayHint {
@@ -820,12 +815,8 @@ impl LanguageServer for Backend {
             let Some(path) = crate::position::uri_to_path(&event.uri) else {
                 continue;
             };
-            if crate::watched_files::should_refresh_for(
-                &root,
-                &models_dir,
-                &migrations_dir,
-                &path,
-            ) {
+            if crate::watched_files::should_refresh_for(&root, &models_dir, &migrations_dir, &path)
+            {
                 touched = true;
                 break;
             }
@@ -852,10 +843,7 @@ impl LanguageServer for Backend {
         handler_file_features::document_symbol_impl(self, params).await
     }
 
-    async fn folding_range(
-        &self,
-        params: FoldingRangeParams,
-    ) -> Result<Option<Vec<FoldingRange>>> {
+    async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
         handler_file_features::folding_range_impl(self, params).await
     }
 

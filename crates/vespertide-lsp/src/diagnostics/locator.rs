@@ -165,10 +165,12 @@ fn locate_field_in_column(
     let column = find_named_mapping(tree.root_node(), source.as_bytes(), "columns", column_name)?;
 
     match field {
-        ErrorField::Type => find_child_pair(column, source.as_bytes(), "type")
-            .map(|pair| pair.byte_range()),
-        ErrorField::Default => find_child_pair(column, source.as_bytes(), "default")
-            .map(|pair| pair.byte_range()),
+        ErrorField::Type => {
+            find_child_pair(column, source.as_bytes(), "type").map(|pair| pair.byte_range())
+        }
+        ErrorField::Default => {
+            find_child_pair(column, source.as_bytes(), "default").map(|pair| pair.byte_range())
+        }
         ErrorField::ForeignKeyRefTable | ErrorField::ForeignKeyRefColumns => {
             let fk_pair = find_child_pair(column, source.as_bytes(), "foreign_key")?;
             let fk_value = fk_pair.named_child(1)?;
@@ -270,10 +272,7 @@ fn find_outer_mapping(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'
     None
 }
 
-fn direct_name_value_range(
-    mapping: tree_sitter::Node<'_>,
-    source: &[u8],
-) -> Option<Range<usize>> {
+fn direct_name_value_range(mapping: tree_sitter::Node<'_>, source: &[u8]) -> Option<Range<usize>> {
     let mut cursor = mapping.walk();
     for child in mapping.children(&mut cursor) {
         if is_pair(child)

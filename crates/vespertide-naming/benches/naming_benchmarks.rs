@@ -1,4 +1,6 @@
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use vespertide_naming::{build_foreign_key_name, build_index_name, build_unique_constraint_name};
 
 fn columns(n: usize, sorted: bool) -> Vec<String> {

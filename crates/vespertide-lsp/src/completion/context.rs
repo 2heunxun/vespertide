@@ -18,7 +18,9 @@ pub(super) enum Context {
     OnDeleteAction,
     OnUpdateAction,
     RefTable,
-    RefColumns { ref_table: String },
+    RefColumns {
+        ref_table: String,
+    },
     /// Cursor is on the value of `kind` inside a complex `type` object
     /// (`varchar` / `char` / `numeric` / `enum` / `custom`). When the
     /// cursor sits inside a `"..."` literal, the suggested label replaces
@@ -182,7 +184,10 @@ fn unwrap_flow_node(node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
 fn enclosing_column_object(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
     let mut current = Some(node);
     while let Some(candidate) = current {
-        if matches!(candidate.kind(), "object" | "block_mapping" | "flow_mapping") {
+        if matches!(
+            candidate.kind(),
+            "object" | "block_mapping" | "flow_mapping"
+        ) {
             return Some(candidate);
         }
         current = candidate.parent();

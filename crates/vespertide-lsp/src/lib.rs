@@ -28,14 +28,17 @@ mod parser;
 mod position;
 mod references;
 mod rename;
-mod semantic_tokens;
+pub mod semantic_tokens;
 mod store;
 mod symbols;
-mod watched_files;
+pub mod watched_files;
 mod workspace_index;
 pub mod workspace_tables;
 
 pub use backend::Backend;
+pub use code_actions::{
+    CodeActionKind as DomainCodeActionKind, DomainCodeAction, compute as compute_code_actions,
+};
 pub use completion::{
     CompletionItemKind, DomainCompletion, compute as compute_completion,
     compute_with_workspace_tables as compute_completion_with_workspace_tables,
@@ -49,32 +52,28 @@ pub use document::DocumentState;
 pub use drift::{DomainDrift, compute as compute_drift};
 pub use file_features::{
     DomainDocumentHighlight, DomainDocumentHighlightKind, DomainDocumentSymbol,
-    DomainDocumentSymbolKind, DomainFoldingRange, DomainSelectionRange,
-    compute_document_highlight, compute_document_symbols, compute_folding_ranges,
-    compute_selection_ranges,
+    DomainDocumentSymbolKind, DomainFoldingRange, DomainSelectionRange, compute_document_highlight,
+    compute_document_symbols, compute_folding_ranges, compute_selection_ranges,
 };
 pub use formatting::format_text;
 pub use hover::{DomainHover, compute as compute_hover};
 pub use inlay_hints::{DomainInlayHint, compute as compute_inlay_hints};
 pub use parser::{DocumentFormat, ParserPool};
+pub use position::{
+    byte_to_lsp_position, ls_to_lsp_position, ls_to_lsp_range, lsp_position_to_byte,
+    lsp_to_ls_position, uri_to_path,
+};
 pub use references::{
     DomainReference, ReferenceSymbol, compute as compute_references,
     resolve_symbol as resolve_reference_symbol,
-};
-pub use code_actions::{
-    CodeActionKind as DomainCodeActionKind, DomainCodeAction, compute as compute_code_actions,
 };
 pub use rename::{
     DomainPrepareRename, DomainRename, DomainTextEdit, compute as compute_rename,
     prepare as prepare_rename,
 };
+pub use store::DocumentStore;
 pub use symbols::{
     DomainSymbol, SymbolKind as DomainSymbolKind, compute as compute_workspace_symbols,
 };
-pub use position::{
-    byte_to_lsp_position, ls_to_lsp_position, ls_to_lsp_range, lsp_position_to_byte,
-    lsp_to_ls_position, uri_to_path,
-};
-pub use store::DocumentStore;
 pub use workspace_index::{TableLocation, WorkspaceIndex};
 pub use workspace_tables::WorkspaceTables;

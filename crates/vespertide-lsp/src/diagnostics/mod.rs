@@ -86,9 +86,12 @@ pub fn compute(
 /// type-shape error. Used to suppress redundant (and mis-positioned) serde
 /// diagnostics for the same root cause.
 fn had_typed_pre_check(diagnostics: &[DomainDiagnostic]) -> bool {
-    diagnostics
-        .iter()
-        .any(|d| matches!(d.code.as_str(), "unknown-type" | "complex-type" | "duplicate-column"))
+    diagnostics.iter().any(|d| {
+        matches!(
+            d.code.as_str(),
+            "unknown-type" | "complex-type" | "duplicate-column"
+        )
+    })
 }
 
 /// Compute diagnostics with workspace context for cross-file validation.
@@ -296,11 +299,7 @@ mod tests {
             .iter()
             .find(|d| d.code == "complex-type")
             .expect("empty `values` should be flagged");
-        assert!(
-            err.message.contains("non-empty"),
-            "got: {}",
-            err.message
-        );
+        assert!(err.message.contains("non-empty"), "got: {}", err.message);
     }
 
     #[test]
@@ -386,7 +385,9 @@ mod tests {
 
         let err = diags
             .iter()
-            .find(|d| d.code == "complex-type" && d.message.contains("Duplicate enum numeric value"))
+            .find(|d| {
+                d.code == "complex-type" && d.message.contains("Duplicate enum numeric value")
+            })
             .expect("duplicate integer enum value should be flagged");
         let snippet = &src[err.byte_range.clone()];
         assert_eq!(snippet, "0", "diagnostic should land on the duplicate `0`");
@@ -446,11 +447,18 @@ mod tests {
         // Diagnostic should land on the SECOND `"id"`, not the first.
         assert!(dup.byte_range.start > first + 5);
         let snippet = &src[dup.byte_range.clone()];
-        assert_eq!(snippet, r#""id""#, "diagnostic should highlight the duplicate `id`");
+        assert_eq!(
+            snippet, r#""id""#,
+            "diagnostic should highlight the duplicate `id`"
+        );
 
         // And no `validate-schema` "duplicate table name" surfaces here —
         // this is a column-level issue, not a workspace duplication.
-        assert!(diags.iter().all(|d| !d.message.contains("duplicate table name")));
+        assert!(
+            diags
+                .iter()
+                .all(|d| !d.message.contains("duplicate table name"))
+        );
     }
 
     /// Regression — when `columns` precedes `name` at the top level, the

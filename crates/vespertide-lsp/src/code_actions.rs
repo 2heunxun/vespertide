@@ -63,7 +63,11 @@ pub fn compute(
 fn flag_toggles(column: tree_sitter::Node<'_>, source: &[u8]) -> Vec<DomainCodeAction> {
     let mut actions = Vec::new();
     for (flag, on_title, off_title) in [
-        ("primary_key", "Mark column as primary key", "Unmark primary key"),
+        (
+            "primary_key",
+            "Mark column as primary key",
+            "Unmark primary key",
+        ),
         ("unique", "Mark column as unique", "Remove unique"),
         ("index", "Add index to column", "Remove index"),
     ] {
@@ -183,9 +187,7 @@ fn enum_extraction(column: tree_sitter::Node<'_>, source: &[u8]) -> Vec<DomainCo
         .to_string();
 
     let enum_name = format!("{column_name}_kind");
-    let new_type = format!(
-        r#"{{"kind":"enum","name":"{enum_name}","values":["{inner}"]}}"#
-    );
+    let new_type = format!(r#"{{"kind":"enum","name":"{enum_name}","values":["{inner}"]}}"#);
     vec![DomainCodeAction {
         title: format!("Extract default into enum `{enum_name}`"),
         kind: CodeActionKind::Refactor,
@@ -410,9 +412,7 @@ fn remove_pair_edit(
 }
 
 fn strip_quotes(text: &str) -> &str {
-    text.trim()
-        .trim_start_matches('"')
-        .trim_end_matches('"')
+    text.trim().trim_start_matches('"').trim_end_matches('"')
 }
 
 #[cfg(test)]
@@ -533,7 +533,8 @@ mod tests {
 
     #[test]
     fn extract_default_to_enum_offered_when_default_is_sql_literal() {
-        let src = r#"{"name":"u","columns":[{"name":"status","type":"text","default":"'pending'"}]}"#;
+        let src =
+            r#"{"name":"u","columns":[{"name":"status","type":"text","default":"'pending'"}]}"#;
         let tree = parse(src);
         let cursor = src.find(r#""status""#).unwrap() + 2;
         let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
@@ -552,9 +553,11 @@ mod tests {
         let tree = parse(src);
         let cursor = src.find(r#""x""#).unwrap() + 1;
         let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
-        assert!(actions
-            .iter()
-            .all(|a| !a.title.starts_with("Extract default")));
+        assert!(
+            actions
+                .iter()
+                .all(|a| !a.title.starts_with("Extract default"))
+        );
     }
 
     #[test]
@@ -581,7 +584,11 @@ mod tests {
         let tree = parse(src);
         let cursor = src.find(r#""author_id""#).unwrap() + 2;
         let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
-        assert!(actions.iter().all(|a| a.title != "Add foreign_key skeleton"));
+        assert!(
+            actions
+                .iter()
+                .all(|a| a.title != "Add foreign_key skeleton")
+        );
     }
 
     #[test]

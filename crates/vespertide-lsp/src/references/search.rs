@@ -165,9 +165,7 @@ fn inspect_pair(
     };
 
     match (symbol, key_text) {
-        (ReferenceSymbol::Table { name }, "ref_table")
-            if value_matches(source, value, name) =>
-        {
+        (ReferenceSymbol::Table { name }, "ref_table") if value_matches(source, value, name) => {
             out.push(DomainReference {
                 uri: uri.clone(),
                 byte_range: scalar_range(value),
@@ -175,9 +173,7 @@ fn inspect_pair(
         }
         // Emit the top-level declaration only when explicitly asked.
         (ReferenceSymbol::Table { name }, "name")
-            if include_declaration
-                && value_matches(source, value, name)
-                && is_top_level(pair) =>
+            if include_declaration && value_matches(source, value, name) && is_top_level(pair) =>
         {
             out.push(DomainReference {
                 uri: uri.clone(),
@@ -206,7 +202,11 @@ fn inspect_pair(
     }
 }
 
-fn sibling_ref_table_matches(source: &[u8], ref_columns_pair: tree_sitter::Node<'_>, table_name: &str) -> bool {
+fn sibling_ref_table_matches(
+    source: &[u8],
+    ref_columns_pair: tree_sitter::Node<'_>,
+    table_name: &str,
+) -> bool {
     let Some(fk_object_raw) = ref_columns_pair.parent() else {
         return false;
     };
@@ -266,11 +266,7 @@ fn push_array_matches(
 fn is_scalar_kind(kind: &str) -> bool {
     matches!(
         kind,
-        "string"
-            | "double_quote_scalar"
-            | "single_quote_scalar"
-            | "string_scalar"
-            | "plain_scalar"
+        "string" | "double_quote_scalar" | "single_quote_scalar" | "string_scalar" | "plain_scalar"
     )
 }
 
@@ -311,9 +307,7 @@ fn inner_content_range(node: tree_sitter::Node<'_>) -> std::ops::Range<usize> {
         ),
         // tree-sitter-yaml quoted scalars include their delimiters; trim
         // one byte on each side.
-        "double_quote_scalar" | "single_quote_scalar" => {
-            trim_one_byte_each_side(node.byte_range())
-        }
+        "double_quote_scalar" | "single_quote_scalar" => trim_one_byte_each_side(node.byte_range()),
         // Unquoted scalars (YAML plain / string_scalar, or anything else)
         // have no delimiters — the full range is the identifier.
         _ => node.byte_range(),

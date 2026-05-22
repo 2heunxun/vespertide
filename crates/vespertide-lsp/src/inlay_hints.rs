@@ -60,10 +60,7 @@ pub fn compute(
     out
 }
 
-fn column_to_hint(
-    column: tree_sitter::Node<'_>,
-    source: &[u8],
-) -> Option<DomainInlayHint> {
+fn column_to_hint(column: tree_sitter::Node<'_>, source: &[u8]) -> Option<DomainInlayHint> {
     let mut tags: Vec<String> = Vec::new();
 
     if pair_is_true(column, source, "primary_key") {
@@ -113,7 +110,10 @@ fn pair_is_true(object: tree_sitter::Node<'_>, source: &[u8], key: &str) -> bool
     };
     let value = unwrap_yaml_node(value_raw);
     matches!(
-        source.get(value.byte_range()).and_then(|b| std::str::from_utf8(b).ok()).map(str::trim),
+        source
+            .get(value.byte_range())
+            .and_then(|b| std::str::from_utf8(b).ok())
+            .map(str::trim),
         Some("true")
     )
 }
@@ -149,15 +149,15 @@ fn foreign_key_target(column: tree_sitter::Node<'_>, source: &[u8]) -> Option<St
     Some(format!("{table}.{first_column_text}"))
 }
 
-fn first_array_string(
-    array: tree_sitter::Node<'_>,
-    source: &[u8],
-) -> Option<String> {
+fn first_array_string(array: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     let mut cursor = array.walk();
     for raw in array.children(&mut cursor) {
         let node = unwrap_yaml_node(raw);
         match node.kind() {
-            "string" | "double_quote_scalar" | "single_quote_scalar" | "string_scalar"
+            "string"
+            | "double_quote_scalar"
+            | "single_quote_scalar"
+            | "string_scalar"
             | "plain_scalar" => {
                 let text = std::str::from_utf8(source.get(node.byte_range())?).ok()?;
                 return Some(strip_quotes(text).to_string());
@@ -188,10 +188,7 @@ fn first_array_string(
 
 fn direct_column_objects(columns_value: tree_sitter::Node<'_>) -> Vec<tree_sitter::Node<'_>> {
     let array = unwrap_yaml_node(columns_value);
-    if !matches!(
-        array.kind(),
-        "array" | "block_sequence" | "flow_sequence"
-    ) {
+    if !matches!(array.kind(), "array" | "block_sequence" | "flow_sequence") {
         return Vec::new();
     }
 
@@ -205,10 +202,7 @@ fn direct_column_objects(columns_value: tree_sitter::Node<'_>) -> Vec<tree_sitte
                 let mut inner_cursor = child.walk();
                 for inner in child.children(&mut inner_cursor) {
                     let inner = unwrap_yaml_node(inner);
-                    if matches!(
-                        inner.kind(),
-                        "object" | "block_mapping" | "flow_mapping"
-                    ) {
+                    if matches!(inner.kind(), "object" | "block_mapping" | "flow_mapping") {
                         out.push(inner);
                     }
                 }
@@ -346,7 +340,10 @@ mod tests {
         let hints = compute(src, Some(&tree), 0..src.len());
         assert_eq!(hints.len(), 1);
         let label = &hints[0].label;
-        assert!(label.contains("PK") && label.contains("UQ") && label.contains("IX"), "got: {label}");
+        assert!(
+            label.contains("PK") && label.contains("UQ") && label.contains("IX"),
+            "got: {label}"
+        );
     }
 
     #[test]
@@ -363,7 +360,8 @@ mod tests {
         let tree = parse(src);
         // Only the FIRST column is in the visible range — the user has
         // scrolled past the second one.
-        let first_end = src.find(r#""primary_key":true"#).unwrap() + r#""primary_key":true"#.len() + 2;
+        let first_end =
+            src.find(r#""primary_key":true"#).unwrap() + r#""primary_key":true"#.len() + 2;
         let hints = compute(src, Some(&tree), 0..first_end);
         assert_eq!(hints.len(), 1, "expected only the visible column's hint");
         assert!(hints[0].label.contains("PK"));

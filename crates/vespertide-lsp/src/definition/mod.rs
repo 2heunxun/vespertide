@@ -139,8 +139,15 @@ mod tests {
         // Cursor INSIDE the `"email"` element of ref_columns.
         let pos = post_src.find(r#""email""#).unwrap() + 3;
 
-        let location = compute(post_src, DocumentFormat::Json, post_tree.as_ref(), &idx, &docs, pos)
-            .expect("ref_columns entry should resolve to its target column");
+        let location = compute(
+            post_src,
+            DocumentFormat::Json,
+            post_tree.as_ref(),
+            &idx,
+            &docs,
+            pos,
+        )
+        .expect("ref_columns entry should resolve to its target column");
         assert_eq!(location.uri, user_uri);
         // Range should pinpoint the user.email column's `name` value, not 0..0.
         let snippet = &user_src[location.byte_range.clone()];
@@ -157,10 +164,16 @@ mod tests {
         let docs = DocumentStore::new();
 
         let user_uri = Uri::from_str("file:///user.yaml").unwrap();
-        let user_src = "name: user\ncolumns:\n  - name: id\n    type: integer\n    primary_key: true\n";
+        let user_src =
+            "name: user\ncolumns:\n  - name: id\n    type: integer\n    primary_key: true\n";
         let user_tree = pool.parse(user_src, DocumentFormat::Yaml).unwrap();
         idx.upsert(&user_uri, user_src, &user_tree);
-        docs.open(user_uri.clone(), "yaml".to_string(), 1, user_src.to_string());
+        docs.open(
+            user_uri.clone(),
+            "yaml".to_string(),
+            1,
+            user_src.to_string(),
+        );
 
         let post_src = "name: post\ncolumns:\n  - name: author_id\n    type: integer\n    foreign_key:\n      ref_table: user\n      ref_columns: [id]\n";
         let post_tree = pool.parse(post_src, DocumentFormat::Yaml);
@@ -193,7 +206,12 @@ mod tests {
         let user_src = "name: user\ncolumns:\n  - name: id\n    type: integer\n    primary_key: true\n  - name: email\n    type: text\n";
         let user_tree = pool.parse(user_src, DocumentFormat::Yaml).unwrap();
         idx.upsert(&user_uri, user_src, &user_tree);
-        docs.open(user_uri.clone(), "yaml".to_string(), 1, user_src.to_string());
+        docs.open(
+            user_uri.clone(),
+            "yaml".to_string(),
+            1,
+            user_src.to_string(),
+        );
 
         let post_src = "name: post\ncolumns:\n  - name: author_email\n    type: text\n    foreign_key:\n      ref_table: user\n      ref_columns: [email]\n";
         let post_tree = pool.parse(post_src, DocumentFormat::Yaml);
