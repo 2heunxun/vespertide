@@ -61,6 +61,25 @@
         "path": "./syntaxes/vespertide-yaml.tmLanguage.json"
       }
     ],
+    "configurationDefaults": {
+      "editor.semanticHighlighting.enabled": true,
+      "editor.semanticTokenColorCustomizations": {
+        "[*]": {
+          "rules": {
+            "class:vespertide-json": { "foreground": "#5b34f7", "bold": true },
+            "class:vespertide-yaml": { "foreground": "#5b34f7", "bold": true },
+            "property.declaration:vespertide-json": { "foreground": "#2dd4bf" },
+            "property.declaration:vespertide-yaml": { "foreground": "#2dd4bf" },
+            "property.definition:vespertide-json": { "foreground": "#2dd4bf", "italic": true },
+            "property.definition:vespertide-yaml": { "foreground": "#2dd4bf", "italic": true },
+            "type:vespertide-json": { "foreground": "#f59e0b" },
+            "type:vespertide-yaml": { "foreground": "#f59e0b" },
+            "enumMember:vespertide-json": { "foreground": "#ec4899" },
+            "enumMember:vespertide-yaml": { "foreground": "#ec4899" }
+          }
+        }
+      }
+    },
     "configuration": {
       "title": "Vespertide",
       "properties": {

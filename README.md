@@ -17,6 +17,28 @@ Declarative database schema management. Define your schemas in JSON, and Vespert
 - **Zero-Runtime Migrations**: Compile-time macro generates database-specific SQL
 - **JSON Schema Validation**: Ships with JSON Schemas for IDE autocompletion and validation
 - **ORM Export**: Export schemas to SeaORM, SQLAlchemy, SQLModel
+- **Language Server**: First-class editor support via the bundled `vespertide-lsp` — see [LSP Features](#lsp-features) below
+
+## LSP Features
+
+The `vespertide-lsp` binary ships with VSCode and Zed extensions (`apps/vscode-extension/`, `apps/zed-extension/`). It implements 13 LSP capabilities tuned for Vespertide schema files:
+
+| Capability | What it does |
+|---|---|
+| **Diagnostics** | Real-time validation: unknown type, duplicate column, FK target missing, enum default invalid, filename ↔ table name mismatch, complex-type field shape (`enum` requires `values`, `varchar` requires `length`, …) |
+| **Completion** | Context-aware: column type, `kind`, ref_table, ref_columns (cross-file), on_delete actions, type-aware default (`now()` for timestamp, `gen_random_uuid()` for uuid, enum values for enum), all 4 key positions (table, column, foreign_key, type object) |
+| **Hover** | Column / FK target preview with on-disk fallback (closed-file targets still resolve) |
+| **Go to Definition** | F12 on `ref_table` → target table; F12 on `ref_columns` entry → target column |
+| **Find References** | Shift+F12 — workspace-wide. Column references are scoped to the owning table (`user.email` does not collide with `other.email`) |
+| **Rename** | F2 with prepare-rename. Renames propagate to every `ref_columns` / `ref_table` mention |
+| **Code Actions** | 8 refactors: toggle PK/UQ/IX, toggle nullable, convert simple type to `varchar(N)`/`numeric(P,S)`, extract default to enum, add FK skeleton |
+| **Inlay Hints** | Column flags (`PK · UQ · IX`) and FK target (`⟶ user.id`) shown inline at the column's `{` |
+| **Semantic Tokens** | Table/column/type/enum colored by meaning (not just syntax). VSCode extension ships default DevFive palette |
+| **Document Symbol** | Ctrl+Shift+O — table → columns outline |
+| **Workspace Symbol** | Ctrl+T — fuzzy search every table and column |
+| **Folding / Selection / Highlight** | Standard LSP file-local features (column objects fold, Ctrl+Shift+→ expands, same-symbol auto-highlight) |
+| **Watched Files** | External edits (git pull, sed) refresh diagnostics automatically via `workspace/didChangeWatchedFiles` |
+| **Drift Detection** _(unique)_ | Flags models that have diverged from the applied migration history |
 
 ## Installation
 
