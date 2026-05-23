@@ -38,6 +38,11 @@ impl UsedImports {
                 if let ComplexColumnType::Numeric { .. } = ty {
                     self.needs_decimal = true;
                 }
+                if let ComplexColumnType::Custom { custom_type } = ty {
+                    if custom_type.to_uppercase() == "JSONB" {
+                        self.needs_datatypes = true;
+                    }
+                }
             }
         }
     }
@@ -236,11 +241,23 @@ fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> Result<String, 
 
     // Reverse relation fields (HasMany) derived from schema context
     for rel in &reverse_relations {
+        let mut constraint_parts: Vec<String> = Vec::new();
+        if let Some(ref action) = rel.on_delete {
+            constraint_parts.push(format!("OnDelete:{}", reference_action_str(action)));
+        }
+        if let Some(ref action) = rel.on_update {
+            constraint_parts.push(format!("OnUpdate:{}", reference_action_str(action)));
+        }
+        let fk_field = to_go_field_name(&rel.fk_column);
+        let gorm_tag = if constraint_parts.is_empty() {
+            format!("foreignKey:{fk_field}")
+        } else {
+            format!("foreignKey:{fk_field};constraint:{}", constraint_parts.join(","))
+        };
         lines.push(format!(
-            "    {field_name} []{ref_struct} `gorm:\"foreignKey:{fk_field}\" json:\"-\"`",
+            "    {field_name} []{ref_struct} `gorm:\"{gorm_tag}\" json:\"-\"`",
             field_name = rel.field_name,
             ref_struct = to_pascal_case(&rel.ref_table),
-            fk_field = to_go_field_name(&rel.fk_column),
         ));
     }
 
@@ -348,41 +365,56 @@ struct ReverseRelation {
     field_name: String,
     ref_table: String,
     fk_column: String,
+    on_delete: Option<ReferenceAction>,
+    on_update: Option<ReferenceAction>,
 }
 
 fn find_reverse_relations(table_name: &str, schema: &[TableDef]) -> Vec<ReverseRelation> {
-    let mut raw: Vec<(String, String, String)> = Vec::new();
+    let mut raw: Vec<(String, String, String, Option<ReferenceAction>, Option<ReferenceAction>)> =
+        Vec::new();
     for other in schema {
         if other.name == table_name {
             continue;
         }
         for c in &other.constraints {
             if let TableConstraint::ForeignKey {
-                columns, ref_table, ..
+                columns,
+                ref_table,
+                on_delete,
+                on_update,
+                ..
             } = c
             {
                 if ref_table.as_str() == table_name && columns.len() == 1 {
                     let fk_col = columns[0].clone();
-                    let base_name = format!("{}s", to_pascal_case(&other.name));
-                    raw.push((other.name.clone(), fk_col, base_name));
+                    let pascal = to_pascal_case(&other.name);
+                    let base_name =
+                        if pascal.ends_with('s') { pascal } else { format!("{pascal}s") };
+                    raw.push((
+                        other.name.clone(),
+                        fk_col,
+                        base_name,
+                        on_delete.clone(),
+                        on_update.clone(),
+                    ));
                 }
             }
         }
     }
 
     let mut name_count: HashMap<String, usize> = HashMap::new();
-    for (_, _, base_name) in &raw {
+    for (_, _, base_name, _, _) in &raw {
         *name_count.entry(base_name.clone()).or_default() += 1;
     }
 
     raw.into_iter()
-        .map(|(ref_table, fk_col, base_name)| {
+        .map(|(ref_table, fk_col, base_name, on_delete, on_update)| {
             let field_name = if *name_count.get(&base_name).unwrap_or(&0) > 1 {
                 format!("{}By{}", base_name, to_go_field_name(&fk_col))
             } else {
                 base_name
             };
-            ReverseRelation { field_name, ref_table, fk_column: fk_col }
+            ReverseRelation { field_name, ref_table, fk_column: fk_col, on_delete, on_update }
         })
         .collect()
 }
@@ -558,6 +590,10 @@ fn build_default_tag(default: &DefaultValue) -> Option<String> {
 // Type mapping
 // ---------------------------------------------------------------------------
 
+fn go_type_for_column(col_type: &ColumnType, nullable: bool) -> String {
+    go_type_for_column_mapped(col_type, nullable, &HashMap::new())
+}
+
 fn go_type_for_column_mapped(col_type: &ColumnType, nullable: bool, enum_map: &HashMap<&str, String>) -> String {
     let base = match col_type {
         ColumnType::Complex(ComplexColumnType::Enum { name, .. }) => {
@@ -592,9 +628,16 @@ fn go_base_type(col_type: &ColumnType) -> String {
             SimpleColumnType::Json => "datatypes.JSON".to_string(),
         },
         ColumnType::Complex(ty) => match ty {
-            ComplexColumnType::Varchar { .. }
-            | ComplexColumnType::Char { .. }
-            | ComplexColumnType::Custom { .. } => "string".to_string(),
+            ComplexColumnType::Varchar { .. } | ComplexColumnType::Char { .. } => {
+                "string".to_string()
+            }
+            ComplexColumnType::Custom { custom_type } => {
+                if custom_type.to_uppercase() == "JSONB" {
+                    "datatypes.JSON".to_string()
+                } else {
+                    "string".to_string()
+                }
+            }
             ComplexColumnType::Numeric { .. } => "decimal.Decimal".to_string(),
             ComplexColumnType::Enum { name, .. } => to_pascal_case(name),
         },
@@ -702,6 +745,9 @@ mod tests {
     #[case(ColumnType::Simple(SimpleColumnType::Inet), false, "string")]
     #[case(ColumnType::Complex(ComplexColumnType::Varchar { length: 255 }), false, "string")]
     #[case(ColumnType::Complex(ComplexColumnType::Numeric { precision: 10, scale: 2 }), false, "decimal.Decimal")]
+    #[case(ColumnType::Complex(ComplexColumnType::Custom { custom_type: "JSONB".into() }), false, "datatypes.JSON")]
+    #[case(ColumnType::Complex(ComplexColumnType::Custom { custom_type: "jsonb".into() }), false, "datatypes.JSON")]
+    #[case(ColumnType::Complex(ComplexColumnType::Custom { custom_type: "TEXT".into() }), false, "string")]
     #[case(ColumnType::Simple(SimpleColumnType::Integer), true, "*int32")]
     #[case(ColumnType::Simple(SimpleColumnType::Text), true, "*string")]
     #[case(ColumnType::Simple(SimpleColumnType::Timestamp), true, "*time.Time")]
@@ -1038,6 +1084,120 @@ mod tests {
             }],
         };
         let result = render_entity(&table).unwrap();
+        assert_snapshot!(result);
+    }
+
+    // -----------------------------------------------------------------------
+    // Snapshot tests (e) JSONB custom type
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_table_with_jsonb_column() {
+        let table = TableDef {
+            name: "documents".into(),
+            description: None,
+            columns: vec![
+                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+                col("data", ColumnType::Complex(ComplexColumnType::Custom { custom_type: "JSONB".into() })),
+                col("meta", ColumnType::Simple(SimpleColumnType::Json)),
+            ],
+            constraints: vec![TableConstraint::PrimaryKey {
+                auto_increment: true,
+                columns: vec!["id".into()],
+            }],
+        };
+        let result = render_entity(&table).unwrap();
+        assert_snapshot!(result);
+    }
+
+    // -----------------------------------------------------------------------
+    // Snapshot tests (f) server-side default skipped
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_server_default_skipped() {
+        let table = TableDef {
+            name: "events".into(),
+            description: None,
+            columns: vec![
+                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+                ColumnDef {
+                    name: "created_at".into(),
+                    r#type: ColumnType::Simple(SimpleColumnType::Timestamptz),
+                    nullable: false,
+                    default: Some(DefaultValue::String("NOW()".into())),
+                    comment: None,
+                    primary_key: None,
+                    unique: None,
+                    index: None,
+                    foreign_key: None,
+                },
+                ColumnDef {
+                    name: "count".into(),
+                    r#type: ColumnType::Simple(SimpleColumnType::Integer),
+                    nullable: false,
+                    default: Some(DefaultValue::Integer(0)),
+                    comment: None,
+                    primary_key: None,
+                    unique: None,
+                    index: None,
+                    foreign_key: None,
+                },
+            ],
+            constraints: vec![TableConstraint::PrimaryKey {
+                auto_increment: true,
+                columns: vec!["id".into()],
+            }],
+        };
+        let result = render_entity(&table).unwrap();
+        // Server-side function calls must not appear as GORM default tags
+        assert!(!result.contains("default:NOW()"));
+        // Literal integer defaults are still included
+        assert!(result.contains("default:0"));
+        assert_snapshot!(result);
+    }
+
+    // -----------------------------------------------------------------------
+    // Snapshot tests (g) HasMany with on_delete/on_update constraint
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_has_many_with_constraint() {
+        let users = TableDef {
+            name: "users".into(),
+            description: None,
+            columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
+            constraints: vec![TableConstraint::PrimaryKey {
+                auto_increment: true,
+                columns: vec!["id".into()],
+            }],
+        };
+        let posts = TableDef {
+            name: "posts".into(),
+            description: None,
+            columns: vec![
+                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+                col("user_id", ColumnType::Simple(SimpleColumnType::Integer)),
+            ],
+            constraints: vec![
+                TableConstraint::PrimaryKey {
+                    auto_increment: true,
+                    columns: vec!["id".into()],
+                },
+                TableConstraint::ForeignKey {
+                    name: None,
+                    columns: vec!["user_id".into()],
+                    ref_table: "users".into(),
+                    ref_columns: vec!["id".into()],
+                    on_delete: Some(ReferenceAction::Cascade),
+                    on_update: Some(ReferenceAction::Restrict),
+                },
+            ],
+        };
+        let schema = vec![users.clone(), posts.clone()];
+        let result = render_entity_with_schema(&users, &schema).unwrap();
+        assert!(result.contains("OnDelete:CASCADE"));
+        assert!(result.contains("OnUpdate:RESTRICT"));
         assert_snapshot!(result);
     }
 }
