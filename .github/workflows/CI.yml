@@ -145,15 +145,260 @@ jobs:
       # Actions > General > Workflow permissions for creating pull request
       # Create brench to create pull request
       contents: write
+    outputs:
+      changepacks: ${{ steps.changepacks.outputs.changepacks }}
+      release_assets_urls: ${{ steps.changepacks.outputs.release_assets_urls }}
     steps:
       - uses: actions/checkout@v6
       # changepacks/action@main: project-internal action intentionally tracks main.
+      # `publish: true` runs `cargo publish` for every Cargo.toml changed in this
+      # release wave. `release_assets_urls` output is consumed by the downstream
+      # `lsp-release` / `vscode-release` jobs to upload binary/VSIX assets onto
+      # the same GitHub Release that this action just created.
       - uses: changepacks/action@main
         id: changepacks
         with:
           publish: true
+          token: ${{ secrets.GITHUB_TOKEN }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Conditional release jobs — triggered when the matching package file
+  # appears in `needs.changepacks.outputs.changepacks`. Each job uploads
+  # its built artefact to the GitHub Release that changepacks just created
+  # via the `release_assets_urls` map.
+  # ──────────────────────────────────────────────────────────────────────
+
+  lsp-release:
+    name: LSP Release (${{ matrix.target }})
+    needs: changepacks
+    if: ${{ contains(needs.changepacks.outputs.changepacks, 'crates/vespertide-lsp/Cargo.toml') }}
+    runs-on: ${{ matrix.runs-on }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runs-on: ubuntu-latest
+            asset_name: vespertide-lsp-linux-x86_64
+            archive: tar.gz
+            use_cross: false
+          - target: aarch64-unknown-linux-gnu
+            runs-on: ubuntu-latest
+            asset_name: vespertide-lsp-linux-aarch64
+            archive: tar.gz
+            use_cross: true
+          - target: x86_64-apple-darwin
+            runs-on: macos-13
+            asset_name: vespertide-lsp-darwin-x86_64
+            archive: tar.gz
+            use_cross: false
+          - target: aarch64-apple-darwin
+            runs-on: macos-latest
+            asset_name: vespertide-lsp-darwin-aarch64
+            archive: tar.gz
+            use_cross: false
+          - target: x86_64-pc-windows-msvc
+            runs-on: windows-latest
+            asset_name: vespertide-lsp-windows-x86_64
+            archive: zip
+            use_cross: false
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+
+      - name: Install cross (aarch64-unknown-linux-gnu only)
+        if: matrix.use_cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build (native)
+        if: ${{ !matrix.use_cross }}
+        run: cargo build -p vespertide-lsp --release --target ${{ matrix.target }}
+
+      - name: Build (cross)
+        if: matrix.use_cross
+        run: cross build -p vespertide-lsp --release --target ${{ matrix.target }}
+
+      - name: Strip (Unix, native only)
+        if: runner.os != 'Windows' && !matrix.use_cross
+        run: strip "target/${{ matrix.target }}/release/vespertide-lsp" || true
+        shell: bash
+
+      - name: Package (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/vespertide-lsp" dist/
+          cd dist
+          tar -czf "${{ matrix.asset_name }}.tar.gz" vespertide-lsp
+          shasum -a 256 "${{ matrix.asset_name }}.tar.gz" > "${{ matrix.asset_name }}.tar.gz.sha256"
+        shell: bash
+
+      - name: Package (zip)
+        if: matrix.archive == 'zip'
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "target\${{ matrix.target }}\release\vespertide-lsp.exe" "dist\"
+          Compress-Archive -Path "dist\vespertide-lsp.exe" -DestinationPath "dist\${{ matrix.asset_name }}.zip"
+          $hash = (Get-FileHash "dist\${{ matrix.asset_name }}.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  ${{ matrix.asset_name }}.zip" | Out-File -FilePath "dist\${{ matrix.asset_name }}.zip.sha256" -Encoding ascii
+        shell: pwsh
+
+      - name: Upload to changepacks release (archive)
+        uses: owjs3901/upload-github-release-asset@main
+        with:
+          upload_url: ${{ fromJson(needs.changepacks.outputs.release_assets_urls)['crates/vespertide-lsp/Cargo.toml'] }}
+          asset_path: dist/${{ matrix.asset_name }}.${{ matrix.archive }}
+
+      - name: Upload to changepacks release (sha256)
+        uses: owjs3901/upload-github-release-asset@main
+        with:
+          upload_url: ${{ fromJson(needs.changepacks.outputs.release_assets_urls)['crates/vespertide-lsp/Cargo.toml'] }}
+          asset_path: dist/${{ matrix.asset_name }}.${{ matrix.archive }}.sha256
+
+  vscode-release:
+    name: VSCode Release (${{ matrix.vsce_target }})
+    needs:
+      - changepacks
+      - lsp-release   # wait for new LSP binaries if LSP is also in this wave
+    # `always() && success(... or skipped(...))` lets vscode-release run when
+    # vscode-extension is the only package being released (lsp-release skipped).
+    if: |
+      always()
+      && contains(needs.changepacks.outputs.changepacks, 'apps/vscode-extension/package.json')
+      && (needs.lsp-release.result == 'success' || needs.lsp-release.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - vsce_target: linux-x64
+            asset_name: vespertide-lsp-linux-x86_64.tar.gz
+            binary_dir_name: linux-x64
+            archive_format: tar.gz
+          - vsce_target: linux-arm64
+            asset_name: vespertide-lsp-linux-aarch64.tar.gz
+            binary_dir_name: linux-arm64
+            archive_format: tar.gz
+          - vsce_target: darwin-x64
+            asset_name: vespertide-lsp-darwin-x86_64.tar.gz
+            binary_dir_name: darwin-x64
+            archive_format: tar.gz
+          - vsce_target: darwin-arm64
+            asset_name: vespertide-lsp-darwin-aarch64.tar.gz
+            binary_dir_name: darwin-arm64
+            archive_format: tar.gz
+          - vsce_target: win32-x64
+            asset_name: vespertide-lsp-windows-x86_64.zip
+            binary_dir_name: win32-x64
+            archive_format: zip
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Decide which LSP release tag to bundle:
+      # - LSP is in this wave → use the changepacks release URL host as repo, fetch by tag from release_assets_urls.
+      # - LSP is NOT in this wave → fall back to the latest published lsp release on GitHub.
+      - name: Determine LSP asset source
+        id: lsp_source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if echo '${{ needs.changepacks.outputs.changepacks }}' | grep -q 'crates/vespertide-lsp/Cargo.toml'; then
+            # LSP just released — pull from changepacks's new release using the asset name
+            URL='${{ fromJson(needs.changepacks.outputs.release_assets_urls)['crates/vespertide-lsp/Cargo.toml'] }}'
+            # extract release tag from upload_url: .../releases/<id>/assets{?name,label}
+            # use gh CLI to download by name from the release the URL points to
+            RELEASE_ID=$(echo "$URL" | sed -n 's@.*/releases/\([0-9]*\)/.*@\1@p')
+            TAG=$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" --jq '.tag_name')
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          else
+            # Reuse latest existing LSP release
+            TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 50 \
+              | awk '$1 ~ /vespertide-lsp/ { print $1; exit }')
+            if [ -z "$TAG" ]; then
+              echo "::error::No prior vespertide-lsp release found and LSP not in this wave"
+              exit 1
+            fi
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+        shell: bash
+
+      - name: Download LSP binary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p apps/vscode-extension/bin/${{ matrix.binary_dir_name }}
+          gh release download "${{ steps.lsp_source.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "${{ matrix.asset_name }}" \
+            --dir /tmp/lsp-asset
+        shell: bash
+
+      - name: Extract LSP binary (tar.gz)
+        if: matrix.archive_format == 'tar.gz'
+        run: |
+          tar -xzf "/tmp/lsp-asset/${{ matrix.asset_name }}" -C apps/vscode-extension/bin/${{ matrix.binary_dir_name }}
+          chmod +x "apps/vscode-extension/bin/${{ matrix.binary_dir_name }}/vespertide-lsp"
+        shell: bash
+
+      - name: Extract LSP binary (zip)
+        if: matrix.archive_format == 'zip'
+        run: unzip "/tmp/lsp-asset/${{ matrix.asset_name }}" -d apps/vscode-extension/bin/${{ matrix.binary_dir_name }}
+
+      - name: Install + build extension
+        working-directory: apps/vscode-extension
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Package VSIX
+        working-directory: apps/vscode-extension
+        run: bunx vsce package --target ${{ matrix.vsce_target }} --no-dependencies -o vespertide-${{ matrix.vsce_target }}.vsix
+
+      - name: Upload VSIX to changepacks release
+        uses: owjs3901/upload-github-release-asset@main
+        with:
+          upload_url: ${{ fromJson(needs.changepacks.outputs.release_assets_urls)['apps/vscode-extension/package.json'] }}
+          asset_path: apps/vscode-extension/vespertide-${{ matrix.vsce_target }}.vsix
+
+      - name: Publish to VS Code Marketplace
+        working-directory: apps/vscode-extension
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "::warning::VSCE_PAT not set — skipping Marketplace publish"
+          else
+            bunx vsce publish --packagePath vespertide-${{ matrix.vsce_target }}.vsix -p "$VSCE_PAT"
+          fi
+        shell: bash
+
+      - name: Publish to Open VSX (VSCodium / Cursor)
+        continue-on-error: true
+        working-directory: apps/vscode-extension
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          if [ -z "$OVSX_PAT" ]; then
+            echo "::warning::OVSX_PAT not set — skipping Open VSX publish"
+          else
+            bunx ovsx publish vespertide-${{ matrix.vsce_target }}.vsix -p "$OVSX_PAT"
+          fi
+        shell: bash
 
   doc:
     name: doc

@@ -45,6 +45,11 @@ _tmp_*/
 # Intentional outputs should be named without the `_output.txt` suffix.
 *_output.txt
 
+# ─── changepacks runtime logs ─────────────────────────────────────────
+# `bunx @changepacks/cli` writes per-run state files. Config (`config.json`)
+# and any committed change descriptors stay tracked; runtime logs do not.
+.changepacks/changepack_log_*.json
+
 # ─── Coverage output ──────────────────────────────────────────────────
 coverage/
 lcov.info

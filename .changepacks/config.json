@@ -1,6 +1,11 @@
 {
-  "ignore": ["**", "!crates/**", "crates/vespertide-schema-gen/Cargo.toml"],
+  "ignore": [
+    "**",
+    "!crates/**",
+    "crates/vespertide-schema-gen/Cargo.toml",
+    "!apps/vscode-extension/package.json"
+  ],
   "baseBranch": "main",
-  "latestPackage": "crates/vespera/Cargo.toml",
+  "latestPackage": "crates/vespertide/Cargo.toml",
   "publish": {}
 }
