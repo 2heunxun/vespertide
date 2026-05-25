@@ -395,7 +395,7 @@ fn table_with_pk(name: &str, columns: Vec<ColumnDef>, pk_cols: Vec<&str>) -> Tab
         columns,
         constraints: vec![TableConstraint::PrimaryKey {
             auto_increment: false,
-            columns: pk_cols.into_iter().map(String::from).collect(),
+            columns: pk_cols.into_iter().map(Into::into).collect(),
         }],
     }
 }
@@ -408,14 +408,14 @@ fn table_with_pk_and_fk(
 ) -> TableDef {
     let mut constraints = vec![TableConstraint::PrimaryKey {
         auto_increment: false,
-        columns: pk_cols.into_iter().map(String::from).collect(),
+        columns: pk_cols.into_iter().map(Into::into).collect(),
     }];
     for (cols, ref_table, ref_cols) in fks {
         constraints.push(TableConstraint::ForeignKey {
             name: None,
-            columns: cols.into_iter().map(String::from).collect(),
+            columns: cols.into_iter().map(Into::into).collect(),
             ref_table: ref_table.into(),
-            ref_columns: ref_cols.into_iter().map(String::from).collect(),
+            ref_columns: ref_cols.into_iter().map(Into::into).collect(),
             on_delete: None,
             on_update: None,
         });

@@ -14,6 +14,7 @@ pub fn default_migration_filename_pattern() -> String {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct SeaOrmConfig {
     /// Additional derive macros to add to generated enum types.
     /// Default: `["vespera::Schema"]`
@@ -81,6 +82,7 @@ impl SeaOrmConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct VespertideConfig {
     pub models_dir: PathBuf,
     pub migrations_dir: PathBuf,

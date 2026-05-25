@@ -71,6 +71,10 @@ pub fn split_sql_blob(blob: &str) -> impl Iterator<Item = &str> {
     blob.split_terminator('\0').filter(|sql| !sql.is_empty())
 }
 
+#[expect(
+    clippy::print_stderr,
+    reason = "verbose runtime migrations stream progress diagnostics to stderr while leaving host stdout application-owned"
+)]
 pub async fn run_embedded_migrations(
     pool: &DatabaseConnection,
     version_table: &str,

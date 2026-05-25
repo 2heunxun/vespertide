@@ -3,7 +3,14 @@
 //! out of `backend::mod` to keep that file under the workspace line
 //! policy.
 
-#![allow(clippy::unused_async, deprecated)]
+#![expect(
+    clippy::unused_async,
+    reason = "tower-lsp-server LanguageServer file-feature handlers must stay awaitable async fns even when bodies are synchronous"
+)]
+#![expect(
+    deprecated,
+    reason = "documentSymbol still emits the deprecated DocumentSymbol::deprecated field for downlevel client compatibility"
+)]
 
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::{

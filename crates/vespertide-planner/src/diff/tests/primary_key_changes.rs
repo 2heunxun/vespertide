@@ -3,10 +3,7 @@ use super::*;
 fn pk(columns: Vec<&str>) -> TableConstraint {
     TableConstraint::PrimaryKey {
         auto_increment: false,
-        columns: columns
-            .into_iter()
-            .map(std::string::ToString::to_string)
-            .collect(),
+        columns: columns.into_iter().map(Into::into).collect(),
     }
 }
 

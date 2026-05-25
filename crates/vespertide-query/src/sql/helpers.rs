@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use sea_query::{
     Alias, ColumnDef as SeaColumnDef, ForeignKeyAction, MysqlQueryBuilder, PostgresQueryBuilder,
     QueryStatementWriter, SchemaStatementBuilder, SimpleExpr, SqliteQueryBuilder,
@@ -11,12 +13,14 @@ use super::create_table::build_create_table_for_backend;
 use super::types::{BuiltQuery, DatabaseBackend, RawSql};
 
 /// Normalize `fill_with` value - empty string becomes '' (SQL empty string literal)
-pub fn normalize_fill_with(fill_with: Option<&str>) -> Option<String> {
+/// Returns a Cow to avoid allocations when possible.
+#[must_use]
+pub fn normalize_fill_with(fill_with: Option<&str>) -> Option<Cow<'_, str>> {
     fill_with.map(|s| {
         if s.is_empty() {
-            "''".to_string()
+            Cow::Borrowed("''")
         } else {
-            s.to_string()
+            Cow::Borrowed(s)
         }
     })
 }
@@ -697,10 +701,10 @@ pub fn quote_ident(name: &str, backend: DatabaseBackend) -> String {
 
 /// Quote a list of identifiers and join them with comma.
 #[must_use]
-pub fn quote_idents(names: &[String], backend: DatabaseBackend) -> String {
+pub fn quote_idents<T: AsRef<str>>(names: &[T], backend: DatabaseBackend) -> String {
     names
         .iter()
-        .map(|n| quote_ident(n, backend))
+        .map(|n| quote_ident(n.as_ref(), backend))
         .collect::<Vec<_>>()
         .join(", ")
 }

@@ -8,8 +8,11 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
+use std::time::SystemTime;
+use tree_sitter::Tree;
 
+use crate::parser::{DocumentFormat, ParserPool};
 use vespertide_core::TableDef;
 
 #[derive(Debug, Default)]
@@ -26,6 +29,19 @@ struct Inner {
     /// (`media.vespertide.json` declares `name: media`, but
     /// `models/my_table.json` is also valid and declares `name: user`).
     path_by_name: BTreeMap<String, PathBuf>,
+    /// Per-path cached `(text, tree)` from `cached_parse`. Keyed on
+    /// canonical absolute path; entries are invalidated on `refresh()` OR
+    /// individually on stale mtime in `cached_parse`. Trees are
+    /// `Arc`-shared so consumers can hold them without copying.
+    tree_cache: BTreeMap<PathBuf, CachedTree>,
+}
+
+#[derive(Debug, Clone)]
+struct CachedTree {
+    mtime: SystemTime,
+    text: Arc<String>,
+    tree: Arc<Tree>,
+    format: DocumentFormat,
 }
 
 impl WorkspaceTables {
@@ -38,7 +54,9 @@ impl WorkspaceTables {
     /// Returns `true` only when a config was found and at least one table loaded.
     pub fn refresh(&self, start: &Path) -> bool {
         let Some(root) = find_workspace_root(start) else {
-            *self.inner.write().unwrap() = Inner::default();
+            *self.inner.write().expect(
+                "workspace_tables lock poisoned — invariant: no panic while holding lock",
+            ) = Inner::default();
             return false;
         };
 
@@ -56,27 +74,43 @@ impl WorkspaceTables {
         collect_models(&models_dir, &mut by_name, &mut path_by_name);
         let count = by_name.len();
 
-        *self.inner.write().unwrap() = Inner {
-            root: Some(root),
-            by_name,
-            path_by_name,
-        };
+        *self
+            .inner
+            .write()
+            .expect("workspace_tables lock poisoned — invariant: no panic while holding lock") =
+            Inner {
+                root: Some(root),
+                by_name,
+                path_by_name,
+                tree_cache: BTreeMap::new(),
+            };
 
         count > 0
     }
 
     pub fn get(&self, name: &str) -> Option<TableDef> {
-        self.inner.read().unwrap().by_name.get(name).cloned()
+        self.inner
+            .read()
+            .expect("workspace_tables lock poisoned — invariant: no panic while holding lock")
+            .by_name
+            .get(name)
+            .cloned()
     }
 
     pub fn names(&self) -> Vec<String> {
-        self.inner.read().unwrap().by_name.keys().cloned().collect()
+        self.inner
+            .read()
+            .expect("workspace_tables lock poisoned — invariant: no panic while holding lock")
+            .by_name
+            .keys()
+            .cloned()
+            .collect()
     }
 
     pub fn all(&self) -> Vec<(String, TableDef)> {
         self.inner
             .read()
-            .unwrap()
+            .expect("workspace_tables lock poisoned — invariant: no panic while holding lock")
             .by_name
             .iter()
             .map(|(name, table)| (name.clone(), table.clone()))
@@ -84,7 +118,11 @@ impl WorkspaceTables {
     }
 
     pub fn root(&self) -> Option<PathBuf> {
-        self.inner.read().unwrap().root.clone()
+        self.inner
+            .read()
+            .expect("workspace_tables lock poisoned — invariant: no panic while holding lock")
+            .root
+            .clone()
     }
 
     /// Look up the on-disk file path that declared `table_name`. Cached at
@@ -94,10 +132,71 @@ impl WorkspaceTables {
     pub fn model_path(&self, table_name: &str) -> Option<PathBuf> {
         self.inner
             .read()
-            .unwrap()
+            .expect("workspace_tables lock poisoned — invariant: no panic while holding lock")
             .path_by_name
             .get(table_name)
             .cloned()
+    }
+
+    /// Lookup or parse on-demand.
+    ///
+    /// On hit (path exists in cache + mtime unchanged), returns
+    /// `(Arc<String>, Arc<Tree>)` without touching disk.
+    ///
+    /// On miss or stale mtime: reads the file, parses with `pool`, stores in
+    /// cache, returns the new shared (text, tree) tuple.
+    ///
+    /// Returns `None` if the file is unreadable or the parser fails.
+    ///
+    /// # Format detection
+    /// Uses the file extension (`.yaml` / `.yml` → YAML, else → JSON).
+    pub fn cached_parse(&self, path: &Path, pool: &ParserPool) -> Option<(Arc<String>, Arc<Tree>)> {
+        let mtime = std::fs::metadata(path).ok()?.modified().ok()?;
+        let format = format_for_path(path);
+
+        {
+            let inner = self
+                .inner
+                .read()
+                .expect("workspace_tables lock poisoned — invariant: no panic while holding lock");
+            if let Some(entry) = inner.tree_cache.get(path)
+                && entry.mtime == mtime
+                && entry.format == format
+            {
+                return Some((Arc::clone(&entry.text), Arc::clone(&entry.tree)));
+            }
+        }
+
+        let text = std::fs::read_to_string(path).ok()?;
+        let tree = pool.parse(&text, format)?;
+
+        let text_arc = Arc::new(text);
+        let tree_arc = Arc::new(tree);
+
+        {
+            let mut inner = self
+                .inner
+                .write()
+                .expect("workspace_tables lock poisoned — invariant: no panic while holding lock");
+            inner.tree_cache.insert(
+                path.to_path_buf(),
+                CachedTree {
+                    mtime,
+                    text: Arc::clone(&text_arc),
+                    tree: Arc::clone(&tree_arc),
+                    format,
+                },
+            );
+        }
+
+        Some((text_arc, tree_arc))
+    }
+}
+
+fn format_for_path(path: &Path) -> DocumentFormat {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("yaml" | "yml") => DocumentFormat::Yaml,
+        _ => DocumentFormat::Json,
     }
 }
 
@@ -136,8 +235,8 @@ fn collect_models(
             continue;
         };
         let name = normalized.name.clone();
-        by_name.insert(name.clone(), normalized);
-        path_by_name.insert(name, path);
+        by_name.insert(name.to_string(), normalized);
+        path_by_name.insert(name.to_string(), path);
     }
 }
 
@@ -176,10 +275,118 @@ fn find_workspace_root(start: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::sync::Arc;
 
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn cached_parse_returns_same_arc_when_mtime_unchanged() {
+        use crate::parser::ParserPool;
+
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("user.json");
+        fs::write(&path, r#"{"name":"user","columns":[]}"#).unwrap();
+        let tables = WorkspaceTables::new();
+        let pool = ParserPool::new();
+
+        let (t1, tree1) = tables.cached_parse(&path, &pool).expect("first");
+        let (t2, tree2) = tables.cached_parse(&path, &pool).expect("second");
+
+        assert!(
+            Arc::ptr_eq(&t1, &t2),
+            "text Arc identity preserved on cache hit"
+        );
+        assert!(
+            Arc::ptr_eq(&tree1, &tree2),
+            "tree Arc identity preserved on cache hit"
+        );
+    }
+
+    #[test]
+    fn cached_parse_reparses_when_mtime_advances() {
+        use crate::parser::ParserPool;
+
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("user.json");
+        fs::write(&path, r#"{"name":"user","columns":[]}"#).unwrap();
+        let tables = WorkspaceTables::new();
+        let pool = ParserPool::new();
+
+        let (_t1, tree1) = tables.cached_parse(&path, &pool).expect("first");
+
+        // Sleep to ensure mtime advances (Windows NTFS has 100ns resolution
+        // but actual updates can lag; 50ms is generous enough).
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        fs::write(
+            &path,
+            r#"{"name":"user","columns":[{"name":"id","type":"integer"}]}"#,
+        )
+        .unwrap();
+
+        let (_t2, tree2) = tables.cached_parse(&path, &pool).expect("second");
+        assert!(
+            !Arc::ptr_eq(&tree1, &tree2),
+            "tree should be re-parsed after mtime advances"
+        );
+    }
+
+    #[test]
+    fn refresh_clears_tree_cache() {
+        use crate::parser::ParserPool;
+
+        let tmp = tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("models")).unwrap();
+        fs::write(
+            tmp.path().join("vespertide.json"),
+            r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake"}"#,
+        )
+        .unwrap();
+        fs::write(
+            tmp.path().join("models/user.json"),
+            r#"{"name":"user","columns":[]}"#,
+        )
+        .unwrap();
+
+        let tables = WorkspaceTables::new();
+        let pool = ParserPool::new();
+        let path = tmp.path().join("models/user.json");
+
+        let (_t1, tree1) = tables.cached_parse(&path, &pool).expect("populate cache");
+        tables.refresh(tmp.path());
+        let (_t2, tree2) = tables.cached_parse(&path, &pool).expect("post-refresh");
+
+        assert!(
+            !Arc::ptr_eq(&tree1, &tree2),
+            "refresh() must invalidate tree cache"
+        );
+    }
+
+    #[test]
+    fn cached_parse_returns_none_for_missing_file() {
+        use crate::parser::ParserPool;
+
+        let tmp = tempdir().unwrap();
+        let missing = tmp.path().join("does_not_exist.json");
+        let tables = WorkspaceTables::new();
+        let pool = ParserPool::new();
+
+        assert!(tables.cached_parse(&missing, &pool).is_none());
+    }
+
+    #[test]
+    fn cached_parse_detects_yaml_by_extension() {
+        use crate::parser::ParserPool;
+
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("user.yaml");
+        fs::write(&path, "name: user\ncolumns: []\n").unwrap();
+        let tables = WorkspaceTables::new();
+        let pool = ParserPool::new();
+
+        let (_text, _tree) = tables.cached_parse(&path, &pool).expect("YAML parse");
+    }
 
     #[test]
     fn no_config_refresh_returns_false() {

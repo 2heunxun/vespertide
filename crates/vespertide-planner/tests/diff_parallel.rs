@@ -1,4 +1,7 @@
-#![allow(unsafe_code)]
+#![expect(
+    unsafe_code,
+    reason = "serial_test serializes Rust 2024 std::env var setters used to force deterministic diff parallelism thresholds"
+)]
 
 use std::ffi::OsString;
 
@@ -93,7 +96,7 @@ fn arb_schema_pair_acyclic_with_50_tables() -> impl Strategy<Value = (Vec<TableD
 fn table_for_index(index: usize) -> TableDef {
     let table_name = format!("table_{index:02}");
     TableDef {
-        name: table_name.clone(),
+        name: table_name.clone().into(),
         description: None,
         columns: vec![
             column("id", SimpleColumnType::Integer, false),
@@ -103,11 +106,11 @@ fn table_for_index(index: usize) -> TableDef {
         constraints: vec![
             TableConstraint::PrimaryKey {
                 auto_increment: false,
-                columns: vec!["id".to_string()],
+                columns: vec!["id".into()],
             },
             TableConstraint::Index {
                 name: Some(format!("ix_{table_name}__code")),
-                columns: vec!["code".to_string()],
+                columns: vec!["code".into()],
             },
             TableConstraint::Check {
                 name: format!("check_{table_name}_label"),
@@ -133,7 +136,7 @@ fn mutate_table(table: &mut TableDef, index: usize, mutation: u8) {
         )),
         4 => table.constraints.push(TableConstraint::Unique {
             name: Some(format!("uq_{}__code", table.name)),
-            columns: vec!["code".to_string()],
+            columns: vec!["code".into()],
         }),
         5 => {
             if let Some(TableConstraint::Check { expr, .. }) = table.constraints.get_mut(2) {
@@ -144,7 +147,7 @@ fn mutate_table(table: &mut TableDef, index: usize, mutation: u8) {
             table.constraints.retain(|constraint| {
                 !matches!(
                     constraint,
-                    TableConstraint::Index { columns, .. } if columns == &["code".to_string()]
+                    TableConstraint::Index { columns, .. } if columns.len() == 1 && columns[0] == "code"
                 )
             });
         }

@@ -68,7 +68,7 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
     let models_dir = PathBuf::from("models");
     std_fs::create_dir_all(&models_dir).unwrap();
     let users_model = TableDef {
-        name: "users".to_string(),
+        name: "users".into(),
         description: None,
         columns: vec![ColumnDef {
             name: "id".into(),
@@ -93,7 +93,7 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
     .unwrap();
 
     let model = TableDef {
-        name: "orders".to_string(),
+        name: "orders".into(),
         description: None,
         columns: vec![
             ColumnDef {
@@ -234,7 +234,7 @@ async fn cmd_revision_core_handles_fill_with_for_non_fk_column() {
     let models_dir = PathBuf::from("models");
     std_fs::create_dir_all(&models_dir).unwrap();
     let model = TableDef {
-        name: "users".to_string(),
+        name: "users".into(),
         description: None,
         columns: vec![
             ColumnDef {

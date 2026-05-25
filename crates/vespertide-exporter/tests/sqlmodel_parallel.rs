@@ -25,7 +25,7 @@ fn sqlmodel_schema_rendering_is_byte_equal_across_thread_counts() {
 fn large_schema() -> Vec<TableDef> {
     (0..60)
         .map(|idx| TableDef {
-            name: format!("table_{idx}"),
+            name: format!("table_{idx}").into(),
             description: Some(format!("Synthetic table {idx}")),
             columns: vec![
                 ColumnDef {

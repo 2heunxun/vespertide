@@ -13,6 +13,7 @@
 //! tree-sitter parse.
 
 mod backend;
+pub(crate) mod cache;
 mod code_actions;
 mod completion;
 mod definition;
@@ -46,10 +47,14 @@ pub use completion::{
 pub use definition::{DomainLocation, compute as compute_definition};
 pub use diagnostics::{
     DomainDiagnostic, Severity, compute as compute_diagnostics,
+    compute_shared as compute_diagnostics_shared,
     compute_workspace as compute_workspace_diagnostics,
 };
 pub use document::DocumentState;
-pub use drift::{DomainDrift, compute as compute_drift};
+pub use drift::{
+    DomainDrift, DriftCache, DriftKind, compute as compute_drift,
+    compute_with_cache as compute_drift_with_cache,
+};
 pub use file_features::{
     DomainDocumentHighlight, DomainDocumentHighlightKind, DomainDocumentSymbol,
     DomainDocumentSymbolKind, DomainFoldingRange, DomainSelectionRange, compute_document_highlight,
@@ -71,9 +76,11 @@ pub use rename::{
     DomainPrepareRename, DomainRename, DomainTextEdit, compute as compute_rename,
     prepare as prepare_rename,
 };
+pub use semantic_tokens::classify_shared as classify_semantic_tokens_shared;
 pub use store::DocumentStore;
 pub use symbols::{
     DomainSymbol, SymbolKind as DomainSymbolKind, compute as compute_workspace_symbols,
+    compute_shared as compute_workspace_symbols_shared,
 };
 pub use workspace_index::{TableLocation, WorkspaceIndex};
 pub use workspace_tables::WorkspaceTables;

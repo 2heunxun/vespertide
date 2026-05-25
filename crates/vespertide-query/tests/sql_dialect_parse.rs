@@ -8,8 +8,50 @@ use proptest::prelude::*;
 use sqlparser::dialect::{Dialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
 use sqlparser::parser::Parser;
 use vespertide_core::arbitrary::arb_table_def;
+use vespertide_core::schema::primary_key::PrimaryKeySyntax;
 use vespertide_core::*;
 use vespertide_query::{DatabaseBackend, build_action_queries};
+
+#[test]
+fn build_action_queries_runs_for_all_backends() {
+    let action = MigrationAction::CreateTable {
+        table: "test".into(),
+        columns: vec![ColumnDef {
+            name: "id".into(),
+            r#type: ColumnType::Simple(SimpleColumnType::Integer),
+            nullable: false,
+            default: None,
+            comment: None,
+            primary_key: Some(PrimaryKeySyntax::Bool(true)),
+            unique: None,
+            index: None,
+            foreign_key: None,
+        }],
+        constraints: vec![],
+    };
+
+    for backend in [
+        DatabaseBackend::Postgres,
+        DatabaseBackend::MySql,
+        DatabaseBackend::Sqlite,
+    ] {
+        let queries = build_action_queries(backend, &action, &[])
+            .expect("backend must build CREATE TABLE queries");
+        assert!(
+            !queries.is_empty(),
+            "{backend:?} should produce CREATE TABLE queries"
+        );
+
+        for query in &queries {
+            let sql = query.build(backend);
+            assert!(!sql.is_empty(), "{backend:?} SQL should be non-empty");
+            assert!(
+                sql.to_lowercase().contains("create table"),
+                "{backend:?}: expected CREATE TABLE, got: {sql}"
+            );
+        }
+    }
+}
 
 proptest! {
     #![proptest_config(ProptestConfig { cases: 128, max_shrink_iters: 5000, ..ProptestConfig::default() })]

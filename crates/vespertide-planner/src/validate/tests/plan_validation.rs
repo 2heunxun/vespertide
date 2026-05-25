@@ -38,6 +38,41 @@ fn validate_migration_plan_missing_fill_with() {
 }
 
 #[test]
+fn validate_migration_plan_missing_fill_with_for_not_null_add_column() {
+    use vespertide_core::{ColumnDef, ColumnType, MigrationAction, MigrationPlan};
+
+    let action = MigrationAction::AddColumn {
+        table: "users".into(),
+        column: Box::new(ColumnDef {
+            name: "email".into(),
+            r#type: ColumnType::Simple(SimpleColumnType::Text),
+            nullable: false,
+            default: None,
+            comment: None,
+            primary_key: None,
+            unique: None,
+            index: None,
+            foreign_key: None,
+        }),
+        fill_with: None,
+    };
+    let plan = MigrationPlan {
+        id: "test".into(),
+        comment: None,
+        created_at: None,
+        version: 1,
+        actions: vec![action],
+    };
+
+    let result = validate_migration_plan(&plan);
+
+    assert!(
+        matches!(result, Err(PlannerError::MissingFillWith(_, _))),
+        "AddColumn NOT NULL without default + no fill_with must error, got: {result:?}"
+    );
+}
+
+#[test]
 fn validate_migration_plan_with_fill_with() {
     use vespertide_core::{ColumnDef, ColumnType, MigrationAction, MigrationPlan};
 

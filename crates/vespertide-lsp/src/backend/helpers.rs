@@ -4,8 +4,6 @@
 //! either take primitives or accept a `&Backend` and use its
 //! `pub(super)` surface.
 
-#![allow(deprecated)]
-
 use tower_lsp_server::ls_types::{
     CompletionItem, CompletionItemKind as LspCompletionItemKind, CompletionTextEdit, Diagnostic,
     DiagnosticSeverity, InsertTextFormat, Location, Range, SymbolInformation,
@@ -110,7 +108,10 @@ pub(super) fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
 
 /// Lower a domain symbol into LSP `SymbolInformation`, resolving the byte
 /// range via either the open document or the on-disk file.
-#[allow(deprecated)]
+#[expect(
+    deprecated,
+    reason = "workspace/symbol still lowers to deprecated SymbolInformation for downlevel LSP client compatibility"
+)]
 pub(super) fn symbol_to_lsp(
     symbol: &crate::symbols::DomainSymbol,
     backend: &Backend,

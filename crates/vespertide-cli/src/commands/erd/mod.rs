@@ -23,11 +23,6 @@ pub enum ErdFormat {
     Dot,
 }
 
-#[allow(dead_code)]
-pub async fn cmd_erd(format: ErdFormat, output: Option<PathBuf>) -> Result<()> {
-    cmd_erd_with_filters(format, output, Vec::new(), Vec::new(), 0).await
-}
-
 pub async fn cmd_erd_with_filters(
     format: ErdFormat,
     output: Option<PathBuf>,
@@ -69,6 +64,10 @@ pub async fn cmd_erd_with_filters(
     Ok(())
 }
 
+#[expect(
+    clippy::print_stderr,
+    reason = "ERD filter warnings are user-facing diagnostics and must not mix with generated diagram stdout"
+)]
 pub(super) fn filter_tables(
     tables: Vec<TableDef>,
     include: &[String],
@@ -94,7 +93,7 @@ pub(super) fn filter_tables_with_warnings(
 
     let include = normalized_filter_names(include);
     let exclude = normalized_filter_names(exclude);
-    let all_names: BTreeSet<String> = tables.iter().map(|table| table.name.clone()).collect();
+    let all_names: BTreeSet<String> = tables.iter().map(|table| table.name.to_string()).collect();
 
     let mut warnings = filter_warnings(&all_names, "--include", &include);
     warnings.extend(filter_warnings(&all_names, "--exclude", &exclude));
@@ -130,7 +129,7 @@ pub(super) fn filter_tables_with_warnings(
 
     let filtered = tables
         .into_iter()
-        .filter(|table| kept.contains(&table.name))
+        .filter(|table| kept.contains(table.name.as_str()))
         .collect();
     (filtered, warnings)
 }
@@ -199,9 +198,9 @@ pub(super) fn collect_foreign_key_relations(tables: &[TableDef]) -> BTreeSet<For
                 };
                 relations.insert(build_foreign_key_relation(
                     table,
-                    columns.clone(),
-                    ref_table.clone(),
-                    ref_columns.clone(),
+                    column_names_to_strings(columns),
+                    ref_table.to_string(),
+                    column_names_to_strings(ref_columns),
                     on_delete.clone(),
                     on_update.clone(),
                     parent_table,
@@ -308,8 +307,8 @@ fn inline_foreign_key_relation(
             )
         }
         ForeignKeySyntax::Object(definition) => (
-            definition.ref_table.clone(),
-            definition.ref_columns.clone(),
+            definition.ref_table.to_string(),
+            column_names_to_strings(&definition.ref_columns),
             definition.on_delete.clone(),
             definition.on_update.clone(),
         ),
@@ -318,7 +317,7 @@ fn inline_foreign_key_relation(
     let parent_table_def = table_lookup.get(parent_table.as_str()).copied()?;
     Some(build_foreign_key_relation(
         table,
-        vec![column.name.clone()],
+        vec![column.name.to_string()],
         parent_table,
         parent_columns,
         on_delete,
@@ -350,7 +349,7 @@ fn build_foreign_key_relation(
 ) -> ForeignKeyRelation {
     let cardinality = detect_cardinality(child_table, &child_columns, parent_table_def);
     ForeignKeyRelation {
-        child_table: child_table.name.clone(),
+        child_table: child_table.name.to_string(),
         child_columns,
         parent_table,
         parent_columns,
@@ -433,14 +432,14 @@ fn primary_key_columns(table: &TableDef) -> Vec<String> {
             None
         }
     }) {
-        return columns;
+        return column_names_to_strings(&columns);
     }
 
     table
         .columns
         .iter()
         .filter(|column| is_inline_primary_key(column))
-        .map(|column| column.name.clone())
+        .map(|column| column.name.to_string())
         .collect()
 }
 
@@ -450,13 +449,13 @@ fn foreign_key_column_groups(table: &TableDef) -> Vec<Vec<String>> {
         if let TableConstraint::ForeignKey { columns, .. } = constraint
             && !groups.iter().any(|group| same_column_set(group, columns))
         {
-            groups.push(columns.clone());
+            groups.push(column_names_to_strings(columns));
         }
     }
 
     for column in &table.columns {
         if column.foreign_key.is_some() {
-            let group = vec![column.name.clone()];
+            let group = vec![column.name.to_string()];
             if !groups
                 .iter()
                 .any(|existing| same_column_set(existing, &group))
@@ -481,18 +480,21 @@ fn inline_unique_column_groups(table: &TableDef) -> Vec<Vec<String>> {
                 groups
                     .entry(name.clone())
                     .or_default()
-                    .push(column.name.clone());
+                    .push(column.name.to_string());
             }
             StrOrBoolOrArray::Array(names) => {
                 for name in names {
                     groups
                         .entry(name.clone())
                         .or_default()
-                        .push(column.name.clone());
+                        .push(column.name.to_string());
                 }
             }
             StrOrBoolOrArray::Bool(true) => {
-                groups.insert(format!("__auto_{}", column.name), vec![column.name.clone()]);
+                groups.insert(
+                    format!("__auto_{}", column.name),
+                    vec![column.name.to_string()],
+                );
             }
             _ => {}
         }
@@ -514,10 +516,17 @@ fn is_nullable_column(table: &TableDef, column_name: &str) -> bool {
         .any(|column| column.name == column_name && column.nullable)
 }
 
-fn same_column_set(left: &[String], right: &[String]) -> bool {
-    let left: BTreeSet<&str> = left.iter().map(String::as_str).collect();
-    let right: BTreeSet<&str> = right.iter().map(String::as_str).collect();
+fn same_column_set<T: AsRef<str>, U: AsRef<str>>(left: &[T], right: &[U]) -> bool {
+    let left: BTreeSet<&str> = left.iter().map(AsRef::as_ref).collect();
+    let right: BTreeSet<&str> = right.iter().map(AsRef::as_ref).collect();
     left == right
+}
+
+fn column_names_to_strings<T: AsRef<str>>(columns: &[T]) -> Vec<String> {
+    columns
+        .iter()
+        .map(|column| column.as_ref().to_string())
+        .collect()
 }
 
 fn normalized_filter_names(names: &[String]) -> Vec<String> {
@@ -554,7 +563,7 @@ fn filter_warnings(
 fn build_fk_adjacency(tables: &[TableDef]) -> BTreeMap<String, BTreeSet<String>> {
     let mut adjacency: BTreeMap<String, BTreeSet<String>> = tables
         .iter()
-        .map(|table| (table.name.clone(), BTreeSet::new()))
+        .map(|table| (table.name.to_string(), BTreeSet::new()))
         .collect();
     let mut junction_parents: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 

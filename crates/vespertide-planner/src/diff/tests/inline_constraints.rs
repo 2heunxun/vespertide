@@ -8,7 +8,7 @@ use vespertide_core::{StrOrBoolOrArray, TableConstraint};
 
 fn col_with_pk(name: &str, ty: ColumnType) -> ColumnDef {
     ColumnDef {
-        name: name.to_string(),
+        name: name.into(),
         r#type: ty,
         nullable: false,
         default: None,
@@ -22,7 +22,7 @@ fn col_with_pk(name: &str, ty: ColumnType) -> ColumnDef {
 
 fn col_with_unique(name: &str, ty: ColumnType) -> ColumnDef {
     ColumnDef {
-        name: name.to_string(),
+        name: name.into(),
         r#type: ty,
         nullable: true,
         default: None,
@@ -36,7 +36,7 @@ fn col_with_unique(name: &str, ty: ColumnType) -> ColumnDef {
 
 fn col_with_index(name: &str, ty: ColumnType) -> ColumnDef {
     ColumnDef {
-        name: name.to_string(),
+        name: name.into(),
         r#type: ty,
         nullable: true,
         default: None,
@@ -50,7 +50,7 @@ fn col_with_index(name: &str, ty: ColumnType) -> ColumnDef {
 
 fn col_with_fk(name: &str, ty: ColumnType, ref_table: &str, ref_col: &str) -> ColumnDef {
     ColumnDef {
-        name: name.to_string(),
+        name: name.into(),
         r#type: ty,
         nullable: true,
         default: None,
@@ -59,8 +59,8 @@ fn col_with_fk(name: &str, ty: ColumnType, ref_table: &str, ref_col: &str) -> Co
         unique: None,
         index: None,
         foreign_key: Some(ForeignKeySyntax::Object(ForeignKeyDef {
-            ref_table: ref_table.to_string(),
-            ref_columns: vec![ref_col.to_string()],
+            ref_table: ref_table.into(),
+            ref_columns: vec![ref_col.into()],
             on_delete: None,
             on_update: None,
         })),

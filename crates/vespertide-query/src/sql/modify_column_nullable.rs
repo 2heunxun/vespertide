@@ -12,7 +12,10 @@ use crate::error::QueryError;
 
 /// Build SQL for changing column nullability.
 /// For nullable -> non-nullable transitions, `fill_with` should be provided to update NULL values.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "nullability builder needs action fields, fill strategy, backend, and SQLite rebuild context; NullabilityContext is deferred"
+)]
 pub fn build_modify_column_nullable(
     backend: DatabaseBackend,
     table: &str,
@@ -58,9 +61,9 @@ pub fn build_modify_column_nullable(
         DatabaseBackend::MySql => {
             // MySQL requires the full column definition in MODIFY COLUMN
             // We need to get the column type from current schema
-            let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::Other(format!("Table '{table}' not found in current schema. MySQL requires current schema information to modify column nullability.")))?;
+            let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::SchemaError(format!("Table '{table}' not found in current schema. MySQL requires current schema information to modify column nullability.")))?;
 
-            let column_def = table_def.columns.iter().find(|c| c.name == column).ok_or_else(|| QueryError::Other(format!("Column '{column}' not found in table '{table}'. MySQL requires column information to modify nullability.")))?;
+            let column_def = table_def.columns.iter().find(|c| c.name == column).ok_or_else(|| QueryError::SchemaError(format!("Column '{column}' not found in table '{table}'. MySQL requires column information to modify nullability.")))?;
 
             // Create a modified column def with the new nullability
             let modified_col_def = ColumnDef {
@@ -80,7 +83,7 @@ pub fn build_modify_column_nullable(
         DatabaseBackend::Sqlite => {
             // SQLite doesn't support ALTER COLUMN for nullability changes
             // Use temporary table approach
-            let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::Other(format!("Table '{table}' not found in current schema. SQLite requires current schema information to modify column nullability.")))?;
+            let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::SchemaError(format!("Table '{table}' not found in current schema. SQLite requires current schema information to modify column nullability.")))?;
 
             // Create modified columns with the new nullability
             let mut new_columns = table_def.columns.clone();
@@ -148,17 +151,7 @@ mod tests {
     use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType, TableConstraint};
 
     fn col(name: &str, ty: ColumnType, nullable: bool) -> ColumnDef {
-        ColumnDef {
-            name: name.to_string(),
-            r#type: ty,
-            nullable,
-            default: None,
-            comment: None,
-            primary_key: None,
-            unique: None,
-            index: None,
-            foreign_key: None,
-        }
+        ColumnDef::new(name, ty, nullable)
     }
 
     fn table_def(
@@ -167,7 +160,7 @@ mod tests {
         constraints: Vec<TableConstraint>,
     ) -> TableDef {
         TableDef {
-            name: name.to_string(),
+            name: name.into(),
             description: None,
             columns,
             constraints,

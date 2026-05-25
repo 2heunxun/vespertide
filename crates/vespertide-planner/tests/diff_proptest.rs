@@ -125,7 +125,7 @@ fn mutate_schema(from: &[TableDef]) -> impl Strategy<Value = Vec<TableDef>> + us
 // TODO: deduplicate with vespertide-core::arbitrary once available.
 fn arb_table_def() -> impl Strategy<Value = TableDef> {
     (arb_safe_ident(), arb_unique_columns()).prop_map(|(name, columns)| TableDef {
-        name,
+        name: name.into(),
         description: None,
         columns,
         constraints: Vec::new(),

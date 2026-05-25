@@ -12,7 +12,7 @@ fn simple_type(ty: SimpleColumnType) -> ColumnType {
 fn build_schema(n: usize) -> Vec<TableDef> {
     (0..n)
         .map(|i| TableDef {
-            name: format!("table_{i}"),
+            name: format!("table_{i}").into(),
             description: None,
             columns: vec![
                 ColumnDef::new("id", simple_type(SimpleColumnType::Integer), false)
@@ -46,7 +46,7 @@ fn build_table_with_constraints(n: usize) -> Vec<TableDef> {
     let constraints = (0..n)
         .map(|i| TableConstraint::Unique {
             name: Some(format!("uq_constraints__old_{i}")),
-            columns: vec![format!("constrained_col_{i}")],
+            columns: vec![format!("constrained_col_{i}").into()],
         })
         .collect();
 

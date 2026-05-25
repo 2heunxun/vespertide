@@ -242,6 +242,25 @@ fn test_enum_values_to_sql_values_string() {
 }
 
 #[test]
+fn to_sql_values_escapes_single_quotes() {
+    let vals = EnumValues::String(vec!["O'Brien".into(), "Smith".into(), "'leading".into()]);
+    let sql = vals.to_sql_values();
+
+    assert!(
+        sql.iter().any(|s| s == "'O''Brien'"),
+        "single quote inside value must be doubled"
+    );
+    assert!(
+        sql.iter().any(|s| s == "'''leading'"),
+        "leading single quote must be doubled"
+    );
+    assert!(
+        sql.iter().any(|s| s == "'Smith'"),
+        "values without quotes are unchanged"
+    );
+}
+
+#[test]
 fn test_enum_values_to_sql_values_integer() {
     let vals = EnumValues::Integer(vec![
         NumValue {
@@ -325,6 +344,41 @@ fn test_requires_migration_integer_enum_values_changed() {
         ]),
     });
     assert!(!from.requires_migration(&to));
+}
+
+#[test]
+fn requires_migration_integer_enum_name_change_is_false() {
+    let e1 = ColumnType::Complex(ComplexColumnType::Enum {
+        name: "old_status".into(),
+        values: EnumValues::Integer(vec![
+            NumValue {
+                name: "active".into(),
+                value: 0,
+            },
+            NumValue {
+                name: "inactive".into(),
+                value: 1,
+            },
+        ]),
+    });
+    let e2 = ColumnType::Complex(ComplexColumnType::Enum {
+        name: "new_status".into(),
+        values: EnumValues::Integer(vec![
+            NumValue {
+                name: "active".into(),
+                value: 0,
+            },
+            NumValue {
+                name: "inactive".into(),
+                value: 1,
+            },
+        ]),
+    });
+
+    assert!(
+        !e1.requires_migration(&e2),
+        "integer enum name change should NOT require migration (stored as INTEGER, no DB schema change)"
+    );
 }
 
 #[test]

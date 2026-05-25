@@ -48,7 +48,7 @@ fn write_model(name: &str) {
     let models_dir = PathBuf::from("models");
     std_fs::create_dir_all(&models_dir).unwrap();
     let table = TableDef {
-        name: name.to_string(),
+        name: name.into(),
         description: None,
         columns: vec![ColumnDef {
             name: "id".into(),

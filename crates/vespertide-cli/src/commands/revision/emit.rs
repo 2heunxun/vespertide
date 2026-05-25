@@ -16,7 +16,8 @@ pub(super) fn apply_fill_with_to_plan(
                 fill_with,
             } => {
                 if fill_with.is_none()
-                    && let Some(value) = fill_values.get(&(table.clone(), column.name.clone()))
+                    && let Some(value) =
+                        fill_values.get(&(table.to_string(), column.name.to_string()))
                 {
                     *fill_with = Some(value.clone());
                 }
@@ -28,7 +29,7 @@ pub(super) fn apply_fill_with_to_plan(
                 ..
             } => {
                 if fill_with.is_none()
-                    && let Some(value) = fill_values.get(&(table.clone(), column.clone()))
+                    && let Some(value) = fill_values.get(&(table.to_string(), column.to_string()))
                 {
                     *fill_with = Some(value.clone());
                 }
@@ -53,7 +54,7 @@ pub(super) fn apply_delete_null_rows_to_plan(
         } = action
             && !*nullable
             && delete_null_rows.is_none()
-            && delete_set.contains(&(table.clone(), column.clone()))
+            && delete_set.contains(&(table.to_string(), column.to_string()))
         {
             *delete_null_rows = Some(true);
         }
@@ -118,7 +119,7 @@ pub(super) fn find_non_nullable_fk_add_columns(
         } = action
         {
             for col in columns {
-                fk_columns.insert((table.clone(), col.clone()));
+                fk_columns.insert((table.to_string(), col.to_string()));
             }
         }
     }
@@ -127,7 +128,7 @@ pub(super) fn find_non_nullable_fk_add_columns(
     let mut added_columns: HashSet<(String, String)> = HashSet::new();
     for action in &plan.actions {
         if let MigrationAction::AddColumn { table, column, .. } = action {
-            added_columns.insert((table.clone(), column.name.clone()));
+            added_columns.insert((table.to_string(), column.name.to_string()));
         }
     }
 
@@ -137,11 +138,11 @@ pub(super) fn find_non_nullable_fk_add_columns(
     for action in &plan.actions {
         if let MigrationAction::AddColumn { table, column, .. } = action {
             let has_fk = column.foreign_key.is_some()
-                || fk_columns.contains(&(table.clone(), column.name.clone()));
+                || fk_columns.contains(&(table.to_string(), column.name.to_string()));
             if has_fk && !column.nullable && column.default.is_none() {
                 result.push(RecreateTableRequired {
-                    table: table.clone(),
-                    column: column.name.clone(),
+                    table: table.to_string(),
+                    column: column.name.to_string(),
                     reason: RecreateReason::AddColumnWithFk,
                 });
             }
@@ -157,7 +158,7 @@ pub(super) fn find_non_nullable_fk_add_columns(
         {
             for col_name in columns {
                 // Skip if this column is being added in this migration (handled by Case 1)
-                if added_columns.contains(&(table.clone(), col_name.clone())) {
+                if added_columns.contains(&(table.to_string(), col_name.to_string())) {
                     continue;
                 }
                 // Look up column in current models to check nullability
@@ -172,8 +173,8 @@ pub(super) fn find_non_nullable_fk_add_columns(
                     && col_def.default.is_none()
                 {
                     result.push(RecreateTableRequired {
-                        table: table.clone(),
-                        column: col_name.clone(),
+                        table: table.to_string(),
+                        column: col_name.to_string(),
                         reason: RecreateReason::AddFkToExistingColumn,
                     });
                 }
@@ -220,7 +221,7 @@ pub(super) fn rewrite_plan_for_recreation(
             .find(|m| m.name.as_str() == *table_name)
         {
             plan.actions.push(MigrationAction::DeleteTable {
-                table: table_name.to_string(),
+                table: table_name.to_string().into(),
             });
             plan.actions.push(MigrationAction::CreateTable {
                 table: model.name.clone(),

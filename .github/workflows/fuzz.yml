@@ -1,8 +1,22 @@
 name: fuzz
 
 on:
-  schedule:
-    - cron: '0 19 * * *'  # nightly 04:00 KST (= 19:00 UTC prior day)
+  # push: main — the ONLY auto-trigger. Each commit gets a fresh `github.sha`
+  # cache key, so libfuzzer's discovered corpus actually persists across runs
+  # (via the `restore-keys` prefix fallback). Path-filtered to skip docs-only
+  # or workflow-unrelated commits.
+  #
+  # No schedule cron: actions/cache is immutable per key, so scheduled runs
+  # on an unchanged SHA cannot save the corpus they discover — pure runtime
+  # cost with zero persistent benefit. For deep-fuzz sessions, use
+  # workflow_dispatch with a larger `duration_seconds` value.
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**/*.rs'
+      - 'crates/**/Cargo.toml'
+      - 'fuzz/**'
+      - '.github/workflows/fuzz.yml'
   workflow_dispatch:
     inputs:
       target:

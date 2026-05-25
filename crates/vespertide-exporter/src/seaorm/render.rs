@@ -143,7 +143,7 @@ pub(super) fn single_column_unique_set(constraints: &[TableConstraint]) -> HashS
         if let TableConstraint::Unique { columns, .. } = constraint
             && columns.len() == 1
         {
-            unique_cols.insert(columns[0].clone());
+            unique_cols.insert(columns[0].to_string());
         }
     }
     unique_cols
@@ -156,7 +156,7 @@ pub(super) fn single_column_index_set(constraints: &[TableConstraint]) -> HashSe
         if let TableConstraint::Index { columns, .. } = constraint
             && columns.len() == 1
         {
-            indexed_cols.insert(columns[0].clone());
+            indexed_cols.insert(columns[0].to_string());
         }
     }
     indexed_cols
@@ -170,9 +170,9 @@ pub(super) fn render_column(
     unique_columns: &HashSet<String>,
     indexed_columns: &HashSet<String>,
 ) {
-    let is_pk = primary_keys.contains(&column.name);
-    let is_unique = unique_columns.contains(&column.name);
-    let is_indexed = indexed_columns.contains(&column.name);
+    let is_pk = primary_keys.contains(column.name.as_str());
+    let is_unique = unique_columns.contains(column.name.as_str());
+    let is_indexed = indexed_columns.contains(column.name.as_str());
     let has_default = column.default.is_some();
 
     // Add column comment as doc comment
@@ -253,7 +253,7 @@ pub(super) fn primary_key_columns(table: &TableDef) -> HashSet<String> {
     for constraint in &table.constraints {
         if let TableConstraint::PrimaryKey { columns, .. } = constraint {
             for col in columns {
-                keys.insert(col.clone());
+                keys.insert(col.to_string());
             }
         }
     }
@@ -264,7 +264,7 @@ pub(super) fn primary_key_columns(table: &TableDef) -> HashSet<String> {
         if let Some(PrimaryKeySyntax::Bool(true) | PrimaryKeySyntax::Object(_)) =
             &column.primary_key
         {
-            keys.insert(column.name.clone());
+            keys.insert(column.name.to_string());
         }
     }
 

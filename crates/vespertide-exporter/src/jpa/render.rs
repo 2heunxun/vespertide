@@ -35,7 +35,7 @@ pub(super) fn render_entity_with_imports(table: &TableDef) -> (String, UsedImpor
     // Track used imports (skip FK columns — they render as entity references)
     let mut used_imports = UsedImports::default();
     for col in &table.columns {
-        if !fk_info.contains_key(&col.name) {
+        if !fk_info.contains_key(col.name.as_str()) {
             used_imports.add_column_type(&col.r#type);
         }
     }
@@ -90,6 +90,7 @@ pub(super) fn render_entity_with_imports(table: &TableDef) -> (String, UsedImpor
             }
         })
         .flatten()
+        .map(|col| col.to_string())
         .collect();
 
     let auto_increment = table.constraints.iter().any(|c| {
@@ -109,7 +110,7 @@ pub(super) fn render_entity_with_imports(table: &TableDef) -> (String, UsedImpor
         .filter_map(|c| {
             if let TableConstraint::Unique { columns, .. } = c {
                 if columns.len() == 1 {
-                    Some(columns[0].clone())
+                    Some(columns[0].to_string())
                 } else {
                     None
                 }
@@ -121,10 +122,10 @@ pub(super) fn render_entity_with_imports(table: &TableDef) -> (String, UsedImpor
 
     // --- Render fields ---
     for col in &table.columns {
-        let is_pk = pk_columns.contains(&col.name);
-        let is_unique = unique_columns.contains(&col.name);
+        let is_pk = pk_columns.contains(col.name.as_str());
+        let is_unique = unique_columns.contains(col.name.as_str());
 
-        if let Some(fk) = fk_info.get(&col.name) {
+        if let Some(fk) = fk_info.get(col.name.as_str()) {
             render_fk_field(&mut lines, col, is_pk, auto_increment, fk);
         } else {
             render_field(&mut lines, col, is_pk, auto_increment, is_unique);
@@ -163,9 +164,9 @@ fn collect_fk_info(constraints: &[TableConstraint]) -> HashMap<String, FkInfo> {
             {
                 if columns.len() == 1 && ref_columns.len() == 1 {
                     Some((
-                        columns[0].clone(),
+                        columns[0].to_string(),
                         FkInfo {
-                            ref_table: ref_table.clone(),
+                            ref_table: ref_table.to_string(),
                         },
                     ))
                 } else {

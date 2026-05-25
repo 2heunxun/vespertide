@@ -81,7 +81,7 @@
       "type": "object",
       "properties": {
         "enumNamingCase": {
-          "description": "Naming case for serde rename_all attribute on generated enums.\nDefault: `Camel` (generates `#[serde(rename_all = \"camelCase\")]`)",
+          "description": "Naming case for serde `rename_all` attribute on generated enums.\nDefault: `Camel` (generates `#[serde(rename_all = \"camelCase\")]`)",
           "$ref": "#/$defs/NameCase",
           "default": "camel"
         },

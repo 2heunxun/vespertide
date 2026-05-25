@@ -1,6 +1,10 @@
 use super::*;
 
 #[test]
+#[expect(
+    clippy::print_stderr,
+    reason = "performance regression test emits elapsed time only when test output is requested"
+)]
 fn diff_constraint_replacement_is_linear_per_table() {
     let columns = (0..100)
         .map(|i| {
@@ -14,13 +18,13 @@ fn diff_constraint_replacement_is_linear_per_table() {
     let from_constraints = (0..100)
         .map(|i| TableConstraint::Index {
             name: Some(format!("ix_source_{i}")),
-            columns: vec![format!("col_{i}")],
+            columns: vec![format!("col_{i}").into()],
         })
         .collect::<Vec<_>>();
     let to_constraints = (0..100)
         .map(|i| TableConstraint::Index {
             name: Some(format!("ix_target_{i}")),
-            columns: vec![format!("col_{i}")],
+            columns: vec![format!("col_{i}").into()],
         })
         .collect::<Vec<_>>();
 

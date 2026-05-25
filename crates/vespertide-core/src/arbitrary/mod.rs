@@ -159,7 +159,7 @@ pub fn arb_table_def() -> impl Strategy<Value = TableDef> {
         collection::vec(arb_table_constraint(), 0..=4),
     )
         .prop_map(|(name, description, columns, constraints)| TableDef {
-            name,
+            name: name.into(),
             description,
             columns,
             constraints,
@@ -171,11 +171,15 @@ pub fn arb_table_constraint() -> impl Strategy<Value = TableConstraint> {
         (any::<bool>(), unique_idents(1..=4)).prop_map(|(auto_increment, columns)| {
             TableConstraint::PrimaryKey {
                 auto_increment,
-                columns,
+                columns: columns.into_iter().map(Into::into).collect(),
             }
         }),
-        (prop::option::of(arb_safe_ident()), unique_idents(1..=4))
-            .prop_map(|(name, columns)| TableConstraint::Unique { name, columns },),
+        (prop::option::of(arb_safe_ident()), unique_idents(1..=4)).prop_map(|(name, columns)| {
+            TableConstraint::Unique {
+                name,
+                columns: columns.into_iter().map(Into::into).collect(),
+            }
+        },),
         (
             prop::option::of(arb_safe_ident()),
             unique_idents(1..=4),
@@ -188,9 +192,9 @@ pub fn arb_table_constraint() -> impl Strategy<Value = TableConstraint> {
                 |(name, columns, ref_table, ref_columns, on_delete, on_update)| {
                     TableConstraint::ForeignKey {
                         name,
-                        columns,
-                        ref_table,
-                        ref_columns,
+                        columns: columns.into_iter().map(Into::into).collect(),
+                        ref_table: ref_table.into(),
+                        ref_columns: ref_columns.into_iter().map(Into::into).collect(),
                         on_delete,
                         on_update,
                     }
@@ -198,20 +202,35 @@ pub fn arb_table_constraint() -> impl Strategy<Value = TableConstraint> {
             ),
         (arb_safe_ident(), arb_check_expr())
             .prop_map(|(name, expr)| { TableConstraint::Check { name, expr } }),
-        (prop::option::of(arb_safe_ident()), unique_idents(1..=4))
-            .prop_map(|(name, columns)| TableConstraint::Index { name, columns }),
+        (prop::option::of(arb_safe_ident()), unique_idents(1..=4)).prop_map(|(name, columns)| {
+            TableConstraint::Index {
+                name,
+                columns: columns.into_iter().map(Into::into).collect(),
+            }
+        }),
     ]
 }
 
 pub fn arb_migration_action() -> impl Strategy<Value = MigrationAction> {
     prop_oneof![
         arb_create_table_action(),
-        arb_safe_ident().prop_map(|table| MigrationAction::DeleteTable { table }),
+        arb_safe_ident().prop_map(|table| MigrationAction::DeleteTable {
+            table: table.into(),
+        }),
         arb_add_column_action(),
-        (arb_safe_ident(), arb_safe_ident(), arb_safe_ident())
-            .prop_map(|(table, from, to)| { MigrationAction::RenameColumn { table, from, to } }),
-        (arb_safe_ident(), arb_safe_ident())
-            .prop_map(|(table, column)| { MigrationAction::DeleteColumn { table, column } }),
+        (arb_safe_ident(), arb_safe_ident(), arb_safe_ident()).prop_map(|(table, from, to)| {
+            MigrationAction::RenameColumn {
+                table: table.into(),
+                from: from.into(),
+                to: to.into(),
+            }
+        }),
+        (arb_safe_ident(), arb_safe_ident()).prop_map(|(table, column)| {
+            MigrationAction::DeleteColumn {
+                table: table.into(),
+                column: column.into(),
+            }
+        }),
         arb_modify_column_type_action(),
         arb_modify_column_nullable_action(),
         (
@@ -221,8 +240,8 @@ pub fn arb_migration_action() -> impl Strategy<Value = MigrationAction> {
         )
             .prop_map(|(table, column, new_default)| {
                 MigrationAction::ModifyColumnDefault {
-                    table,
-                    column,
+                    table: table.into(),
+                    column: column.into(),
                     new_default,
                 }
             }),
@@ -233,16 +252,22 @@ pub fn arb_migration_action() -> impl Strategy<Value = MigrationAction> {
         )
             .prop_map(|(table, column, new_comment)| {
                 MigrationAction::ModifyColumnComment {
-                    table,
-                    column,
+                    table: table.into(),
+                    column: column.into(),
                     new_comment,
                 }
             }),
         (arb_safe_ident(), arb_table_constraint()).prop_map(|(table, constraint)| {
-            MigrationAction::AddConstraint { table, constraint }
+            MigrationAction::AddConstraint {
+                table: table.into(),
+                constraint,
+            }
         }),
         (arb_safe_ident(), arb_table_constraint()).prop_map(|(table, constraint)| {
-            MigrationAction::RemoveConstraint { table, constraint }
+            MigrationAction::RemoveConstraint {
+                table: table.into(),
+                constraint,
+            }
         }),
         (
             arb_safe_ident(),
@@ -250,12 +275,14 @@ pub fn arb_migration_action() -> impl Strategy<Value = MigrationAction> {
             arb_table_constraint()
         )
             .prop_map(|(table, from, to)| MigrationAction::ReplaceConstraint {
-                table,
+                table: table.into(),
                 from,
                 to
             },),
-        (arb_safe_ident(), arb_safe_ident())
-            .prop_map(|(from, to)| { MigrationAction::RenameTable { from, to } }),
+        (arb_safe_ident(), arb_safe_ident()).prop_map(|(from, to)| MigrationAction::RenameTable {
+            from: from.into(),
+            to: to.into(),
+        }),
         arb_sql().prop_map(|sql| MigrationAction::RawSql { sql }),
     ]
 }
@@ -268,7 +295,7 @@ fn arb_create_table_action() -> impl Strategy<Value = MigrationAction> {
     )
         .prop_map(
             |(table, columns, constraints)| MigrationAction::CreateTable {
-                table,
+                table: table.into(),
                 columns,
                 constraints,
             },
@@ -282,7 +309,7 @@ fn arb_add_column_action() -> impl Strategy<Value = MigrationAction> {
         prop::option::of(arb_default_string()),
     )
         .prop_map(|(table, column, fill_with)| MigrationAction::AddColumn {
-            table,
+            table: table.into(),
             column: Box::new(column),
             fill_with,
         })
@@ -301,8 +328,8 @@ fn arb_modify_column_type_action() -> impl Strategy<Value = MigrationAction> {
     )
         .prop_map(
             |(table, column, new_type, fill_with)| MigrationAction::ModifyColumnType {
-                table,
-                column,
+                table: table.into(),
+                column: column.into(),
                 new_type,
                 fill_with,
             },
@@ -319,8 +346,8 @@ fn arb_modify_column_nullable_action() -> impl Strategy<Value = MigrationAction>
     )
         .prop_map(|(table, column, nullable, fill_with, delete_null_rows)| {
             MigrationAction::ModifyColumnNullable {
-                table,
-                column,
+                table: table.into(),
+                column: column.into(),
                 nullable,
                 fill_with,
                 delete_null_rows,
@@ -382,8 +409,8 @@ fn arb_foreign_key_syntax() -> impl Strategy<Value = ForeignKeySyntax> {
         )
             .prop_map(|(ref_table, ref_columns, on_delete, on_update)| {
                 ForeignKeySyntax::Object(ForeignKeyDef {
-                    ref_table,
-                    ref_columns,
+                    ref_table: ref_table.into(),
+                    ref_columns: ref_columns.into_iter().map(Into::into).collect(),
                     on_delete,
                     on_update,
                 })

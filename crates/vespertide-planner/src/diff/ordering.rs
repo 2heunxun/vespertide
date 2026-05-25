@@ -253,7 +253,7 @@ pub(super) fn compare_actions_for_create_order(
         ..
     } = a
     {
-        created_tables.contains(ref_table)
+        created_tables.contains(ref_table.as_str())
     } else {
         false
     };
@@ -262,7 +262,7 @@ pub(super) fn compare_actions_for_create_order(
         ..
     } = b
     {
-        created_tables.contains(ref_table)
+        created_tables.contains(ref_table.as_str())
     } else {
         false
     };
@@ -295,7 +295,7 @@ pub(super) fn sort_create_before_add_constraint(actions: &mut [MigrationAction])
         .iter()
         .filter_map(|a| {
             if let MigrationAction::CreateTable { table, .. } = a {
-                Some(table.clone())
+                Some(table.to_string())
             } else {
                 None
             }

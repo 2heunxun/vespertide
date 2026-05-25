@@ -20,7 +20,10 @@ pub fn lsp_position_to_byte(doc: &FullTextDocument, pos: lsp_types::Position) ->
 
 /// Convert a UTF-8 byte offset to an LSP `lsp_types::Position`.
 #[must_use]
-#[allow(clippy::cast_possible_truncation)]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "lsp-textdocument accepts u32 byte offsets for UTF-16 positions; offsets are bounded by the opened document size"
+)]
 pub fn byte_to_lsp_position(doc: &FullTextDocument, byte_offset: usize) -> lsp_types::Position {
     doc.position_at(byte_offset as u32)
 }

@@ -47,7 +47,10 @@ impl WorkspaceIndex {
     /// Panics if the internal lock is poisoned (process-wide invariant).
     pub fn upsert(&self, uri: &Uri, source: &str, tree: &Tree) -> Option<String> {
         let new_name = extract_top_level_name(source, tree);
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self
+            .inner
+            .write()
+            .expect("workspace_index lock poisoned — invariant: no panic while holding lock");
         let old = inner.by_uri.get(uri).cloned();
         if let Some(old_name) = &old {
             // Only remove the by_name entry if it still points to this URI
@@ -73,7 +76,10 @@ impl WorkspaceIndex {
     /// # Panics
     /// Panics if the internal lock is poisoned.
     pub fn remove(&self, uri: &Uri) {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self
+            .inner
+            .write()
+            .expect("workspace_index lock poisoned — invariant: no panic while holding lock");
         if let Some(name) = inner.by_uri.remove(uri)
             && inner.by_name.get(&name) == Some(uri)
         {
@@ -87,7 +93,10 @@ impl WorkspaceIndex {
     /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn lookup(&self, table_name: &str) -> Option<TableLocation> {
-        let inner = self.inner.read().unwrap();
+        let inner = self
+            .inner
+            .read()
+            .expect("workspace_index lock poisoned — invariant: no panic while holding lock");
         inner
             .by_name
             .get(table_name)
@@ -100,7 +109,10 @@ impl WorkspaceIndex {
     /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn tables(&self) -> Vec<String> {
-        let inner = self.inner.read().unwrap();
+        let inner = self
+            .inner
+            .read()
+            .expect("workspace_index lock poisoned — invariant: no panic while holding lock");
         inner.by_name.keys().cloned().collect()
     }
 
@@ -110,7 +122,11 @@ impl WorkspaceIndex {
     /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.inner.read().unwrap().by_name.len()
+        self.inner
+            .read()
+            .expect("workspace_index lock poisoned — invariant: no panic while holding lock")
+            .by_name
+            .len()
     }
 
     /// `true` if no tables are indexed.

@@ -21,8 +21,8 @@ enum ConstraintIdentityKey<'a> {
     },
 }
 
-fn sorted_column_refs(columns: &[String]) -> Vec<&str> {
-    let mut columns: Vec<&str> = columns.iter().map(String::as_str).collect();
+fn sorted_column_refs<T: AsRef<str>>(columns: &[T]) -> Vec<&str> {
+    let mut columns: Vec<&str> = columns.iter().map(AsRef::as_ref).collect();
     columns.sort_unstable();
     columns
 }
@@ -116,7 +116,7 @@ fn diff_replaced_constraints(
             replaced_from.push(fi);
             replaced_to.push(ti);
             actions.push(MigrationAction::ReplaceConstraint {
-                table: table_name.to_string(),
+                table: table_name.to_string().into(),
                 from: from_constraint.clone(),
                 to: to_tbl.constraints[ti].clone(),
             });
@@ -144,7 +144,7 @@ fn diff_removed_constraints(
 
         if !all_columns_deleted {
             actions.push(MigrationAction::RemoveConstraint {
-                table: table_name.to_string(),
+                table: table_name.to_string().into(),
                 constraint: from_constraint.clone(),
             });
         }
@@ -163,7 +163,7 @@ fn diff_added_constraints(
             continue;
         }
         actions.push(MigrationAction::AddConstraint {
-            table: table_name.to_string(),
+            table: table_name.to_string().into(),
             constraint: to_constraint.clone(),
         });
     }

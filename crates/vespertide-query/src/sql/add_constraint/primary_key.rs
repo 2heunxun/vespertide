@@ -4,10 +4,10 @@ use super::super::helpers::{quote_ident, quote_idents};
 use super::super::types::{BuiltQuery, DatabaseBackend, RawSql};
 use super::{QueryError, TableDef, rebuild_sqlite_table_with_added_constraint};
 
-pub(super) fn build_primary_key(
+pub(super) fn build_primary_key<T: AsRef<str>>(
     backend: DatabaseBackend,
     table: &str,
-    columns: &[String],
+    columns: &[T],
     constraint: &TableConstraint,
     current_schema: &[TableDef],
     pending_constraints: &[TableConstraint],

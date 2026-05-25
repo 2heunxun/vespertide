@@ -1,17 +1,17 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::schema::{
-    StrOrBoolOrArray, constraint::TableConstraint, foreign_key::ForeignKeySyntax,
-    primary_key::PrimaryKeySyntax,
+    ColumnName, StrOrBoolOrArray, TableName, constraint::TableConstraint,
+    foreign_key::ForeignKeySyntax, primary_key::PrimaryKeySyntax,
 };
 
 use super::{TableDef, TableValidationError};
 
-type ColumnGroups = BTreeMap<String, Vec<String>>;
+type ColumnGroups = BTreeMap<String, Vec<ColumnName>>;
 type ColumnGroupOrder = Vec<String>;
 type ForeignKeyParts = (
-    String,
-    Vec<String>,
+    TableName,
+    Vec<ColumnName>,
     Option<crate::schema::ReferenceAction>,
     Option<crate::schema::ReferenceAction>,
 );
@@ -44,7 +44,7 @@ fn add_primary_key_constraint(table: &TableDef, constraints: &mut Vec<TableConst
     });
 }
 
-fn collect_primary_key_columns(table: &TableDef) -> (Vec<String>, bool) {
+fn collect_primary_key_columns(table: &TableDef) -> (Vec<ColumnName>, bool) {
     let mut columns = Vec::new();
     let mut auto_increment = false;
 
@@ -145,7 +145,7 @@ fn push_grouped_column(
     groups
         .entry(group_name.to_string())
         .or_default()
-        .push(column_name.to_string());
+        .push(column_name.into());
 }
 
 fn generated_name_to_constraint_name(name: &str) -> Option<String> {
@@ -159,7 +159,7 @@ fn generated_name_to_constraint_name(name: &str) -> Option<String> {
 fn unique_constraint_exists(
     constraints: &[TableConstraint],
     constraint_name: Option<&String>,
-    columns: &[String],
+    columns: &[ColumnName],
 ) -> bool {
     constraints.iter().any(|c| {
         if let TableConstraint::Unique {
@@ -169,7 +169,7 @@ fn unique_constraint_exists(
         {
             match (constraint_name, name) {
                 (Some(n1), Some(n2)) => n1 == n2,
-                (None, None) => cols == columns,
+                (None, None) => cols.as_slice() == columns,
                 _ => false,
             }
         } else {
@@ -232,7 +232,7 @@ fn parse_foreign_key(
 fn parse_foreign_key_reference(
     column_name: &str,
     reference: &str,
-) -> Result<(String, Vec<String>), TableValidationError> {
+) -> Result<(TableName, Vec<ColumnName>), TableValidationError> {
     let parts: Vec<&str> = reference.split('.').collect();
     if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
         return Err(TableValidationError::InvalidForeignKeyFormat {
@@ -241,7 +241,7 @@ fn parse_foreign_key_reference(
         });
     }
 
-    Ok((parts[0].to_string(), vec![parts[1].to_string()]))
+    Ok((parts[0].into(), vec![parts[1].into()]))
 }
 
 fn foreign_key_constraint_exists(constraints: &[TableConstraint], column_name: &str) -> bool {
@@ -376,7 +376,7 @@ fn duplicate_index(index_name: &str, column_name: &str) -> TableValidationError 
 fn index_constraint_exists(
     constraints: &[TableConstraint],
     constraint_name: Option<&String>,
-    columns: &[String],
+    columns: &[ColumnName],
 ) -> bool {
     constraints.iter().any(|c| {
         if let TableConstraint::Index {
@@ -386,7 +386,7 @@ fn index_constraint_exists(
         {
             match (constraint_name, name) {
                 (Some(n1), Some(n2)) => n1 == n2,
-                (None, None) => cols == columns,
+                (None, None) => cols.as_slice() == columns,
                 _ => false,
             }
         } else {

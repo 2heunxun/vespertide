@@ -42,13 +42,34 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
 # Pre-1.0 quality bar: every warning must be fixed or have a justified allow.
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
+# Force every `#[allow(...)]` to carry a `reason = "..."` string, and prefer
+# `#[expect(...)]` over `#[allow(...)]` so the suppression self-reports if the
+# underlying lint goes silent. See docs/clippy-allow-audit.md for the rationale.
+allow_attributes_without_reason = "warn"
+allow_attributes = "warn"
+# Production hygiene restriction lints: cheap to satisfy today, high signal for
+# a pre-1.0 library release.
+dbg_macro = "warn"           # no checked-in `dbg!` probes
+todo = "warn"                # no executable TODO placeholders
+unimplemented = "warn"       # no stubbed code paths in published crates
+panic_in_result_fn = "warn"  # Result-returning APIs should report errors, not panic
+print_stderr = "warn"        # stderr output must be an explicit CLI/runtime diagnostic
+# Deferred restriction lints from the 2026-05 audit:
+# - print_stdout: 92 current hits; CLI/schema-gen stdout is the product surface.
+# - unwrap_used: 1316 hits across tests, benches, and invariants; needs phased migration.
+# - expect_used: 207 hits, many lock-poisoning/parser invariants; needs per-site audit.
+# - indexing_slicing: 468 hits, especially tests and parser offsets; migrate gradually.
+# - unreachable: 31 hits; audit true impossibility versus recoverable parse errors first.
+# - string_slice: 57 hits in parser/source-position code; requires UTF-8 boundary review.
+# - missing_const_for_fn: 57 hits; informational API churn, not production hygiene.
+# - large_stack_arrays/redundant_clone: already covered by the pedantic lint group.
 # Pedantic lints that are too noisy for this codebase and accepted as project style:
-module_name_repetitions = "allow"  # crate-prefixed type names are intentional (vespertide-* convention)
-similar_names = "allow"            # `from`/`to`, `table`/`tables` etc. are domain-natural
-must_use_candidate = "allow"       # blanket-applying #[must_use] obscures real intent; case-by-case via audit
-missing_errors_doc = "allow"       # adding `# Errors` to every Result fn is performative; deferred
-missing_panics_doc = "allow"       # same as above; we don't panic in production code paths
-return_self_not_must_use = "allow" # builder patterns are obvious from context
+module_name_repetitions = { level = "allow", priority = 1 }  # crate-prefixed type names are intentional (vespertide-* convention)
+similar_names = { level = "allow", priority = 1 }            # `from`/`to`, `table`/`tables` etc. are domain-natural
+must_use_candidate = { level = "allow", priority = 1 }       # blanket-applying #[must_use] obscures real intent; case-by-case via audit
+missing_errors_doc = { level = "allow", priority = 1 }       # adding `# Errors` to every Result fn is performative; deferred
+missing_panics_doc = { level = "allow", priority = 1 }       # same as above; we don't panic in production code paths
+return_self_not_must_use = { level = "allow", priority = 1 } # builder patterns are obvious from context
 
 [workspace.dependencies]
 rayon = "1.12"

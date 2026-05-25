@@ -7,8 +7,11 @@
 //! `async fn`, and these wrappers must be `.await`-able from the trait
 //! impl block in `mod.rs`. Clippy's `unused_async` lint fires here
 //! because the bodies themselves don't `.await`, but removing `async`
-//! would break the trait signature mirror. Allow the lint locally.
-#![allow(clippy::unused_async)]
+//! would break the trait signature mirror. Expect the lint locally.
+#![expect(
+    clippy::unused_async,
+    reason = "tower-lsp-server prepareRename/rename trait wrappers force async helpers even though these bodies are synchronous"
+)]
 
 use std::collections::HashMap;
 

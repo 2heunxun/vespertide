@@ -36,8 +36,14 @@ fuzz/corpus/*
 !fuzz/corpus/*/.gitkeep
 
 # ─── CI temp / drift detection ────────────────────────────────────────
-# schema-drift job regenerated schemas for diff
-_tmp_schemas/
+# schema-drift job regenerates schemas to _tmp_schemas/ for `git diff`.
+# Generalised to any `_tmp_*/` so ad-hoc verification runs don't leak.
+_tmp_*/
+
+# ─── Ad-hoc command output captures ───────────────────────────────────
+# Diagnostic logs from `cargo clippy/build/test &> something_output.txt`.
+# Intentional outputs should be named without the `_output.txt` suffix.
+*_output.txt
 
 # ─── Coverage output ──────────────────────────────────────────────────
 coverage/
@@ -130,10 +136,15 @@ node_modules
 # ─── Excluded workspace members ───────────────────────────────────────
 # `examples/app` and `tests/runtime-sqlite` live outside the main workspace
 # (see root Cargo.toml comment) because their `sqlx-sqlite` dep collides
-# with vespertide-query's rusqlite on `links = "sqlite3"`. Each has its
-# own build artefacts and lockfile; both are treated as local-only so
-# main workspace dep bumps never have to chase a second Cargo.lock.
+# with vespertide-query's rusqlite on `links = "sqlite3"`. `tools/lsp-profile`
+# is also out-of-workspace so cargo-flamegraph's custom release profile
+# doesn't bleed into the main lockfile. Each has its own build artefacts
+# and lockfile; all are treated as local-only so main workspace dep bumps
+# never have to chase secondary Cargo.lock files.
 examples/app/target/
 examples/app/Cargo.lock
 tests/runtime-sqlite/target/
 tests/runtime-sqlite/Cargo.lock
+# tools/* — dev-only out-of-workspace crates (lsp-profile and any future siblings)
+tools/*/target/
+tools/*/Cargo.lock

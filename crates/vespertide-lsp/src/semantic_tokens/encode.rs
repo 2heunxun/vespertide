@@ -3,8 +3,6 @@
 //! / `delta_start` is relative to the previous token, per the LSP §3.16
 //! semanticTokens protocol).
 
-#![allow(clippy::cast_possible_truncation)]
-
 use lsp_textdocument::FullTextDocument;
 use tower_lsp_server::ls_types::SemanticToken;
 

@@ -45,8 +45,8 @@ fn validate_action(action: &MigrationAction) -> Result<(), PlannerError> {
             // If column is NOT NULL and has no default, fill_with is required
             if !column.nullable && column.default.is_none() && fill_with.is_none() {
                 return Err(PlannerError::MissingFillWith(
-                    table.clone(),
-                    column.name.clone(),
+                    table.to_string(),
+                    column.name.to_string(),
                 ));
             }
 
@@ -78,7 +78,10 @@ fn validate_action(action: &MigrationAction) -> Result<(), PlannerError> {
             // If changing from nullable to non-nullable, fill_with is required
             if !nullable && fill_with.is_none() && !delete_null_rows.unwrap_or(false) =>
         {
-            return Err(PlannerError::MissingFillWith(table.clone(), column.clone()));
+            return Err(PlannerError::MissingFillWith(
+                table.to_string(),
+                column.to_string(),
+            ));
         }
         MigrationAction::ModifyColumnType {
             table,
@@ -166,8 +169,8 @@ fn missing_fill_with_for_action(
         {
             Some(FillWithRequired {
                 action_index: idx,
-                table: table.clone(),
-                column: column.name.clone(),
+                table: table.to_string(),
+                column: column.name.to_string(),
                 action_type: "AddColumn",
                 column_type: column.r#type.to_display_string(),
                 default_value: column.r#type.default_fill_value().to_string(),
@@ -204,13 +207,13 @@ fn missing_fill_with_for_action(
                     c.r#type.default_fill_value().to_string(),
                     c.r#type.enum_variant_names(),
                 ),
-                None => (column.clone(), "''".to_string(), None),
+                None => (column.to_string(), "''".to_string(), None),
             };
 
             Some(FillWithRequired {
                 action_index: idx,
-                table: table.clone(),
-                column: column.clone(),
+                table: table.to_string(),
+                column: column.to_string(),
                 action_type: "ModifyColumnNullable",
                 column_type: col_type_str,
                 default_value: default_val,
@@ -335,8 +338,8 @@ fn missing_enum_fill_with_for_action(
 
     Some(EnumFillWithRequired {
         action_index: idx,
-        table: table.clone(),
-        column: column.clone(),
+        table: table.to_string(),
+        column: column.to_string(),
         removed_values: uncovered,
         remaining_values: new_values.clone(),
     })

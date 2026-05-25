@@ -10,7 +10,11 @@
 //! 4. (future, drift detection) → `Severity::Information`
 
 use std::ops::Range;
+use std::sync::{Arc, OnceLock};
 
+use vespertide_core::TableDef;
+
+use crate::cache::{RingCache, hash_text};
 use crate::parser::DocumentFormat;
 use crate::workspace_index::WorkspaceIndex;
 
@@ -18,6 +22,10 @@ pub mod locator;
 pub mod mapper;
 pub mod validation;
 
+pub(crate) use locator::{
+    ErrorField, ErrorLocation, locate_column, locate_column_field, locate_constraint,
+    locate_top_name,
+};
 pub use validation::WorkspaceTable;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,28 +46,80 @@ pub enum Severity {
     Hint,
 }
 
+/// Cached final-result vector for `compute(text, format, tree, _)`. The
+/// public `compute_diagnostics` is a pure function of `(text, format)` —
+/// the tree is derived from `(text, format)` so any tree-sitter walks
+/// inside produce identical output for the same text. Cache the final
+/// `Vec<DomainDiagnostic>` keyed on `(fxhash64(text), text.len(), format)`.
+///
+/// 128-slot ring buffer (matches HS-7's `SymbolCache`). On the 100-table
+/// synthetic workload, the workload's 100,000 calls across 100 unique
+/// texts produce ~100 misses + ~99,900 hits.
+///
+/// Note: `compute_workspace` is NOT cached here — it depends on
+/// `&[WorkspaceTable]` which can change independently of the document
+/// text. Workspace diagnostics are typically called once per `did_change`
+/// per file, so the cache wouldn't help that path anyway.
+type DiagnosticsKey = (u64, usize, DocumentFormat);
+type DiagnosticsCache = RingCache<DiagnosticsKey, Vec<DomainDiagnostic>, 128>;
+
+static DIAGNOSTICS_CACHE: OnceLock<DiagnosticsCache> = OnceLock::new();
+
+fn diagnostics_cache() -> &'static DiagnosticsCache {
+    DIAGNOSTICS_CACHE.get_or_init(DiagnosticsCache::new)
+}
+
+/// Compute diagnostics for a document. Pure function — no I/O, no LSP types.
+#[must_use]
+pub fn compute_shared(
+    text: &str,
+    format: DocumentFormat,
+    tree: Option<&tree_sitter::Tree>,
+    index: &WorkspaceIndex,
+) -> Arc<Vec<DomainDiagnostic>> {
+    let _ = index;
+    diagnostics_cache().get_or_compute((hash_text(text), text.len(), format), || {
+        compute_uncached(text, format, tree)
+    })
+}
+
 /// Compute diagnostics for a document. Pure function — no I/O, no LSP types.
 #[must_use]
 pub fn compute(
     text: &str,
     format: DocumentFormat,
     tree: Option<&tree_sitter::Tree>,
-    _index: &WorkspaceIndex,
+    index: &WorkspaceIndex,
 ) -> Vec<DomainDiagnostic> {
+    (*compute_shared(text, format, tree, index)).clone()
+}
+
+/// Uncached implementation used by the cache on miss.
+fn compute_uncached(
+    text: &str,
+    format: DocumentFormat,
+    tree: Option<&tree_sitter::Tree>,
+) -> Vec<DomainDiagnostic> {
+    let (mut diagnostics, parsed) = collect_parse_diagnostics(text, format, tree);
+
+    // Tier 3: planner validation (only if serde succeeded).
+    if let Some(table) = parsed {
+        validation::validate_table(&table, &mut diagnostics);
+    }
+
+    diagnostics
+}
+
+fn collect_parse_diagnostics(
+    text: &str,
+    format: DocumentFormat,
+    tree: Option<&tree_sitter::Tree>,
+) -> (Vec<DomainDiagnostic>, Option<TableDef>) {
     let mut diagnostics = Vec::new();
 
     // Tier 1: syntax errors from tree-sitter.
     if let Some(tree) = tree {
-        validation::collect_syntax_errors(tree, &mut diagnostics);
-        // Tier 1.5a: precise unknown-type detection BEFORE serde, because
-        // serde's untagged-enum errors report a misleading byte position.
-        validation::collect_unknown_column_types(tree, text, &mut diagnostics);
-        // Tier 1.5b: precise complex-type detection (missing kind, missing
-        // required fields, duplicate enum values).
-        validation::collect_complex_type_violations(tree, text, &mut diagnostics);
-        // Tier 1.5c: duplicate column-name detection — surface on the
-        // SECOND offending column object, not on the table.
-        validation::collect_duplicate_column_names(tree, text, &mut diagnostics);
+        validation::collect_all(tree, text, &mut diagnostics);
     }
 
     let had_typed_pre_check = had_typed_pre_check(&diagnostics);
@@ -74,12 +134,7 @@ pub fn compute(
         }
     };
 
-    // Tier 3: planner validation (only if serde succeeded).
-    if let Some(table) = parsed {
-        validation::validate_table(&table, &mut diagnostics);
-    }
-
-    diagnostics
+    (diagnostics, parsed)
 }
 
 /// True when at least one tree-sitter-level pre-pass already pinpointed a
@@ -103,25 +158,7 @@ pub fn compute_workspace(
     workspace: &[WorkspaceTable],
     current_uri: &tower_lsp_server::ls_types::Uri,
 ) -> Vec<DomainDiagnostic> {
-    let mut diagnostics = Vec::new();
-
-    if let Some(tree) = tree {
-        validation::collect_syntax_errors(tree, &mut diagnostics);
-        validation::collect_unknown_column_types(tree, text, &mut diagnostics);
-        validation::collect_complex_type_violations(tree, text, &mut diagnostics);
-        validation::collect_duplicate_column_names(tree, text, &mut diagnostics);
-    }
-
-    let had_typed = had_typed_pre_check(&diagnostics);
-
-    let parsed = if had_typed {
-        None
-    } else {
-        match format {
-            DocumentFormat::Json => validation::try_parse_json(text, &mut diagnostics),
-            DocumentFormat::Yaml => validation::try_parse_yaml(text, &mut diagnostics),
-        }
-    };
+    let (mut diagnostics, parsed) = collect_parse_diagnostics(text, format, tree);
 
     if parsed.is_some() {
         // Filename/table-name consistency check — warning-level so the user
@@ -159,6 +196,95 @@ mod tests {
         let tree = pool.parse(src, DocumentFormat::Json);
         let diags = compute(src, DocumentFormat::Json, tree.as_ref(), &idx);
         assert!(diags.is_empty(), "expected zero diagnostics, got {diags:?}");
+    }
+
+    #[test]
+    fn diagnostics_returns_same_results_on_repeated_call() {
+        let pool = ParserPool::new();
+        let source = r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#;
+        let tree = pool.parse(source, DocumentFormat::Json).unwrap();
+        let index = WorkspaceIndex::new();
+
+        let first = compute(source, DocumentFormat::Json, Some(&tree), &index);
+        let second = compute(source, DocumentFormat::Json, Some(&tree), &index);
+        let third = compute(source, DocumentFormat::Json, Some(&tree), &index);
+
+        // Cache must not change observable behaviour.
+        assert_eq!(first, second);
+        assert_eq!(second, third);
+    }
+
+    #[test]
+    fn diagnostics_cache_hit_returns_same_results() {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let source = r#"{"name":"u","columns":[{"name":"id","type":"integer"}]}"#;
+        let tree = pool.parse(source, DocumentFormat::Json).unwrap();
+        let idx = WorkspaceIndex::new();
+
+        let first = compute(source, DocumentFormat::Json, Some(&tree), &idx);
+        let second = compute(source, DocumentFormat::Json, Some(&tree), &idx);
+        let third = compute(source, DocumentFormat::Json, Some(&tree), &idx);
+
+        assert_eq!(first, second);
+        assert_eq!(second, third);
+    }
+
+    #[test]
+    fn diagnostics_cache_format_disambiguates() {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let source = "name: u\ncolumns: []\n";
+        let json_tree = pool.parse(source, DocumentFormat::Json).unwrap();
+        let yaml_tree = pool.parse(source, DocumentFormat::Yaml).unwrap();
+        let idx = WorkspaceIndex::new();
+
+        let json_diags = compute(source, DocumentFormat::Json, Some(&json_tree), &idx);
+        let yaml_diags = compute(source, DocumentFormat::Yaml, Some(&yaml_tree), &idx);
+
+        assert_ne!(
+            json_diags, yaml_diags,
+            "JSON syntax diagnostics must not pollute YAML results"
+        );
+        let json_diags_2 = compute(source, DocumentFormat::Json, Some(&json_tree), &idx);
+        let yaml_diags_2 = compute(source, DocumentFormat::Yaml, Some(&yaml_tree), &idx);
+        assert_eq!(json_diags, json_diags_2);
+        assert_eq!(yaml_diags, yaml_diags_2);
+    }
+
+    #[test]
+    fn diagnostics_cache_does_not_pollute_across_distinct_texts() {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let valid = r#"{"name":"a","columns":[{"name":"id","type":"integer"}]}"#;
+        let invalid = r#"{"name":"b","columns":[{"name":"id","type":"wrong"}]}"#;
+        let valid_tree = pool.parse(valid, DocumentFormat::Json).unwrap();
+        let invalid_tree = pool.parse(invalid, DocumentFormat::Json).unwrap();
+
+        let valid_diags = compute(valid, DocumentFormat::Json, Some(&valid_tree), &idx);
+        let invalid_diags = compute(invalid, DocumentFormat::Json, Some(&invalid_tree), &idx);
+
+        assert!(valid_diags.iter().all(|diag| diag.code != "unknown-type"));
+        assert!(invalid_diags.iter().any(|diag| diag.code == "unknown-type"));
+        let valid_diags_2 = compute(valid, DocumentFormat::Json, Some(&valid_tree), &idx);
+        let invalid_diags_2 = compute(invalid, DocumentFormat::Json, Some(&invalid_tree), &idx);
+        assert_eq!(valid_diags, valid_diags_2);
+        assert_eq!(invalid_diags, invalid_diags_2);
+    }
+
+    #[test]
+    fn compute_uncached_bypasses_cache() {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let source = r#"{"name":"u","columns":[{"name":"id","type":"unknown_type"}]}"#;
+        let tree = pool.parse(source, DocumentFormat::Json).unwrap();
+        let idx = WorkspaceIndex::new();
+
+        let cached = compute(source, DocumentFormat::Json, Some(&tree), &idx);
+        let uncached = compute_uncached(source, DocumentFormat::Json, Some(&tree));
+
+        assert_eq!(cached, uncached);
     }
 
     #[test]
@@ -458,6 +584,33 @@ mod tests {
             diags
                 .iter()
                 .all(|d| !d.message.contains("duplicate table name"))
+        );
+    }
+
+    #[test]
+    fn fused_walk_matches_unfused_pipeline() {
+        let pool = ParserPool::new();
+        let source = r#"{"name":"t","columns":[
+            {"name":"id","type":"integer"},
+            {"name":"id","type":"wibble"},
+            {"name":"x","type":{"length":5}}
+        ]"#;
+        let tree = pool.parse(source, DocumentFormat::Json).unwrap();
+
+        let mut fused = Vec::new();
+        validation::collect_all(&tree, source, &mut fused);
+
+        let mut unfused = Vec::new();
+        validation::collect_syntax_errors(&tree, &mut unfused);
+        validation::collect_unknown_column_types(&tree, source, &mut unfused);
+        validation::collect_complex_type_violations(&tree, source, &mut unfused);
+        validation::collect_duplicate_column_names(&tree, source, &mut unfused);
+
+        fused.sort_by_key(|d| (d.byte_range.start, d.code.clone()));
+        unfused.sort_by_key(|d| (d.byte_range.start, d.code.clone()));
+        assert_eq!(
+            fused, unfused,
+            "fused walker produces same diagnostics as unfused pipeline"
         );
     }
 

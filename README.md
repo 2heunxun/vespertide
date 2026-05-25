@@ -19,6 +19,17 @@ Declarative database schema management. Define your schemas in JSON, and Vespert
 - **ORM Export**: Export schemas to SeaORM, SQLAlchemy, SQLModel
 - **Language Server**: First-class editor support via the bundled `vespertide-lsp` — see [LSP Features](#lsp-features) below
 
+## What's new in 0.2.0
+
+API stability pass with a byte-identical JSON wire format — existing models and migration files load unchanged.
+
+- **Newtype identifiers**: `TableName`, `ColumnName`, `IndexName` in `vespertide-core` (`crates/vespertide-core/src/schema/names.rs`). `#[serde(transparent)]` keeps JSON identical; `Deref<Target = str>` means most call sites need no edit.
+- **`#[non_exhaustive]` configs**: `VespertideConfig`, `SeaOrmConfig`, and `MigrationOptions` must be built with `..Default::default()` (or `MigrationOptions::new()`), so future fields don't break semver.
+- **Decomposed `QueryError`**: new `InvalidColumnType`, `SchemaError`, `BackendError`, and `UnsupportedAction` variants. `QueryError::Other(String)` is `#[deprecated]` but still compiles.
+- **Cloneable `MigrationError`**: backed by `Arc<dyn Error>`, so retry loops can re-emit errors without re-running the planner.
+- **Faster LSP**: every editor hot path (diagnostics, symbols, drift) is now `RingCache`-backed in `vespertide-lsp`. No API change; -99% latency on the synthetic `tools/lsp-profile/` workload.
+- **Quality policy**: every `#[allow(...)]` migrated to `#[expect(LINT, reason = "...")]`; workspace lints reject reason-less allows going forward.
+
 ## LSP Features
 
 The `vespertide-lsp` binary ships with VSCode and Zed extensions (`apps/vscode-extension/`, `apps/zed-extension/`). It implements 13 LSP capabilities tuned for Vespertide schema files:
@@ -229,7 +240,7 @@ Use the `vespertide_migration!` macro to run migrations at application startup:
 
 ```toml
 [dependencies]
-vespertide = "0.1"
+vespertide = "0.2"
 sea-orm = { version = "2.0.0-rc", features = ["sqlx-postgres", "runtime-tokio-native-tls", "macros"] }
 ```
 
@@ -267,6 +278,30 @@ vespertide/
 4. **Generate Plan**: Changes are converted into typed `MigrationAction` enums
 5. **Emit SQL**: Migration actions are translated to database-specific SQL
 
+### Error Handling
+
+`vespertide-query` returns a typed, `#[non_exhaustive]` `QueryError` so callers
+can react to each failure category without string-matching:
+
+```rust
+use vespertide_query::QueryError;
+
+fn report(err: QueryError) {
+    match err {
+        QueryError::SchemaError(msg) => {
+            eprintln!("schema is inconsistent: {msg}");
+        }
+        QueryError::InvalidColumnType { backend, message } => {
+            eprintln!("cannot map column type for {backend:?}: {message}");
+        }
+        // Other variants (UnsupportedConstraint, BackendError, UnsupportedAction,
+        // deprecated Other) handled elsewhere; `#[non_exhaustive]` requires a
+        // wildcard arm.
+        _ => {}
+    }
+}
+```
+
 ## Configuration
 
 `vespertide.json`:
@@ -290,6 +325,10 @@ cargo clippy --all-targets --all-features # Lint
 cargo fmt                                # Format
 cargo run -p vespertide-schema-gen -- --out schemas  # Regenerate JSON Schemas
 ```
+
+## Quality & Maintenance
+
+Workspace lints are enforced in CI; the migration from `#[allow]` to `#[expect]` (and the rationale) is tracked in [docs/clippy-allow-audit.md](docs/clippy-allow-audit.md).
 
 ## License
 

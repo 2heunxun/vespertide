@@ -5,8 +5,14 @@
 
 // Test-only env mutation in `migrations.rs` / `models.rs` uses
 // `std::env::set_var` / `remove_var`, which became `unsafe` in Rust 2024.
-// All sites are serialized via `serial_test::serial`, so allow unsafe in tests only.
-#![cfg_attr(test, allow(unsafe_code))]
+// All sites are serialized via `serial_test::serial`, so expect unsafe in tests only.
+#![cfg_attr(
+    test,
+    expect(
+        unsafe_code,
+        reason = "serial_test serializes Rust 2024 std::env var setters used by loader tests"
+    )
+)]
 
 pub mod config;
 pub mod migrations;

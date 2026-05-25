@@ -70,7 +70,7 @@ pub async fn cmd_export(orm: OrmArg, export_dir: Option<PathBuf>) -> Result<()> 
         .iter()
         .map(|(table, rel_path)| {
             let segments = rel_path_to_module_segments(rel_path);
-            (table.name.clone(), segments)
+            (table.name.to_string(), segments)
         })
         .collect();
 
@@ -168,7 +168,7 @@ fn render_export_entity(
     }?;
     let out_path = build_output_path(context.target_root, rel_path, context.orm_kind);
 
-    Ok((table.name.clone(), out_path, code))
+    Ok((table.name.to_string(), out_path, code))
 }
 
 /// Derive `crate::` prefix from the export directory path.
@@ -504,7 +504,7 @@ mod tests {
 
     fn sample_table(name: &str) -> TableDef {
         TableDef {
-            name: name.to_string(),
+            name: name.into(),
             description: None,
             columns: vec![ColumnDef {
                 name: "id".into(),

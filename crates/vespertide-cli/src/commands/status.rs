@@ -206,7 +206,7 @@ mod tests {
         let models_dir = PathBuf::from("models");
         fs::create_dir_all(&models_dir).unwrap();
         let table = TableDef {
-            name: name.to_string(),
+            name: name.into(),
             description: None,
             columns: vec![ColumnDef {
                 name: "id".into(),
@@ -339,7 +339,7 @@ mod tests {
 
         // Create a model with a description to cover lines 102-105
         let table = TableDef {
-            name: "users".to_string(),
+            name: "users".into(),
             description: Some("User accounts table".to_string()),
             columns: vec![ColumnDef {
                 name: "id".into(),

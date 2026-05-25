@@ -45,7 +45,7 @@ fn pk() -> TableConstraint {
 fn unique(name: Option<&str>, columns: &[&str]) -> TableConstraint {
     TableConstraint::Unique {
         name: name.map(Into::into),
-        columns: columns.iter().map(ToString::to_string).collect(),
+        columns: columns.iter().copied().map(Into::into).collect(),
     }
 }
 
@@ -70,7 +70,7 @@ fn check(name: &str) -> TableConstraint {
 fn index(name: &str, columns: &[&str]) -> TableConstraint {
     TableConstraint::Index {
         name: Some(name.into()),
-        columns: columns.iter().map(ToString::to_string).collect(),
+        columns: columns.iter().copied().map(Into::into).collect(),
     }
 }
 

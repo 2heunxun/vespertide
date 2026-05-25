@@ -24,7 +24,7 @@ pub fn build_remove_constraint(
     pending_constraints: &[TableConstraint],
 ) -> Result<Vec<BuiltQuery>, QueryError> {
     let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| {
-        QueryError::Other(format!(
+        QueryError::SchemaError(format!(
             "Table '{table}' not found in current schema. SQLite requires current schema information to remove constraints."
         ))
     })?;
@@ -97,16 +97,20 @@ fn same_constraint(candidate: &TableConstraint, removed: &TableConstraint) -> bo
     }
 }
 
-fn same_named_or_column_constraint(
+fn same_named_or_column_constraint<T: AsRef<str>, U: AsRef<str>>(
     candidate_name: Option<&String>,
-    candidate_columns: &[String],
+    candidate_columns: &[T],
     removed_name: Option<&String>,
-    removed_columns: &[String],
+    removed_columns: &[U],
 ) -> bool {
     if let (Some(candidate_name), Some(removed_name)) = (candidate_name, removed_name) {
         candidate_name == removed_name
     } else {
-        candidate_columns == removed_columns
+        candidate_columns.len() == removed_columns.len()
+            && candidate_columns
+                .iter()
+                .zip(removed_columns)
+                .all(|(candidate, removed)| candidate.as_ref() == removed.as_ref())
     }
 }
 

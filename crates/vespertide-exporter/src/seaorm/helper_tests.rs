@@ -170,10 +170,7 @@ fn test_generate_relation_enum_name(#[case] columns: Vec<String>, #[case] expect
 
 #[test]
 fn test_generate_relation_enum_name_unicode_without_panicking() {
-    assert_eq!(
-        generate_relation_enum_name(&["📊_stats_id".into()]),
-        "📊Stats"
-    );
+    assert_eq!(generate_relation_enum_name(&["📊_stats_id"]), "📊Stats");
 }
 
 #[rstest]

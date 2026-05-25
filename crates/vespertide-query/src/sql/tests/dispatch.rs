@@ -605,7 +605,7 @@ fn test_add_index_with_custom_name(
         table: "user".into(),
         constraint: TableConstraint::Index {
             name: Some(index_name.into()),
-            columns: columns.iter().map(std::string::ToString::to_string).collect(),
+            columns: columns.iter().copied().map(Into::into).collect(),
         },
     };
     let result = build_action_queries(backend, &action, &[]).unwrap();
@@ -654,7 +654,7 @@ fn test_add_unnamed_index(#[case] backend: DatabaseBackend, #[case] columns: Vec
         table: "user".into(),
         constraint: TableConstraint::Index {
             name: None,
-            columns: columns.iter().map(std::string::ToString::to_string).collect(),
+            columns: columns.iter().copied().map(Into::into).collect(),
         },
     };
     let result = build_action_queries(backend, &action, &[]).unwrap();
@@ -698,7 +698,7 @@ fn test_remove_index_with_custom_name(
         table: "user".into(),
         constraint: TableConstraint::Index {
             name: Some(index_name.into()),
-            columns: columns.iter().map(std::string::ToString::to_string).collect(),
+            columns: columns.iter().copied().map(Into::into).collect(),
         },
     };
     let result = build_action_queries(backend, &action, &[]).unwrap();
@@ -747,7 +747,7 @@ fn test_remove_unnamed_index(#[case] backend: DatabaseBackend, #[case] columns: 
         table: "user".into(),
         constraint: TableConstraint::Index {
             name: None,
-            columns: columns.iter().map(std::string::ToString::to_string).collect(),
+            columns: columns.iter().copied().map(Into::into).collect(),
         },
     };
     let result = build_action_queries(backend, &action, &[]).unwrap();

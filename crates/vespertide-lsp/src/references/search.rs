@@ -10,7 +10,10 @@ use crate::workspace_tables::WorkspaceTables;
 
 use super::{DomainReference, ReferenceSymbol};
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "reference search needs target symbol, current document, open/disk workspace stores, and declaration policy; ReferenceSearchContext is deferred"
+)]
 pub(super) fn find_all(
     symbol: &ReferenceSymbol,
     current_uri: &Uri,

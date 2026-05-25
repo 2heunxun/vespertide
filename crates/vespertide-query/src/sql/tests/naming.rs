@@ -25,7 +25,7 @@ fn test_add_unique_with_custom_name(
         table: "user".into(),
         constraint: TableConstraint::Unique {
             name: Some(constraint_name.into()),
-            columns: columns.iter().map(std::string::ToString::to_string).collect(),
+            columns: columns.iter().copied().map(Into::into).collect(),
         },
     };
 
@@ -96,23 +96,13 @@ fn test_add_unnamed_unique(#[case] backend: DatabaseBackend, #[case] columns: Ve
         table: "user".into(),
         constraint: TableConstraint::Unique {
             name: None,
-            columns: columns.iter().map(std::string::ToString::to_string).collect(),
+            columns: columns.iter().copied().map(Into::into).collect(),
         },
     };
 
     let schema_columns: Vec<ColumnDef> = columns
         .iter()
-        .map(|col| ColumnDef {
-            name: col.to_string(),
-            r#type: ColumnType::Simple(SimpleColumnType::Text),
-            nullable: true,
-            default: None,
-            comment: None,
-            primary_key: None,
-            unique: None,
-            index: None,
-            foreign_key: None,
-        })
+        .map(|col| ColumnDef::new(*col, ColumnType::Simple(SimpleColumnType::Text), true))
         .collect();
 
     let current_schema = vec![TableDef {
@@ -165,7 +155,7 @@ fn test_remove_unique_with_custom_name(
     // Test that removing custom unique constraint uses uq_table__name pattern
     let constraint = TableConstraint::Unique {
         name: Some(constraint_name.into()),
-        columns: columns.iter().map(std::string::ToString::to_string).collect(),
+        columns: columns.iter().copied().map(Into::into).collect(),
     };
 
     let current_schema = vec![TableDef {
@@ -240,22 +230,12 @@ fn test_remove_unnamed_unique(#[case] backend: DatabaseBackend, #[case] columns:
     // Test that removing unnamed unique constraints uses uq_table__col1_col2 pattern
     let constraint = TableConstraint::Unique {
         name: None,
-        columns: columns.iter().map(std::string::ToString::to_string).collect(),
+        columns: columns.iter().copied().map(Into::into).collect(),
     };
 
     let schema_columns: Vec<ColumnDef> = columns
         .iter()
-        .map(|col| ColumnDef {
-            name: col.to_string(),
-            r#type: ColumnType::Simple(SimpleColumnType::Text),
-            nullable: true,
-            default: None,
-            comment: None,
-            primary_key: None,
-            unique: None,
-            index: None,
-            foreign_key: None,
-        })
+        .map(|col| ColumnDef::new(*col, ColumnType::Simple(SimpleColumnType::Text), true))
         .collect();
 
     let current_schema = vec![TableDef {

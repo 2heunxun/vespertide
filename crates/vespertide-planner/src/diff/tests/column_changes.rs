@@ -5,7 +5,7 @@ mod default_changes {
 
     fn col_with_default(name: &str, ty: ColumnType, default: Option<&str>) -> ColumnDef {
         ColumnDef {
-            name: name.to_string(),
+            name: name.into(),
             r#type: ty,
             nullable: true,
             default: default.map(std::convert::Into::into),
@@ -301,7 +301,7 @@ mod comment_changes {
 
     fn col_with_comment(name: &str, ty: ColumnType, comment: Option<&str>) -> ColumnDef {
         ColumnDef {
-            name: name.to_string(),
+            name: name.into(),
             r#type: ty,
             nullable: true,
             default: None,
@@ -599,17 +599,7 @@ mod nullable_changes {
     use super::*;
 
     fn col_nullable(name: &str, ty: ColumnType, nullable: bool) -> ColumnDef {
-        ColumnDef {
-            name: name.to_string(),
-            r#type: ty,
-            nullable,
-            default: None,
-            comment: None,
-            primary_key: None,
-            unique: None,
-            index: None,
-            foreign_key: None,
-        }
+        ColumnDef::new(name, ty, nullable)
     }
 
     #[test]

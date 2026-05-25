@@ -38,7 +38,7 @@ fn unique_foreign_key(name: &str, reference: &str) -> ColumnDef {
 
 fn table(name: &str, columns: Vec<ColumnDef>) -> TableDef {
     TableDef {
-        name: name.to_string(),
+        name: name.into(),
         description: None,
         columns,
         constraints: Vec::new(),

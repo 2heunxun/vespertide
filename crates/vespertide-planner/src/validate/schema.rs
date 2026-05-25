@@ -21,7 +21,7 @@ pub fn validate_schema(schema: &[TableDef]) -> Result<(), PlannerError> {
     let mut table_names = HashSet::new();
     for table in schema {
         if !table_names.insert(&table.name) {
-            return Err(PlannerError::DuplicateTableName(table.name.clone()));
+            return Err(PlannerError::DuplicateTableName(table.name.to_string()));
         }
     }
 
@@ -96,7 +96,7 @@ pub(super) fn validate_table(
     let has_inline_pk = table.columns.iter().any(|c| c.primary_key.is_some());
 
     if !has_table_pk && !has_inline_pk {
-        return Err(PlannerError::MissingPrimaryKey(table.name.clone()));
+        return Err(PlannerError::MissingPrimaryKey(table.name.to_string()));
     }
 
     // Validate auto_increment columns have integer types
@@ -111,8 +111,8 @@ pub(super) fn validate_table(
                     && !column.r#type.supports_auto_increment()
                 {
                     return Err(PlannerError::InvalidAutoIncrement(
-                        table.name.clone(),
-                        col_name.clone(),
+                        table.name.to_string(),
+                        col_name.to_string(),
                         format!("{:?}", column.r#type),
                     ));
                 }
@@ -129,8 +129,8 @@ pub(super) fn validate_table(
             };
             if has_auto_increment && !column.r#type.supports_auto_increment() {
                 return Err(PlannerError::InvalidAutoIncrement(
-                    table.name.clone(),
-                    column.name.clone(),
+                    table.name.to_string(),
+                    column.name.to_string(),
                     format!("{:?}", column.r#type),
                 ));
             }
@@ -169,7 +169,7 @@ fn validate_constraint(
                     return Err(PlannerError::ConstraintColumnNotFound(
                         table_name.to_string(),
                         "PrimaryKey".to_string(),
-                        col.clone(),
+                        col.to_string(),
                     ));
                 }
             }
@@ -186,7 +186,7 @@ fn validate_constraint(
                     return Err(PlannerError::ConstraintColumnNotFound(
                         table_name.to_string(),
                         "Unique".to_string(),
-                        col.clone(),
+                        col.to_string(),
                     ));
                 }
             }
@@ -222,7 +222,7 @@ fn validate_constraint(
                     return Err(PlannerError::IndexColumnNotFound(
                         table_name.to_string(),
                         index_name,
-                        col.clone(),
+                        col.to_string(),
                     ));
                 }
             }

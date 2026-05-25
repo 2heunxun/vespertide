@@ -5,7 +5,7 @@ use vespertide_core::schema::foreign_key::{ForeignKeyDef, ForeignKeySyntax};
 use vespertide_core::schema::primary_key::PrimaryKeySyntax;
 use vespertide_core::{
     ColumnDef, ColumnType, ComplexColumnType, EnumValues, ReferenceAction, SimpleColumnType,
-    TableDef,
+    TableDef, TableName,
 };
 use vespertide_exporter::{Orm, render_entity_with_schema};
 
@@ -72,7 +72,7 @@ fn build_table(n_columns: usize, with_fk: bool, with_enum: bool) -> TableDef {
     }
 
     TableDef {
-        name: format!("entity_{n_columns}_{with_fk}_{with_enum}"),
+        name: format!("entity_{n_columns}_{with_fk}_{with_enum}").into(),
         description: None,
         columns,
         constraints: vec![],
@@ -81,7 +81,7 @@ fn build_table(n_columns: usize, with_fk: bool, with_enum: bool) -> TableDef {
     .expect("valid generated benchmark table")
 }
 
-fn foreign_key_to(ref_table: impl Into<String>) -> ForeignKeySyntax {
+fn foreign_key_to(ref_table: impl Into<TableName>) -> ForeignKeySyntax {
     ForeignKeySyntax::Object(ForeignKeyDef {
         ref_table: ref_table.into(),
         ref_columns: vec!["id".into()],
@@ -96,7 +96,7 @@ fn build_fk_heavy_schema(n_tables: usize) -> Vec<TableDef> {
     (0..n_tables)
         .map(|table_idx| {
             let mut table = build_table(1, false, false);
-            table.name = format!("entity_{table_idx}");
+            table.name = format!("entity_{table_idx}").into();
 
             for fk_idx in 0..FK_COLUMNS_PER_TABLE {
                 let target_idx = (table_idx + fk_idx + 1) % n_tables;
@@ -124,7 +124,7 @@ fn build_fk_chain_schema(depth: usize) -> Vec<TableDef> {
             }
 
             TableDef {
-                name: format!("level_{level}"),
+                name: format!("level_{level}").into(),
                 description: None,
                 columns: vec![id_column],
                 constraints: vec![],

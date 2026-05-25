@@ -148,7 +148,10 @@ pub struct DomainRename {
 ///   * `new_name` is empty, identical to the old name, or contains
 ///     invalid characters (whitespace, quotes, control chars).
 #[must_use]
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "rename needs source document, cursor, open/disk workspace stores, and new identifier; RenameContext is a deferred 0.3.x refactor"
+)]
 pub fn compute(
     source: &str,
     format: DocumentFormat,

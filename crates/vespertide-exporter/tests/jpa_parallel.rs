@@ -18,7 +18,7 @@ fn jpa_parallel_render_matches_sequential_order_and_content() {
 fn wide_schema(count: usize) -> Vec<TableDef> {
     (0..count)
         .map(|idx| TableDef {
-            name: format!("parallel_jpa_table_{idx}"),
+            name: format!("parallel_jpa_table_{idx}").into(),
             description: None,
             columns: vec![
                 column("id", ColumnType::Simple(SimpleColumnType::Integer), false),

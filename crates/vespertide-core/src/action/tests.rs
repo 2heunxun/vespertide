@@ -16,6 +16,41 @@ fn default_column() -> ColumnDef {
     }
 }
 
+#[test]
+fn migration_action_wire_format_round_trip() {
+    let canonical = r#"{"type":"create_table","table":"user","columns":[],"constraints":[]}"#;
+    let parsed: MigrationAction = serde_json::from_str(canonical).expect("parse");
+    let reserialized = serde_json::to_string(&parsed).expect("serialize");
+
+    assert_eq!(
+        reserialized, canonical,
+        "wire format MUST be byte-identical"
+    );
+}
+
+#[test]
+fn migration_action_rename_column_wire_format() {
+    let canonical = r#"{"type":"rename_column","table":"orders","from":"old","to":"new"}"#;
+    let parsed: MigrationAction = serde_json::from_str(canonical).expect("parse");
+    let reserialized = serde_json::to_string(&parsed).expect("serialize");
+
+    assert_eq!(reserialized, canonical);
+}
+
+#[test]
+fn migration_plan_real_example_round_trip() {
+    let plan_json = include_str!("../../../../examples/app/migrations/0001_init.vespertide.json");
+    let parsed: MigrationPlan =
+        serde_json::from_str(plan_json).expect("real migration plan parses");
+    let reserialized = serde_json::to_string(&parsed).expect("serialize");
+    let reparsed: MigrationPlan = serde_json::from_str(&reserialized).expect("round-trip");
+
+    assert_eq!(
+        parsed, reparsed,
+        "semantic content preserved across round-trip"
+    );
+}
+
 #[rstest]
 #[case::create_table(
         MigrationAction::CreateTable {

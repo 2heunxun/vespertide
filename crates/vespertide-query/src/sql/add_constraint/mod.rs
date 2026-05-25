@@ -131,7 +131,7 @@ pub(super) fn rebuild_sqlite_table_with_added_constraint(
     pending_constraints: &[TableConstraint],
 ) -> Result<Vec<BuiltQuery>, QueryError> {
     let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| {
-        QueryError::Other(format!(
+        QueryError::SchemaError(format!(
             "Table '{table}' not found in current schema. SQLite requires current schema information to add constraints."
         ))
     })?;

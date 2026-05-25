@@ -43,7 +43,10 @@ pub enum ReferenceSymbol {
 
 /// Compute references for the symbol at `byte_offset`.
 #[must_use]
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "references compute threads document parse state, workspace stores, cursor, and declaration policy; ReferenceContext is a deferred refactor"
+)]
 pub fn compute(
     source: &str,
     format: DocumentFormat,

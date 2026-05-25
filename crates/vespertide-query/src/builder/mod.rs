@@ -33,6 +33,7 @@ impl PlanQueries {
     /// the ordered create-temp/insert/drop/rename/reindex sequence in a transaction
     /// protects it from mid-sequence failures. `MySQL` accepts `BEGIN`/`COMMIT`, but
     /// most DDL implicitly commits and is not transactional on that backend.
+    #[must_use]
     pub fn into_transactional(mut queries: Vec<Self>) -> Vec<Self> {
         transaction::wrap_backend_queries(&mut queries, DatabaseBackend::Postgres);
         transaction::wrap_backend_queries(&mut queries, DatabaseBackend::MySql);

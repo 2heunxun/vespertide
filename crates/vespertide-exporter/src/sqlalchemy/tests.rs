@@ -11,17 +11,7 @@ use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ColumnDef, TableDef};
 
 fn col(name: &str, ty: ColumnType) -> ColumnDef {
-    ColumnDef {
-        name: name.to_string(),
-        r#type: ty,
-        nullable: false,
-        default: None,
-        comment: None,
-        primary_key: None,
-        unique: None,
-        index: None,
-        foreign_key: None,
-    }
+    ColumnDef::new(name, ty, false)
 }
 
 #[test]

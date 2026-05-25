@@ -15,7 +15,7 @@ fn make_100_table_schema() -> Vec<TableDef> {
     (0..100)
         .map(|i| {
             TableDef {
-                name: format!("table_{i}"),
+                name: format!("table_{i}").into(),
                 description: None,
                 columns: vec![
                     ColumnDef::new("id", ColumnType::Simple(SimpleColumnType::Integer), false)

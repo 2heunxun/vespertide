@@ -1,7 +1,13 @@
 // MigrationOptions and MigrationError are now in vespertide-core
 // Test-only env mutation uses `std::env::set_var` / `remove_var`, which became
 // `unsafe` in Rust 2024. All sites are serialized via `serial_test::serial`.
-#![cfg_attr(test, allow(unsafe_code))]
+#![cfg_attr(
+    test,
+    expect(
+        unsafe_code,
+        reason = "serial_test serializes Rust 2024 std::env var setters used by macro tests"
+    )
+)]
 //! Procedural macro [`vespertide_migration!`] for zero-runtime-cost
 //! database migrations.
 //!
@@ -89,7 +95,10 @@ fn vespertide_crate_path() -> syn::Result<TokenStream2> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unnecessary_wraps)]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "test stub mirrors the production syn::Result<TokenStream2> helper so macro codegen call sites stay uniform"
+)]
 fn vespertide_crate_path() -> syn::Result<TokenStream2> {
     Ok(quote! { ::vespertide })
 }

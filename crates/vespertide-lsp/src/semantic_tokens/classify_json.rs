@@ -22,7 +22,10 @@
 //! highlight the identifier alone — quotes stay neutral and match the
 //! rest of the JSON punctuation.
 
-#![allow(clippy::struct_excessive_bools)]
+#![expect(
+    clippy::struct_excessive_bools,
+    reason = "semantic-token classifier context tracks independent JSON ancestor flags; collapsing them would obscure token rules"
+)]
 
 use super::{RawToken, legend::ModIdx, legend::TokenIdx};
 

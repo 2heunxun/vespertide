@@ -18,9 +18,9 @@ pub(crate) fn collect_composite_fks(table: &TableDef) -> Vec<CompositeFk<'_>> {
                 ref_columns,
                 ..
             } if columns.len() > 1 && columns.len() == ref_columns.len() => Some(CompositeFk {
-                local_cols: columns.iter().map(String::as_str).collect(),
+                local_cols: columns.iter().map(AsRef::as_ref).collect(),
                 ref_table: ref_table.as_str(),
-                ref_cols: ref_columns.iter().map(String::as_str).collect(),
+                ref_cols: ref_columns.iter().map(AsRef::as_ref).collect(),
             }),
             _ => None,
         })

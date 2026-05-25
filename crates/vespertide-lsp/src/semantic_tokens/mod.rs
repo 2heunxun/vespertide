@@ -26,11 +26,27 @@ pub mod handler;
 pub mod legend;
 
 use std::ops::Range;
+use std::sync::{Arc, OnceLock};
 
 pub use encode::encode;
 pub use legend::legend;
 
+use crate::cache::{RingCache, hash_text};
 use crate::parser::DocumentFormat;
+
+/// Cached result of `classify(source, format, _)`. Same shape as
+/// `SymbolCache` (HS-7) and `DiagnosticsCache` (HS-8): 128-slot ring,
+/// `(fxhash(source), source.len(), format)` key, `Arc<Vec<RawToken>>`
+/// value. On the 100-table synthetic workload (50,000 calls across 100
+/// unique sources), this is ~100 misses + ~49,900 hits.
+type TokenKey = (u64, usize, DocumentFormat);
+type TokenCache = RingCache<TokenKey, Vec<RawToken>, 128>;
+
+static TOKEN_CACHE: OnceLock<TokenCache> = OnceLock::new();
+
+fn token_cache() -> &'static TokenCache {
+    TOKEN_CACHE.get_or_init(TokenCache::new)
+}
 
 /// A single token emitted by a classifier. Byte ranges are over the
 /// document's UTF-8 source — [`encode`] resolves them to UTF-16
@@ -49,14 +65,39 @@ pub struct RawToken {
 /// JSON and YAML use different tree-sitter grammars with different node
 /// kinds.
 #[must_use]
+pub fn classify_shared(
+    source: &str,
+    format: DocumentFormat,
+    tree: Option<&tree_sitter::Tree>,
+) -> Arc<Vec<RawToken>> {
+    let Some(tree_ref) = tree else {
+        return Arc::new(Vec::new());
+    };
+
+    // Cache the result keyed on the source text (the tree is derived from it).
+    token_cache().get_or_compute((hash_text(source), source.len(), format), || {
+        classify_uncached(source, format, tree_ref)
+    })
+}
+
+/// Classify the entire document. The classifier dispatches on format —
+/// JSON and YAML use different tree-sitter grammars with different node
+/// kinds.
+#[must_use]
 pub fn classify(
     source: &str,
     format: DocumentFormat,
     tree: Option<&tree_sitter::Tree>,
 ) -> Vec<RawToken> {
-    let Some(tree) = tree else {
-        return Vec::new();
-    };
+    (*classify_shared(source, format, tree)).clone()
+}
+
+/// Uncached classify. Used by the cache on miss.
+fn classify_uncached(
+    source: &str,
+    format: DocumentFormat,
+    tree: &tree_sitter::Tree,
+) -> Vec<RawToken> {
     match format {
         DocumentFormat::Json => classify_json::classify(source, tree),
         DocumentFormat::Yaml => classify_yaml::classify(source, tree),
@@ -71,4 +112,67 @@ pub fn filter_range(tokens: Vec<RawToken>, range: Range<usize>) -> Vec<RawToken>
         .into_iter()
         .filter(|t| t.byte_range.start < range.end && range.start < t.byte_range.end)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::ParserPool;
+    use std::sync::Arc;
+
+    #[test]
+    fn classify_cache_hit_returns_same_arc() {
+        let pool = ParserPool::new();
+        let source = r#"{"name":"u","columns":[{"name":"id","type":"integer"}]}"#;
+        let tree = pool.parse(source, DocumentFormat::Json).unwrap();
+        let cache = TokenCache::default();
+        let key = (hash_text(source), source.len(), DocumentFormat::Json);
+        let a = cache.get_or_compute(key, || {
+            classify_uncached(source, DocumentFormat::Json, &tree)
+        });
+        let b = cache.get_or_compute(key, || {
+            classify_uncached(source, DocumentFormat::Json, &tree)
+        });
+        assert!(Arc::ptr_eq(&a, &b));
+    }
+
+    #[test]
+    fn classify_cache_format_disambiguates() {
+        let pool = ParserPool::new();
+        let source = r#"{"name":"u","columns":[]}"#;
+        let json_tree = pool.parse(source, DocumentFormat::Json).unwrap();
+        let yaml_tree = pool.parse(source, DocumentFormat::Yaml).unwrap();
+        let cache = TokenCache::default();
+        let json_key = (hash_text(source), source.len(), DocumentFormat::Json);
+        let yaml_key = (hash_text(source), source.len(), DocumentFormat::Yaml);
+        let json_tokens = cache.get_or_compute(json_key, || {
+            classify_uncached(source, DocumentFormat::Json, &json_tree)
+        });
+        let yaml_tokens = cache.get_or_compute(yaml_key, || {
+            classify_uncached(source, DocumentFormat::Yaml, &yaml_tree)
+        });
+
+        // Re-fetch and verify each format hits its own cached entry.
+        let json_tokens_2 = cache.get_or_compute(json_key, Vec::new);
+        let yaml_tokens_2 = cache.get_or_compute(yaml_key, Vec::new);
+        assert!(Arc::ptr_eq(&json_tokens, &json_tokens_2));
+        assert!(Arc::ptr_eq(&yaml_tokens, &yaml_tokens_2));
+    }
+
+    #[test]
+    fn classify_public_api_uses_cache() {
+        let pool = ParserPool::new();
+        let source = r#"{"name":"u","columns":[{"name":"id","type":"integer"}]}"#;
+        let tree = pool.parse(source, DocumentFormat::Json).unwrap();
+        let a = classify(source, DocumentFormat::Json, Some(&tree));
+        let b = classify(source, DocumentFormat::Json, Some(&tree));
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn classify_returns_empty_for_none_tree() {
+        let source = r#"{"name":"u"}"#;
+        let result = classify(source, DocumentFormat::Json, None);
+        assert!(result.is_empty());
+    }
 }

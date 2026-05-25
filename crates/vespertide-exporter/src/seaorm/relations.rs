@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use rayon::prelude::*;
-use vespertide_core::{TableConstraint, TableDef};
+use vespertide_core::{ColumnName, TableConstraint, TableDef};
 
 use crate::parallel_config::{SEAORM_RELATION_PAR_FK_MIN_LEN, SEAORM_RELATION_PAR_FK_THRESHOLD};
 
@@ -12,7 +12,7 @@ use super::imports::{
 use super::render::{primary_key_columns, single_column_unique_set};
 
 /// Extract FK info from a constraint as a tuple.
-pub(super) fn as_fk(constraint: &TableConstraint) -> Option<(&[String], &str, &[String])> {
+pub(super) fn as_fk(constraint: &TableConstraint) -> Option<(&[ColumnName], &str, &[ColumnName])> {
     match constraint {
         TableConstraint::ForeignKey {
             columns,
@@ -27,15 +27,14 @@ pub(super) fn as_fk(constraint: &TableConstraint) -> Option<(&[String], &str, &[
         _ => None,
     }
 }
-
 /// Resolve FK chain to find the ultimate target table.
 /// If the referenced column is itself a FK, follow the chain.
 #[cfg(test)]
 pub(super) fn resolve_fk_target<'a>(
     ref_table: &'a str,
-    ref_columns: &[String],
+    ref_columns: &[ColumnName],
     schema: &'a [TableDef],
-) -> (&'a str, Vec<String>) {
+) -> (&'a str, Vec<ColumnName>) {
     let table_map: BTreeMap<&str, &TableDef> =
         schema.iter().map(|t| (t.name.as_str(), t)).collect();
     let mut visited = BTreeSet::new();
@@ -44,10 +43,10 @@ pub(super) fn resolve_fk_target<'a>(
 
 pub(super) fn resolve_fk_target_inner<'a, 'b>(
     ref_table: &'a str,
-    ref_columns: &'b [String],
+    ref_columns: &'b [ColumnName],
     table_map: &BTreeMap<&'a str, &'a TableDef>,
     visited: &mut BTreeSet<(&'a str, &'b str)>,
-) -> (&'a str, Vec<String>)
+) -> (&'a str, Vec<ColumnName>)
 where
     'a: 'b,
 {
@@ -60,7 +59,7 @@ where
     };
     for constraint in &target_table.constraints {
         let fk_match =
-            as_fk(constraint).filter(|(cols, _, _)| cols.len() == 1 && cols[0] == *ref_col);
+            as_fk(constraint).filter(|(cols, _, _)| cols.len() == 1 && cols[0] == ref_col.as_str());
         if let Some((_, next_table, next_cols)) = fk_match {
             visited.insert((ref_table, ref_col.as_str()));
             let next_key = (next_table, next_cols[0].as_str());
@@ -74,9 +73,9 @@ where
 }
 
 struct ForwardRelationResolution<'a> {
-    columns: &'a [String],
+    columns: &'a [ColumnName],
     resolved_table: &'a str,
-    resolved_columns: Vec<String>,
+    resolved_columns: Vec<ColumnName>,
 }
 
 fn resolve_table_fks_pure<'a>(
@@ -103,9 +102,9 @@ fn resolve_table_fks_pure<'a>(
 }
 
 fn resolve_fk_relation_pure<'a>(
-    columns: &'a [String],
+    columns: &'a [ColumnName],
     ref_table: &'a str,
-    ref_columns: &'a [String],
+    ref_columns: &'a [ColumnName],
     table_map: &BTreeMap<&'a str, &'a TableDef>,
 ) -> ForwardRelationResolution<'a> {
     let mut visited = BTreeSet::new();
@@ -209,9 +208,9 @@ pub(super) fn relation_field_defs_with_schema(
 /// Generate a relation enum name from foreign key column names.
 /// For "`creator_user_id`", generates "`CreatorUser`".
 /// For composite FKs like [`org_id`, `user_id`], generates `OrgUser`.
-pub(super) fn generate_relation_enum_name(columns: &[String]) -> String {
+pub(super) fn generate_relation_enum_name<T: AsRef<str>>(columns: &[T]) -> String {
     // Take the first column and remove common FK suffixes like "_id"
-    let first_col = &columns[0];
+    let first_col = columns[0].as_ref();
     let without_id = if let Some(stripped) = first_col.strip_suffix("_id") {
         stripped
     } else {
@@ -281,7 +280,7 @@ pub(super) fn collect_self_ref_junction(
 
     let all_fk_cols_in_pk = fks
         .iter()
-        .all(|(cols, _)| cols.iter().all(|c| junction_pk.contains(c)));
+        .all(|(cols, _)| cols.iter().all(|c| junction_pk.contains(c.as_str())));
     if !all_fk_cols_in_pk {
         return None;
     }
@@ -294,8 +293,8 @@ pub(super) fn collect_self_ref_junction(
     }
 
     Some(SelfRefJunction {
-        junction_table: junction_table.name.clone(),
-        role_columns: fks.iter().map(|(cols, _)| cols[0].clone()).collect(),
+        junction_table: junction_table.name.to_string(),
+        role_columns: fks.iter().map(|(cols, _)| cols[0].to_string()).collect(),
         role_relations: fks
             .iter()
             .map(|(cols, _)| generate_relation_enum_name(cols))
@@ -571,7 +570,7 @@ pub(super) fn collect_reverse_relation_targets(
             if let TableConstraint::ForeignKey { ref_table, .. } = constraint
                 && ref_table == &table.name
             {
-                targets.push(other_table.name.clone());
+                targets.push(other_table.name.to_string());
             }
         }
     }
@@ -611,7 +610,7 @@ pub(super) fn collect_many_to_many_targets(
 
     let all_fk_cols_in_pk = fks
         .iter()
-        .all(|(cols, _)| cols.iter().all(|c| junction_pk.contains(c)));
+        .all(|(cols, _)| cols.iter().all(|c| junction_pk.contains(c.as_str())));
 
     if !all_fk_cols_in_pk {
         return None;
@@ -623,7 +622,7 @@ pub(super) fn collect_many_to_many_targets(
     let mut targets = Vec::new();
 
     // Junction table itself
-    targets.push(junction_table.name.clone());
+    targets.push(junction_table.name.to_string());
 
     // Target tables via M2M
     for (_, ref_table) in &fks {
@@ -632,7 +631,7 @@ pub(super) fn collect_many_to_many_targets(
         }
         let target_exists = schema.iter().any(|t| &t.name == ref_table);
         if target_exists {
-            targets.push(ref_table.clone());
+            targets.push(ref_table.to_string());
         }
     }
 
@@ -699,7 +698,7 @@ fn reverse_relation_field_defs_inner(ctx: ReverseRelationFieldCtx<'_>) -> Vec<St
                 && ref_table == &table.name
             {
                 *fk_count_per_table
-                    .entry(other_table.name.clone())
+                    .entry(other_table.name.to_string())
                     .or_insert(0) += 1;
             }
         }
@@ -733,16 +732,16 @@ fn reverse_relation_field_defs_inner(ctx: ReverseRelationFieldCtx<'_>) -> Vec<St
                     // Determine if it's has_one or has_many
                     let is_one_to_one = if columns.len() == 1 {
                         let col = &columns[0];
-                        let is_sole_pk = other_pk.len() == 1 && other_pk.contains(col);
-                        let is_unique = other_unique.contains(col);
+                        let is_sole_pk = other_pk.len() == 1 && other_pk.contains(col.as_str());
+                        let is_unique = other_unique.contains(col.as_str());
                         is_sole_pk || is_unique
                     } else {
                         columns.len() == other_pk.len()
-                            && columns.iter().all(|c| other_pk.contains(c))
+                            && columns.iter().all(|c| other_pk.contains(c.as_str()))
                     };
 
                     let has_multiple_fks = fk_count_per_table
-                        .get(&other_table.name)
+                        .get(other_table.name.as_str())
                         .is_some_and(|count| *count > 1);
 
                     // Generate base field name
@@ -765,11 +764,11 @@ fn reverse_relation_field_defs_inner(ctx: ReverseRelationFieldCtx<'_>) -> Vec<St
                     };
 
                     relations.push(ReverseRelation {
-                        target_entity: other_table.name.clone(),
+                        target_entity: other_table.name.to_string(),
                         is_one_to_one,
                         field_base,
                         base_relation_enum,
-                        source_table: other_table.name.clone(),
+                        source_table: other_table.name.to_string(),
                         has_multiple_fks,
                         via: None,
                         via_rel: Some(generate_relation_enum_name(columns)),
@@ -898,7 +897,7 @@ pub(super) fn collect_many_to_many_relations(
     // Check if all FK columns are part of the PK (typical junction table pattern)
     let all_fk_cols_in_pk = fks
         .iter()
-        .all(|(cols, _)| cols.iter().all(|c| junction_pk.contains(c)));
+        .all(|(cols, _)| cols.iter().all(|c| junction_pk.contains(c.as_str())));
 
     if !all_fk_cols_in_pk {
         return None;
@@ -923,11 +922,11 @@ pub(super) fn collect_many_to_many_relations(
     // First, add has_many to the junction table itself (direct relation, not M2M)
     let junction_base = pluralize(&sanitize_field_name(&junction_table.name));
     relations.push(ReverseRelation {
-        target_entity: junction_table.name.clone(),
+        target_entity: junction_table.name.to_string(),
         is_one_to_one: false,
         field_base: junction_base,
         base_relation_enum: to_pascal_case(&junction_table.name),
-        source_table: junction_table.name.clone(),
+        source_table: junction_table.name.to_string(),
         has_multiple_fks: false,
         via: None,
         via_rel: None,
@@ -957,13 +956,13 @@ pub(super) fn collect_many_to_many_relations(
         );
 
         relations.push(ReverseRelation {
-            target_entity: ref_table.clone(),
+            target_entity: ref_table.to_string(),
             is_one_to_one: false,
             field_base,
             base_relation_enum,
-            source_table: junction_table.name.clone(),
+            source_table: junction_table.name.to_string(),
             has_multiple_fks: false,
-            via: Some(junction_table.name.clone()),
+            via: Some(junction_table.name.to_string()),
             via_rel: None,
             is_m2m: true,
         });
@@ -987,10 +986,15 @@ pub(super) fn pluralize(name: &str) -> String {
     }
 }
 
-pub(super) fn fk_attr_value(cols: &[String]) -> String {
+pub(super) fn fk_attr_value<T: AsRef<str>>(cols: &[T]) -> String {
     if cols.len() == 1 {
-        cols[0].clone()
+        cols[0].as_ref().to_string()
     } else {
-        format!("({})", cols.join(", "))
+        let joined = cols
+            .iter()
+            .map(AsRef::as_ref)
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("({joined})")
     }
 }

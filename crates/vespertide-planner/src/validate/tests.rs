@@ -9,22 +9,12 @@ pub(super) use vespertide_core::{
 };
 
 fn col(name: &str, ty: ColumnType) -> ColumnDef {
-    ColumnDef {
-        name: name.to_string(),
-        r#type: ty,
-        nullable: true,
-        default: None,
-        comment: None,
-        primary_key: None,
-        unique: None,
-        index: None,
-        foreign_key: None,
-    }
+    ColumnDef::new(name, ty, true)
 }
 
 fn table(name: &str, columns: Vec<ColumnDef>, constraints: Vec<TableConstraint>) -> TableDef {
     TableDef {
-        name: name.to_string(),
+        name: name.into(),
         description: None,
         columns,
         constraints,
@@ -34,10 +24,7 @@ fn table(name: &str, columns: Vec<ColumnDef>, constraints: Vec<TableConstraint>)
 fn idx(name: &str, columns: Vec<&str>) -> TableConstraint {
     TableConstraint::Index {
         name: Some(name.to_string()),
-        columns: columns
-            .into_iter()
-            .map(std::string::ToString::to_string)
-            .collect(),
+        columns: columns.into_iter().map(Into::into).collect(),
     }
 }
 
@@ -72,10 +59,7 @@ fn is_missing_pk(err: &PlannerError) -> bool {
 fn pk(columns: Vec<&str>) -> TableConstraint {
     TableConstraint::PrimaryKey {
         auto_increment: false,
-        columns: columns
-            .into_iter()
-            .map(std::string::ToString::to_string)
-            .collect(),
+        columns: columns.into_iter().map(Into::into).collect(),
     }
 }
 

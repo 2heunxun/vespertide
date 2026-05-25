@@ -6,15 +6,9 @@ mod constraint_removal_on_deleted_columns {
     fn fk(columns: Vec<&str>, ref_table: &str, ref_columns: Vec<&str>) -> TableConstraint {
         TableConstraint::ForeignKey {
             name: None,
-            columns: columns
-                .into_iter()
-                .map(std::string::ToString::to_string)
-                .collect(),
-            ref_table: ref_table.to_string(),
-            ref_columns: ref_columns
-                .into_iter()
-                .map(std::string::ToString::to_string)
-                .collect(),
+            columns: columns.into_iter().map(Into::into).collect(),
+            ref_table: ref_table.into(),
+            ref_columns: ref_columns.into_iter().map(Into::into).collect(),
             on_delete: None,
             on_update: None,
         }

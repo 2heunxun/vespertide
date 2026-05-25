@@ -1,4 +1,7 @@
-#![allow(unsafe_code)]
+#![expect(
+    unsafe_code,
+    reason = "serial_test serializes Rust 2024 std::env var setters used to force deterministic schema-validation thresholds"
+)]
 
 use std::ffi::OsString;
 
@@ -80,7 +83,7 @@ impl Drop for EnvVarGuard {
 
 fn table_for_index(index: usize) -> TableDef {
     let id_column = ColumnDef {
-        name: "id".to_string(),
+        name: "id".into(),
         r#type: ColumnType::Simple(SimpleColumnType::Integer),
         nullable: false,
         default: None,
@@ -92,7 +95,7 @@ fn table_for_index(index: usize) -> TableDef {
     };
 
     TableDef {
-        name: format!("table_{index}"),
+        name: format!("table_{index}").into(),
         description: None,
         columns: vec![id_column],
         constraints: constraints_for_index(index),
@@ -105,7 +108,7 @@ fn constraints_for_index(index: usize) -> Vec<TableConstraint> {
     } else {
         vec![TableConstraint::PrimaryKey {
             auto_increment: false,
-            columns: vec!["id".to_string()],
+            columns: vec!["id".into()],
         }]
     }
 }

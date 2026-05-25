@@ -1,4 +1,7 @@
-#![allow(unsafe_code)]
+#![expect(
+    unsafe_code,
+    reason = "serial_test serializes Rust 2024 std::env var setters used to force deterministic plan-validation thresholds"
+)]
 
 use std::ffi::OsString;
 
@@ -87,9 +90,9 @@ impl Drop for EnvVarGuard {
 fn action_for_index(index: usize) -> MigrationAction {
     let is_invalid = index == 0 || index % 10 == 7;
     MigrationAction::AddColumn {
-        table: format!("table_{index}"),
+        table: format!("table_{index}").into(),
         column: Box::new(ColumnDef {
-            name: format!("column_{index}"),
+            name: format!("column_{index}").into(),
             r#type: ColumnType::Simple(SimpleColumnType::Text),
             nullable: !is_invalid,
             default: None,

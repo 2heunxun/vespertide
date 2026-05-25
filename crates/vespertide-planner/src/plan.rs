@@ -41,17 +41,7 @@ mod tests {
     use vespertide_core::{ColumnDef, ColumnType, MigrationAction, SimpleColumnType};
 
     fn col(name: &str, ty: ColumnType) -> ColumnDef {
-        ColumnDef {
-            name: name.to_string(),
-            r#type: ty,
-            nullable: true,
-            default: None,
-            comment: None,
-            primary_key: None,
-            unique: None,
-            index: None,
-            foreign_key: None,
-        }
+        ColumnDef::new(name, ty, true)
     }
 
     fn table(
@@ -60,7 +50,7 @@ mod tests {
         constraints: Vec<vespertide_core::TableConstraint>,
     ) -> TableDef {
         TableDef {
-            name: name.to_string(),
+            name: name.into(),
             description: None,
             columns,
             constraints,

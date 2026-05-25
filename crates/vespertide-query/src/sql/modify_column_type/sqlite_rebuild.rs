@@ -20,7 +20,7 @@ pub(super) fn build_modify_column_type_sqlite_temp_table(
     pending_constraints: &[TableConstraint],
 ) -> Result<Vec<BuiltQuery>, QueryError> {
     // Current schema information is required
-    let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::Other(format!("Table '{table}' not found in current schema. SQLite requires current schema information to modify column types.")))?;
+    let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::SchemaError(format!("Table '{table}' not found in current schema. SQLite requires current schema information to modify column types.")))?;
 
     // Create new column definitions with the modified column
     let mut new_columns = table_def.columns.clone();
@@ -28,7 +28,7 @@ pub(super) fn build_modify_column_type_sqlite_temp_table(
         .iter()
         .position(|c| c.name == column)
         .ok_or_else(|| {
-            QueryError::Other(format!("Column '{column}' not found in table '{table}'"))
+            QueryError::SchemaError(format!("Column '{column}' not found in table '{table}'"))
         })?;
 
     new_columns[col_index].r#type = new_type.clone();

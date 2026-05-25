@@ -1,4 +1,7 @@
-#![allow(unsafe_code)]
+#![expect(
+    unsafe_code,
+    reason = "serial_test serializes Rust 2024 std::env var setters used to force deterministic parallel query thresholds"
+)]
 
 use std::ffi::OsString;
 
@@ -14,22 +17,12 @@ const PLAN_QUERY_THRESHOLD_ENV: &str = "VESPERTIDE_PLAN_QUERY_PAR_THRESHOLD";
 const TEST_PAR_THRESHOLD: &str = "8";
 
 fn col(name: &str, ty: ColumnType) -> ColumnDef {
-    ColumnDef {
-        name: name.to_string(),
-        r#type: ty,
-        nullable: false,
-        default: None,
-        comment: None,
-        primary_key: None,
-        unique: None,
-        index: None,
-        foreign_key: None,
-    }
+    ColumnDef::new(name, ty, false)
 }
 
 fn create_table_action(i: usize) -> MigrationAction {
     MigrationAction::CreateTable {
-        table: format!("parallel_table_{i}"),
+        table: format!("parallel_table_{i}").into(),
         columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
         constraints: vec![],
     }

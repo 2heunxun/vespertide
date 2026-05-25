@@ -204,7 +204,7 @@ pub fn pluralize(name: &str) -> String {
 /// Always includes table name to avoid conflicts across tables.
 /// Uses double underscore to separate table name from the rest.
 /// Format: ix_{table}__{key} or ix_{table}__{col1}_{col2}...
-pub fn build_index_name(table: &str, columns: &[String], key: Option<&str>) -> String {
+pub fn build_index_name<T: AsRef<str>>(table: &str, columns: &[T], key: Option<&str>) -> String {
     match key {
         Some(k) => format!("ix_{table}__{k}"),
         None => format!("ix_{}__{}", table, sort_columns_for_name(columns).join("_")),
@@ -215,7 +215,11 @@ pub fn build_index_name(table: &str, columns: &[String], key: Option<&str>) -> S
 /// Always includes table name to avoid conflicts across tables.
 /// Uses double underscore to separate table name from the rest.
 /// Format: uq_{table}__{key} or uq_{table}__{col1}_{col2}...
-pub fn build_unique_constraint_name(table: &str, columns: &[String], key: Option<&str>) -> String {
+pub fn build_unique_constraint_name<T: AsRef<str>>(
+    table: &str,
+    columns: &[T],
+    key: Option<&str>,
+) -> String {
     match key {
         Some(k) => format!("uq_{table}__{k}"),
         None => format!("uq_{}__{}", table, sort_columns_for_name(columns).join("_")),
@@ -226,15 +230,19 @@ pub fn build_unique_constraint_name(table: &str, columns: &[String], key: Option
 /// Always includes table name to avoid conflicts across tables.
 /// Uses double underscore to separate table name from the rest.
 /// Format: fk_{table}__{key} or fk_{table}__{col1}_{col2}...
-pub fn build_foreign_key_name(table: &str, columns: &[String], key: Option<&str>) -> String {
+pub fn build_foreign_key_name<T: AsRef<str>>(
+    table: &str,
+    columns: &[T],
+    key: Option<&str>,
+) -> String {
     match key {
         Some(k) => format!("fk_{table}__{k}"),
         None => format!("fk_{}__{}", table, sort_columns_for_name(columns).join("_")),
     }
 }
 
-fn sort_columns_for_name(columns: &[String]) -> Vec<&str> {
-    let mut sorted: Vec<&str> = columns.iter().map(String::as_str).collect();
+fn sort_columns_for_name<T: AsRef<str>>(columns: &[T]) -> Vec<&str> {
+    let mut sorted: Vec<&str> = columns.iter().map(AsRef::as_ref).collect();
     sorted.sort_unstable();
     sorted
 }
@@ -479,7 +487,7 @@ mod tests {
     #[test]
     fn test_build_index_name_with_key() {
         assert_eq!(
-            build_index_name("users", &["email".into()], Some("email_idx")),
+            build_index_name("users", &["email"], Some("email_idx")),
             "ix_users__email_idx"
         );
     }
@@ -487,7 +495,7 @@ mod tests {
     #[test]
     fn test_build_index_name_without_key() {
         assert_eq!(
-            build_index_name("users", &["email".into()], None),
+            build_index_name("users", &["email"], None),
             "ix_users__email"
         );
     }
@@ -495,7 +503,7 @@ mod tests {
     #[test]
     fn test_build_index_name_multiple_columns() {
         assert_eq!(
-            build_index_name("users", &["first_name".into(), "last_name".into()], None),
+            build_index_name("users", &["first_name", "last_name"], None),
             "ix_users__first_name_last_name"
         );
     }
@@ -503,8 +511,8 @@ mod tests {
     #[test]
     fn test_build_index_name_multiple_columns_is_deterministic() {
         assert_eq!(
-            build_index_name("users", &["last_name".into(), "first_name".into()], None),
-            build_index_name("users", &["first_name".into(), "last_name".into()], None)
+            build_index_name("users", &["last_name", "first_name"], None),
+            build_index_name("users", &["first_name", "last_name"], None)
         );
     }
 
@@ -522,7 +530,7 @@ mod tests {
     #[test]
     fn test_build_unique_constraint_name_with_key() {
         assert_eq!(
-            build_unique_constraint_name("users", &["email".into()], Some("email_unique")),
+            build_unique_constraint_name("users", &["email"], Some("email_unique")),
             "uq_users__email_unique"
         );
     }
@@ -530,7 +538,7 @@ mod tests {
     #[test]
     fn test_build_unique_constraint_name_without_key() {
         assert_eq!(
-            build_unique_constraint_name("users", &["email".into()], None),
+            build_unique_constraint_name("users", &["email"], None),
             "uq_users__email"
         );
     }
@@ -538,8 +546,8 @@ mod tests {
     #[test]
     fn test_build_unique_constraint_name_multiple_columns_is_deterministic() {
         assert_eq!(
-            build_unique_constraint_name("users", &["last_name".into(), "first_name".into()], None),
-            build_unique_constraint_name("users", &["first_name".into(), "last_name".into()], None)
+            build_unique_constraint_name("users", &["last_name", "first_name"], None),
+            build_unique_constraint_name("users", &["first_name", "last_name"], None)
         );
     }
 
@@ -557,7 +565,7 @@ mod tests {
     #[test]
     fn test_build_foreign_key_name_with_key() {
         assert_eq!(
-            build_foreign_key_name("posts", &["user_id".into()], Some("fk_user")),
+            build_foreign_key_name("posts", &["user_id"], Some("fk_user")),
             "fk_posts__fk_user"
         );
     }
@@ -565,7 +573,7 @@ mod tests {
     #[test]
     fn test_build_foreign_key_name_without_key() {
         assert_eq!(
-            build_foreign_key_name("posts", &["user_id".into()], None),
+            build_foreign_key_name("posts", &["user_id"], None),
             "fk_posts__user_id"
         );
     }
@@ -573,8 +581,8 @@ mod tests {
     #[test]
     fn test_build_foreign_key_name_multiple_columns_is_deterministic() {
         assert_eq!(
-            build_foreign_key_name("posts", &["tenant_id".into(), "user_id".into()], None),
-            build_foreign_key_name("posts", &["user_id".into(), "tenant_id".into()], None)
+            build_foreign_key_name("posts", &["tenant_id", "user_id"], None),
+            build_foreign_key_name("posts", &["user_id", "tenant_id"], None)
         );
     }
 

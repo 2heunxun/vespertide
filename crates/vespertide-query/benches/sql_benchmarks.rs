@@ -26,7 +26,7 @@ fn build_table_n_columns(n_columns: usize) -> TableDef {
     }));
 
     TableDef {
-        name: format!("wide_table_{n_columns}"),
+        name: format!("wide_table_{n_columns}").into(),
         description: None,
         columns,
         constraints: vec![],

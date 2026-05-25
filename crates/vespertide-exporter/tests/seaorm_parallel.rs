@@ -25,7 +25,7 @@ fn seaorm_export_byte_identical_across_thread_counts() {
 fn hundred_table_fixture() -> Vec<TableDef> {
     (0..100)
         .map(|idx| TableDef {
-            name: format!("table_{idx}"),
+            name: format!("table_{idx}").into(),
             description: None,
             columns: vec![
                 ColumnDef {

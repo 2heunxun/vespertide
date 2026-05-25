@@ -20,26 +20,27 @@ use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::{
     CodeAction, CodeActionKind as LspCodeActionKind, CodeActionOptions, CodeActionOrCommand,
     CodeActionParams, CodeActionProviderCapability, CodeActionResponse, CompletionOptions,
-    CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
-    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentFormattingParams,
-    DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse,
-    FoldingRange, FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse, Hover,
-    HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
-    InitializedParams, InlayHint, InlayHintKind as LspInlayHintKind, InlayHintLabel,
-    InlayHintOptions, InlayHintParams, InlayHintServerCapabilities, Location, MarkupContent,
-    MarkupKind, MessageType, NumberOrString, OneOf, Position, PrepareRenameResponse, Range,
-    ReferenceParams, RenameOptions, RenameParams, SelectionRange, SelectionRangeParams,
-    SelectionRangeProviderCapability, SemanticTokensFullOptions, SemanticTokensOptions,
-    SemanticTokensParams, SemanticTokensRangeParams, SemanticTokensRangeResult,
-    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo,
-    SymbolInformation, TextDocumentPositionParams, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit, Uri,
-    WorkDoneProgressOptions, WorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    CompletionParams, CompletionResponse, Diagnostic, DidChangeTextDocumentParams,
+    DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, DocumentFormattingParams, DocumentHighlight,
+    DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse, FoldingRange,
+    FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
+    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
+    InlayHint, InlayHintKind as LspInlayHintKind, InlayHintLabel, InlayHintOptions,
+    InlayHintParams, InlayHintServerCapabilities, Location, MarkupContent, MarkupKind, MessageType,
+    OneOf, Position, PrepareRenameResponse, Range, ReferenceParams, RenameOptions, RenameParams,
+    SelectionRange, SelectionRangeParams, SelectionRangeProviderCapability,
+    SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
+    SemanticTokensRangeParams, SemanticTokensRangeResult, SemanticTokensResult,
+    SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, SymbolInformation,
+    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit, Uri, WorkDoneProgressOptions,
+    WorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use tower_lsp_server::{Client, LanguageServer};
 
 use crate::diagnostics::{self, mapper};
+use crate::drift::DriftCache;
 use crate::parser::DocumentFormat;
 use crate::store::DocumentStore;
 use crate::workspace_index::WorkspaceIndex;
@@ -61,6 +62,8 @@ pub struct Backend {
     pub index: Arc<WorkspaceIndex>,
     /// Disk-discovered model tables loaded from the workspace root.
     pub workspace_tables: Arc<WorkspaceTables>,
+    /// Drift loader cache reused across did_change-triggered refreshes.
+    pub drift_cache: Arc<DriftCache>,
 }
 
 impl Backend {
@@ -74,6 +77,7 @@ impl Backend {
             store: Arc::new(DocumentStore::new()),
             index: Arc::new(WorkspaceIndex::new()),
             workspace_tables: Arc::new(WorkspaceTables::new()),
+            drift_cache: Arc::new(DriftCache::new()),
         }
     }
 
@@ -223,37 +227,31 @@ impl Backend {
             .unwrap_or_default();
 
         if let Some(root) = Self::workspace_root_for(uri) {
-            for drift in crate::drift::compute(&root, self.index.as_ref(), self.store.as_ref()) {
-                if drift.uri == *uri {
-                    diagnostics.push(Self::drift_diagnostic(&drift.summary));
-                }
+            let drifts: Vec<_> = crate::drift::compute_with_cache(
+                &root,
+                self.index.as_ref(),
+                self.store.as_ref(),
+                self.drift_cache.as_ref(),
+            )
+            .into_iter()
+            .filter(|d| d.uri == *uri)
+            .filter_map(crate::drift::DomainDrift::into_domain_diagnostic)
+            .collect();
+            if !drifts.is_empty() {
+                let lsp_drifts = self
+                    .store
+                    .docs_iter_for_uri(uri, |state| {
+                        drifts
+                            .iter()
+                            .map(|d| mapper::to_lsp(d, &state.doc))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                diagnostics.extend(lsp_drifts);
             }
         }
 
         diagnostics
-    }
-
-    fn drift_diagnostic(summary: &str) -> Diagnostic {
-        Diagnostic {
-            range: Range {
-                start: Position {
-                    line: 0,
-                    character: 0,
-                },
-                end: Position {
-                    line: 0,
-                    character: 0,
-                },
-            },
-            severity: Some(DiagnosticSeverity::INFORMATION),
-            code: Some(NumberOrString::String("drift".to_string())),
-            code_description: None,
-            source: Some("vespertide-lsp".to_string()),
-            message: format!("Model drift detected — {summary}"),
-            related_information: None,
-            tags: None,
-            data: None,
-        }
     }
 
     fn workspace_root_for(uri: &Uri) -> Option<PathBuf> {
@@ -295,7 +293,10 @@ impl Backend {
     }
 }
 
-#[allow(deprecated)]
+#[expect(
+    deprecated,
+    reason = "initialize preserves deprecated LSP rootUri fallback when older clients omit workspaceFolders"
+)]
 fn initialize_root_uri(params: &InitializeParams) -> Option<&Uri> {
     // `root_uri` is deprecated in newer LSP versions, but several editors still
     // send it without `workspace_folders`. Keep it as the first fallback for
@@ -742,13 +743,12 @@ impl LanguageServer for Backend {
         }
     }
 
-    #[allow(deprecated)]
     async fn symbol(
         &self,
         params: WorkspaceSymbolParams,
     ) -> Result<Option<WorkspaceSymbolResponse>> {
         let query = params.query;
-        let domain = crate::symbols::compute(
+        let domain = crate::symbols::compute_shared(
             &query,
             self.store.as_ref(),
             Some(self.workspace_tables.as_ref()),
@@ -762,8 +762,8 @@ impl LanguageServer for Backend {
         );
 
         let lsp_symbols: Vec<SymbolInformation> = domain
-            .into_iter()
-            .filter_map(|sym| symbol_to_lsp(&sym, self))
+            .iter()
+            .filter_map(|sym| symbol_to_lsp(sym, self))
             .collect();
         if lsp_symbols.is_empty() {
             Ok(None)

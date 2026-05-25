@@ -61,12 +61,7 @@ fn collect_auto_increment_columns(
                 auto_increment: true,
             } = c
             {
-                Some(
-                    pk_cols
-                        .iter()
-                        .map(std::string::String::as_str)
-                        .collect::<Vec<_>>(),
-                )
+                Some(pk_cols.iter().map(AsRef::as_ref).collect::<Vec<_>>())
             } else {
                 None
             }
@@ -110,7 +105,7 @@ fn add_primary_key_constraint(
     stmt: &mut TableCreateStatement,
     backend: DatabaseBackend,
     columns: &[ColumnDef],
-    pk_cols: &[String],
+    pk_cols: &[impl AsRef<str>],
     auto_increment: bool,
 ) {
     if should_skip_sqlite_auto_increment_pk(backend, columns, pk_cols, auto_increment) {
@@ -119,7 +114,7 @@ fn add_primary_key_constraint(
 
     let mut pk_idx = Index::create();
     for c in pk_cols {
-        pk_idx.col(Alias::new(c));
+        pk_idx.col(Alias::new(c.as_ref()));
     }
     *stmt = stmt.primary_key(&mut pk_idx).to_owned();
 }
@@ -127,7 +122,7 @@ fn add_primary_key_constraint(
 fn should_skip_sqlite_auto_increment_pk(
     backend: DatabaseBackend,
     columns: &[ColumnDef],
-    pk_cols: &[String],
+    pk_cols: &[impl AsRef<str>],
     auto_increment: bool,
 ) -> bool {
     matches!(backend, DatabaseBackend::Sqlite)
@@ -135,7 +130,7 @@ fn should_skip_sqlite_auto_increment_pk(
         && pk_cols.iter().all(|col_name| {
             columns
                 .iter()
-                .find(|c| c.name == *col_name)
+                .find(|c| c.name == col_name.as_ref())
                 .is_some_and(|c| c.r#type.supports_auto_increment())
         })
 }
@@ -144,7 +139,7 @@ fn add_mysql_unique_constraint(
     stmt: &mut TableCreateStatement,
     backend: DatabaseBackend,
     table: &str,
-    unique_cols: &[String],
+    unique_cols: &[impl AsRef<str>],
     name: Option<&str>,
 ) {
     if !matches!(backend, DatabaseBackend::MySql) {
@@ -154,7 +149,7 @@ fn add_mysql_unique_constraint(
     let index_name = super::helpers::build_unique_constraint_name(table, unique_cols, name);
     let mut idx = Index::create().name(&index_name).unique().to_owned();
     for col in unique_cols {
-        idx.col(Alias::new(col));
+        idx.col(Alias::new(col.as_ref()));
     }
     *stmt = stmt.index(&mut idx).to_owned();
 }
@@ -203,13 +198,13 @@ pub fn build_create_table(
     // This ensures we don't have duplicate constraints if both inline and table-level are defined
     let table_def = vespertide_core::TableDef {
         description: None,
-        name: table.to_string(),
+        name: table.into(),
         columns: columns.to_vec(),
         constraints: constraints.to_vec(),
     };
-    let normalized = table_def
-        .normalize()
-        .map_err(|e| QueryError::Other(format!("Failed to normalize table '{table}': {e}")))?;
+    let normalized = table_def.normalize().map_err(|e| {
+        QueryError::SchemaError(format!("Failed to normalize table '{table}': {e}"))
+    })?;
 
     // Use normalized columns and constraints for SQL generation
     let columns = &normalized.columns;
@@ -330,7 +325,7 @@ mod tests {
 
     fn col(name: &str, ty: ColumnType) -> ColumnDef {
         ColumnDef {
-            name: name.to_string(),
+            name: name.into(),
             r#type: ty,
             nullable: true,
             default: None,
@@ -340,6 +335,17 @@ mod tests {
             index: None,
             foreign_key: None,
         }
+    }
+
+    fn join_queries(queries: &[BuiltQuery], backend: DatabaseBackend, separator: &str) -> String {
+        let mut sql = String::new();
+        for (index, query) in queries.iter().enumerate() {
+            if index > 0 {
+                sql.push_str(separator);
+            }
+            sql.push_str(&query.build(backend));
+        }
+        sql
     }
 
     #[rstest]
@@ -370,11 +376,7 @@ mod tests {
             &[],
         )
         .unwrap();
-        let sql = result
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = join_queries(&result, backend, "\n");
         for exp in expected {
             assert!(
                 sql.contains(exp),
@@ -410,11 +412,7 @@ mod tests {
             &[],
         )
         .unwrap();
-        let sql = result
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = join_queries(&result, backend, "\n");
 
         // After normalization, inline unique should produce UNIQUE constraint in SQL
         assert!(
@@ -445,11 +443,7 @@ mod tests {
             }],
         )
         .unwrap();
-        let sql = result
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = join_queries(&result, backend, "\n");
         assert!(sql.contains("CREATE TABLE"));
         // Verify unique constraint is present
         match backend {
@@ -491,11 +485,7 @@ mod tests {
             }],
         )
         .unwrap();
-        let sql = result
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = join_queries(&result, backend, "\n");
         assert!(sql.contains("CREATE TABLE"));
         // Verify unique constraint is present
         match backend {
@@ -563,11 +553,7 @@ mod tests {
         let result = build_create_table(backend, "users", &columns, &constraints);
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join(";\n");
+        let sql = join_queries(&queries, backend, ";\n");
 
         with_settings!({ snapshot_suffix => format!("create_table_with_enum_column_{:?}", backend) }, {
             assert_snapshot!(sql);
@@ -599,11 +585,7 @@ mod tests {
         let result = build_create_table(backend, "users", &columns, &constraints);
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join(";\n");
+        let sql = join_queries(&queries, backend, ";\n");
 
         // Verify auto_increment is applied correctly for each backend
         match backend {
@@ -657,11 +639,7 @@ mod tests {
         let result = build_create_table(backend, "users", &columns, &[]);
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join(";\n");
+        let sql = join_queries(&queries, backend, ";\n");
 
         // Verify auto_increment is applied correctly for each backend
         match backend {
@@ -725,11 +703,7 @@ mod tests {
         let result = build_create_table(backend, "events", &columns, &[]);
         assert!(result.is_ok(), "build_create_table failed: {result:?}");
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = join_queries(&queries, backend, "\n");
 
         // SQLite should NOT have NOW() - it should be converted to CURRENT_TIMESTAMP
         if matches!(backend, DatabaseBackend::Sqlite) {

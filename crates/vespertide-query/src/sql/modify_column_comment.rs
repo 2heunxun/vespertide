@@ -36,7 +36,7 @@ pub fn build_modify_column_comment(
                 .iter()
                 .find(|t| t.name == table)
                 .ok_or_else(|| {
-                    QueryError::Other(format!("Table '{table}' not found in current schema."))
+                    QueryError::SchemaError(format!("Table '{table}' not found in current schema."))
                 })?;
 
             let column_def = table_def
@@ -44,7 +44,9 @@ pub fn build_modify_column_comment(
                 .iter()
                 .find(|c| c.name == column)
                 .ok_or_else(|| {
-                    QueryError::Other(format!("Column '{column}' not found in table '{table}'."))
+                    QueryError::SchemaError(format!(
+                        "Column '{column}' not found in table '{table}'."
+                    ))
                 })?;
 
             // Build the full column definition with updated comment
@@ -94,17 +96,7 @@ mod tests {
     use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType, TableConstraint};
 
     fn col(name: &str, ty: ColumnType, nullable: bool) -> ColumnDef {
-        ColumnDef {
-            name: name.to_string(),
-            r#type: ty,
-            nullable,
-            default: None,
-            comment: None,
-            primary_key: None,
-            unique: None,
-            index: None,
-            foreign_key: None,
-        }
+        ColumnDef::new(name, ty, nullable)
     }
 
     fn table_def(
@@ -113,7 +105,7 @@ mod tests {
         constraints: Vec<TableConstraint>,
     ) -> TableDef {
         TableDef {
-            name: name.to_string(),
+            name: name.into(),
             description: None,
             columns,
             constraints,

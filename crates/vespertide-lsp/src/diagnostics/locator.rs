@@ -8,7 +8,7 @@ use vespertide_planner::PlannerError;
 /// the highlighted range from the whole column object down to this child
 /// pair so the squiggle lands on the *responsible* line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ErrorField {
+pub(crate) enum ErrorField {
     /// The column's `type` value (string or object).
     Type,
     /// The column's `default` value.
@@ -17,10 +17,14 @@ pub(super) enum ErrorField {
     ForeignKeyRefTable,
     /// `foreign_key.ref_columns`.
     ForeignKeyRefColumns,
+    /// The column's `nullable` value.
+    Nullable,
+    /// The column's `comment` value.
+    Comment,
 }
 
 /// Structured location extracted from a planner error.
-pub(super) struct ErrorLocation {
+pub(crate) struct ErrorLocation {
     /// Table responsible for the diagnostic.
     pub table: String,
     /// Column responsible for the diagnostic, when the planner provides one.
@@ -124,7 +128,7 @@ impl ErrorLocation {
 /// Find the source range for a named column object.
 ///
 /// Falls back to the table's top-level `name` value, then `0..1`.
-pub(super) fn locate_column(
+pub(crate) fn locate_column(
     tree: Option<&tree_sitter::Tree>,
     source: &str,
     column_name: &str,
@@ -140,7 +144,7 @@ pub(super) fn locate_column(
 
 /// Find the source range for a specific FIELD of a named column. Falls back
 /// to the column object, then the table's top-level `name`, then `0..1`.
-pub(super) fn locate_column_field(
+pub(crate) fn locate_column_field(
     tree: Option<&tree_sitter::Tree>,
     source: &str,
     column_name: &str,
@@ -170,6 +174,12 @@ fn locate_field_in_column(
         }
         ErrorField::Default => {
             find_child_pair(column, source.as_bytes(), "default").map(|pair| pair.byte_range())
+        }
+        ErrorField::Nullable => {
+            find_child_pair(column, source.as_bytes(), "nullable").map(|pair| pair.byte_range())
+        }
+        ErrorField::Comment => {
+            find_child_pair(column, source.as_bytes(), "comment").map(|pair| pair.byte_range())
         }
         ErrorField::ForeignKeyRefTable | ErrorField::ForeignKeyRefColumns => {
             let fk_pair = find_child_pair(column, source.as_bytes(), "foreign_key")?;
@@ -227,7 +237,7 @@ fn find_child_pair<'tree>(
 /// Find the source range for a named constraint object.
 ///
 /// Falls back to the table's top-level `name` value, then `0..1`.
-pub(super) fn locate_constraint(
+pub(crate) fn locate_constraint(
     tree: Option<&tree_sitter::Tree>,
     source: &str,
     constraint_name: &str,
@@ -249,7 +259,7 @@ pub(super) fn locate_constraint(
 /// would land on the first column's `name` field, producing wildly wrong
 /// diagnostic positions like the "duplicate table name" warning showing up
 /// on a column's name.
-pub(super) fn locate_top_name(
+pub(crate) fn locate_top_name(
     tree: Option<&tree_sitter::Tree>,
     source: &str,
 ) -> Option<Range<usize>> {
@@ -404,5 +414,30 @@ mod tests {
         let range = locate_column(Some(&tree), src, "nonexistent");
 
         assert!(src[range].contains("user"));
+    }
+
+    #[test]
+    fn locate_column_field_nullable_finds_target() {
+        let pool = ParserPool::new();
+        let src =
+            r#"{"name":"user","columns":[{"name":"the_col","type":"integer","nullable":false}]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+        let range = locate_column_field(Some(&tree), src, "the_col", ErrorField::Nullable);
+        let snippet = &src[range];
+
+        assert!(snippet.contains("nullable"), "got: {snippet}");
+        assert!(snippet.contains("false"), "got: {snippet}");
+    }
+
+    #[test]
+    fn locate_column_field_comment_finds_target() {
+        let pool = ParserPool::new();
+        let src = r#"{"name":"user","columns":[{"name":"the_col","type":"text","comment":"user email"}]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+        let range = locate_column_field(Some(&tree), src, "the_col", ErrorField::Comment);
+        let snippet = &src[range];
+
+        assert!(snippet.contains("comment"), "got: {snippet}");
+        assert!(snippet.contains("user email"), "got: {snippet}");
     }
 }

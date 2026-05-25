@@ -1,5 +1,3 @@
-#![allow(clippy::module_inception)]
-
 use super::*;
 use rstest::rstest;
 pub(super) use std::collections::BTreeSet;
@@ -10,17 +8,7 @@ pub(super) use vespertide_core::{
 };
 
 fn col(name: &str, ty: ColumnType) -> ColumnDef {
-    ColumnDef {
-        name: name.to_string(),
-        r#type: ty,
-        nullable: true,
-        default: None,
-        comment: None,
-        primary_key: None,
-        unique: None,
-        index: None,
-        foreign_key: None,
-    }
+    ColumnDef::new(name, ty, true)
 }
 
 fn table(
@@ -29,7 +17,7 @@ fn table(
     constraints: Vec<vespertide_core::TableConstraint>,
 ) -> TableDef {
     TableDef {
-        name: name.to_string(),
+        name: name.into(),
         description: None,
         columns,
         constraints,
@@ -39,10 +27,7 @@ fn table(
 fn idx(name: &str, columns: Vec<&str>) -> TableConstraint {
     TableConstraint::Index {
         name: Some(name.to_string()),
-        columns: columns
-            .into_iter()
-            .map(std::string::ToString::to_string)
-            .collect(),
+        columns: columns.into_iter().map(Into::into).collect(),
     }
 }
 

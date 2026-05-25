@@ -1,4 +1,4 @@
-use vespertide_core::{StrOrBoolOrArray, TableConstraint, TableDef};
+use vespertide_core::{ColumnName, StrOrBoolOrArray, TableConstraint, TableDef};
 
 use crate::error::PlannerError;
 
@@ -94,7 +94,7 @@ pub(super) fn clear_inline_constraint_fields(
     }
 }
 
-fn clear_unique_fields(tbl: &mut TableDef, name: Option<&str>, columns: &[String]) {
+fn clear_unique_fields(tbl: &mut TableDef, name: Option<&str>, columns: &[ColumnName]) {
     if name.is_none()
         && columns.len() == 1
         && let Some(col) = tbl.columns.iter_mut().find(|c| c.name == columns[0])
@@ -117,10 +117,11 @@ fn clear_unique_fields(tbl: &mut TableDef, name: Option<&str>, columns: &[String
     }
 }
 
-fn clear_index_fields(table: &str, tbl: &mut TableDef, name: Option<&str>, columns: &[String]) {
+fn clear_index_fields(table: &str, tbl: &mut TableDef, name: Option<&str>, columns: &[ColumnName]) {
     for col in &mut tbl.columns {
+        let column_name = col.name.to_string();
         let auto_name =
-            vespertide_naming::build_index_name(table, std::slice::from_ref(&col.name), None);
+            vespertide_naming::build_index_name(table, std::slice::from_ref(&column_name), None);
         if name == Some(auto_name.as_str()) {
             col.index = None;
             break;

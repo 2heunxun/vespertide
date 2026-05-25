@@ -52,11 +52,9 @@ fn test_boolean_default_value_with_bool_type() {
 fn test_exporter_with_config_render_entity() {
     use vespertide_core::schema::primary_key::PrimaryKeySyntax;
 
-    let config = SeaOrmConfig {
-        extra_enum_derives: vec!["CustomDerive".to_string()],
-        extra_model_derives: vec!["ModelDerive".to_string()],
-        ..Default::default()
-    };
+    let mut config = SeaOrmConfig::default();
+    config.extra_enum_derives = vec!["CustomDerive".to_string()];
+    config.extra_model_derives = vec!["ModelDerive".to_string()];
     let exporter = SeaOrmExporterWithConfig::new(&config, "");
 
     let table = TableDef {
@@ -84,11 +82,9 @@ fn test_exporter_with_config_render_entity() {
 fn test_exporter_with_config_render_entity_with_enum() {
     use vespertide_core::schema::primary_key::PrimaryKeySyntax;
 
-    let config = SeaOrmConfig {
-        extra_enum_derives: vec!["CustomEnumDerive".to_string()],
-        extra_model_derives: vec![],
-        ..Default::default()
-    };
+    let mut config = SeaOrmConfig::default();
+    config.extra_enum_derives = vec!["CustomEnumDerive".to_string()];
+    config.extra_model_derives = vec![];
     let exporter = SeaOrmExporterWithConfig::new(&config, "");
 
     let table = TableDef {
@@ -132,11 +128,9 @@ fn test_exporter_with_config_render_entity_with_enum() {
 fn test_exporter_with_config_render_entity_with_schema() {
     use vespertide_core::schema::primary_key::PrimaryKeySyntax;
 
-    let config = SeaOrmConfig {
-        extra_enum_derives: vec![],
-        extra_model_derives: vec!["SchemaDerive".to_string()],
-        ..Default::default()
-    };
+    let mut config = SeaOrmConfig::default();
+    config.extra_enum_derives = vec![];
+    config.extra_model_derives = vec!["SchemaDerive".to_string()];
     let exporter = SeaOrmExporterWithConfig::new(&config, "");
 
     let table = TableDef {
@@ -165,11 +159,9 @@ fn test_exporter_with_config_render_entity_with_schema() {
 fn test_exporter_with_empty_extra_derives() {
     use vespertide_core::schema::primary_key::PrimaryKeySyntax;
 
-    let config = SeaOrmConfig {
-        extra_enum_derives: vec![],
-        extra_model_derives: vec![],
-        ..Default::default()
-    };
+    let mut config = SeaOrmConfig::default();
+    config.extra_enum_derives = vec![];
+    config.extra_model_derives = vec![];
     let exporter = SeaOrmExporterWithConfig::new(&config, "");
 
     let table = TableDef {

@@ -150,6 +150,7 @@ fn render_entity_part(table: &TableDef, used_types: &mut UsedTypes<'static>) -> 
             }
         })
         .flatten()
+        .map(|col| col.to_string())
         .collect();
 
     // Collect unique columns (single-column unique constraints); lookup-only, ordering unused.
@@ -159,7 +160,7 @@ fn render_entity_part(table: &TableDef, used_types: &mut UsedTypes<'static>) -> 
         .filter_map(|c| {
             if let TableConstraint::Unique { columns, .. } = c {
                 if columns.len() == 1 {
-                    Some(columns[0].clone())
+                    Some(columns[0].to_string())
                 } else {
                     None
                 }
@@ -183,8 +184,8 @@ fn render_entity_part(table: &TableDef, used_types: &mut UsedTypes<'static>) -> 
             {
                 if columns.len() == 1 && ref_columns.len() == 1 {
                     Some((
-                        columns[0].clone(),
-                        (ref_table.clone(), ref_columns[0].clone()),
+                        columns[0].to_string(),
+                        (ref_table.to_string(), ref_columns[0].to_string()),
                     ))
                 } else {
                     None
@@ -200,9 +201,9 @@ fn render_entity_part(table: &TableDef, used_types: &mut UsedTypes<'static>) -> 
         render_column(
             &mut lines,
             col,
-            pk_columns.contains(&col.name),
-            unique_columns.contains(&col.name),
-            fk_info.get(&col.name),
+            pk_columns.contains(col.name.as_str()),
+            unique_columns.contains(col.name.as_str()),
+            fk_info.get(col.name.as_str()),
         );
     }
 

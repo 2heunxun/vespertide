@@ -1,51 +1,116 @@
-//! Validation routines: syntax → parse → planner.
+use crate::diagnostics::{DomainDiagnostic, Severity};
 
-use tower_lsp_server::ls_types::Uri;
-use vespertide_core::TableDef;
+#[cfg(test)]
+use super::types::find_value_for_key;
+use super::types::{
+    EnumValueDescriptor, KNOWN_SIMPLE_TYPES, collect_enum_value_descriptors, find_pair_with_key,
+    is_pair_node, pair_key_text, scalar_text, strip_quotes_str, unwrap_yaml_node,
+};
 
-use super::{DomainDiagnostic, Severity};
+pub(in crate::diagnostics) fn collect_all(
+    tree: &tree_sitter::Tree,
+    source: &str,
+    out: &mut Vec<DomainDiagnostic>,
+) {
+    let source_bytes = source.as_bytes();
+    let mut collector = FusedCollector::new(source_bytes, tree.root_node().has_error());
+    collector.walk(tree.root_node(), false, collector.syntax_active);
 
-/// Simple column type names recognized as string literals. Mirrors
-/// `vespertide_core::SimpleColumnType`. Kept here so we can flag unknown
-/// strings BEFORE serde fails — serde's error position is unreliable inside
-/// untagged enums and tends to point at the wrong byte (often the column's
-/// closing brace).
-const KNOWN_SIMPLE_TYPES: &[&str] = &[
-    "small_int",
-    "integer",
-    "big_int",
-    "real",
-    "double_precision",
-    "text",
-    "boolean",
-    "date",
-    "time",
-    "timestamp",
-    "timestamptz",
-    "interval",
-    "bytea",
-    "uuid",
-    "json",
-    "jsonb",
-    "inet",
-    "cidr",
-    "macaddr",
-    "xml",
-];
+    out.append(&mut collector.syntax);
+    out.append(&mut collector.unknown_types);
+    out.append(&mut collector.complex_types);
 
-/// Parsed table plus source context for workspace-wide validation.
-pub struct WorkspaceTable {
-    /// URI that owns this table definition.
-    pub uri: Uri,
-    /// Normalized table definition used by planner validation.
-    pub table: TableDef,
-    /// Raw document text used for byte-range location.
-    pub source: String,
-    /// Parsed tree-sitter tree for source range lookup.
-    pub tree: Option<tree_sitter::Tree>,
+    let Some(columns_raw) = collector.columns else {
+        return;
+    };
+
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for column in direct_column_objects(columns_raw) {
+        inspect_column_name(column, source_bytes, &mut seen, out);
+    }
 }
 
-pub(super) fn collect_syntax_errors(tree: &tree_sitter::Tree, out: &mut Vec<DomainDiagnostic>) {
+struct FusedCollector<'source, 'tree> {
+    source: &'source [u8],
+    columns: Option<tree_sitter::Node<'tree>>,
+    syntax: Vec<DomainDiagnostic>,
+    unknown_types: Vec<DomainDiagnostic>,
+    complex_types: Vec<DomainDiagnostic>,
+    syntax_active: bool,
+}
+
+impl<'source, 'tree> FusedCollector<'source, 'tree> {
+    fn new(source: &'source [u8], syntax_active: bool) -> Self {
+        Self {
+            source,
+            columns: None,
+            syntax: Vec::new(),
+            unknown_types: Vec::new(),
+            complex_types: Vec::new(),
+            syntax_active,
+        }
+    }
+
+    fn walk(&mut self, node: tree_sitter::Node<'tree>, in_columns: bool, syntax_active: bool) {
+        let child_syntax_active = self.inspect_syntax(node, syntax_active);
+        if in_columns && matches!(node.kind(), "object" | "block_mapping") {
+            inspect_column_type(node, self.source, &mut self.unknown_types);
+            inspect_complex_type(node, self.source, &mut self.complex_types);
+        }
+
+        let columns_value = self.first_columns_value(node);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            let child_in_columns =
+                in_columns || columns_value.is_some_and(|value| value.id() == child.id());
+            self.walk(child, child_in_columns, child_syntax_active);
+        }
+    }
+
+    fn inspect_syntax(&mut self, node: tree_sitter::Node<'tree>, syntax_active: bool) -> bool {
+        if !syntax_active {
+            return false;
+        }
+
+        if node.is_error() || node.is_missing() {
+            self.syntax.push(DomainDiagnostic {
+                byte_range: node.byte_range(),
+                severity: Severity::Error,
+                message: if node.is_missing() {
+                    format!("Missing {}", node.kind())
+                } else {
+                    "Syntax error".to_string()
+                },
+                code: "syntax-error".to_string(),
+            });
+            return false;
+        }
+
+        true
+    }
+
+    fn first_columns_value(
+        &mut self,
+        node: tree_sitter::Node<'tree>,
+    ) -> Option<tree_sitter::Node<'tree>> {
+        if self.columns.is_some()
+            || !is_pair_node(node)
+            || pair_key_text(node, self.source).is_none_or(|key| key != "columns")
+        {
+            return None;
+        }
+
+        let value = node.named_child(1)?;
+        self.columns = Some(value);
+        Some(value)
+    }
+}
+
+#[cfg(test)]
+pub(in crate::diagnostics) fn collect_syntax_errors(
+    tree: &tree_sitter::Tree,
+    out: &mut Vec<DomainDiagnostic>,
+) {
     let root = tree.root_node();
     if root.has_error() {
         walk_for_errors(root, out);
@@ -56,7 +121,8 @@ pub(super) fn collect_syntax_errors(tree: &tree_sitter::Tree, out: &mut Vec<Doma
 /// precise byte range pointing at the offending `type` value. Runs before
 /// serde so users see the squiggle on the right line even when serde's
 /// untagged-enum error reports a misleading position.
-pub(super) fn collect_unknown_column_types(
+#[cfg(test)]
+pub(in crate::diagnostics) fn collect_unknown_column_types(
     tree: &tree_sitter::Tree,
     source: &str,
     out: &mut Vec<DomainDiagnostic>,
@@ -69,6 +135,7 @@ pub(super) fn collect_unknown_column_types(
     walk_column_objects(columns, source_bytes, out);
 }
 
+#[cfg(test)]
 fn walk_column_objects(
     node: tree_sitter::Node<'_>,
     source: &[u8],
@@ -135,21 +202,6 @@ fn inspect_column_type(
     });
 }
 
-/// Peel YAML's `flow_node` / `block_node` wrappers (no-op on JSON).
-fn unwrap_yaml_node(node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
-    let mut current = node;
-    while matches!(current.kind(), "flow_node" | "block_node") {
-        let Some(inner) = current.named_child(0) else {
-            break;
-        };
-        if inner.id() == current.id() {
-            break;
-        }
-        current = inner;
-    }
-    current
-}
-
 /// Tree-sitter-based pre-pass that flags two columns sharing a `name`.
 /// Pinpoints the SECOND (and later) occurrence so the user sees the
 /// squiggle on the offending column, not on the table.
@@ -158,7 +210,8 @@ fn unwrap_yaml_node(node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
 /// A naive recursive walk would dive into nested objects (e.g. integer
 /// enum members like `{"name":"low","value":0}` inside `type.values`) and
 /// mistakenly compare their `name` against the column names.
-pub(super) fn collect_duplicate_column_names(
+#[cfg(test)]
+pub(in crate::diagnostics) fn collect_duplicate_column_names(
     tree: &tree_sitter::Tree,
     source: &str,
     out: &mut Vec<DomainDiagnostic>,
@@ -252,7 +305,8 @@ fn inspect_column_name(
 ///
 /// Each diagnostic gets a precise byte range covering the offending pair so
 /// the squiggle lands on the right line.
-pub(super) fn collect_complex_type_violations(
+#[cfg(test)]
+pub(in crate::diagnostics) fn collect_complex_type_violations(
     tree: &tree_sitter::Tree,
     source: &str,
     out: &mut Vec<DomainDiagnostic>,
@@ -264,6 +318,7 @@ pub(super) fn collect_complex_type_violations(
     walk_columns_for_complex_type(columns, source_bytes, out);
 }
 
+#[cfg(test)]
 fn walk_columns_for_complex_type(
     node: tree_sitter::Node<'_>,
     source: &[u8],
@@ -451,97 +506,6 @@ fn check_custom_type(
     }
 }
 
-struct EnumValueDescriptor {
-    name: String,
-    byte_range: std::ops::Range<usize>,
-    /// Optional explicit integer value (for integer enums).
-    integer_value: Option<String>,
-    integer_value_range: std::ops::Range<usize>,
-}
-
-fn collect_enum_value_descriptors(
-    array: tree_sitter::Node<'_>,
-    source: &[u8],
-) -> Vec<EnumValueDescriptor> {
-    let mut out = Vec::new();
-    let mut cursor = array.walk();
-    for raw_child in array.children(&mut cursor) {
-        let child = unwrap_yaml_node(raw_child);
-        match child.kind() {
-            "string"
-            | "double_quote_scalar"
-            | "single_quote_scalar"
-            | "string_scalar"
-            | "plain_scalar" => {
-                if let Some(name) = scalar_string(child, source) {
-                    out.push(EnumValueDescriptor {
-                        name,
-                        byte_range: child.byte_range(),
-                        integer_value: None,
-                        integer_value_range: 0..0,
-                    });
-                }
-            }
-            "object" | "block_mapping" | "flow_mapping" => {
-                let name_pair = find_pair_with_key(child, source, "name");
-                let value_pair = find_pair_with_key(child, source, "value");
-                let Some(name_pair) = name_pair else {
-                    continue;
-                };
-                let Some(name_value_raw) = name_pair.named_child(1) else {
-                    continue;
-                };
-                let name_value = unwrap_yaml_node(name_value_raw);
-                let Some(name) = scalar_string(name_value, source) else {
-                    continue;
-                };
-                let (integer_value, integer_range) = match value_pair {
-                    Some(pair) => {
-                        let v = pair.named_child(1).map(unwrap_yaml_node);
-                        match v {
-                            Some(node) => (scalar_string(node, source), node.byte_range()),
-                            None => (None, 0..0),
-                        }
-                    }
-                    None => (None, 0..0),
-                };
-                out.push(EnumValueDescriptor {
-                    name,
-                    byte_range: child.byte_range(),
-                    integer_value,
-                    integer_value_range: integer_range,
-                });
-            }
-            // YAML block_sequence_item wraps the actual element.
-            "block_sequence_item" => {
-                let mut inner_cursor = child.walk();
-                for inner in child.children(&mut inner_cursor) {
-                    let inner = unwrap_yaml_node(inner);
-                    match inner.kind() {
-                        "string"
-                        | "double_quote_scalar"
-                        | "single_quote_scalar"
-                        | "string_scalar"
-                        | "plain_scalar" => {
-                            if let Some(name) = scalar_string(inner, source) {
-                                out.push(EnumValueDescriptor {
-                                    name,
-                                    byte_range: inner.byte_range(),
-                                    integer_value: None,
-                                    integer_value_range: 0..0,
-                                });
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    out
-}
-
 fn check_duplicate_enum_values(
     descriptors: &[EnumValueDescriptor],
     out: &mut Vec<DomainDiagnostic>,
@@ -593,72 +557,7 @@ fn push_complex(
     });
 }
 
-fn scalar_text<'a>(pair: tree_sitter::Node<'_>, source: &'a [u8]) -> Option<&'a str> {
-    let value_raw = pair.named_child(1)?;
-    let value = unwrap_yaml_node(value_raw);
-    let text = std::str::from_utf8(&source[value.byte_range()]).ok()?;
-    Some(strip_quotes_str(text))
-}
-
-fn scalar_string(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let text = std::str::from_utf8(&source[node.byte_range()]).ok()?;
-    Some(strip_quotes_str(text).to_string())
-}
-
-fn find_value_for_key<'tree>(
-    node: tree_sitter::Node<'tree>,
-    source: &[u8],
-    target_key: &str,
-) -> Option<tree_sitter::Node<'tree>> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if is_pair_node(child)
-            && pair_key_text(child, source).is_some_and(|k| k == target_key)
-            && let Some(value) = child.named_child(1)
-        {
-            return Some(value);
-        }
-        if let Some(found) = find_value_for_key(child, source, target_key) {
-            return Some(found);
-        }
-    }
-    None
-}
-
-fn find_pair_with_key<'tree>(
-    object: tree_sitter::Node<'tree>,
-    source: &[u8],
-    target_key: &str,
-) -> Option<tree_sitter::Node<'tree>> {
-    let mut cursor = object.walk();
-    object.children(&mut cursor).find(|&child| {
-        is_pair_node(child) && pair_key_text(child, source).is_some_and(|k| k == target_key)
-    })
-}
-
-fn is_pair_node(node: tree_sitter::Node<'_>) -> bool {
-    matches!(node.kind(), "pair" | "block_mapping_pair")
-}
-
-fn pair_key_text<'a>(pair: tree_sitter::Node<'_>, source: &'a [u8]) -> Option<&'a str> {
-    let key = pair.named_child(0)?;
-    let text = std::str::from_utf8(&source[key.byte_range()]).ok()?;
-    Some(strip_quotes_str(text))
-}
-
-fn strip_quotes_str(s: &str) -> &str {
-    let trimmed = s.trim();
-    trimmed
-        .strip_prefix('"')
-        .and_then(|w| w.strip_suffix('"'))
-        .or_else(|| {
-            trimmed
-                .strip_prefix('\'')
-                .and_then(|w| w.strip_suffix('\''))
-        })
-        .unwrap_or(trimmed)
-}
-
+#[cfg(test)]
 fn walk_for_errors(node: tree_sitter::Node<'_>, out: &mut Vec<DomainDiagnostic>) {
     if node.is_error() || node.is_missing() {
         out.push(DomainDiagnostic {
@@ -678,184 +577,4 @@ fn walk_for_errors(node: tree_sitter::Node<'_>, out: &mut Vec<DomainDiagnostic>)
     for child in node.children(&mut cursor) {
         walk_for_errors(child, out);
     }
-}
-
-pub(super) fn try_parse_json(text: &str, out: &mut Vec<DomainDiagnostic>) -> Option<TableDef> {
-    match serde_json::from_str::<TableDef>(text) {
-        Ok(table) => normalize_table(&table, out),
-        Err(e) => {
-            let byte = byte_offset_for_line_col(text, e.line(), e.column());
-            out.push(DomainDiagnostic {
-                byte_range: byte..(byte + 1).min(text.len()),
-                severity: Severity::Error,
-                message: format!("JSON parse error: {e}"),
-                code: "parse-error".to_string(),
-            });
-            None
-        }
-    }
-}
-
-pub(super) fn try_parse_yaml(text: &str, out: &mut Vec<DomainDiagnostic>) -> Option<TableDef> {
-    match serde_yaml::from_str::<TableDef>(text) {
-        Ok(table) => normalize_table(&table, out),
-        Err(e) => {
-            let byte = e.location().map_or(0, |loc| loc.index().min(text.len()));
-            out.push(DomainDiagnostic {
-                byte_range: byte..(byte + 1).min(text.len()),
-                severity: Severity::Error,
-                message: format!("YAML parse error: {e}"),
-                code: "parse-error".to_string(),
-            });
-            None
-        }
-    }
-}
-
-/// Run `TableDef::normalize()` so inline constraints participate in planner validation.
-fn normalize_table(table: &TableDef, out: &mut Vec<DomainDiagnostic>) -> Option<TableDef> {
-    match table.normalize() {
-        Ok(table) => Some(table),
-        Err(e) => {
-            out.push(DomainDiagnostic {
-                byte_range: 0..1,
-                severity: Severity::Error,
-                message: e.to_string(),
-                code: "validate-schema".to_string(),
-            });
-            None
-        }
-    }
-}
-
-pub(super) fn validate_table(table: &TableDef, out: &mut Vec<DomainDiagnostic>) {
-    // Single-table validation. `vespertide_planner::validate_schema` expects
-    // `&[TableDef]`; for LSP per-file diagnostics, run on a singleton slice.
-    if let Err(e) = vespertide_planner::validate_schema(std::slice::from_ref(table)) {
-        out.push(DomainDiagnostic {
-            byte_range: 0..1,
-            severity: Severity::Error,
-            message: e.to_string(),
-            code: "validate-schema".to_string(),
-        });
-    }
-}
-
-/// Compare the file's basename to its declared table `name` and surface a
-/// warning when they diverge. This catches accidental renames where the
-/// user changes `"name"` but forgets to rename the file (or vice versa).
-///
-/// Path → basename rules (longest extension wins):
-///   `foo.vespertide.json` → `foo`
-///   `foo.vespertide.yaml` → `foo`
-///   `foo.vespertide.yml`  → `foo`
-///   `foo.json` / `foo.yaml` / `foo.yml` → `foo`
-pub(super) fn check_filename_table_name_mismatch(
-    text: &str,
-    uri: &Uri,
-    tree: Option<&tree_sitter::Tree>,
-    table_name: &str,
-    out: &mut Vec<DomainDiagnostic>,
-) {
-    let Some(file_basename) = file_basename_of(uri) else {
-        return;
-    };
-    if file_basename == table_name {
-        return;
-    }
-    let byte_range = super::locator::locate_top_name(tree, text).unwrap_or(0..1);
-    out.push(DomainDiagnostic {
-        byte_range,
-        severity: Severity::Warning,
-        message: format!(
-            "Table name `{table_name}` does not match file basename `{file_basename}`. \
-             Rename one to keep them in sync."
-        ),
-        code: "filename-mismatch".to_string(),
-    });
-}
-
-fn file_basename_of(uri: &Uri) -> Option<String> {
-    let path = crate::position::uri_to_path(uri)?;
-    let file_name = path.file_name()?.to_str()?;
-    let stripped = file_name
-        .strip_suffix(".vespertide.json")
-        .or_else(|| file_name.strip_suffix(".vespertide.yaml"))
-        .or_else(|| file_name.strip_suffix(".vespertide.yml"))
-        .or_else(|| file_name.strip_suffix(".json"))
-        .or_else(|| file_name.strip_suffix(".yaml"))
-        .or_else(|| file_name.strip_suffix(".yml"))
-        .unwrap_or(file_name);
-    Some(stripped.to_string())
-}
-
-pub(super) fn validate_workspace(
-    workspace: &[WorkspaceTable],
-    current_uri: &Uri,
-    out: &mut Vec<DomainDiagnostic>,
-) {
-    let tables: Vec<TableDef> = workspace.iter().map(|entry| entry.table.clone()).collect();
-    let Err(err) = vespertide_planner::validate_schema(&tables) else {
-        return;
-    };
-
-    let Some(location) = super::locator::ErrorLocation::from_planner_error(&err) else {
-        push_validate_error(out, 0..1, err.to_string());
-        return;
-    };
-
-    let Some(target) = workspace
-        .iter()
-        .find(|entry| entry.table.name.as_str() == location.table.as_str())
-    else {
-        push_validate_error(out, 0..1, err.to_string());
-        return;
-    };
-
-    if target.uri != *current_uri {
-        return;
-    }
-
-    let byte_range = if let Some(column) = &location.column {
-        if let Some(field) = location.field {
-            super::locator::locate_column_field(target.tree.as_ref(), &target.source, column, field)
-        } else {
-            super::locator::locate_column(target.tree.as_ref(), &target.source, column)
-        }
-    } else if let Some(constraint) = &location.constraint {
-        super::locator::locate_constraint(target.tree.as_ref(), &target.source, constraint)
-    } else {
-        super::locator::locate_top_name(target.tree.as_ref(), &target.source).unwrap_or(0..1)
-    };
-
-    push_validate_error(out, byte_range, err.to_string());
-}
-
-fn push_validate_error(
-    out: &mut Vec<DomainDiagnostic>,
-    byte_range: std::ops::Range<usize>,
-    message: String,
-) {
-    out.push(DomainDiagnostic {
-        byte_range,
-        severity: Severity::Error,
-        message,
-        code: "validate-schema".to_string(),
-    });
-}
-
-fn byte_offset_for_line_col(text: &str, line: usize, col: usize) -> usize {
-    // serde_json line/column values are 1-indexed.
-    let line_zero = line.saturating_sub(1);
-    let col_zero = col.saturating_sub(1);
-    let mut byte = 0;
-
-    for (idx, line_text) in text.split_inclusive('\n').enumerate() {
-        if idx == line_zero {
-            return byte + col_zero.min(line_text.len().saturating_sub(1));
-        }
-        byte += line_text.len();
-    }
-
-    byte.min(text.len())
 }

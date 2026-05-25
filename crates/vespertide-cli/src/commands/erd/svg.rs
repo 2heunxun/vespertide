@@ -15,17 +15,32 @@
 // `unnecessary_wraps` is suppressed because the public API contract still
 // returns `Result<String, String>` to leave room for future fallible paths
 // (e.g. graph validation) without breaking the caller in `mod.rs`.
-#![allow(
+#![expect(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     clippy::cast_lossless,
+    reason = "SVG layout converts bounded table/row counts into pixel coordinates"
+)]
+#![expect(
     clippy::range_plus_one,
+    reason = "SVG row/rank math mirrors visual inclusive ranges in the renderer"
+)]
+#![expect(
     clippy::unnecessary_wraps,
+    reason = "render_svg keeps a Result API for future graph validation without changing ERD callers"
+)]
+#![expect(
     clippy::uninlined_format_args,
+    reason = "long SVG template strings keep repeated named arguments explicit for readability"
+)]
+#![expect(
     clippy::too_many_arguments,
-    clippy::too_many_lines,
-    clippy::similar_names
+    reason = "geometry helpers pass Bézier anchors and side metadata directly; renderer context extraction is deferred"
+)]
+#![expect(
+    clippy::similar_names,
+    reason = "ERD geometry uses conventional short coordinate names that mirror Bézier formulas"
 )]
 
 use std::collections::BTreeMap;
@@ -172,7 +187,7 @@ fn build_boxes(tables: &[TableDef]) -> Vec<TableBox> {
             let height = HEADER_H + ROW_H * rows.len() as f64;
 
             TableBox {
-                name: table.name.clone(),
+                name: table.name.to_string(),
                 rows,
                 width,
                 height,
@@ -187,7 +202,7 @@ fn build_boxes(tables: &[TableDef]) -> Vec<TableBox> {
 
 fn build_row(table: &TableDef, column: &ColumnDef) -> RowSpec {
     RowSpec {
-        name: column.name.clone(),
+        name: column.name.to_string(),
         type_str: column.r#type.to_display_string(),
         is_pk: is_primary_key_column(table, &column.name),
         is_fk: is_foreign_key_column(table, &column.name),

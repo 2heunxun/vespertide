@@ -88,7 +88,7 @@ pub(super) fn validate_column(column: &ColumnDef, table_name: &str) -> Result<()
                                 return Err(PlannerError::DuplicateEnumVariantName(
                                     name.clone(),
                                     table_name.to_string(),
-                                    column.name.clone(),
+                                    column.name.to_string(),
                                     variant.clone(),
                                 ));
                             }
@@ -101,7 +101,7 @@ pub(super) fn validate_column(column: &ColumnDef, table_name: &str) -> Result<()
                                 return Err(PlannerError::DuplicateEnumVariantName(
                                     name.clone(),
                                     table_name.to_string(),
-                                    column.name.clone(),
+                                    column.name.to_string(),
                                     variant.name.clone(),
                                 ));
                             }
@@ -122,7 +122,7 @@ pub(super) fn validate_column(column: &ColumnDef, table_name: &str) -> Result<()
                                 return Err(PlannerError::DuplicateEnumValue(
                                     name.clone(),
                                     table_name.to_string(),
-                                    column.name.clone(),
+                                    column.name.to_string(),
                                     variant.value,
                                 ));
                             }

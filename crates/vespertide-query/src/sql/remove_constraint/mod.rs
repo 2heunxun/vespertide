@@ -40,10 +40,13 @@ fn build_drop_index(
     constraint: &TableConstraint,
 ) -> Result<Vec<BuiltQuery>, QueryError> {
     let TableConstraint::Index { name, columns } = constraint else {
-        return Err(QueryError::Other(format!(
-            "SQLite constraint '{}' requires a table rebuild",
-            constraint_kind(constraint)
-        )));
+        return Err(QueryError::BackendError {
+            backend: DatabaseBackend::Sqlite,
+            message: format!(
+                "SQLite constraint '{}' requires a table rebuild",
+                constraint_kind(constraint)
+            ),
+        });
     };
 
     let index_name = vespertide_naming::build_index_name(table, columns, name.as_deref());

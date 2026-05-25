@@ -17,7 +17,10 @@
 //! YAML quoted scalars include the delimiters in their byte range,
 //! plain scalars don't. The push helpers trim where appropriate.
 
-#![allow(clippy::struct_excessive_bools)]
+#![expect(
+    clippy::struct_excessive_bools,
+    reason = "semantic-token classifier context tracks independent YAML ancestor flags; collapsing them would obscure token rules"
+)]
 
 use super::{RawToken, legend::ModIdx, legend::TokenIdx};
 

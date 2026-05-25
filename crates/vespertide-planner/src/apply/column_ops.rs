@@ -1,4 +1,4 @@
-use vespertide_core::{ColumnDef, ColumnType, TableConstraint, TableDef};
+use vespertide_core::{ColumnDef, ColumnName, ColumnType, TableConstraint, TableDef};
 
 use crate::error::PlannerError;
 
@@ -11,7 +11,7 @@ pub(super) fn add_column(
     if tbl.columns.iter().any(|c| c.name == column.name) {
         Err(PlannerError::ColumnExists(
             table.to_string(),
-            column.name.clone(),
+            column.name.to_string(),
         ))
     } else {
         tbl.columns.push(column.clone());
@@ -21,7 +21,7 @@ pub(super) fn add_column(
         let table_to_normalize = std::mem::replace(
             tbl,
             TableDef {
-                name: table.to_string(),
+                name: table.to_string().into(),
                 description: None,
                 columns: Vec::new(),
                 constraints: Vec::new(),
@@ -69,7 +69,7 @@ pub(super) fn rename_column(
         .iter_mut()
         .find(|c| c.name == from)
         .ok_or_else(|| PlannerError::ColumnNotFound(table.to_string(), from.to_string()))?;
-    col.name = to.to_string();
+    col.name = to.into();
     rename_column_in_constraints(&mut tbl.constraints, from, to);
     Ok(())
 }
@@ -158,10 +158,10 @@ fn rename_column_in_constraints(constraints: &mut [TableConstraint], from: &str,
     }
 }
 
-fn rename_column_refs(columns: &mut [String], from: &str, to: &str) {
+fn rename_column_refs(columns: &mut [ColumnName], from: &str, to: &str) {
     for c in columns {
         if c == from {
-            *c = to.to_string();
+            *c = to.into();
         }
     }
 }

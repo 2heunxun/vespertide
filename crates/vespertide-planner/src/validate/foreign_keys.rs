@@ -1,14 +1,16 @@
 use std::collections::{BTreeMap, HashSet};
 
+use vespertide_core::ColumnName;
+
 use crate::error::PlannerError;
 
 pub(super) fn validate_foreign_key_constraint(
     table_name: &str,
     table_columns: &HashSet<&str>,
     table_map: &BTreeMap<&str, HashSet<&str>>,
-    columns: &[String],
+    columns: &[ColumnName],
     ref_table: &str,
-    ref_columns: &[String],
+    ref_columns: &[ColumnName],
 ) -> Result<(), PlannerError> {
     if columns.is_empty() {
         return Err(PlannerError::EmptyConstraintColumns(
@@ -36,7 +38,7 @@ pub(super) fn validate_foreign_key_constraint(
             return Err(PlannerError::ConstraintColumnNotFound(
                 table_name.to_string(),
                 "ForeignKey".to_string(),
-                col.clone(),
+                col.to_string(),
             ));
         }
     }
@@ -47,7 +49,7 @@ pub(super) fn validate_foreign_key_constraint(
                 table_name.to_string(),
                 columns.join(", "),
                 ref_table.to_string(),
-                ref_col.clone(),
+                ref_col.to_string(),
             ));
         }
     }

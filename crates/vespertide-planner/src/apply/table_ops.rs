@@ -13,7 +13,7 @@ pub(super) fn create_table(
     }
 
     let table_def = TableDef {
-        name: table.to_string(),
+        name: table.to_string().into(),
         description: None,
         columns: columns.to_vec(),
         constraints: constraints.to_vec(),
@@ -51,14 +51,14 @@ pub(super) fn rename_table(
                 .iter_mut()
                 .find(|t| t.name == from)
                 .ok_or_else(|| PlannerError::TableNotFound(from.to_string()))?;
-            tbl.name = to.to_string();
+            tbl.name = to.into();
         }
         for tbl in schema {
             for constraint in &mut tbl.constraints {
                 if let TableConstraint::ForeignKey { ref_table, .. } = constraint
                     && ref_table == from
                 {
-                    *ref_table = to.to_string();
+                    *ref_table = to.into();
                 }
             }
         }

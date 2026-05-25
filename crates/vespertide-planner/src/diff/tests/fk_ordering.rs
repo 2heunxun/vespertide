@@ -5,7 +5,7 @@ use vespertide_core::{MigrationPlan, TableConstraint};
 
 fn table_with_fk(name: &str, ref_table: &str, fk_column: &str, ref_column: &str) -> TableDef {
     TableDef {
-        name: name.to_string(),
+        name: name.into(),
         description: None,
         columns: vec![
             col("id", ColumnType::Simple(SimpleColumnType::Integer)),
@@ -13,9 +13,9 @@ fn table_with_fk(name: &str, ref_table: &str, fk_column: &str, ref_column: &str)
         ],
         constraints: vec![TableConstraint::ForeignKey {
             name: None,
-            columns: vec![fk_column.to_string()],
-            ref_table: ref_table.to_string(),
-            ref_columns: vec![ref_column.to_string()],
+            columns: vec![fk_column.into()],
+            ref_table: ref_table.into(),
+            ref_columns: vec![ref_column.into()],
             on_delete: None,
             on_update: None,
         }],
@@ -24,7 +24,7 @@ fn table_with_fk(name: &str, ref_table: &str, fk_column: &str, ref_column: &str)
 
 fn simple_table(name: &str) -> TableDef {
     TableDef {
-        name: name.to_string(),
+        name: name.into(),
         description: None,
         columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
         constraints: vec![],
@@ -35,7 +35,7 @@ fn pk_col(name: &str) -> ColumnDef {
     use vespertide_core::schema::primary_key::PrimaryKeySyntax;
 
     ColumnDef {
-        name: name.to_string(),
+        name: name.into(),
         r#type: ColumnType::Simple(SimpleColumnType::Integer),
         nullable: false,
         default: None,
@@ -51,7 +51,7 @@ fn inline_fk_col(name: &str, ref_table: &str) -> ColumnDef {
     use vespertide_core::schema::foreign_key::ForeignKeySyntax;
 
     ColumnDef {
-        name: name.to_string(),
+        name: name.into(),
         r#type: ColumnType::Simple(SimpleColumnType::Integer),
         nullable: true,
         default: None,
@@ -72,7 +72,7 @@ fn inline_fk_table(name: &str, ref_tables: &[&str]) -> TableDef {
     );
 
     TableDef {
-        name: name.to_string(),
+        name: name.into(),
         description: None,
         columns,
         constraints: vec![],
@@ -338,7 +338,7 @@ fn delete_tables_chain_dependency() {
 fn circular_fk_dependency_returns_error() {
     // Create circular dependency: A -> B -> A
     let table_a = TableDef {
-        name: "table_a".to_string(),
+        name: "table_a".into(),
         description: None,
         columns: vec![
             col("id", ColumnType::Simple(SimpleColumnType::Integer)),
@@ -346,16 +346,16 @@ fn circular_fk_dependency_returns_error() {
         ],
         constraints: vec![TableConstraint::ForeignKey {
             name: None,
-            columns: vec!["b_id".to_string()],
-            ref_table: "table_b".to_string(),
-            ref_columns: vec!["id".to_string()],
+            columns: vec!["b_id".into()],
+            ref_table: "table_b".into(),
+            ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
         }],
     };
 
     let table_b = TableDef {
-        name: "table_b".to_string(),
+        name: "table_b".into(),
         description: None,
         columns: vec![
             col("id", ColumnType::Simple(SimpleColumnType::Integer)),
@@ -363,9 +363,9 @@ fn circular_fk_dependency_returns_error() {
         ],
         constraints: vec![TableConstraint::ForeignKey {
             name: None,
-            columns: vec!["a_id".to_string()],
-            ref_table: "table_a".to_string(),
-            ref_columns: vec!["id".to_string()],
+            columns: vec!["a_id".into()],
+            ref_table: "table_a".into(),
+            ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
         }],
@@ -381,6 +381,53 @@ fn circular_fk_dependency_returns_error() {
     } else {
         panic!("Expected TableValidation error, got {result:?}");
     }
+}
+
+#[test]
+fn diff_schemas_detects_circular_fk_cycle() {
+    let a = TableDef {
+        name: "a".into(),
+        description: None,
+        columns: vec![
+            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col("b_id", ColumnType::Simple(SimpleColumnType::Integer)),
+        ],
+        constraints: vec![TableConstraint::ForeignKey {
+            name: None,
+            columns: vec!["b_id".into()],
+            ref_table: "b".into(),
+            ref_columns: vec!["id".into()],
+            on_delete: None,
+            on_update: None,
+        }],
+    };
+    let b = TableDef {
+        name: "b".into(),
+        description: None,
+        columns: vec![
+            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col("a_id", ColumnType::Simple(SimpleColumnType::Integer)),
+        ],
+        constraints: vec![TableConstraint::ForeignKey {
+            name: None,
+            columns: vec!["a_id".into()],
+            ref_table: "a".into(),
+            ref_columns: vec!["id".into()],
+            on_delete: None,
+            on_update: None,
+        }],
+    };
+
+    let result = diff_schemas(&[], &[a, b]);
+
+    assert!(
+        matches!(
+            result,
+            Err(PlannerError::TableValidation(ref msg))
+                if msg.contains("Circular foreign key dependency")
+        ),
+        "mutual FKs are currently rejected by Kahn cycle detection, got: {result:?}"
+    );
 }
 
 #[test]
@@ -803,7 +850,7 @@ fn create_tables_with_duplicate_fk_references() {
 
     fn col_pk(name: &str) -> ColumnDef {
         ColumnDef {
-            name: name.to_string(),
+            name: name.into(),
             r#type: ColumnType::Simple(SimpleColumnType::Integer),
             nullable: false,
             default: None,
@@ -817,7 +864,7 @@ fn create_tables_with_duplicate_fk_references() {
 
     fn col_inline_fk(name: &str, ref_table: &str) -> ColumnDef {
         ColumnDef {
-            name: name.to_string(),
+            name: name.into(),
             r#type: ColumnType::Simple(SimpleColumnType::Integer),
             nullable: true,
             default: None,
@@ -831,14 +878,14 @@ fn create_tables_with_duplicate_fk_references() {
 
     // Table with multiple FKs referencing the same table (like code.creator_user_id and code.used_by_user_id)
     let user = TableDef {
-        name: "user".to_string(),
+        name: "user".into(),
         description: None,
         columns: vec![col_pk("id")],
         constraints: vec![],
     };
 
     let code = TableDef {
-        name: "code".to_string(),
+        name: "code".into(),
         description: None,
         columns: vec![
             col_pk("id"),

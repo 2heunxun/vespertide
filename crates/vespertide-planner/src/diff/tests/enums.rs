@@ -553,7 +553,7 @@ mod enum_default_ordering {
         default: &str,
     ) -> ColumnDef {
         ColumnDef {
-            name: name.to_string(),
+            name: name.into(),
             r#type: ColumnType::Complex(ComplexColumnType::Enum {
                 name: enum_name.to_string(),
                 values: EnumValues::String(values.into_iter().map(String::from).collect()),

@@ -8,17 +8,7 @@ use vespertide_query::{
 };
 
 fn col(name: &str, ty: ColumnType) -> ColumnDef {
-    ColumnDef {
-        name: name.to_string(),
-        r#type: ty,
-        nullable: true,
-        default: None,
-        comment: None,
-        primary_key: None,
-        unique: None,
-        index: None,
-        foreign_key: None,
-    }
+    ColumnDef::new(name, ty, true)
 }
 
 fn nullable_rebuild_plan() -> (MigrationPlan, Vec<TableDef>) {

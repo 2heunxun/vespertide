@@ -75,8 +75,8 @@ fn fk_table(idx: usize, refs: &[usize; 3]) -> TableDef {
 
         constraints.push(TableConstraint::ForeignKey {
             name: None,
-            columns: vec![column],
-            ref_table: format!("table_{target}"),
+            columns: vec![column.into()],
+            ref_table: format!("table_{target}").into(),
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
@@ -84,7 +84,7 @@ fn fk_table(idx: usize, refs: &[usize; 3]) -> TableDef {
     }
 
     TableDef {
-        name: format!("table_{idx}"),
+        name: format!("table_{idx}").into(),
         description: None,
         columns,
         constraints,

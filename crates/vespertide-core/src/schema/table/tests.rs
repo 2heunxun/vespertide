@@ -7,7 +7,7 @@ use crate::schema::str_or_bool::StrOrBoolOrArray;
 
 pub(super) fn col(name: &str, ty: ColumnType) -> ColumnDef {
     ColumnDef {
-        name: name.to_string(),
+        name: name.into(),
         r#type: ty,
         nullable: true,
         default: None,

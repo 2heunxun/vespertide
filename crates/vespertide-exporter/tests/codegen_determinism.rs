@@ -64,7 +64,7 @@ fn sqlmodel_parallel_render_entities_is_thread_count_deterministic() {
 fn wide_schema(table_count: usize) -> Vec<TableDef> {
     (0..table_count)
         .map(|index| TableDef {
-            name: format!("table_{index:03}"),
+            name: format!("table_{index:03}").into(),
             description: Some(format!("Table {index}")),
             columns: vec![
                 ColumnDef {
@@ -116,12 +116,12 @@ fn arb_table_def() -> impl Strategy<Value = TableDef> {
             }),
     )
         .prop_map(|(name, columns)| TableDef {
-            name,
+            name: name.into(),
             description: None,
             columns: columns
                 .into_iter()
                 .map(|(name, r#type, nullable)| ColumnDef {
-                    name,
+                    name: name.into(),
                     r#type,
                     nullable,
                     default: None,

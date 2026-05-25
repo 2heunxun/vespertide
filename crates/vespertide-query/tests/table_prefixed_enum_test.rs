@@ -6,8 +6,10 @@ mod test_utils {
     };
     use vespertide_query::{DatabaseBackend, build_plan_queries};
     #[test]
-    // reason: integration scenario asserts one generated migration end-to-end.
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "single integration scenario validates table-prefixed enum SQL across two tables; splitting cases is deferred"
+    )]
     fn test_table_prefixed_enum_names() {
         // Test that enum types are created with table-prefixed names to avoid conflicts
         let plan = MigrationPlan {

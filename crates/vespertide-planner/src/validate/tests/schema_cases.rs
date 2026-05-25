@@ -21,6 +21,63 @@ fn validate_schema_rejects_duplicate_column_names() {
 }
 
 #[test]
+fn validate_schema_fk_ref_column_not_found() {
+    let schema = vec![table(
+        "users",
+        vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
+        vec![
+            pk(vec!["id"]),
+            TableConstraint::ForeignKey {
+                name: Some("fk_bad".into()),
+                columns: vec!["id".into()],
+                ref_table: "users".into(),
+                ref_columns: vec!["nonexistent".into()],
+                on_delete: None,
+                on_update: None,
+            },
+        ],
+    )];
+
+    let result = validate_schema(&schema);
+
+    assert!(
+        matches!(
+            result,
+            Err(PlannerError::ForeignKeyColumnNotFound(_, _, _, _))
+        ),
+        "FK pointing to non-existent column should trigger ForeignKeyColumnNotFound, got: {result:?}"
+    );
+}
+
+#[test]
+fn validate_schema_duplicate_enum_variant_name() {
+    let schema = vec![table(
+        "orders",
+        vec![
+            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col(
+                "status",
+                ColumnType::Complex(ComplexColumnType::Enum {
+                    name: "status_enum".into(),
+                    values: EnumValues::String(vec!["active".into(), "active".into()]),
+                }),
+            ),
+        ],
+        vec![pk(vec!["id"])],
+    )];
+
+    let result = validate_schema(&schema);
+
+    assert!(
+        matches!(
+            result,
+            Err(PlannerError::DuplicateEnumVariantName(_, _, _, _))
+        ),
+        "duplicate enum variant should trigger DuplicateEnumVariantName, got: {result:?}"
+    );
+}
+
+#[test]
 fn validate_schema_rejects_numeric_scale_greater_than_precision() {
     let schema = vec![table(
         "prices",

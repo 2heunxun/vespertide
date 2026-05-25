@@ -9,7 +9,7 @@ fn diff_created_tables_reports_missing_original_table_instead_of_panicking() {
     let ghost = table(
         "ghost",
         vec![ColumnDef {
-            name: "id".to_string(),
+            name: "id".into(),
             r#type: ColumnType::Simple(SimpleColumnType::Integer),
             nullable: false,
             default: None,
@@ -46,7 +46,7 @@ fn create_table_with_inline_index() {
         "users",
         vec![
             ColumnDef {
-                name: "id".to_string(),
+                name: "id".into(),
                 r#type: ColumnType::Simple(SimpleColumnType::Integer),
                 nullable: false,
                 default: None,
@@ -57,7 +57,7 @@ fn create_table_with_inline_index() {
                 foreign_key: None,
             },
             ColumnDef {
-                name: "name".to_string(),
+                name: "name".into(),
                 r#type: ColumnType::Simple(SimpleColumnType::Text),
                 nullable: true,
                 default: None,
@@ -81,7 +81,7 @@ fn create_table_with_inline_index() {
             "users",
             vec![
                 ColumnDef {
-                    name: "id".to_string(),
+                    name: "id".into(),
                     r#type: ColumnType::Simple(SimpleColumnType::Integer),
                     nullable: false,
                     default: None,
@@ -92,7 +92,7 @@ fn create_table_with_inline_index() {
                     foreign_key: None,
                 },
                 ColumnDef {
-                    name: "name".to_string(),
+                    name: "name".into(),
                     r#type: ColumnType::Simple(SimpleColumnType::Text),
                     nullable: true,
                     default: None,
@@ -119,7 +119,7 @@ fn create_table_with_inline_index() {
             "users",
             vec![
                 ColumnDef {
-                    name: "id".to_string(),
+                    name: "id".into(),
                     r#type: ColumnType::Simple(SimpleColumnType::Integer),
                     nullable: false,
                     default: None,
@@ -136,7 +136,7 @@ fn create_table_with_inline_index() {
             "users",
             vec![
                 ColumnDef {
-                    name: "id".to_string(),
+                    name: "id".into(),
                     r#type: ColumnType::Simple(SimpleColumnType::Integer),
                     nullable: false,
                     default: None,
@@ -156,7 +156,7 @@ fn create_table_with_inline_index() {
             "users",
             vec![
                 ColumnDef {
-                    name: "id".to_string(),
+                    name: "id".into(),
                     r#type: ColumnType::Simple(SimpleColumnType::Integer),
                     nullable: false,
                     default: None,
@@ -173,7 +173,7 @@ fn create_table_with_inline_index() {
             "users",
             vec![
                 ColumnDef {
-                    name: "id".to_string(),
+                    name: "id".into(),
                     r#type: ColumnType::Simple(SimpleColumnType::Integer),
                     nullable: false,
                     default: None,
@@ -193,7 +193,7 @@ fn create_table_with_inline_index() {
             "users",
             vec![
                 ColumnDef {
-                    name: "id".to_string(),
+                    name: "id".into(),
                     r#type: ColumnType::Simple(SimpleColumnType::Integer),
                     nullable: false,
                     default: None,
@@ -210,7 +210,7 @@ fn create_table_with_inline_index() {
             "users",
             vec![
                 ColumnDef {
-                    name: "id".to_string(),
+                    name: "id".into(),
                     r#type: ColumnType::Simple(SimpleColumnType::Integer),
                     nullable: false,
                     default: None,
@@ -230,7 +230,7 @@ fn create_table_with_inline_index() {
             "users",
             vec![
                 ColumnDef {
-                    name: "id".to_string(),
+                    name: "id".into(),
                     r#type: ColumnType::Simple(SimpleColumnType::Integer),
                     nullable: false,
                     default: None,
@@ -247,7 +247,7 @@ fn create_table_with_inline_index() {
             "users",
             vec![
                 ColumnDef {
-                    name: "id".to_string(),
+                    name: "id".into(),
                     r#type: ColumnType::Simple(SimpleColumnType::Integer),
                     nullable: false,
                     default: None,

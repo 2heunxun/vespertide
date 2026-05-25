@@ -1,4 +1,5 @@
 use super::{MigrationAction, MigrationPlan};
+use crate::schema::TableName;
 
 impl MigrationPlan {
     /// Apply a prefix to all table names in the migration plan.
@@ -124,7 +125,7 @@ fn prefix_remaining_action(action: MigrationAction, prefix: &str) -> MigrationAc
             new_comment,
         },
         MigrationAction::AddConstraint { table, constraint } => MigrationAction::AddConstraint {
-            table: format!("{prefix}{table}"),
+            table: format!("{prefix}{table}").into(),
             constraint: constraint.with_prefix(prefix),
         },
         MigrationAction::RemoveConstraint { table, constraint } => {
@@ -144,7 +145,8 @@ fn prefix_remaining_action(action: MigrationAction, prefix: &str) -> MigrationAc
     }
 }
 
-fn add_prefix(mut table: String, prefix: &str) -> String {
+fn add_prefix(table: TableName, prefix: &str) -> TableName {
+    let mut table = table.into_inner();
     table.insert_str(0, prefix);
-    table
+    table.into()
 }

@@ -50,7 +50,7 @@ fn build_table(n_columns: usize, with_inline_constraints: bool) -> TableDef {
     }
 
     TableDef {
-        name: format!("normalize_{n_columns}_{with_inline_constraints}"),
+        name: format!("normalize_{n_columns}_{with_inline_constraints}").into(),
         description: None,
         columns,
         constraints: vec![],

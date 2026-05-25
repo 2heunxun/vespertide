@@ -115,14 +115,14 @@ pub fn build_replace_constraint(
     clippy::too_many_arguments,
     reason = "mirrors foreign key action fields"
 )]
-fn build_direct_foreign_key_replace(
+fn build_direct_foreign_key_replace<T: AsRef<str>, U: AsRef<str>, V: AsRef<str>>(
     table: &str,
     old_name: Option<&str>,
-    old_columns: &[String],
+    old_columns: &[T],
     new_name: Option<&str>,
-    new_columns: &[String],
+    new_columns: &[U],
     ref_table: &str,
-    ref_columns: &[String],
+    ref_columns: &[V],
     on_delete: Option<&vespertide_core::ReferenceAction>,
     on_update: Option<&vespertide_core::ReferenceAction>,
 ) -> Vec<BuiltQuery> {
@@ -147,12 +147,12 @@ fn build_direct_foreign_key_replace(
     ]
 }
 
-fn build_replacement_foreign_key(
+fn build_replacement_foreign_key<T: AsRef<str>, U: AsRef<str>>(
     table: &str,
     new_name: Option<&str>,
-    new_columns: &[String],
+    new_columns: &[T],
     ref_table: &str,
-    ref_columns: &[String],
+    ref_columns: &[U],
     on_delete: Option<&vespertide_core::ReferenceAction>,
     on_update: Option<&vespertide_core::ReferenceAction>,
 ) -> sea_query::ForeignKeyCreateStatement {
@@ -161,11 +161,11 @@ fn build_replacement_foreign_key(
     fk_create.name(&new_fk_name);
     fk_create.from_tbl(Alias::new(table));
     for col in new_columns {
-        fk_create.from_col(Alias::new(col));
+        fk_create.from_col(Alias::new(col.as_ref()));
     }
     fk_create.to_tbl(Alias::new(ref_table));
     for col in ref_columns {
-        fk_create.to_col(Alias::new(col));
+        fk_create.to_col(Alias::new(col.as_ref()));
     }
     if let Some(action) = on_delete {
         fk_create.on_delete(to_sea_fk_action(action));
@@ -190,7 +190,7 @@ fn build_sqlite_constraint_replace(
         .iter()
         .find(|t| t.name == table)
         .ok_or_else(|| {
-            QueryError::Other(format!(
+            QueryError::SchemaError(format!(
                 "Table '{table}' not found in current schema. SQLite requires current schema \
                  information to replace constraints."
             ))
