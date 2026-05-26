@@ -1,11 +1,12 @@
 use anyhow::Result;
 use colored::Colorize;
 use vespertide_planner::{
-    MissingFkSupportingIndex, find_missing_fk_supporting_indexes, plan_next_migration,
+    ConstraintDropWarning, MissingFkSupportingIndex, find_constraint_drops_without_replacement,
+    find_missing_fk_supporting_indexes, plan_next_migration,
 };
 
 use crate::utils::{load_config, load_migrations, load_models};
-use vespertide_core::MigrationAction;
+use vespertide_core::{MigrationAction, MigrationPlan};
 
 pub async fn cmd_diff() -> Result<()> {
     let config = load_config()?;
@@ -42,8 +43,63 @@ pub async fn cmd_diff() -> Result<()> {
     // Static safety analyses that run on the current model regardless of
     // whether there are pending actions — these are warnings, not blockers.
     emit_fk_supporting_index_warnings(&current_models);
+    emit_constraint_drop_warnings(&plan);
 
     Ok(())
+}
+
+/// Surface `RemoveConstraint` actions that drop integrity-preserving
+/// constraints (PK / UQ / FK / CHECK) with no explicit replacement.
+///
+/// This is fault **F50** in the data-dependent migration fault taxonomy:
+/// the migration succeeds, but every subsequent write that the dropped
+/// constraint would have rejected is now silently accepted.
+fn emit_constraint_drop_warnings(plan: &MigrationPlan) {
+    let warnings = find_constraint_drops_without_replacement(plan);
+    if warnings.is_empty() {
+        return;
+    }
+
+    println!();
+    println!(
+        "{} {}",
+        "⚠".bright_yellow().bold(),
+        format!(
+            "{} constraint drop(s) without explicit replacement \
+             (silent integrity loss risk):",
+            warnings.len()
+        )
+        .bright_yellow()
+    );
+    for w in &warnings {
+        println!();
+        for line in format_constraint_drop_warning(w).lines() {
+            println!("{line}");
+        }
+    }
+}
+
+/// Format a single `ConstraintDropWarning` as a multi-line indented block.
+/// Extracted so its output can be unit-tested without going through stdout.
+fn format_constraint_drop_warning(w: &ConstraintDropWarning) -> String {
+    let kind_label = match w.kind {
+        vespertide_core::ConstraintKind::PrimaryKey => "PRIMARY KEY",
+        vespertide_core::ConstraintKind::Unique => "UNIQUE",
+        vespertide_core::ConstraintKind::ForeignKey => "FOREIGN KEY",
+        vespertide_core::ConstraintKind::Check => "CHECK",
+        // Index is filtered out by the detector; this arm exists only to
+        // satisfy the `#[non_exhaustive]` enum.
+        _ => "(unknown)",
+    };
+    format!(
+        "  {} {}\n  {} {}\n  {} future writes can silently violate this invariant\n  {} use `ReplaceConstraint(from, to)` to swap atomically, or keep the constraint",
+        "on:".bright_white(),
+        w.table.bright_cyan(),
+        "drop:".bright_white(),
+        format!("{} — {}", kind_label, w.label).bright_cyan().bold(),
+        "why:".bright_white(),
+        "fix:".bright_green(),
+    )
 }
 
 /// Normalise the current model set and surface FK constraints that lack a
@@ -781,5 +837,91 @@ mod tests {
         assert!(out.contains("audit(tenant_id, user_id)"));
         assert!(out.contains("membership(tenant_id, user_id)"));
         assert!(out.contains("ix_audit__tenant_id_user_id"));
+    }
+
+    // -----------------------------------------------------------------------
+    // F50: constraint-drop warnings
+    // -----------------------------------------------------------------------
+
+    fn drop_warning(
+        kind: vespertide_core::ConstraintKind,
+        label: &str,
+        table: &str,
+        columns: Vec<&str>,
+    ) -> ConstraintDropWarning {
+        ConstraintDropWarning {
+            action_index: 0,
+            table: table.to_string(),
+            kind,
+            label: label.to_string(),
+            columns: columns.into_iter().map(ToString::to_string).collect(),
+        }
+    }
+
+    #[test]
+    fn format_constraint_drop_warning_primary_key_produces_4_lines() {
+        let w = drop_warning(
+            vespertide_core::ConstraintKind::PrimaryKey,
+            "PRIMARY KEY (id)",
+            "users",
+            vec!["id"],
+        );
+        let out = format_constraint_drop_warning(&w);
+
+        assert_eq!(
+            out.lines().count(),
+            4,
+            "4 indented lines: on / drop / why / fix"
+        );
+        for label in ["on:", "drop:", "why:", "fix:"] {
+            assert_eq!(
+                out.matches(label).count(),
+                1,
+                "label `{label}` should appear exactly once in:\n{out}"
+            );
+        }
+        assert!(out.contains("users"));
+        assert!(out.contains("PRIMARY KEY"));
+        assert!(out.contains("PRIMARY KEY (id)"));
+    }
+
+    #[test]
+    fn format_constraint_drop_warning_unique_uses_unique_kind_label() {
+        let w = drop_warning(
+            vespertide_core::ConstraintKind::Unique,
+            "uq_users__email UNIQUE (email)",
+            "users",
+            vec!["email"],
+        );
+        let out = format_constraint_drop_warning(&w);
+        assert!(out.contains("UNIQUE"));
+        assert!(out.contains("uq_users__email"));
+    }
+
+    #[test]
+    fn format_constraint_drop_warning_foreign_key_uses_fk_kind_label() {
+        let w = drop_warning(
+            vespertide_core::ConstraintKind::ForeignKey,
+            "fk_orders__user FK (user_id) -> users",
+            "orders",
+            vec!["user_id"],
+        );
+        let out = format_constraint_drop_warning(&w);
+        assert!(out.contains("FOREIGN KEY"));
+        assert!(out.contains("fk_orders__user"));
+        assert!(out.contains("-> users"));
+    }
+
+    #[test]
+    fn format_constraint_drop_warning_check_uses_check_kind_label() {
+        let w = drop_warning(
+            vespertide_core::ConstraintKind::Check,
+            "chk_positive_total CHECK (total > 0)",
+            "orders",
+            vec![],
+        );
+        let out = format_constraint_drop_warning(&w);
+        assert!(out.contains("CHECK"));
+        assert!(out.contains("total > 0"));
     }
 }
