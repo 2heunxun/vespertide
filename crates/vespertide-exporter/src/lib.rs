@@ -7,6 +7,8 @@ mod parallel_config;
 pub mod seaorm;
 pub mod sqlalchemy;
 pub mod sqlmodel;
+#[cfg(test)]
+mod tests;
 mod utils;
 
 pub use jpa::JpaExporter;

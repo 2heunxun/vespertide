@@ -107,7 +107,7 @@
       ]
     },
     "ColumnName": {
-      "description": "The name of a table column, always in `snake_case` by convention.",
+      "description": "The name of a table column, always in `snake_case` by convention.\n\nConstruction and serde round-trip:\n\n```rust\nuse vespertide_core::schema::names::ColumnName;\n\nlet col: ColumnName = ColumnName::new(\"email\");\nlet via_from: ColumnName = \"email\".into();\n\nassert_eq!(col.as_str(), \"email\");\nassert!(col == \"email\");\nassert_eq!(col, via_from);\n\n// Wire format is byte-identical to a plain JSON string.\nlet json = serde_json::to_string(&col).unwrap();\nassert_eq!(json, r#\"\"email\"\"#);\nlet back: ColumnName = serde_json::from_str(&json).unwrap();\nassert_eq!(back, col);\n```",
       "type": "string"
     },
     "ColumnType": {
@@ -717,7 +717,7 @@
       ]
     },
     "TableName": {
-      "description": "The name of a database table, always in `snake_case` by convention.",
+      "description": "The name of a database table, always in `snake_case` by convention.\n\nConstruction:\n\n```rust\nuse vespertide_core::schema::names::TableName;\n\nlet via_new: TableName = TableName::new(\"user\");\nlet via_from: TableName = \"user\".into();\n\nassert_eq!(via_new.as_str(), \"user\");\nassert!(via_new == \"user\");\nassert_eq!(via_new.to_string(), \"user\");\nassert_eq!(via_new, via_from);\n```\n\nJSON wire format is byte-identical to a plain `String` thanks to\n`#[serde(transparent)]`. See [`ColumnName`] for a serde round-trip example.",
       "type": "string"
     }
   }

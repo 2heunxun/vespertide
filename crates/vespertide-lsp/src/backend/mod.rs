@@ -18,21 +18,19 @@ use std::sync::Arc;
 
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::{
-    CodeAction, CodeActionKind as LspCodeActionKind, CodeActionOptions, CodeActionOrCommand,
-    CodeActionParams, CodeActionProviderCapability, CodeActionResponse, CompletionOptions,
-    CompletionParams, CompletionResponse, Diagnostic, DidChangeTextDocumentParams,
-    DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentFormattingParams, DocumentHighlight,
-    DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse, FoldingRange,
-    FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
-    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
-    InlayHint, InlayHintKind as LspInlayHintKind, InlayHintLabel, InlayHintOptions,
-    InlayHintParams, InlayHintServerCapabilities, Location, MarkupContent, MarkupKind, MessageType,
-    OneOf, Position, PrepareRenameResponse, Range, ReferenceParams, RenameOptions, RenameParams,
-    SelectionRange, SelectionRangeParams, SelectionRangeProviderCapability,
-    SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
-    SemanticTokensRangeParams, SemanticTokensRangeResult, SemanticTokensResult,
-    SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, SymbolInformation,
+    CodeActionKind as LspCodeActionKind, CodeActionOptions, CodeActionParams,
+    CodeActionProviderCapability, CodeActionResponse, CompletionOptions, CompletionParams,
+    CompletionResponse, Diagnostic, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentFormattingParams, DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams,
+    DocumentSymbolResponse, FoldingRange, FoldingRangeParams, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability, InitializeParams,
+    InitializeResult, InitializedParams, InlayHint, InlayHintOptions, InlayHintParams,
+    InlayHintServerCapabilities, Location, MessageType, OneOf, Position, PrepareRenameResponse,
+    Range, ReferenceParams, RenameOptions, RenameParams, SelectionRange, SelectionRangeParams,
+    SelectionRangeProviderCapability, SemanticTokensFullOptions, SemanticTokensOptions,
+    SemanticTokensParams, SemanticTokensRangeParams, SemanticTokensRangeResult,
+    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo,
     TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
     TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit, Uri, WorkDoneProgressOptions,
     WorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
@@ -432,344 +430,37 @@ impl LanguageServer for Backend {
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let uri = &params.text_document_position.text_document.uri;
-        let pos_ls = params.text_document_position.position;
-        let pos_lsp = crate::position::ls_to_lsp_position(pos_ls);
-        let Some(format) = DocumentFormat::from_uri(uri) else {
-            tracing::debug!(
-                target: "vespertide_lsp::handler",
-                uri = %uri.as_str(),
-                "completion: unsupported document format"
-            );
-            return Ok(None);
-        };
-
-        let items = self.store.docs_iter_for_uri(uri, |state| {
-            let text = state.text();
-            let byte = crate::position::lsp_position_to_byte(&state.doc, pos_lsp);
-            crate::completion::compute_with_workspace_tables(
-                text,
-                format,
-                state.tree.as_ref(),
-                self.index.as_ref(),
-                self.store.as_ref(),
-                self.workspace_tables.as_ref(),
-                byte,
-            )
-            .into_iter()
-            .map(|item| domain_to_lsp(item, &state.doc))
-            .collect::<Vec<_>>()
-        });
-
-        let count = items.as_ref().map_or(0, Vec::len);
-        tracing::info!(
-            target: "vespertide_lsp::handler",
-            uri = %uri.as_str(),
-            line = pos_lsp.line,
-            character = pos_lsp.character,
-            items = count,
-            "completion"
-        );
-
-        Ok(items.map(CompletionResponse::Array))
+        handler_navigation::completion_impl(self, params).await
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let uri = &params.text_document_position_params.text_document.uri;
-        let pos_ls = params.text_document_position_params.position;
-        let pos_lsp = crate::position::ls_to_lsp_position(pos_ls);
-        let Some(format) = DocumentFormat::from_uri(uri) else {
-            return Ok(None);
-        };
-
-        let result = self.store.docs_iter_for_uri(uri, |state| {
-            let text = state.text();
-            let byte = crate::position::lsp_position_to_byte(&state.doc, pos_lsp);
-            let domain = crate::hover::compute_with_workspace_tables(
-                text,
-                format,
-                state.tree.as_ref(),
-                self.index.as_ref(),
-                self.store.as_ref(),
-                Some(self.workspace_tables.as_ref()),
-                byte,
-            )?;
-            let start = crate::position::byte_to_lsp_position(&state.doc, domain.byte_range.start);
-            let end = crate::position::byte_to_lsp_position(&state.doc, domain.byte_range.end);
-            Some(Hover {
-                contents: HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: domain.markdown,
-                }),
-                range: Some(Range {
-                    start: Position {
-                        line: start.line,
-                        character: start.character,
-                    },
-                    end: Position {
-                        line: end.line,
-                        character: end.character,
-                    },
-                }),
-            })
-        });
-        Ok(result.flatten())
+        handler_navigation::hover_impl(self, params).await
     }
 
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let uri = params.text_document_position_params.text_document.uri;
-        let pos_ls = params.text_document_position_params.position;
-        let pos_lsp = crate::position::ls_to_lsp_position(pos_ls);
-        let Some(format) = DocumentFormat::from_uri(&uri) else {
-            return Ok(None);
-        };
-
-        let domain = self
-            .store
-            .docs_iter_for_uri(&uri, |state| {
-                let text = state.text();
-                let byte = crate::position::lsp_position_to_byte(&state.doc, pos_lsp);
-                crate::definition::compute_with_workspace_tables(
-                    text,
-                    format,
-                    state.tree.as_ref(),
-                    self.index.as_ref(),
-                    self.store.as_ref(),
-                    Some(self.workspace_tables.as_ref()),
-                    byte,
-                )
-            })
-            .flatten();
-
-        let Some(domain) = domain else {
-            tracing::info!(
-                target: "vespertide_lsp::handler",
-                uri = %uri.as_str(),
-                line = pos_lsp.line,
-                character = pos_lsp.character,
-                "goto_definition: no target"
-            );
-            return Ok(None);
-        };
-        tracing::info!(
-            target: "vespertide_lsp::handler",
-            from_uri = %uri.as_str(),
-            target_uri = %domain.uri.as_str(),
-            line = pos_lsp.line,
-            character = pos_lsp.character,
-            "goto_definition: resolved"
-        );
-
-        let target_range = self
-            .store
-            .docs_iter_for_uri(&domain.uri, |state| {
-                let start =
-                    crate::position::byte_to_lsp_position(&state.doc, domain.byte_range.start);
-                let end = crate::position::byte_to_lsp_position(&state.doc, domain.byte_range.end);
-                Range {
-                    start: Position {
-                        line: start.line,
-                        character: start.character,
-                    },
-                    end: Position {
-                        line: end.line,
-                        character: end.character,
-                    },
-                }
-            })
-            .unwrap_or(Range {
-                start: Position {
-                    line: 0,
-                    character: 0,
-                },
-                end: Position {
-                    line: 0,
-                    character: 0,
-                },
-            });
-
-        Ok(Some(GotoDefinitionResponse::Scalar(Location {
-            uri: domain.uri,
-            range: target_range,
-        })))
+        handler_navigation::goto_definition_impl(self, params).await
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        let uri = params.text_document_position.text_document.uri;
-        let pos_ls = params.text_document_position.position;
-        let pos_lsp = crate::position::ls_to_lsp_position(pos_ls);
-        let include_declaration = params.context.include_declaration;
-        let Some(format) = DocumentFormat::from_uri(&uri) else {
-            return Ok(None);
-        };
-
-        let domain_refs = self.store.docs_iter_for_uri(&uri, |state| {
-            let text = state.text();
-            let byte = crate::position::lsp_position_to_byte(&state.doc, pos_lsp);
-            crate::references::compute(
-                text,
-                format,
-                state.tree.as_ref(),
-                &uri,
-                self.index.as_ref(),
-                self.store.as_ref(),
-                Some(self.workspace_tables.as_ref()),
-                byte,
-                include_declaration,
-            )
-        });
-        let Some(domain_refs) = domain_refs else {
-            return Ok(None);
-        };
-
-        tracing::info!(
-            target: "vespertide_lsp::handler",
-            uri = %uri.as_str(),
-            line = pos_lsp.line,
-            character = pos_lsp.character,
-            include_declaration,
-            count = domain_refs.len(),
-            "references"
-        );
-
-        let locations = domain_refs
-            .into_iter()
-            .filter_map(|reference| domain_reference_to_location(&reference, self))
-            .collect::<Vec<_>>();
-
-        if locations.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(locations))
-        }
+        handler_navigation::references_impl(self, params).await
     }
 
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
-        let uri = params.text_document.uri;
-        let range_ls = params.range;
-        let range_lsp = crate::position::ls_to_lsp_range(range_ls);
-        let Some(format) = DocumentFormat::from_uri(&uri) else {
-            return Ok(None);
-        };
-
-        let domain_actions = self.store.docs_iter_for_uri(&uri, |state| {
-            let text = state.text();
-            let start = crate::position::lsp_position_to_byte(&state.doc, range_lsp.start);
-            let end = crate::position::lsp_position_to_byte(&state.doc, range_lsp.end);
-            crate::code_actions::compute(text, format, state.tree.as_ref(), start..end)
-        });
-        let Some(domain_actions) = domain_actions else {
-            return Ok(None);
-        };
-
-        tracing::info!(
-            target: "vespertide_lsp::handler",
-            uri = %uri.as_str(),
-            actions = domain_actions.len(),
-            "code_action"
-        );
-
-        let actions: Vec<CodeActionOrCommand> = domain_actions
-            .into_iter()
-            .filter_map(|action| {
-                let text_edits = domain_edits_to_lsp(&uri, &action.edits, self)?;
-                let mut changes = std::collections::HashMap::new();
-                changes.insert(uri.clone(), text_edits);
-                Some(CodeActionOrCommand::CodeAction(CodeAction {
-                    title: action.title,
-                    kind: Some(LspCodeActionKind::REFACTOR),
-                    edit: Some(WorkspaceEdit {
-                        changes: Some(changes),
-                        ..WorkspaceEdit::default()
-                    }),
-                    ..CodeAction::default()
-                }))
-            })
-            .collect();
-
-        if actions.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(actions))
-        }
+        handler_navigation::code_action_impl(self, params).await
     }
 
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
-        let uri = params.text_document.uri;
-        let range_ls = params.range;
-        let range_lsp = crate::position::ls_to_lsp_range(range_ls);
-        let Some(_format) = DocumentFormat::from_uri(&uri) else {
-            return Ok(None);
-        };
-
-        let hints = self.store.docs_iter_for_uri(&uri, |state| {
-            let text = state.text();
-            let start = crate::position::lsp_position_to_byte(&state.doc, range_lsp.start);
-            let end = crate::position::lsp_position_to_byte(&state.doc, range_lsp.end);
-            let domain = crate::inlay_hints::compute(text, state.tree.as_ref(), start..end);
-            domain
-                .into_iter()
-                .map(|hint| InlayHint {
-                    position: byte_to_ls_position(&state.doc, hint.byte_offset),
-                    label: InlayHintLabel::String(hint.label),
-                    kind: Some(LspInlayHintKind::TYPE),
-                    text_edits: None,
-                    tooltip: None,
-                    padding_left: Some(false),
-                    padding_right: Some(false),
-                    data: None,
-                })
-                .collect::<Vec<_>>()
-        });
-
-        let Some(hints) = hints else {
-            return Ok(None);
-        };
-
-        tracing::debug!(
-            target: "vespertide_lsp::handler",
-            uri = %uri.as_str(),
-            count = hints.len(),
-            "inlay_hint"
-        );
-
-        if hints.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(hints))
-        }
+        handler_navigation::inlay_hint_impl(self, params).await
     }
 
     async fn symbol(
         &self,
         params: WorkspaceSymbolParams,
     ) -> Result<Option<WorkspaceSymbolResponse>> {
-        let query = params.query;
-        let domain = crate::symbols::compute_shared(
-            &query,
-            self.store.as_ref(),
-            Some(self.workspace_tables.as_ref()),
-        );
-
-        tracing::info!(
-            target: "vespertide_lsp::handler",
-            query = %query,
-            results = domain.len(),
-            "workspace symbol"
-        );
-
-        let lsp_symbols: Vec<SymbolInformation> = domain
-            .iter()
-            .filter_map(|sym| symbol_to_lsp(sym, self))
-            .collect();
-        if lsp_symbols.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(WorkspaceSymbolResponse::Flat(lsp_symbols)))
-        }
+        handler_navigation::symbol_impl(self, params).await
     }
 
     async fn prepare_rename(
@@ -962,9 +653,7 @@ impl LanguageServer for Backend {
 }
 
 mod handler_file_features;
+mod handler_navigation;
 mod handler_rename;
 mod helpers;
-use helpers::{
-    byte_to_ls_position, diagnostic_severity_counts, domain_edits_to_lsp,
-    domain_reference_to_location, domain_to_lsp, normalize_path, symbol_to_lsp,
-};
+use helpers::{diagnostic_severity_counts, normalize_path};

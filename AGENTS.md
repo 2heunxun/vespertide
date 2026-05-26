@@ -217,7 +217,6 @@ Largest production files (margin 임박 = next split candidates):
 
 | File | Lines | What |
 |------|-------|------|
-| `exporter/src/seaorm/relations.rs` | 996 | SeaORM FK relation resolution + sequential aggregation |
 | `cli/src/commands/export.rs` | 991 | CLI export command for 4 ORMs |
 | `query/src/sql/create_table.rs` | 750 | CREATE TABLE statement generation |
 | `query/src/sql/add_column.rs` | 732 | ADD COLUMN with SQLite temp-table for non-nullable/enum |
@@ -231,11 +230,11 @@ Largest test files (snapshot-locked; split costs snapshot rename):
 
 | File | Lines | What |
 |------|-------|------|
-| `exporter/src/seaorm/tests.rs` | 990 | SeaORM codegen snapshots |
-| `core/src/schema/table/tests.rs` | 986 | Table normalization tests |
-| `exporter/src/sqlalchemy/tests.rs` | 988 | SQLAlchemy snapshots |
-| `query/src/sql/delete_column/tests.rs` | 954 | DROP COLUMN tests |
+| `core/src/schema/table/tests/mod.rs` | 986 | Table normalization tests |
+| `query/src/sql/delete_column/tests/mod.rs` | 847 | DROP COLUMN tests |
 | `planner/src/validate/tests/plan_validation.rs` | 954 | Plan validation tests |
+| `core/src/action/tests/mod.rs` | 894 | MigrationAction unit tests |
+| `planner/src/apply/tests/mod.rs` | 806 | apply_action unit tests |
 
 **Historical splits** (Waves 1-9 of optimization work):
 - `planner/src/diff.rs` (4739) → `diff/{mod,columns,constraints,ordering,tables}.rs`
@@ -254,17 +253,105 @@ Largest test files (snapshot-locked; split costs snapshot rename):
 - `query/src/sql/delete_column.rs` (1084) → `delete_column/{mod,tests}.rs`
 - `query/src/sql/modify_column_type.rs` (1056, Wave 9) → `modify_column_type/{mod,direct,sqlite_rebuild,tests}.rs`
 - `query/src/builder.rs` (995, Wave 9 preventive) → `builder/{mod,sequential,transaction,parallel,tests}.rs`
+- `lsp/src/backend/mod.rs` (970, preventive) → extracted 7 navigation/feature handler bodies (`completion`, `hover`, `goto_definition`, `references`, `code_action`, `inlay_hint`, `symbol`) into `backend/handler_navigation.rs`. Trait methods in `mod.rs` are now one-line delegations to `handler_navigation::*_impl(self, params).await`. Final: `mod.rs` 599 lines, `handler_navigation.rs` 358 lines. Mirrors the pre-existing `handler_file_features.rs` / `handler_rename.rs` pattern.
+- `lsp/src/drift/mod.rs` (715 production-only, preventive) → `drift/{types,compute,sources,actions}.rs` (with pre-existing `cache.rs` unchanged). Carved by responsibility: `types.rs` (118) holds `DriftKind` + `DomainDrift` + internal `DriftRecord` tuple alias; `compute.rs` (240) holds `compute` / `compute_with_cache` / `loaded_state_with_cache` + path resolution helpers (`find_config_and_mtime`, `resolve_models_dir`, `guess_uri`, `path_to_uri`); `sources.rs` (31) holds `source_and_tree` + `source_and_tree_from_disk`; `actions.rs` (356) holds the `action_to_drift` dispatcher, per-action drift builders, render helpers (`render_column_type` / `render_default` / `render_nullable` / `render_comment`), `lookup_baseline_column`, and tree-sitter range helpers. Public API surface unchanged (`pub use {DriftKind, DomainDrift, DriftCache, compute, compute_with_cache}`). Cross-module helpers narrowed from `pub(crate)` to `pub(super)` since callers all live under `drift::`. With production now ~22 lines, the previously out-of-line `drift/tests/mod.rs` (484 lines) was inlined into `drift/mod.rs` as a `#[cfg(test)] mod tests { ... }` block — final `drift/mod.rs` 528 lines (well under the 1200 combined ceiling); `tests/mod.rs` count 10 → 9.
+- `exporter/src/seaorm/relations.rs` (1000 production-only, at workspace cap) → `seaorm/relations/{mod,fk_resolve,naming,self_ref,reverse}.rs`. Carved by responsibility: `fk_resolve.rs` (118) holds `as_fk` (private) + the `resolve_fk_target` / `resolve_fk_target_inner` chain walker + the `ForwardRelationResolution` struct emitted by `resolve_table_fks_pure` (sequential/parallel split on `SEAORM_RELATION_PAR_FK_THRESHOLD`); `naming.rs` (134) holds the pure naming helpers `generate_relation_enum_name` / `unique_relation_enum_name` / `infer_field_name_from_fk_column` / `pluralize` / `fk_attr_value`; `self_ref.rs` (233) holds `SelfRefJunction` + `collect_self_ref_junction` / `self_ref_link_name` / `resolve_self_ref_link_module_path` / `render_self_ref_link_helpers` / `render_self_ref_query_helpers`; `reverse.rs` (467) holds the private `ReverseRelation` struct + `collect_reverse_relation_targets` / `collect_many_to_many_targets` / `reverse_relation_field_defs` (+ private `ReverseRelationFieldCtx` and `collect_many_to_many_relations`); `mod.rs` (140) owns the forward (`belongs_to`) `relation_field_defs_with_schema` entry point and the `pub(in crate::seaorm) use` re-exports that satisfy the existing `use super::relations::{...}` import in `seaorm/render.rs` and the `#[cfg(test)] use relations::*;` glob in `seaorm/mod.rs`. Visibility envelope unchanged: items previously `pub(super)` of `seaorm::relations` (i.e. visible throughout `seaorm`) are now `pub(in crate::seaorm)` on items hosted in submodules — same scope, just spelled differently to survive the extra module hop. SeaORM codegen output is byte-identical (0 `.snap.new` files across the 232 cross-ORM snapshots + per-ORM seaorm snapshots). Largest sub-file (`reverse.rs`, 467) is well under the 1000-line policy; aggregate relations-tree = 1092 lines.
+- `cli/src/commands/erd/svg.rs` (995 production-only, preventive) → `erd/svg/{mod,style,model,layout,edges,render,util}.rs`. Carved by responsibility: `style.rs` (55) holds every palette / sizing / typography constant as `pub(super)`; `model.rs` (189) holds `TableBox` / `RowSpec` / `EdgeSpec` plus `build_boxes` / `build_edges` / `measure_table_width` / `badge_block_width`; `layout.rs` (116) holds `compute_ranks` / `layout_grid` / `rebalance_groups` / `view_size`; `edges.rs` (247) holds the private `Side` enum, `edge_geometry`, `render_edge_path` / `render_edge_label`, `pick_anchors`, `bezier_path` / `bezier_at` / `control_point`, and the `parallel_curvature_offset` / `label_t_for_parallel` helpers; `render.rs` (297) holds `render_doc` + `render_defs` + `render_table` / `render_row` / `render_badge` + the `rounded_top_path` / `rounded_bottom_path` SVG-path emitters; `util.rs` (32) holds `render_empty` and `escape_xml`; `mod.rs` (49) keeps the single public entry `pub fn render_svg(...)` orchestrating the pipeline. Public API surface unchanged — `erd::svg::render_svg` resolves identically. The original 9-lint file-level `#![expect(clippy::...)]` block was distributed per-file to exactly the lints each module triggers: `cast_precision_loss` (every coord-math file), `cast_lossless` (model only, for `u32`→`f64` badge counts), `cast_possible_truncation`+`cast_sign_loss` (layout only, for `sqrt().ceil() as usize`), `range_plus_one` (layout only, for `0..(n+1)` rank fixed-point), `uninlined_format_args` (edges/render/util, for `writeln!("{x}", x = …)` SVG templates), `too_many_arguments`+`similar_names` (edges only, for Bézier helpers), `unnecessary_wraps` (mod.rs only, for `render_svg -> Result`). `style.rs` carries zero lint exemptions. Largest sub-file (`render.rs`, 297) is well under the 1000-line policy; aggregate svg-tree = 985 lines.
 
 Verify line policy: `python -c "import os, glob; files = []; [files.extend(glob.glob(os.path.join(r,'*.rs'))) for r,_,_ in os.walk('crates')]; over = [(sum(1 for _ in open(f, encoding='utf-8', errors='ignore')), f) for f in files]; result = sorted([x for x in over if x[0] > 1000], reverse=True); print('\n'.join(f'{l:5} {p}' for l, p in result) if result else 'OK: zero files >1000 lines')"`
 
 ## TESTING
 
-- `rstest` for parameterized tests
+- `rstest` for parameterized tests — **default choice for any test with ≥ 2 input variants** (multi-backend, multi-ORM, multi-format). Plain `#[test]` is reserved for single-case unit tests.
 - `serial_test::serial` for filesystem tests
 - `insta` for snapshot testing (exporter crate)
 - `proptest` for property-based testing (`vespertide-planner` diff + `vespertide-query` SQL)
 - Helper functions: `col()`, `table()` reduce boilerplate
-- **2135 tests across ~276 `.rs` files, 0 failed, 3 documented `#[ignore]`** (offline trybuild + 2 `///` doctest blocks)
+- **2267 tests across ~276 `.rs` files, 0 failed, 3 documented `#[ignore]`** (offline trybuild + 2 `///` doctest blocks)
+
+### Test-file placement policy (avoid confusion with production code)
+
+| Pattern | Verdict | Rationale |
+|---|---|---|
+| **`#[cfg(test)] mod tests { ... }` inline at the bottom of a production `.rs`** | ✅ **Preferred — default choice** | Closest to the code under test; zero confusion; no `mod tests;` declaration needed; private items reachable via `use super::*;` without widening visibility. Allowed when **`production_lines + inline_test_lines + 5 wrapper` ≤ 1200**. |
+| `src/<module>/tests/mod.rs` (entry file inside a `tests/` directory) | ✅ Acceptable fallback | Use **only** when (a) inlining would push the parent `.rs` over the **1200-line combined ceiling** (production + inline tests), or (b) the test entry needs to declare sub-modules (`mod foo; mod bar;`) for `src/<module>/tests/<name>.rs` siblings |
+| `src/<module>/tests/<name>.rs` (anything under a `tests/` directory) | ✅ Acceptable | Directory name marks it as test-only |
+| `crates/<crate>/tests/<name>.rs` (cargo integration tests) | ✅ Acceptable | Standard cargo layout |
+| **`src/<module>/tests.rs`** (bare sibling file named `tests.rs`) | ❌ Forbidden | Owner directive: test files must live inside a `tests/` directory only. Convert to `src/<module>/tests/mod.rs` (parent `mod tests;` declaration is unchanged — cargo resolves the directory entry automatically), **or** preferably inline into the parent `.rs` |
+| **`src/<module>/<name>_tests.rs`** (e.g. `helper_tests.rs` next to `helper.rs`) | ❌ Forbidden | Confused with production helpers; move under `src/<module>/tests/<name>.rs` |
+| `src/<module>/test_<name>.rs` (e.g. `test_fixtures.rs`) | ⚠️ Discouraged | Prefer `src/<module>/tests/fixtures.rs` for new code; existing exceptions documented per-crate |
+
+**Line-policy ceilings (two-tier)**:
+
+- **Production-only `.rs` files** (without inline tests): bound by the workspace
+  **≤ 1000-line** policy. This is the long-standing maintainability cap and is
+  unchanged.
+- **Production `.rs` files carrying inline `#[cfg(test)] mod tests { ... }`**:
+  bound by **≤ 1200 lines** combined (`production_lines + inline_test_lines + 5
+  wrapper`). The additional 200 lines is the budget for tests — it exists
+  **only** when a production file carries inline test code, and it must not be
+  used to grow production logic.
+- Canonical inline-with-tests examples at the new 1200 ceiling:
+  `commands/erd/mod.rs` (1065 lines), `vespertide-macro/src/lib.rs` (1177
+  lines), `vespertide-core/src/action/mod.rs` (1101 lines).
+
+**Decision flow for a new test module**:
+
+1. **Default**: append `#[cfg(test)] mod tests { use super::*; ... }` at the bottom of the production file. No `mod tests;` declaration; the inline block defines the module.
+2. **If `parent.rs + tests > 1200 lines`** (the combined ceiling for files carrying inline tests): use `src/<module>/tests/mod.rs` instead. (Production-only files remain bound by the ≤ 1000-line workspace cap.)
+3. **If the test needs to split into sub-files** (`mod foo; mod bar;`): use `src/<module>/tests/mod.rs` as the entry and put siblings under `src/<module>/tests/<name>.rs`.
+4. **Never** widen visibility (`pub`, `pub(crate)`, `pub(super)`) of a production item just to make an out-of-line test reach it. Inline placement makes this unnecessary, since `super::*` from inside an inline `mod tests` already sees every private item of the parent module.
+
+**Snapshot-path implication for migrations**: insta's default snapshot directory is resolved relative to the test file's location. Inlining a test from `parent/tests/mod.rs` into `parent.rs` shifts the default from `parent/tests/snapshots/` to `parent/snapshots/`. If the test uses explicit `with_settings!({ snapshot_path => "../../snapshots" })` from `parent/tests/mod.rs`, change it to `"../snapshots"` after inlining so the same physical `snapshots/` directory keeps resolving. Module-path naming inside snapshot filenames is unchanged (the inline module is still named `tests`, so `<crate>__<module>__tests__<name>.snap` stays byte-identical).
+
+**Migration rule**: When you split a test file or extract fixtures, the new files live under `src/<module>/tests/` — never as `*_tests.rs` siblings of production code, and never as a bare `src/<module>/tests.rs` file.
+
+#### Wiring a `tests/<name>.rs` file into the module tree (mod-based only)
+
+**Policy (as of the magic-elimination wave, commit on `refactor`):** the **only**
+sanctioned wiring pattern is plain `mod <name>;` declarations. `#[path = "..."]`
+on test modules and `include!("tests/<name>.rs")` inside test entry files are
+both **forbidden** — owner directive: "no magic test wiring."
+
+- `tests/mod.rs` declares `mod <name>;` for each sibling test file.
+- Sub-test files access shared imports via `use super::*;` (which inherits the
+  imports the entry `tests/mod.rs` brings into scope).
+- When a test file needs **private items** of a production sibling module, do
+  **not** re-root it via `#[path]`. Instead, raise the production item to
+  `pub(super)` (narrowest scope that works) and import it explicitly:
+  `use super::super::<module>::{item1, item2};`. `pub(super)` keeps the item
+  invisible to other crates and to sibling production modules — only the
+  parent module's subtree (which includes `tests::<name>`) can reach it.
+- Example: `vespertide-query/src/sql/tests/helpers.rs` is a child of
+  `sql::tests`. It accesses three `pub(super)` helpers in
+  `sql/helpers.rs` via `use super::super::helpers::{parse_pg_type_cast,
+  is_enum_type, needs_quoting};`.
+
+**Rationale:** `#[path]` and `include!` hide the module tree from `cargo
+modules`, `rustdoc`, and any tooling that walks `mod` declarations. The
+`pub(super)` + explicit `use` pattern is fully transparent and self-documenting.
+
+### `rstest` is the default for parametric tests
+For backend / ORM / format / configuration matrices, use `rstest` with explicit case names so each case appears as its own `cargo test` row and produces its own snapshot.
+
+```rust
+use rstest::rstest;
+use insta::{assert_snapshot, with_settings};
+
+#[rstest]
+#[case::postgres(DatabaseBackend::Postgres)]
+#[case::mysql(DatabaseBackend::MySql)]
+#[case::sqlite(DatabaseBackend::Sqlite)]
+fn create_table_snapshot(#[case] backend: DatabaseBackend) {
+    let sql = build_create_table(/* ... */).build(backend);
+    with_settings!(
+        { snapshot_suffix => format!("create_table_{backend:?}") },
+        { assert_snapshot!(sql); }
+    );
+}
+```
+
+This is the same pattern used by `vespertide-query` (3 backends, 357 snapshots) and `vespertide-exporter` (4 ORMs via `Orm` enum, 232 cross-ORM snapshots). When adding a new backend / ORM / format, the change is **one `#[case::name(Value)]` line**.
 
 ### `#[cfg(test)]` test-oracle pattern
 When a function exists solely as an oracle for a regression test (e.g. comparing

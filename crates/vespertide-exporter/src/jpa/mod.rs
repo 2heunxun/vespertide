@@ -1,8 +1,4 @@
 mod render;
-#[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod tests_edge_cases;
 mod types;
 
 use crate::orm::OrmExporter;
@@ -23,6 +19,16 @@ impl OrmExporter for JpaExporter {
 /// Render a JPA entity for the given table definition.
 pub fn render_entity(table: &TableDef) -> Result<String, String> {
     Ok(render::render_entity_inner(table))
+}
+
+/// Test-only accessor for the JPA `to_pascal_case` helper.
+///
+/// Allows the cross-ORM consolidation test in `crate::tests` to exercise
+/// the JPA naming helper without making it `pub(crate)` for the entire
+/// crate.
+#[cfg(test)]
+pub(crate) fn to_pascal_case_for_tests(s: &str) -> String {
+    render::to_pascal_case(s)
 }
 
 /// Render JPA entities for a schema, using parallel rendering for larger schemas.
@@ -60,5 +66,38 @@ fn merge_rendered_entities(rendered: Vec<(String, UsedImports)>) -> RenderedEnti
     RenderedEntities {
         entities,
         _imports: imports,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render::{infer_fk_field_name, to_camel_case};
+    use super::types::column_type_to_java;
+    use vespertide_core::{ColumnType, ComplexColumnType, EnumValues};
+
+    #[test]
+    fn test_column_type_to_java_string_enum() {
+        let ty = ColumnType::Complex(ComplexColumnType::Enum {
+            name: "status".into(),
+            values: EnumValues::String(vec!["a".into()]),
+        });
+        assert_eq!(column_type_to_java(&ty), "String");
+    }
+
+    #[rstest::rstest]
+    #[case("created_at", "createdAt")]
+    #[case("id", "id")]
+    #[case("user_profile_image", "userProfileImage")]
+    #[case("", "")]
+    fn test_to_camel_case(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(to_camel_case(input), expected);
+    }
+
+    #[rstest::rstest]
+    #[case("customer_id", "customer")]
+    #[case("author_user_id", "authorUser")]
+    #[case("parent", "parent")]
+    fn test_infer_fk_field_name(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(infer_fk_field_name(input), expected);
     }
 }

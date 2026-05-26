@@ -1,3 +1,6 @@
+use super::*;
+use vespertide_core::TableDef;
+
 // Comprehensive unique constraint naming tests
 #[rstest]
 #[case::add_unique_with_custom_name_postgres(

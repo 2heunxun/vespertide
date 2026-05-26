@@ -13,15 +13,19 @@ mod render;
 mod types;
 
 #[cfg(test)]
-mod helper_tests;
-#[cfg(test)]
-mod module_path_tests;
-#[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod tests_edge_cases;
 
 use render::render_entity_with_config_and_paths;
+
+/// Test-only accessor for the `SeaORM` `to_pascal_case` helper.
+///
+/// Allows the cross-ORM consolidation test in `crate::tests` to exercise
+/// the `SeaORM` naming helper without making it `pub(crate)` for the entire
+/// crate.
+#[cfg(test)]
+pub(crate) fn to_pascal_case_for_tests(s: &str) -> String {
+    imports::to_pascal_case(s)
+}
 
 #[cfg(test)]
 use enums::*;

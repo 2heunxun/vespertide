@@ -272,7 +272,7 @@ pub fn convert_default_for_backend(default: &str, backend: DatabaseBackend) -> S
 
 /// Parse a PostgreSQL-style type cast expression (e.g., `'[]'::json`, `0::boolean`)
 /// Returns `(value, type)` if parsed, or None if not a type cast.
-fn parse_pg_type_cast(expr: &str) -> Option<(String, String)> {
+pub(super) fn parse_pg_type_cast(expr: &str) -> Option<(String, String)> {
     let trimmed = expr.trim();
 
     // Handle quoted values: 'value'::type
@@ -347,7 +347,7 @@ fn convert_type_cast(value: &str, cast_type: &str, backend: DatabaseBackend) -> 
 }
 
 /// Check if the column type is an enum type
-fn is_enum_type(column_type: &ColumnType) -> bool {
+pub(super) fn is_enum_type(column_type: &ColumnType) -> bool {
     matches!(
         column_type,
         ColumnType::Complex(ComplexColumnType::Enum { .. })
@@ -365,7 +365,7 @@ pub fn normalize_enum_default(column_type: &ColumnType, value: &str) -> String {
 }
 
 /// Check if a string default value needs quoting (is a plain string literal without quotes/parens)
-fn needs_quoting(default_str: &str) -> bool {
+pub(super) fn needs_quoting(default_str: &str) -> bool {
     let trimmed = default_str.trim();
     // Empty string always needs quoting to become ''
     if trimmed.is_empty() {
@@ -672,10 +672,6 @@ pub fn get_enum_name(column_type: &ColumnType) -> Option<&str> {
         None
     }
 }
-
-#[cfg(test)]
-#[path = "helpers_tests.rs"]
-mod helpers_tests;
 
 /// Quote an identifier (table name, column name, constraint name) for the given backend.
 ///

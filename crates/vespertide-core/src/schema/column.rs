@@ -562,7 +562,3 @@ impl ComplexColumnType {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "column_tests.rs"]
-mod column_tests;

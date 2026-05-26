@@ -1,3 +1,6 @@
+use super::*;
+use vespertide_core::TableDef;
+
 #[test]
 fn test_backend_specific_quoting() {
     let action = MigrationAction::CreateTable {
@@ -764,4 +767,3 @@ fn test_remove_unnamed_index(#[case] backend: DatabaseBackend, #[case] columns: 
         assert_snapshot!(sql);
     });
 }
-
