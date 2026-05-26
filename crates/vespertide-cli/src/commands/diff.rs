@@ -1,6 +1,8 @@
 use anyhow::Result;
 use colored::Colorize;
-use vespertide_planner::plan_next_migration;
+use vespertide_planner::{
+    MissingFkSupportingIndex, find_missing_fk_supporting_indexes, plan_next_migration,
+};
 
 use crate::utils::{load_config, load_migrations, load_models};
 use vespertide_core::MigrationAction;
@@ -36,7 +38,72 @@ pub async fn cmd_diff() -> Result<()> {
             );
         }
     }
+
+    // Static safety analyses that run on the current model regardless of
+    // whether there are pending actions — these are warnings, not blockers.
+    emit_fk_supporting_index_warnings(&current_models);
+
     Ok(())
+}
+
+/// Normalise the current model set and surface FK constraints that lack a
+/// supporting index on the child table. Each FK is reported individually
+/// with a concrete suggested index name.
+///
+/// This is fault **F51** in the data-dependent migration fault taxonomy:
+/// it never produces a SQL error, but degrades cascade/lookup performance
+/// silently as the child table grows.
+fn emit_fk_supporting_index_warnings(current_models: &[vespertide_core::TableDef]) {
+    // Normalise per-table; skip tables that fail to normalise (they will
+    // have surfaced as planner errors above).
+    let normalized: Vec<vespertide_core::TableDef> = current_models
+        .iter()
+        .filter_map(|t| t.normalize().ok())
+        .collect();
+    let missing = find_missing_fk_supporting_indexes(&normalized);
+    if missing.is_empty() {
+        return;
+    }
+
+    println!();
+    println!(
+        "{} {}",
+        "⚠".bright_yellow().bold(),
+        format!(
+            "{} foreign key(s) lack a supporting index \
+             (silent performance regression risk):",
+            missing.len()
+        )
+        .bright_yellow()
+    );
+    for m in &missing {
+        println!();
+        for line in format_missing_fk_warning(m).lines() {
+            println!("{line}");
+        }
+    }
+}
+
+/// Format a single `MissingFkSupportingIndex` as a multi-line indented block.
+/// Extracted from `emit_fk_supporting_index_warnings` so its output can be
+/// unit-tested without going through stdout.
+fn format_missing_fk_warning(m: &MissingFkSupportingIndex) -> String {
+    let fk_label = m.constraint_name.as_deref().unwrap_or("(unnamed)");
+    let from = format!("{}({})", m.table, m.columns.join(", "));
+    let to = format!("{}({})", m.ref_table, m.ref_columns.join(", "));
+    format!(
+        "  {} {}\n  {} {} {} {}\n  {} cascade/lookup scans the entire `{}` table\n  {} add index `{}`",
+        "fk:".bright_white(),
+        fk_label.bright_cyan(),
+        "ref:".bright_white(),
+        from.bright_cyan().bold(),
+        "->".bright_white(),
+        to.bright_cyan(),
+        "why:".bright_white(),
+        m.table,
+        "fix:".bright_green(),
+        m.suggested_index_name.bright_green().bold(),
+    )
 }
 
 #[expect(
@@ -655,5 +722,64 @@ mod tests {
         };
         let display = format_constraint_type(&constraint);
         assert_eq!(display, "ix_users_email INDEX (email)");
+    }
+
+    #[test]
+    fn format_missing_fk_warning_named_fk_produces_4_lines() {
+        let m = MissingFkSupportingIndex {
+            table: "orders".to_string(),
+            constraint_name: Some("fk_orders__user".to_string()),
+            columns: vec!["user_id".to_string()],
+            ref_table: "users".to_string(),
+            ref_columns: vec!["id".to_string()],
+            suggested_index_name: "ix_orders__user_id".to_string(),
+        };
+        let out = format_missing_fk_warning(&m);
+
+        assert_eq!(out.lines().count(), 4, "4 indented lines: fk / ref / why / fix");
+        // The four labels must each appear exactly once.
+        for label in ["fk:", "ref:", "why:", "fix:"] {
+            assert_eq!(
+                out.matches(label).count(),
+                1,
+                "label `{label}` should appear exactly once in:\n{out}"
+            );
+        }
+        // The user-facing identifiers must surface unescaped.
+        assert!(out.contains("fk_orders__user"));
+        assert!(out.contains("orders(user_id)"));
+        assert!(out.contains("users(id)"));
+        assert!(out.contains("ix_orders__user_id"));
+    }
+
+    #[test]
+    fn format_missing_fk_warning_unnamed_fk_falls_back_to_placeholder() {
+        let m = MissingFkSupportingIndex {
+            table: "orders".to_string(),
+            constraint_name: None,
+            columns: vec!["user_id".to_string()],
+            ref_table: "users".to_string(),
+            ref_columns: vec!["id".to_string()],
+            suggested_index_name: "ix_orders__user_id".to_string(),
+        };
+        let out = format_missing_fk_warning(&m);
+        assert!(out.contains("(unnamed)"));
+        assert!(out.contains("ix_orders__user_id"));
+    }
+
+    #[test]
+    fn format_missing_fk_warning_composite_fk_lists_all_columns() {
+        let m = MissingFkSupportingIndex {
+            table: "audit".to_string(),
+            constraint_name: Some("fk_audit__tenant_user".to_string()),
+            columns: vec!["tenant_id".to_string(), "user_id".to_string()],
+            ref_table: "membership".to_string(),
+            ref_columns: vec!["tenant_id".to_string(), "user_id".to_string()],
+            suggested_index_name: "ix_audit__tenant_id_user_id".to_string(),
+        };
+        let out = format_missing_fk_warning(&m);
+        assert!(out.contains("audit(tenant_id, user_id)"));
+        assert!(out.contains("membership(tenant_id, user_id)"));
+        assert!(out.contains("ix_audit__tenant_id_user_id"));
     }
 }

@@ -105,6 +105,8 @@ fn compute_uncached(
     // Tier 3: planner validation (only if serde succeeded).
     if let Some(table) = parsed {
         validation::validate_table(&table, &mut diagnostics);
+        // Tier 3.5: static safety analyses (warnings).
+        validation::validate_fk_supporting_indexes(&table, tree, text, &mut diagnostics);
     }
 
     diagnostics
@@ -160,7 +162,7 @@ pub fn compute_workspace(
 ) -> Vec<DomainDiagnostic> {
     let (mut diagnostics, parsed) = collect_parse_diagnostics(text, format, tree);
 
-    if parsed.is_some() {
+    if let Some(table) = &parsed {
         // Filename/table-name consistency check — warning-level so the user
         // can still ship, but visible enough not to be missed.
         if let Some(entry) = workspace.iter().find(|t| t.uri == *current_uri) {
@@ -173,6 +175,9 @@ pub fn compute_workspace(
             );
         }
         validation::validate_workspace(workspace, current_uri, &mut diagnostics);
+        // Workspace-scoped diagnostics also include the per-file FK warnings,
+        // so a freshly opened file picks them up before any did_change.
+        validation::validate_fk_supporting_indexes(table, tree, text, &mut diagnostics);
     }
 
     diagnostics
@@ -648,5 +653,108 @@ mod tests {
         // Either serde rejects (parse-error) or validate_schema rejects. Both
         // are acceptable as long as we emit something.
         assert!(!diags.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // F51: FK supporting index diagnostics
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn fk_without_supporting_index_emits_warning() {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        // orders.user_id has an inline FK but no index → F51 warning.
+        let src = r#"{
+            "name": "orders_f51_uncovered",
+            "columns": [
+                {"name": "id", "type": "integer", "nullable": false, "primary_key": true},
+                {"name": "user_id", "type": "integer", "nullable": false,
+                 "foreign_key": {"ref_table": "users", "ref_columns": ["id"]}}
+            ]
+        }"#;
+        let tree = pool.parse(src, DocumentFormat::Json);
+        let diags = compute(src, DocumentFormat::Json, tree.as_ref(), &idx);
+
+        let fk_diag = diags
+            .iter()
+            .find(|d| d.code == "fk-supporting-index")
+            .expect("expected fk-supporting-index warning");
+        assert_eq!(fk_diag.severity, Severity::Warning);
+        assert!(
+            fk_diag.message.contains("user_id"),
+            "message should mention the FK column, got: {}",
+            fk_diag.message
+        );
+        assert!(
+            fk_diag.message.contains("ix_orders_f51_uncovered__user_id"),
+            "message should include suggested index name, got: {}",
+            fk_diag.message
+        );
+        // Squiggle should land near the inline foreign_key value, not at the
+        // start of the file.
+        assert_ne!(
+            fk_diag.byte_range,
+            0..1,
+            "diagnostic should be located, not a fallback 0..1"
+        );
+        let snippet = &src[fk_diag.byte_range.clone()];
+        assert!(
+            snippet.contains("ref_table") || snippet.contains("foreign_key"),
+            "snippet should cover the FK declaration, got: {snippet}"
+        );
+    }
+
+    #[test]
+    fn fk_with_inline_index_emits_no_warning() {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        // Same orders table, this time WITH `"index": true` on user_id.
+        let src = r#"{
+            "name": "orders_f51_covered",
+            "columns": [
+                {"name": "id", "type": "integer", "nullable": false, "primary_key": true},
+                {"name": "user_id", "type": "integer", "nullable": false,
+                 "index": true,
+                 "foreign_key": {"ref_table": "users", "ref_columns": ["id"]}}
+            ]
+        }"#;
+        let tree = pool.parse(src, DocumentFormat::Json);
+        let diags = compute(src, DocumentFormat::Json, tree.as_ref(), &idx);
+
+        assert!(
+            diags.iter().all(|d| d.code != "fk-supporting-index"),
+            "no FK warning expected when inline index exists, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn self_referential_fk_without_index_emits_warning() {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        // Tree structure — parent_id → self.id with no index.
+        let src = r#"{
+            "name": "categories_f51_selfref",
+            "columns": [
+                {"name": "id", "type": "integer", "nullable": false, "primary_key": true},
+                {"name": "parent_id", "type": "integer", "nullable": true,
+                 "foreign_key": {"ref_table": "categories_f51_selfref", "ref_columns": ["id"]}}
+            ]
+        }"#;
+        let tree = pool.parse(src, DocumentFormat::Json);
+        let diags = compute(src, DocumentFormat::Json, tree.as_ref(), &idx);
+
+        let fk_diag = diags
+            .iter()
+            .find(|d| d.code == "fk-supporting-index")
+            .expect("self-referential FK without index should warn");
+        assert!(fk_diag.message.contains("parent_id"));
+        assert!(
+            fk_diag
+                .message
+                .contains("ix_categories_f51_selfref__parent_id")
+        );
     }
 }

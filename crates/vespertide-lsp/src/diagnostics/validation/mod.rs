@@ -46,6 +46,71 @@ pub(super) fn validate_table(table: &TableDef, out: &mut Vec<DomainDiagnostic>) 
     }
 }
 
+/// Fault **F51**: foreign-key constraints whose referencing columns are not
+/// covered by any leading-prefix index on the child table.
+///
+/// Emits one `Warning`-severity `DomainDiagnostic` per uncovered FK. The
+/// range is anchored — in priority order — to:
+/// 1. the inline `foreign_key` value on the first referencing column;
+/// 2. a named table-level `constraints` entry, if `constraint_name` is set;
+/// 3. `0..1` as a final fallback.
+///
+/// Static: this performs no data access; it only inspects the normalised
+/// `TableDef`. The caller must pass the source text and tree corresponding to
+/// the file that produced `table` so the squiggle lands on the responsible
+/// region.
+pub(super) fn validate_fk_supporting_indexes(
+    table: &TableDef,
+    tree: Option<&tree_sitter::Tree>,
+    source: &str,
+    out: &mut Vec<DomainDiagnostic>,
+) {
+    for missing in
+        vespertide_planner::find_missing_fk_supporting_indexes(std::slice::from_ref(table))
+    {
+        let byte_range = locate_missing_fk(&missing, tree, source);
+        out.push(DomainDiagnostic {
+            byte_range,
+            severity: Severity::Warning,
+            message: format!(
+                "Foreign key on ({}) lacks a supporting index. \
+                 Cascade and lookup operations will scan the entire `{}` table. \
+                 Suggested index: `{}`.",
+                missing.columns.join(", "),
+                missing.table,
+                missing.suggested_index_name,
+            ),
+            code: "fk-supporting-index".to_string(),
+        });
+    }
+}
+
+fn locate_missing_fk(
+    missing: &vespertide_planner::MissingFkSupportingIndex,
+    tree: Option<&tree_sitter::Tree>,
+    source: &str,
+) -> std::ops::Range<usize> {
+    // Prefer the inline `foreign_key` value on the first referencing column;
+    // this is the canonical Vespertide authoring style and gives the most
+    // precise squiggle. `locate_column_field` already falls back to the
+    // column object range if the inline FK pair is absent.
+    if let Some(first) = missing.columns.first() {
+        let range = super::locator::locate_column_field(
+            tree,
+            source,
+            first,
+            super::locator::ErrorField::ForeignKeyRefTable,
+        );
+        if range != (0..1) {
+            return range;
+        }
+    }
+    if let Some(name) = &missing.constraint_name {
+        return super::locator::locate_constraint(tree, source, name);
+    }
+    0..1
+}
+
 /// Compare the file's basename to its declared table `name` and surface a
 /// warning when they diverge. This catches accidental renames where the
 /// user changes `"name"` but forgets to rename the file (or vice versa).
