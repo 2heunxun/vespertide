@@ -158,6 +158,11 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
             fill_with: fill_prompt,
             enum_quoted: enum_prompt,
             enum_bare: enum_bare_prompt,
+            // F30 / FK policy change is irrelevant to these scenarios:
+            // assert via panic so any unexpected detection breaks the test.
+            fk_policy_change: |_: &[vespertide_planner::FkPolicyChangeWarning]| -> Result<bool> {
+                panic!("fk_policy_change prompt should not be called")
+            },
         },
     )
     .await;
@@ -292,6 +297,11 @@ async fn cmd_revision_core_handles_fill_with_for_non_fk_column() {
             fill_with: fill_prompt,
             enum_quoted: enum_prompt,
             enum_bare: enum_bare_prompt,
+            // F30 / FK policy change is irrelevant to these scenarios:
+            // assert via panic so any unexpected detection breaks the test.
+            fk_policy_change: |_: &[vespertide_planner::FkPolicyChangeWarning]| -> Result<bool> {
+                panic!("fk_policy_change prompt should not be called")
+            },
         },
     )
     .await;

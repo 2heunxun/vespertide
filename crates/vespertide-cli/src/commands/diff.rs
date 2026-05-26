@@ -1,8 +1,11 @@
+use std::fmt::Write as _;
+
 use anyhow::Result;
 use colored::Colorize;
 use vespertide_planner::{
-    ConstraintDropWarning, MissingFkSupportingIndex, find_constraint_drops_without_replacement,
-    find_missing_fk_supporting_indexes, plan_next_migration,
+    ConstraintDropWarning, FkPolicyChangeWarning, MissingFkSupportingIndex,
+    find_constraint_drops_without_replacement, find_fk_policy_changes,
+    find_missing_fk_supporting_indexes, plan_next_migration, render_reference_action,
 };
 
 use crate::utils::{load_config, load_migrations, load_models};
@@ -44,8 +47,92 @@ pub async fn cmd_diff() -> Result<()> {
     // whether there are pending actions — these are warnings, not blockers.
     emit_fk_supporting_index_warnings(&current_models);
     emit_constraint_drop_warnings(&plan);
+    emit_fk_policy_change_warnings(&plan);
 
     Ok(())
+}
+
+/// Surface `ReplaceConstraint` actions that change FK `on_delete` /
+/// `on_update` policy. This is fault **F30**: the migration SQL succeeds,
+/// the data is untouched, but application code that assumed the previous
+/// policy will silently break at the first DELETE / UPDATE trigger event.
+fn emit_fk_policy_change_warnings(plan: &MigrationPlan) {
+    let warnings = find_fk_policy_changes(plan);
+    if warnings.is_empty() {
+        return;
+    }
+
+    println!();
+    println!(
+        "{} {}",
+        "⚠".bright_yellow().bold(),
+        format!(
+            "{} FK policy change(s) — application behavior will silently change:",
+            warnings.len()
+        )
+        .bright_yellow()
+    );
+    for w in &warnings {
+        println!();
+        for line in format_fk_policy_change_warning(w).lines() {
+            println!("{line}");
+        }
+    }
+}
+
+/// Format a single `FkPolicyChangeWarning` as a multi-line indented block.
+/// Extracted so its output can be unit-tested without going through stdout.
+fn format_fk_policy_change_warning(w: &FkPolicyChangeWarning) -> String {
+    let fk_label = w.constraint_name.as_deref().unwrap_or("(unnamed)");
+    let from = format!("{}({})", w.table, w.columns.join(", "));
+    let to = format!("{}({})", w.ref_table, w.ref_columns.join(", "));
+
+    let mut out = format!(
+        "  {} {}\n  {} {} {} {}",
+        "on:".bright_white(),
+        w.table.bright_cyan(),
+        "fk:".bright_white(),
+        format!("{fk_label} {from}").bright_cyan().bold(),
+        "->".bright_white(),
+        to.bright_cyan(),
+    );
+
+    if let Some(delta) = &w.on_delete_change {
+        let before = render_reference_action(delta.before.as_ref());
+        let after = render_reference_action(delta.after.as_ref());
+        let _ = write!(
+            out,
+            "\n  {} {} {} {}",
+            "ON DELETE:".bright_white(),
+            before.bright_red(),
+            "->".bright_white(),
+            after.bright_yellow().bold(),
+        );
+    }
+    if let Some(delta) = &w.on_update_change {
+        let before = render_reference_action(delta.before.as_ref());
+        let after = render_reference_action(delta.after.as_ref());
+        let _ = write!(
+            out,
+            "\n  {} {} {} {}",
+            "ON UPDATE:".bright_white(),
+            before.bright_red(),
+            "->".bright_white(),
+            after.bright_yellow().bold(),
+        );
+    }
+
+    let _ = write!(
+        out,
+        "\n  {} application code that assumed the previous policy will behave differently",
+        "why:".bright_white(),
+    );
+    let _ = write!(
+        out,
+        "\n  {} review backend code BEFORE applying this migration",
+        "fix:".bright_green(),
+    );
+    out
 }
 
 /// Surface `RemoveConstraint` actions that drop integrity-preserving
@@ -923,5 +1010,90 @@ mod tests {
         let out = format_constraint_drop_warning(&w);
         assert!(out.contains("CHECK"));
         assert!(out.contains("total > 0"));
+    }
+
+    // -----------------------------------------------------------------------
+    // F30: FK policy change warnings
+    // -----------------------------------------------------------------------
+
+    use vespertide_planner::PolicyDelta;
+
+    fn policy_warning(
+        on_delete: Option<(Option<ReferenceAction>, Option<ReferenceAction>)>,
+        on_update: Option<(Option<ReferenceAction>, Option<ReferenceAction>)>,
+    ) -> FkPolicyChangeWarning {
+        FkPolicyChangeWarning {
+            action_index: 0,
+            table: "orders".to_string(),
+            constraint_name: Some("fk_orders__user".to_string()),
+            columns: vec!["user_id".to_string()],
+            ref_table: "users".to_string(),
+            ref_columns: vec!["id".to_string()],
+            on_delete_change: on_delete.map(|(b, a)| PolicyDelta { before: b, after: a }),
+            on_update_change: on_update.map(|(b, a)| PolicyDelta { before: b, after: a }),
+        }
+    }
+
+    #[test]
+    fn format_fk_policy_warning_on_delete_only_renders_single_delta_line() {
+        let w = policy_warning(
+            Some((Some(ReferenceAction::Cascade), Some(ReferenceAction::Restrict))),
+            None,
+        );
+        let out = format_fk_policy_change_warning(&w);
+
+        assert!(out.contains("ON DELETE:"), "missing ON DELETE row: {out}");
+        assert!(out.contains("CASCADE"));
+        assert!(out.contains("RESTRICT"));
+        assert!(
+            !out.contains("ON UPDATE:"),
+            "ON UPDATE row should be suppressed when unchanged"
+        );
+        assert!(out.contains("fk_orders__user"));
+        assert!(out.contains("orders(user_id)"));
+        assert!(out.contains("users(id)"));
+    }
+
+    #[test]
+    fn format_fk_policy_warning_on_update_only_renders_single_delta_line() {
+        let w = policy_warning(
+            None,
+            Some((None, Some(ReferenceAction::Cascade))),
+        );
+        let out = format_fk_policy_change_warning(&w);
+
+        assert!(!out.contains("ON DELETE:"));
+        assert!(out.contains("ON UPDATE:"));
+        // None policy renders as the SQL-standard default.
+        assert!(out.contains("NO ACTION"));
+        assert!(out.contains("CASCADE"));
+    }
+
+    #[test]
+    fn format_fk_policy_warning_both_changes_render_two_delta_lines() {
+        let w = policy_warning(
+            Some((Some(ReferenceAction::Cascade), Some(ReferenceAction::SetNull))),
+            Some((Some(ReferenceAction::Cascade), Some(ReferenceAction::Restrict))),
+        );
+        let out = format_fk_policy_change_warning(&w);
+
+        assert!(out.contains("ON DELETE:"));
+        assert!(out.contains("SET NULL"));
+        assert!(out.contains("ON UPDATE:"));
+        assert!(out.contains("RESTRICT"));
+        // why + fix advisory must always appear regardless of which delta hit.
+        assert!(out.contains("why:"));
+        assert!(out.contains("fix:"));
+    }
+
+    #[test]
+    fn format_fk_policy_warning_unnamed_fk_falls_back_to_placeholder() {
+        let mut w = policy_warning(
+            Some((Some(ReferenceAction::Cascade), Some(ReferenceAction::Restrict))),
+            None,
+        );
+        w.constraint_name = None;
+        let out = format_fk_policy_change_warning(&w);
+        assert!(out.contains("(unnamed)"));
     }
 }

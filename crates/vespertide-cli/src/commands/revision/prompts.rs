@@ -6,7 +6,10 @@ use dialoguer::{Confirm, Input, Select};
 use vespertide_core::{MigrationAction, MigrationPlan, TableDef};
 #[cfg(test)]
 use vespertide_planner::find_missing_fill_with;
-use vespertide_planner::{EnumFillWithRequired, FillWithRequired, find_missing_enum_fill_with};
+use vespertide_planner::{
+    EnumFillWithRequired, FillWithRequired, FkPolicyChangeWarning, find_missing_enum_fill_with,
+    render_reference_action,
+};
 
 #[cfg(test)]
 use super::emit::apply_fill_with_to_plan;
@@ -322,6 +325,69 @@ where
 
     Ok(())
 }
+/// Render a one-line summary of a single FK policy change. The result is
+/// shared between the interactive prompt and the unit tests so the wording
+/// can be locked in without going through stdout.
+pub(super) fn format_fk_policy_change_line(w: &FkPolicyChangeWarning) -> String {
+    let fk_label = w.constraint_name.as_deref().unwrap_or("(unnamed)");
+    let from = format!("{}({})", w.table, w.columns.join(", "));
+    let to = format!("{}({})", w.ref_table, w.ref_columns.join(", "));
+    let mut deltas: Vec<String> = Vec::with_capacity(2);
+    if let Some(d) = &w.on_delete_change {
+        deltas.push(format!(
+            "ON DELETE {} -> {}",
+            render_reference_action(d.before.as_ref()),
+            render_reference_action(d.after.as_ref()),
+        ));
+    }
+    if let Some(d) = &w.on_update_change {
+        deltas.push(format!(
+            "ON UPDATE {} -> {}",
+            render_reference_action(d.before.as_ref()),
+            render_reference_action(d.after.as_ref()),
+        ));
+    }
+    format!("{fk_label} {from} -> {to} :: {}", deltas.join(" / "))
+}
+
+/// Prompt the user to confirm all FK referential-action policy changes
+/// queued in the current migration plan. Reaches the user as a single
+/// batch confirmation, matching the existing `prompt_recreate_tables`
+/// pattern: showing every change first, then a single decision point.
+///
+/// Returns `Ok(true)` when the user confirms, `Ok(false)` when they
+/// decline (which the caller turns into a `revision` abort).
+#[cfg(not(tarpaulin_include))]
+pub(super) fn prompt_fk_policy_changes(warnings: &[FkPolicyChangeWarning]) -> Result<bool> {
+    println!(
+        "\n{} {}",
+        "\u{26a0}".bright_yellow(),
+        "The following FK referential-action policies will change \
+         — backend behavior will SILENTLY differ:".bright_yellow()
+    );
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+    for w in warnings {
+        println!(
+            "  {} {}",
+            "\u{2022}".bright_cyan(),
+            format_fk_policy_change_line(w).bright_white()
+        );
+    }
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+    println!(
+        "  {} {}",
+        "\u{26a0}".bright_red(),
+        "Review backend code that depends on these policies BEFORE proceeding.".bright_red()
+    );
+
+    let confirmed = Confirm::new()
+        .with_prompt("  I have reviewed the backend code. Apply policy changes?")
+        .default(false)
+        .interact()
+        .context("failed to read confirmation")?;
+    Ok(confirmed)
+}
+
 /// Prompt the user to confirm table recreation.
 /// Returns true if the user confirms, false otherwise.
 #[cfg(not(tarpaulin_include))]

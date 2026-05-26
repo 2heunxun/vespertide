@@ -66,6 +66,7 @@ fn pk(columns: Vec<&str>) -> TableConstraint {
 mod constraint_drops;
 mod enum_fill_with;
 mod fill_with;
+mod fk_policy_changes;
 mod fk_supporting_index;
 mod plan_validation;
 mod schema_cases;

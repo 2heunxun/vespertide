@@ -51,6 +51,38 @@ src/
 | Ignoring topological sort | FK constraint violations on CREATE/DELETE |
 | Forgetting `fill_with` validation | NOT NULL columns without defaults fail |
 
+## DATA-DEPENDENT FAULT COVERAGE
+
+`validate/` is a **pure static analyzer**: no DB connection, no row inspection.
+The following fault classes from the migration fault taxonomy are intentionally
+**out of scope** because they require runtime data access against a populated
+database:
+
+| ID | Name | Why out of scope |
+|---|---|---|
+| F1 | NOT NULL on existing NULLs | Requires counting actual NULL rows in production data |
+| F2 | UNIQUE with duplicates | Requires scanning existing rows for duplicate keys |
+| F3 | FK with orphan rows | Requires cross-table check of existing rows against parent table |
+| F4 | CHECK with violating rows | Requires evaluating the CHECK expression against every row |
+
+These faults are **partially mitigated** by the `fill_with` requirement:
+`find_missing_fill_with` and `find_missing_enum_fill_with` force the user to
+declare *how* to backfill / map removed enum values before the migration is
+allowed. Full runtime verification is delegated to the database engine at
+`ADD CONSTRAINT` time, which will reject the migration if existing rows violate
+the new invariant.
+
+Statically analysable faults that **are** detected here:
+
+| Helper | Fault | Category |
+|---|---|---|
+| `validate_schema` | Structural integrity (duplicate names, FK targets, etc.) | A |
+| `validate_migration_plan` | Enum default / NOT NULL gating | A·B |
+| `find_missing_fill_with` | Backfill strategy required (partial F1/F2/F3) | A |
+| `find_missing_enum_fill_with` | Removed enum value remapping (partial F7) | B |
+| `find_missing_fk_supporting_indexes` | F51 — FK without leading-prefix index | G |
+| `find_constraint_drops_without_replacement` | F50 — Integrity-preserving constraint dropped | A |
+
 ## NOTES
 
 - YAML and JSON are both fully supported for models and migrations.

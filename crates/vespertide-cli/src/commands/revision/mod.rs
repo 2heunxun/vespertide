@@ -1,7 +1,10 @@
 use anyhow::Result;
 use chrono::Utc;
 use colored::Colorize;
-use vespertide_planner::{find_missing_fill_with, plan_next_migration, schema_from_plans};
+use vespertide_planner::{
+    FkPolicyChangeWarning, find_fk_policy_changes, find_missing_fill_with, plan_next_migration,
+    schema_from_plans,
+};
 
 use crate::utils::{load_config, load_migrations, load_models};
 
@@ -37,24 +40,26 @@ pub async fn cmd_revision(
             fill_with: prompts::prompt_fill_with_value,
             enum_quoted: prompts::prompt_enum_value,
             enum_bare: prompts::prompt_enum_value_bare,
+            fk_policy_change: prompts::prompt_fk_policy_changes,
         },
     )
     .await
 }
 
-struct RevisionPromptFns<R, D, F, E, EB> {
+struct RevisionPromptFns<R, D, F, E, EB, P> {
     recreate: R,
     delete_null_rows: D,
     fill_with: F,
     enum_quoted: E,
     enum_bare: EB,
+    fk_policy_change: P,
 }
 
-async fn cmd_revision_core<R, D, F, E, EB>(
+async fn cmd_revision_core<R, D, F, E, EB, P>(
     message: String,
     fill_with_args: Vec<String>,
     delete_null_rows_args: Vec<String>,
-    prompt_fns: RevisionPromptFns<R, D, F, E, EB>,
+    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P>,
 ) -> Result<()>
 where
     R: Fn(&[RecreateTableRequired]) -> Result<bool>,
@@ -62,6 +67,7 @@ where
     F: Fn(&str, &str) -> Result<String>,
     E: Fn(&str, &[String]) -> Result<String>,
     EB: Fn(&str, &[String]) -> Result<String>,
+    P: Fn(&[FkPolicyChangeWarning]) -> Result<bool>,
 {
     let RevisionPromptFns {
         recreate: recreate_prompt_fn,
@@ -69,6 +75,7 @@ where
         fill_with: fill_with_prompt_fn,
         enum_quoted: enum_prompt_fn,
         enum_bare: enum_bare_prompt_fn,
+        fk_policy_change: fk_policy_change_prompt_fn,
     } = prompt_fns;
 
     let config = load_config()?;
@@ -128,6 +135,19 @@ where
 
     // Handle any missing enum fill_with values (for removed enum values) interactively
     prompts::handle_missing_enum_fill_with(&mut plan, &baseline_schema, enum_bare_prompt_fn)?;
+
+    // F30 — FK referential-action policy changes silently alter application
+    // behavior. Surface them and require explicit double-confirmation before
+    // the migration file is written.
+    let fk_policy_warnings = find_fk_policy_changes(&plan);
+    if !fk_policy_warnings.is_empty() && !fk_policy_change_prompt_fn(&fk_policy_warnings)? {
+        println!(
+            "{} {}",
+            "Cancelled.".bright_yellow().bold(),
+            "Review backend code before retrying revision.".bright_white()
+        );
+        return Ok(());
+    }
 
     plan.id = uuid::Uuid::new_v4().to_string();
     plan.comment = Some(message);
