@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chrono::Utc;
 use colored::Colorize;
-use vespertide_core::NarrowingStrategy;
+use vespertide_core::{MigrationPlan, NarrowingStrategy};
 use vespertide_planner::{
     FkPolicyChangeWarning, TimezoneConversionWarning, TypeNarrowingWarning, find_fk_policy_changes,
     find_missing_fill_with, find_timezone_conversions, find_type_narrowings, plan_next_migration,
@@ -46,12 +46,13 @@ pub async fn cmd_revision(
             fk_policy_change: prompts::prompt_fk_policy_changes,
             type_narrowing: prompts::prompt_type_narrowings,
             timezone_conversion: prompts::prompt_timezone_conversions,
+            remap_enum_values: prompts::prompt_remap_enum_values,
         },
     )
     .await
 }
 
-struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ> {
+struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM> {
     recreate: R,
     delete_null_rows: D,
     fill_with: F,
@@ -60,17 +61,18 @@ struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ> {
     fk_policy_change: P,
     type_narrowing: N,
     timezone_conversion: TZ,
+    remap_enum_values: RM,
 }
 
 #[expect(
     clippy::too_many_lines,
-    reason = "linear revision flow: load → plan → recreate → fill_with → enum fill_with → fk policy → narrowing → timezone → write. Extracting helpers scatters the ordering"
+    reason = "linear revision flow: load → plan → recreate → fill_with → enum fill_with → fk policy → narrowing → timezone → remap → write. Extracting helpers scatters the ordering"
 )]
-async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ>(
+async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM>(
     message: String,
     fill_with_args: Vec<String>,
     delete_null_rows_args: Vec<String>,
-    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ>,
+    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM>,
 ) -> Result<()>
 where
     R: Fn(&[RecreateTableRequired]) -> Result<bool>,
@@ -81,6 +83,7 @@ where
     P: Fn(&[FkPolicyChangeWarning]) -> Result<bool>,
     N: Fn(&[TypeNarrowingWarning]) -> Result<Option<Vec<NarrowingStrategy>>>,
     TZ: Fn(&[TimezoneConversionWarning]) -> Result<Option<Vec<String>>>,
+    RM: Fn(&MigrationPlan) -> Result<bool>,
 {
     let RevisionPromptFns {
         recreate: recreate_prompt_fn,
@@ -91,6 +94,7 @@ where
         fk_policy_change: fk_policy_change_prompt_fn,
         type_narrowing: type_narrowing_prompt_fn,
         timezone_conversion: timezone_conversion_prompt_fn,
+        remap_enum_values: remap_enum_values_prompt_fn,
     } = prompt_fns;
 
     let config = load_config()?;
@@ -160,6 +164,18 @@ where
             "{} {}",
             "Cancelled.".bright_yellow().bold(),
             "Review backend code before retrying revision.".bright_white()
+        );
+        return Ok(());
+    }
+
+    // F7-(b) — integer enum value remap. The planner already inserted
+    // RemapEnumValues actions; surface them so the user explicitly
+    // acknowledges the automatic data rewrite before the migration ships.
+    if !remap_enum_values_prompt_fn(&plan)? {
+        println!(
+            "{} {}",
+            "Cancelled.".bright_yellow().bold(),
+            "Coordinate with ORM consumers before retrying revision.".bright_white()
         );
         return Ok(());
     }

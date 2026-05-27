@@ -9,6 +9,7 @@ pub mod modify_column_default;
 pub mod modify_column_nullable;
 pub mod modify_column_type;
 pub mod raw_sql;
+pub mod remap_enum_values;
 pub mod remove_constraint;
 pub mod rename_column;
 pub mod rename_table;
@@ -27,8 +28,9 @@ use self::{
     delete_table::build_delete_table, modify_column_comment::build_modify_column_comment,
     modify_column_default::build_modify_column_default,
     modify_column_nullable::build_modify_column_nullable,
-    remove_constraint::build_remove_constraint, rename_column::build_rename_column,
-    rename_table::build_rename_table, replace_constraint::build_replace_constraint,
+    remap_enum_values::build_remap_enum_values, remove_constraint::build_remove_constraint,
+    rename_column::build_rename_column, rename_table::build_rename_table,
+    replace_constraint::build_replace_constraint,
 };
 
 /// Build SQL for a single migration action against a known schema.
@@ -171,6 +173,13 @@ pub fn build_action_queries_with_pending(
         | MigrationAction::ReplaceConstraint { .. } => {
             build_constraint_action_queries(backend, action, current_schema, pending_constraints)
         }
+
+        MigrationAction::RemapEnumValues {
+            table,
+            column,
+            mapping,
+        } => build_remap_enum_values(backend, table.as_str(), column.as_str(), mapping),
+
         _ => unreachable!("MigrationAction is #[non_exhaustive]; all variants are matched above"),
     }
 }

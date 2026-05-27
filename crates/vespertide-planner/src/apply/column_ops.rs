@@ -1,4 +1,8 @@
-use vespertide_core::{ColumnDef, ColumnName, ColumnType, TableConstraint, TableDef};
+use std::collections::HashMap;
+
+use vespertide_core::{
+    ColumnDef, ColumnName, ColumnType, ComplexColumnType, EnumValues, TableConstraint, TableDef,
+};
 
 use crate::error::PlannerError;
 
@@ -81,6 +85,34 @@ pub(super) fn modify_column_type(
     new_type: &ColumnType,
 ) -> Result<(), PlannerError> {
     find_column_mut(schema, table, column)?.r#type = new_type.clone();
+    Ok(())
+}
+
+/// Rewrite the stored `value` of every integer-enum variant whose current
+/// value appears as a key in `mapping`. The column type and variant names
+/// are left untouched; only the numeric values shift. No-op when the
+/// column is not an integer enum (defensive — the diff layer should never
+/// emit `RemapEnumValues` for non-integer-enum columns, but apply must not
+/// panic in that case).
+pub(super) fn remap_enum_values(
+    schema: &mut [TableDef],
+    table: &str,
+    column: &str,
+    mapping: &[(i64, i64)],
+) -> Result<(), PlannerError> {
+    let col = find_column_mut(schema, table, column)?;
+    if let ColumnType::Complex(ComplexColumnType::Enum {
+        values: EnumValues::Integer(items),
+        ..
+    }) = &mut col.r#type
+    {
+        let lookup: HashMap<i64, i64> = mapping.iter().copied().collect();
+        for item in items.iter_mut() {
+            if let Some(&new_val) = lookup.get(&item.value) {
+                item.value = new_val;
+            }
+        }
+    }
     Ok(())
 }
 

@@ -51,6 +51,18 @@ fn write_migration_action(f: &mut fmt::Formatter<'_>, action: &MigrationAction) 
         }
         MigrationAction::RenameTable { from, to } => write!(f, "RenameTable: {from} -> {to}"),
         MigrationAction::RawSql { sql } => write_raw_sql_action(f, sql),
+        MigrationAction::RemapEnumValues {
+            table,
+            column,
+            mapping,
+        } => {
+            let summary = mapping
+                .iter()
+                .map(|(old, new)| format!("{old}->{new}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            write!(f, "RemapEnumValues: {table}.{column} [{summary}]")
+        }
     }
 }
 

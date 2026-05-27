@@ -662,6 +662,72 @@ fn prompt_custom_timezone_with_retry(label: &str, max_attempts: u8) -> Result<Op
     Ok(None)
 }
 
+/// F7-(b) — surface every `RemapEnumValues` action that the planner emit
+/// and force the user to acknowledge the *automatic data rewrite*. We do
+/// not provide an "edit" option here because the mapping is fully
+/// determined by the model diff; the user's only choice is proceed /
+/// cancel. Cancelling lets them revisit the model (e.g. revert the value
+/// change, or coordinate with downstream consumers first).
+#[cfg(not(tarpaulin_include))]
+pub(super) fn prompt_remap_enum_values(plan: &MigrationPlan) -> Result<bool> {
+    let remaps: Vec<&MigrationAction> = plan
+        .actions
+        .iter()
+        .filter(|a| matches!(a, MigrationAction::RemapEnumValues { .. }))
+        .collect();
+    if remaps.is_empty() {
+        return Ok(true);
+    }
+
+    println!(
+        "\n{} {}",
+        "\u{26a0}".bright_yellow(),
+        format!(
+            "{} integer enum value remap(s) detected \u{2014} existing rows will be \
+             AUTOMATICALLY rewritten by UPDATE ... CASE WHEN:",
+            remaps.len()
+        )
+        .bright_yellow()
+    );
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+    for action in &remaps {
+        if let MigrationAction::RemapEnumValues {
+            table,
+            column,
+            mapping,
+        } = action
+        {
+            let summary = mapping
+                .iter()
+                .map(|(old, new)| format!("{old}\u{2192}{new}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!(
+                "  {} {}.{} [{}]",
+                "\u{2022}".bright_cyan(),
+                table.as_str().bright_white(),
+                column.as_str().bright_green(),
+                summary.bright_white()
+            );
+        }
+    }
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+    println!(
+        "  {} {}",
+        "\u{26a0}".bright_red(),
+        "This rewrite runs the moment the migration is applied. \
+         Coordinate with all running ORM consumers BEFORE proceeding."
+            .bright_red()
+    );
+
+    let confirmed = Confirm::new()
+        .with_prompt("  I have coordinated downstream consumers. Apply remap?")
+        .default(false)
+        .interact()
+        .context("failed to read confirmation")?;
+    Ok(confirmed)
+}
+
 /// Apply user-supplied timezones onto the plan in place. Each warning's
 /// `action_index` points at the `ModifyColumnType` action it came from.
 pub(super) fn apply_timezone_choices_to_plan(

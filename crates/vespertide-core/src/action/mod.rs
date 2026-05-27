@@ -144,6 +144,29 @@ pub enum MigrationAction {
         from: TableConstraint,
         to: TableConstraint,
     },
+    /// Remap stored integer values of an integer-backed enum column.
+    ///
+    /// Emitted when the user changes the `value` of an existing integer
+    /// enum variant in the model (e.g. `medium: 5 → 10`). Because integer
+    /// enums are stored as plain `INTEGER` in the database, the DB itself
+    /// cannot detect the drift; if Vespertide stayed silent the ORM mapping
+    /// would silently re-interpret existing rows. The SQL generator turns
+    /// this action into a single atomic `UPDATE table SET col = CASE WHEN
+    /// col = old THEN new ... END WHERE col IN (...)` that re-stamps every
+    /// affected row before the new ORM mapping takes effect.
+    ///
+    /// `mapping` is an ordered list of `(old_value, new_value)` pairs.
+    /// JSON wire format is `[[5, 10], [10, 20]]` — `Vec<(i64, i64)>`
+    /// avoids the `serde_json` limitation that map keys must be strings.
+    /// The list is sorted by `old_value` at emit time so snapshots stay
+    /// deterministic. Variants whose name AND value are unchanged are
+    /// absent; variants added or removed (no name overlap on either side)
+    /// are also absent — those need a separate migration action.
+    RemapEnumValues {
+        table: TableName,
+        column: ColumnName,
+        mapping: Vec<(i64, i64)>,
+    },
     /// Rename a table (`ALTER TABLE ... RENAME TO`).
     RenameTable { from: TableName, to: TableName },
     /// Execute a raw SQL statement verbatim.
@@ -171,7 +194,8 @@ impl MigrationAction {
             | Self::ModifyColumnComment { table, .. }
             | Self::AddConstraint { table, .. }
             | Self::RemoveConstraint { table, .. }
-            | Self::ReplaceConstraint { table, .. } => Some(table.as_str()),
+            | Self::ReplaceConstraint { table, .. }
+            | Self::RemapEnumValues { table, .. } => Some(table.as_str()),
             Self::RenameTable { from, .. } => Some(from.as_str()),
             Self::RawSql { .. } => None,
         }

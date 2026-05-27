@@ -51,7 +51,7 @@
       "type": "timestamptz"
     },
     {
-      "default": 101,
+      "default": 100,
       "name": "priority",
       "nullable": false,
       "type": {

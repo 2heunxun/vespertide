@@ -37,6 +37,7 @@ mod constraint_performance;
 mod constraint_removal;
 mod coverage;
 mod diff_tables;
+mod enum_remap;
 mod enums;
 mod fk_ordering;
 mod inline_constraints;

@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use vespertide_core::{ColumnDef, ColumnType, ComplexColumnType, MigrationAction, TableDef};
+use vespertide_core::{
+    ColumnDef, ColumnType, ComplexColumnType, EnumValues, MigrationAction, TableDef,
+};
 
 pub(super) fn diff_columns(
     actions: &mut Vec<MigrationAction>,
@@ -22,12 +24,84 @@ pub(super) fn diff_columns(
 
     let deleted_columns = diff_deleted_columns(actions, table_name, &from_cols, &to_cols);
     diff_column_types(actions, table_name, &from_cols, &to_cols);
+    diff_integer_enum_remappings(actions, table_name, &from_cols, &to_cols);
     diff_column_nullability(actions, table_name, &from_cols, &to_cols);
     diff_column_defaults(actions, table_name, &from_cols, &to_cols);
     diff_column_comments(actions, table_name, &from_cols, &to_cols);
     diff_added_columns(actions, table_name, &from_cols, &to_cols);
 
     deleted_columns
+}
+
+/// F7-(b): integer enum value re-stamp.
+///
+/// `requires_migration` returns `false` for integer-enum diffs because the
+/// underlying SQL type stays `INTEGER`. That misses the case where the user
+/// rewrites a variant's numeric `value` (e.g. `medium: 5 -> 10`): every
+/// existing row in the column still stores the *old* integer, but the ORM
+/// mapping now binds the new integer to that name. Without a re-stamp the
+/// next deserialisation silently mis-classifies rows. This pass emits a
+/// `RemapEnumValues` action carrying the `(old -> new)` pairs so the SQL
+/// generator can produce a single atomic `UPDATE ... CASE WHEN ... END`.
+fn diff_integer_enum_remappings(
+    actions: &mut Vec<MigrationAction>,
+    table_name: &str,
+    from_cols: &BTreeMap<&str, &ColumnDef>,
+    to_cols: &BTreeMap<&str, &ColumnDef>,
+) {
+    for (col, to_def) in to_cols {
+        let Some(from_def) = from_cols.get(col) else {
+            continue;
+        };
+        let mapping = compute_integer_enum_remapping(&from_def.r#type, &to_def.r#type);
+        if mapping.is_empty() {
+            continue;
+        }
+        actions.push(MigrationAction::RemapEnumValues {
+            table: table_name.to_string().into(),
+            column: (*col).to_string().into(),
+            mapping,
+        });
+    }
+}
+
+/// Pure helper: returns `(old_value, new_value)` pairs for every
+/// integer-enum variant whose name is shared between `from` and `to` but
+/// whose `value` has shifted. Returns an empty vector for non-integer-enum
+/// columns, for unchanged mappings, and for variants that exist on only
+/// one side (additions / removals are handled by other pathways).
+///
+/// Sorted by `old_value` so the emitted action — and downstream
+/// snapshots — stay deterministic across map iteration orders.
+fn compute_integer_enum_remapping(from: &ColumnType, to: &ColumnType) -> Vec<(i64, i64)> {
+    let (
+        ColumnType::Complex(ComplexColumnType::Enum {
+            values: EnumValues::Integer(from_items),
+            ..
+        }),
+        ColumnType::Complex(ComplexColumnType::Enum {
+            values: EnumValues::Integer(to_items),
+            ..
+        }),
+    ) = (from, to)
+    else {
+        return Vec::new();
+    };
+    let to_by_name: BTreeMap<&str, i64> = to_items
+        .iter()
+        .map(|nv| (nv.name.as_str(), nv.value))
+        .collect();
+    let mut mapping: Vec<(i64, i64)> = from_items
+        .iter()
+        .filter_map(|from_item| {
+            to_by_name
+                .get(from_item.name.as_str())
+                .filter(|&&new_val| new_val != from_item.value)
+                .map(|&new_val| (from_item.value, new_val))
+        })
+        .collect();
+    mapping.sort_by_key(|(old, _)| *old);
+    mapping
 }
 
 fn diff_deleted_columns(

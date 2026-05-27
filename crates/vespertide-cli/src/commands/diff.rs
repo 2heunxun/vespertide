@@ -549,6 +549,20 @@ fn format_action(action: &MigrationAction) -> String {
                 table.expect("ReplaceConstraint has a table")
             )
         }
+        MigrationAction::RemapEnumValues { column, mapping, .. } => {
+            let summary = mapping
+                .iter()
+                .map(|(old, new)| format!("{old}->{new}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "{} {}.{} [{}]",
+                "Remap enum values:".bright_yellow(),
+                table.expect("RemapEnumValues has a table"),
+                column.bright_cyan().bold(),
+                summary.bright_white(),
+            )
+        }
         _ => unreachable!("MigrationAction is #[non_exhaustive]; all variants are matched above"),
     }
 }

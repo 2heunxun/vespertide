@@ -70,6 +70,11 @@ pub fn apply_action(
             raw_sql::apply_raw_sql();
             Ok(())
         }
+        MigrationAction::RemapEnumValues {
+            table,
+            column,
+            mapping,
+        } => column_ops::remap_enum_values(schema, table, column, mapping),
         _ => unreachable!("MigrationAction is #[non_exhaustive]; all variants are matched above"),
     }
 }

@@ -174,6 +174,12 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
                 -> Result<Option<Vec<String>>> {
                 panic!("timezone_conversion prompt should not be called")
             },
+            // F7-(b) / RemapEnumValues likewise: integer enum value drift
+            // is not in scope for these scenarios. Auto-approve so the
+            // existing flow proceeds unchanged when no remap action exists.
+            remap_enum_values: |_: &vespertide_core::MigrationPlan| -> Result<bool> {
+                Ok(true)
+            },
         },
     )
     .await;
@@ -323,6 +329,12 @@ async fn cmd_revision_core_handles_fill_with_for_non_fk_column() {
             timezone_conversion: |_: &[vespertide_planner::TimezoneConversionWarning]|
                 -> Result<Option<Vec<String>>> {
                 panic!("timezone_conversion prompt should not be called")
+            },
+            // F7-(b) / RemapEnumValues likewise: integer enum value drift
+            // is not in scope for these scenarios. Auto-approve so the
+            // existing flow proceeds unchanged when no remap action exists.
+            remap_enum_values: |_: &vespertide_core::MigrationPlan| -> Result<bool> {
+                Ok(true)
             },
         },
     )
