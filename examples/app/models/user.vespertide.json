@@ -49,6 +49,29 @@
       "name": "updated_at",
       "nullable": true,
       "type": "timestamptz"
+    },
+    {
+      "default": 101,
+      "name": "priority",
+      "nullable": false,
+      "type": {
+        "kind": "enum",
+        "name": "user_priority",
+        "values": [
+          {
+            "name": "low",
+            "value": 100
+          },
+          {
+            "name": "medium",
+            "value": 101
+          },
+          {
+            "name": "high",
+            "value": 200
+          }
+        ]
+      }
     }
   ],
   "constraints": [],
