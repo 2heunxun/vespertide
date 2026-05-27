@@ -180,6 +180,14 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
             remap_enum_values: |_: &vespertide_core::MigrationPlan| -> Result<bool> {
                 Ok(true)
             },
+            // F10/F8/F22 drop resolution: these scenarios add columns only,
+            // so no DeleteColumn / DeleteTable actions exist and the prompt
+            // should never fire. Panic guards against silent flow drift.
+            drop_resolution: |_: &vespertide_planner::DropResolution| -> Result<
+                Option<vespertide_planner::DropChoice>,
+            > {
+                panic!("drop_resolution prompt should not be called")
+            },
         },
     )
     .await;
@@ -335,6 +343,14 @@ async fn cmd_revision_core_handles_fill_with_for_non_fk_column() {
             // existing flow proceeds unchanged when no remap action exists.
             remap_enum_values: |_: &vespertide_core::MigrationPlan| -> Result<bool> {
                 Ok(true)
+            },
+            // F10/F8/F22 drop resolution: these scenarios add columns only,
+            // so no DeleteColumn / DeleteTable actions exist and the prompt
+            // should never fire. Panic guards against silent flow drift.
+            drop_resolution: |_: &vespertide_planner::DropResolution| -> Result<
+                Option<vespertide_planner::DropChoice>,
+            > {
+                panic!("drop_resolution prompt should not be called")
             },
         },
     )

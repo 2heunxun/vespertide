@@ -3,8 +3,9 @@ use chrono::Utc;
 use colored::Colorize;
 use vespertide_core::{MigrationPlan, NarrowingStrategy};
 use vespertide_planner::{
-    DanglingFkDrop, FkPolicyChangeWarning, MultipleErrors, PlannerError, TimezoneConversionWarning,
-    TypeNarrowingWarning, find_dangling_fk_drops, find_fk_policy_changes, find_missing_fill_with,
+    DanglingFkDrop, DropChoice, DropResolution, FkPolicyChangeWarning, MultipleErrors,
+    PlannerError, TimezoneConversionWarning, TypeNarrowingWarning, apply_drop_resolution,
+    find_dangling_fk_drops, find_drop_resolutions, find_fk_policy_changes, find_missing_fill_with,
     find_timezone_conversions, find_type_narrowings, plan_next_migration, schema_from_plans,
 };
 
@@ -73,12 +74,13 @@ pub async fn cmd_revision(
             type_narrowing: prompts::prompt_type_narrowings,
             timezone_conversion: prompts::prompt_timezone_conversions,
             remap_enum_values: prompts::prompt_remap_enum_values,
+            drop_resolution: prompts::prompt_drop_resolution,
         },
     )
     .await
 }
 
-struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM> {
+struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR> {
     recreate: R,
     delete_null_rows: D,
     fill_with: F,
@@ -88,17 +90,18 @@ struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM> {
     type_narrowing: N,
     timezone_conversion: TZ,
     remap_enum_values: RM,
+    drop_resolution: DR,
 }
 
 #[expect(
     clippy::too_many_lines,
-    reason = "linear revision flow: load → plan → recreate → fill_with → enum fill_with → fk policy → narrowing → timezone → remap → write. Extracting helpers scatters the ordering"
+    reason = "linear revision flow: load → plan → recreate → drop resolution → dangling FK → fill_with → enum fill_with → fk policy → narrowing → timezone → remap → write. Extracting helpers scatters the ordering"
 )]
-async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM>(
+async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM, DR>(
     message: String,
     fill_with_args: Vec<String>,
     delete_null_rows_args: Vec<String>,
-    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM>,
+    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR>,
 ) -> Result<()>
 where
     R: Fn(&[RecreateTableRequired]) -> Result<bool>,
@@ -110,6 +113,7 @@ where
     N: Fn(&[TypeNarrowingWarning]) -> Result<Option<Vec<NarrowingStrategy>>>,
     TZ: Fn(&[TimezoneConversionWarning]) -> Result<Option<Vec<String>>>,
     RM: Fn(&MigrationPlan) -> Result<bool>,
+    DR: Fn(&DropResolution) -> Result<Option<DropChoice>>,
 {
     let RevisionPromptFns {
         recreate: recreate_prompt_fn,
@@ -121,6 +125,7 @@ where
         type_narrowing: type_narrowing_prompt_fn,
         timezone_conversion: timezone_conversion_prompt_fn,
         remap_enum_values: remap_enum_values_prompt_fn,
+        drop_resolution: drop_resolution_prompt_fn,
     } = prompt_fns;
 
     let config = load_config()?;
@@ -146,13 +151,45 @@ where
     let baseline_schema = schema_from_plans(&applied_plans)
         .map_err(|e| anyhow::anyhow!("schema reconstruction error: {e}"))?;
 
+    // F10 + F8 + F22 — Interactive drop resolution. Each DeleteColumn /
+    // DeleteTable is presented to the user with the same-plan rename
+    // candidates (option B). The user picks Drop / RenameTo / Cancel; on
+    // RenameTo the plan is rewritten in place so a single migration
+    // captures the full intent. Run BEFORE the dangling-FK check so a
+    // rename choice removes the underlying DeleteX action and the F9
+    // check sees the corrected plan.
+    let resolutions = find_drop_resolutions(&plan, &baseline_schema);
+    if !resolutions.is_empty() {
+        let mut chosen: Vec<(DropResolution, DropChoice)> = Vec::new();
+        for r in resolutions {
+            match drop_resolution_prompt_fn(&r)? {
+                None => {
+                    println!(
+                        "{} {}",
+                        "Cancelled.".bright_yellow().bold(),
+                        "Drop resolution declined; no migration written.".bright_white()
+                    );
+                    return Ok(());
+                }
+                Some(choice) => chosen.push((r, choice)),
+            }
+        }
+        // Apply in descending action-index order so earlier indices stay
+        // valid as the plan shrinks under each rewrite.
+        chosen.sort_by_key(|(r, _)| std::cmp::Reverse(r.action_index));
+        for (r, choice) in &chosen {
+            apply_drop_resolution(&mut plan, &baseline_schema, r, choice)
+                .map_err(|e| anyhow::anyhow!("apply drop resolution: {e}"))?;
+        }
+    }
+
     // F9 — Dangling foreign key after a column or table drop. Hard error
     // (no prompt): dropping a column or table while another table's FK
     // still references it would silently leave a stale FK pointing at
     // nothing. The plan must clean up the offending FK (or its owning
-    // table/column) in the same revision. Surfaced *before* any interactive
-    // prompt so the user is not asked for fill_with values on a plan that
-    // is going to be rejected anyway.
+    // table/column) in the same revision. Surfaced *before* any other
+    // interactive prompt so the user is not asked for fill_with values on
+    // a plan that is going to be rejected anyway.
     if let Some(err) =
         dangling_drops_to_planner_error(find_dangling_fk_drops(&plan, &baseline_schema))
     {

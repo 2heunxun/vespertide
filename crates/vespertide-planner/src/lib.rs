@@ -6,6 +6,7 @@
 
 pub mod apply;
 pub mod diff;
+pub mod drop_resolution;
 pub mod error;
 mod parallel_config;
 pub mod plan;
@@ -14,6 +15,10 @@ pub mod validate;
 
 pub use apply::apply_action;
 pub use diff::diff_schemas;
+pub use drop_resolution::{
+    DropChoice, DropResolution, DropTarget, Match, RenameCandidate, apply_drop_resolution,
+    find_drop_resolutions,
+};
 pub use error::{MultipleErrors, PlannerError};
 pub use plan::{plan_next_migration, plan_next_migration_with_baseline};
 pub use schema::schema_from_plans;

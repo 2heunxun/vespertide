@@ -7,9 +7,9 @@ use vespertide_core::{MigrationAction, MigrationPlan, NarrowingStrategy, TableDe
 #[cfg(test)]
 use vespertide_planner::find_missing_fill_with;
 use vespertide_planner::{
-    EnumFillWithRequired, FillWithRequired, FkPolicyChangeWarning, NarrowingKind,
-    TimezoneConversionWarning, TypeNarrowingWarning, find_missing_enum_fill_with,
-    render_reference_action,
+    DropChoice, DropResolution, DropTarget, EnumFillWithRequired, FillWithRequired,
+    FkPolicyChangeWarning, Match, NarrowingKind, TimezoneConversionWarning, TypeNarrowingWarning,
+    find_missing_enum_fill_with, render_reference_action,
 };
 
 use super::timezones::{KNOWN_IANA, validate_timezone};
@@ -821,4 +821,123 @@ pub(super) fn prompt_recreate_tables(tables: &[RecreateTableRequired]) -> Result
         .context("failed to read confirmation")?;
 
     Ok(confirmed)
+}
+
+/// Interactive resolution for a single `DropResolution`.
+///
+/// Renders a `Select` menu listing every rename candidate (sorted by match
+/// quality), then `Drop permanently`, then `Cancel migration`. Returns:
+/// - `Ok(None)` → user picked Cancel, the whole revision should abort.
+/// - `Ok(Some(DropChoice::Drop))` → user accepted the permanent drop.
+/// - `Ok(Some(DropChoice::RenameTo(target)))` → user selected a rename target.
+///
+/// When the user picks `Drop permanently` a second `Confirm` is shown with
+/// a backup-recommendation hint (F10 strong confirm); declining the confirm
+/// falls back to `Ok(None)` so the user can pick a different option.
+pub(super) fn prompt_drop_resolution(
+    resolution: &DropResolution,
+) -> Result<Option<DropChoice>> {
+    let header = format_drop_header(&resolution.target);
+    println!();
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+    println!("{header}");
+    if !resolution.candidates.is_empty() {
+        println!(
+            "  {}",
+            "Same-plan add actions detected as possible rename targets.".bright_white()
+        );
+    }
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+
+    let mut labels: Vec<String> = Vec::new();
+    for c in &resolution.candidates {
+        labels.push(format_candidate_label(c));
+    }
+    let drop_index = labels.len();
+    labels.push("Drop permanently (data lost, irreversible)".to_string());
+    let cancel_index = labels.len();
+    labels.push("Cancel migration".to_string());
+
+    let selection = Select::new()
+        .with_prompt("  Pick one")
+        .items(&labels)
+        .default(0)
+        .interact()
+        .context("failed to read drop resolution choice")?;
+
+    if selection == cancel_index {
+        return Ok(None);
+    }
+    if selection == drop_index {
+        return confirm_permanent_drop(&resolution.target);
+    }
+    let target = resolution.candidates[selection].target_name.clone();
+    Ok(Some(DropChoice::RenameTo(target)))
+}
+
+fn format_drop_header(target: &DropTarget) -> String {
+    match target {
+        DropTarget::Column {
+            table,
+            column,
+            column_type,
+        } => format!(
+            "  {} Resolve drop: column `{}.{}` ({})",
+            "\u{26a0}".bright_yellow(),
+            table.bright_white().bold(),
+            column.bright_white().bold(),
+            column_type
+        ),
+        DropTarget::Table { name } => format!(
+            "  {} Resolve drop: table `{}`",
+            "\u{26a0}".bright_yellow(),
+            name.bright_white().bold(),
+        ),
+    }
+}
+
+fn format_candidate_label(c: &vespertide_planner::RenameCandidate) -> String {
+    let marker = match c.match_quality {
+        Match::Exact => "\u{2728} ",
+        Match::SameType | Match::Different => "",
+    };
+    let diff = if c.differences.is_empty() {
+        String::new()
+    } else {
+        format!(" — {}", c.differences.join(", "))
+    };
+    format!("{marker}Rename \u{2192} {}{}", c.target_name, diff)
+}
+
+fn confirm_permanent_drop(target: &DropTarget) -> Result<Option<DropChoice>> {
+    println!();
+    let (what, backup_hint) = match target {
+        DropTarget::Column { table, column, .. } => (
+            format!("column `{table}.{column}`"),
+            "Recommended: pg_dump / mysqldump the table before applying.".to_string(),
+        ),
+        DropTarget::Table { name } => (
+            format!("table `{name}`"),
+            format!(
+                "Recommended backup commands before applying:\n     pg_dump -t {name} \u{2026}\n     mysqldump db {name} \u{2026}\n     cp app.db app.db.backup"
+            ),
+        ),
+    };
+    println!(
+        "  {} About to permanently drop {what}.",
+        "\u{26a0}".bright_red()
+    );
+    println!("  {}", backup_hint.bright_white());
+
+    let confirmed = Confirm::new()
+        .with_prompt("  Really drop permanently?")
+        .default(false)
+        .interact()
+        .context("failed to read drop confirmation")?;
+
+    if confirmed {
+        Ok(Some(DropChoice::Drop))
+    } else {
+        Ok(None)
+    }
 }
