@@ -268,6 +268,18 @@ where
 }
 /// Collect enum `fill_with` values interactively for removed enum values.
 /// The `enum_prompt_fn` parameter handles enum type columns with selection UI.
+///
+/// **F23 rename heuristic**: for each removed value, compute the most
+/// string-similar surviving value via Levenshtein distance. When the best
+/// match is "close enough" (see [`SIMILARITY_THRESHOLD`]) we:
+/// 1. Print a "(suggested: 'X' is new — likely rename)" hint above the prompt.
+/// 2. Reorder `remaining_values` so the suggestion appears at index 0, which
+///    becomes the `Select::default(0)` choice — pressing Enter applies the
+///    likely rename. The user can still arrow-down to pick any other value.
+///
+/// The original ordering of `remaining_values` is preserved for every entry
+/// other than the suggestion (which is hoisted to the top), so non-suggested
+/// options remain in a predictable order.
 pub(super) fn collect_enum_fill_with_values<E>(
     missing: &[EnumFillWithRequired],
     enum_prompt_fn: E,
@@ -294,13 +306,23 @@ where
 
         let mut mappings = BTreeMap::new();
         for removed in &item.removed_values {
-            let prompt = format!(
+            let suggestion = best_rename_candidate(removed, &item.remaining_values);
+            let mut prompt = format!(
                 "  Replace '{}' in {}.{} with",
                 removed.bright_red(),
                 item.table.bright_white(),
                 item.column.bright_green()
             );
-            let value = enum_prompt_fn(&prompt, &item.remaining_values)?;
+            if let Some(suggested) = &suggestion {
+                prompt = format!(
+                    "{prompt}\n    {} {} '{}' is new — likely rename",
+                    "(suggested:".bright_cyan(),
+                    suggested.bright_green(),
+                    "press Enter to accept)".bright_cyan(),
+                );
+            }
+            let ordered = reorder_with_suggestion(&item.remaining_values, suggestion.as_deref());
+            let value = enum_prompt_fn(&prompt, &ordered)?;
             mappings.insert(removed.clone(), value);
         }
         results.push((item.action_index, mappings));
@@ -308,6 +330,50 @@ where
 
     println!("{}", "\u{2500}".repeat(60).bright_black());
     Ok(results)
+}
+
+/// Levenshtein-distance threshold under which a surviving value is treated as
+/// a likely rename of the removed value. Empirically picked: `≤ 3` catches
+/// common rename patterns (`pending` → `awaiting`, `cancelled` → `canceled`,
+/// `inprogress` → `in_progress`) without false-positive recommending unrelated
+/// values like `active` → `banned`.
+const SIMILARITY_THRESHOLD: usize = 3;
+
+/// Pick the surviving value most string-similar to `removed`, or `None` when
+/// nothing is within [`SIMILARITY_THRESHOLD`]. Ties are broken by `remaining`'s
+/// declaration order so the suggestion is deterministic for snapshots and
+/// repeated runs.
+pub(super) fn best_rename_candidate(removed: &str, remaining: &[String]) -> Option<String> {
+    let mut best: Option<(usize, &String)> = None;
+    for candidate in remaining {
+        let d = strsim::levenshtein(removed, candidate);
+        if d > SIMILARITY_THRESHOLD {
+            continue;
+        }
+        match best {
+            None => best = Some((d, candidate)),
+            Some((current_d, _)) if d < current_d => best = Some((d, candidate)),
+            _ => {}
+        }
+    }
+    best.map(|(_, c)| c.clone())
+}
+
+/// Hoist `suggestion` to index 0 of `values` while preserving the relative
+/// order of every other entry. When `suggestion` is `None` or not present in
+/// `values`, returns `values` unchanged.
+fn reorder_with_suggestion(values: &[String], suggestion: Option<&str>) -> Vec<String> {
+    let Some(s) = suggestion else {
+        return values.to_vec();
+    };
+    let mut out: Vec<String> = Vec::with_capacity(values.len());
+    out.push(s.to_string());
+    for v in values {
+        if v != s {
+            out.push(v.clone());
+        }
+    }
+    out
 }
 
 /// Handle interactive enum `fill_with` collection if there are missing values.

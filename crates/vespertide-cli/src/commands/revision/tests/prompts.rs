@@ -766,3 +766,79 @@ fn test_strip_enum_quotes_only_leading() {
 fn test_strip_enum_quotes_only_trailing() {
     assert_eq!(strip_enum_quotes("active'"), "active");
 }
+
+// ── F23 rename heuristic (best_rename_candidate) ─────────────────────────
+
+/// Common rename: `pending` → `awaiting`. Distance = 6 (over threshold) so
+/// the suggestion is None — this case must be selected manually.
+#[test]
+fn test_best_rename_no_suggestion_when_distance_too_large() {
+    let remaining = vec!["awaiting".to_string(), "shipped".to_string()];
+    assert_eq!(best_rename_candidate("pending", &remaining), None);
+}
+
+/// British/American spelling: `cancelled` → `canceled`. Distance = 1, well
+/// within threshold; suggestion should fire.
+#[test]
+fn test_best_rename_picks_spelling_variant() {
+    let remaining = vec!["canceled".to_string(), "active".to_string()];
+    assert_eq!(
+        best_rename_candidate("cancelled", &remaining),
+        Some("canceled".to_string())
+    );
+}
+
+/// Snake-case conversion: `inprogress` → `in_progress`. Distance = 1 (one
+/// inserted underscore). Suggestion should fire.
+#[test]
+fn test_best_rename_picks_snake_case() {
+    let remaining = vec!["in_progress".to_string(), "done".to_string()];
+    assert_eq!(
+        best_rename_candidate("inprogress", &remaining),
+        Some("in_progress".to_string())
+    );
+}
+
+/// When two candidates are equally distant, the FIRST one in declaration
+/// order wins (deterministic for snapshots).
+#[test]
+fn test_best_rename_ties_break_by_declaration_order() {
+    let remaining = vec!["test1".to_string(), "test2".to_string()];
+    // Both are distance 1 from "test"; first one wins.
+    assert_eq!(
+        best_rename_candidate("test", &remaining),
+        Some("test1".to_string())
+    );
+}
+
+/// Identical strings shouldn't appear here (validation filters them) but
+/// guard anyway: distance 0 still produces a suggestion.
+#[test]
+fn test_best_rename_handles_exact_match() {
+    let remaining = vec!["active".to_string(), "inactive".to_string()];
+    assert_eq!(
+        best_rename_candidate("active", &remaining),
+        Some("active".to_string())
+    );
+}
+
+/// Empty remaining list: nothing to suggest.
+#[test]
+fn test_best_rename_empty_remaining() {
+    assert_eq!(best_rename_candidate("anything", &[]), None);
+}
+
+/// Threshold boundary: distance 3 is accepted, distance 4 is rejected.
+#[test]
+fn test_best_rename_threshold_boundary() {
+    // "abcd" vs "abcdEFG" — distance 3 (three insertions), at threshold.
+    let in_range = vec!["abcdEFG".to_string()];
+    assert_eq!(
+        best_rename_candidate("abcd", &in_range),
+        Some("abcdEFG".to_string())
+    );
+
+    // "abcd" vs "abcdEFGH" — distance 4, over threshold.
+    let out_of_range = vec!["abcdEFGH".to_string()];
+    assert_eq!(best_rename_candidate("abcd", &out_of_range), None);
+}
