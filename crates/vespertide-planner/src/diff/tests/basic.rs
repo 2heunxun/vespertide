@@ -86,6 +86,7 @@ use super::*;
         new_type: ColumnType::Simple(SimpleColumnType::Text),
         fill_with: None,
         narrowing_strategy: None,
+        timezone: None,
     }]
 )]
 #[case::remove_index(

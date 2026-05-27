@@ -19,8 +19,9 @@ pub use plan::{plan_next_migration, plan_next_migration_with_baseline};
 pub use schema::schema_from_plans;
 pub use validate::{
     ConstraintDropWarning, EnumFillWithRequired, FillWithRequired, FkPolicyChangeWarning,
-    MissingFkSupportingIndex, NarrowingKind, PolicyDelta, TypeNarrowingWarning,
-    find_constraint_drops_without_replacement, find_fk_policy_changes, find_missing_enum_fill_with,
-    find_missing_fill_with, find_missing_fk_supporting_indexes, find_type_narrowings,
+    MissingFkSupportingIndex, NarrowingKind, PolicyDelta, TimezoneConversionDirection,
+    TimezoneConversionWarning, TypeNarrowingWarning, find_constraint_drops_without_replacement,
+    find_fk_policy_changes, find_missing_enum_fill_with, find_missing_fill_with,
+    find_missing_fk_supporting_indexes, find_timezone_conversions, find_type_narrowings,
     is_narrowing, render_reference_action, validate_migration_plan, validate_schema,
 };

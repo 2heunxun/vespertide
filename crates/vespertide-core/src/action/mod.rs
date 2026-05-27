@@ -92,6 +92,14 @@ pub enum MigrationAction {
         /// (typically prompted by the `vespertide revision` type-narrowing select UI).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         narrowing_strategy: Option<NarrowingStrategy>,
+        /// `IANA` timezone name (e.g. `"Asia/Seoul"`) or numeric UTC offset (e.g. `"+09:00"`)
+        /// used when converting between `timestamp` and `timestamptz`. Required for safe
+        /// migration on `PostgreSQL` where the conversion is non-trivial; ignored on `MySQL`
+        /// and `SQLite` where vespertide maps both `timestamp` and `timestamptz` to the same
+        /// underlying type. Validated by the CLI `revision` prompt against a 30-name
+        /// whitelist plus numeric offset format `±HH:MM`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timezone: Option<String>,
     },
     /// Change whether a column accepts `NULL` values.
     ModifyColumnNullable {
@@ -271,6 +279,7 @@ mod tests {
             new_type: ColumnType::Simple(SimpleColumnType::Integer),
             fill_with: None,
             narrowing_strategy: None,
+            timezone: None,
         },
         "ModifyColumnType: users.age"
     )]
@@ -797,6 +806,7 @@ mod tests {
             new_type: ColumnType::Simple(SimpleColumnType::BigInt),
             fill_with: None,
             narrowing_strategy: None,
+            timezone: None,
         };
         let prefixed = action.with_prefix("myapp_");
         if let MigrationAction::ModifyColumnType {

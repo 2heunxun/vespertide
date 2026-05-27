@@ -264,6 +264,7 @@ struct SuccessCase {
                 new_type: ColumnType::Simple(SimpleColumnType::Text),
                 fill_with: None,
                 narrowing_strategy: None,
+                timezone: None,
             },
             MigrationAction::AddConstraint {
                 table: "users".into(),

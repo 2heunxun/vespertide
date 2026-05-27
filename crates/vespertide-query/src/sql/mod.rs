@@ -107,6 +107,7 @@ pub fn build_action_queries_with_pending(
             new_type,
             fill_with,
             narrowing_strategy,
+            timezone,
         } => modify_column_type::build_with_narrowing_preprocess(
             backend,
             table.as_str(),
@@ -114,6 +115,7 @@ pub fn build_action_queries_with_pending(
             new_type,
             fill_with.as_ref(),
             narrowing_strategy.as_ref(),
+            timezone.as_deref(),
             current_schema,
             pending_constraints,
         ),

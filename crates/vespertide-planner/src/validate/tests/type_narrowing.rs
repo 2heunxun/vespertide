@@ -28,9 +28,14 @@ fn modify_type(
     column: &str,
     new_type: ColumnType,
 ) -> MigrationAction {
-    MigrationAction::ModifyColumnType { table: table.into(),
-    column: column.into(),
-    new_type, fill_with: None, narrowing_strategy: None, }
+    MigrationAction::ModifyColumnType {
+        table: table.into(),
+        column: column.into(),
+        new_type,
+        fill_with: None,
+        narrowing_strategy: None,
+        timezone: None,
+    }
 }
 
 fn plan_with(actions: Vec<MigrationAction>) -> MigrationPlan {

@@ -27,6 +27,7 @@ fn find_missing_enum_fill_with_detects_removed_values() {
             new_type: string_enum("order_status", vec!["pending", "shipped"]),
             fill_with: None,
             narrowing_strategy: None,
+            timezone: None,
         }],
     };
     let baseline = vec![table(
@@ -59,6 +60,7 @@ fn find_missing_enum_fill_with_ignores_additions_only() {
             new_type: string_enum("order_status", vec!["pending", "shipped", "delivered"]),
             fill_with: None,
             narrowing_strategy: None,
+            timezone: None,
         }],
     };
     let baseline = vec![table(
@@ -93,6 +95,7 @@ fn find_missing_enum_fill_with_skips_already_covered() {
             new_type: string_enum("order_status", vec!["pending", "shipped"]),
             fill_with: Some(fw),
             narrowing_strategy: None,
+            timezone: None,
         }],
     };
     let baseline = vec![table(
@@ -127,6 +130,7 @@ fn find_missing_enum_fill_with_reports_partially_covered() {
             new_type: string_enum("order_status", vec!["pending"]),
             fill_with: Some(fw),
             narrowing_strategy: None,
+            timezone: None,
         }],
     };
     let baseline = vec![table(
@@ -181,6 +185,7 @@ fn find_missing_enum_fill_with_ignores_integer_enums() {
             new_type,
             fill_with: None,
             narrowing_strategy: None,
+            timezone: None,
         }],
     };
     let baseline = vec![table("tasks", vec![col("priority", old_type)], vec![])];
@@ -205,6 +210,7 @@ fn find_missing_enum_fill_with_ignores_non_enum_type_change() {
             new_type: ColumnType::Simple(SimpleColumnType::BigInt),
             fill_with: None,
             narrowing_strategy: None,
+            timezone: None,
         }],
     };
     let baseline = vec![table(
@@ -239,6 +245,7 @@ fn validate_modify_column_type_fill_with_invalid_replacement() {
             }),
             fill_with: Some(fw),
             narrowing_strategy: None,
+            timezone: None,
         }],
     };
 
@@ -275,6 +282,7 @@ fn validate_modify_column_type_fill_with_valid_replacement() {
             }),
             fill_with: Some(fw),
             narrowing_strategy: None,
+            timezone: None,
         }],
     };
 

@@ -70,4 +70,5 @@ mod fk_policy_changes;
 mod fk_supporting_index;
 mod plan_validation;
 mod schema_cases;
+mod timezone_conversion;
 mod type_narrowing;

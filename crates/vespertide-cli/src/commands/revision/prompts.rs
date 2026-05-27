@@ -8,8 +8,11 @@ use vespertide_core::{MigrationAction, MigrationPlan, NarrowingStrategy, TableDe
 use vespertide_planner::find_missing_fill_with;
 use vespertide_planner::{
     EnumFillWithRequired, FillWithRequired, FkPolicyChangeWarning, NarrowingKind,
-    TypeNarrowingWarning, find_missing_enum_fill_with, render_reference_action,
+    TimezoneConversionWarning, TypeNarrowingWarning, find_missing_enum_fill_with,
+    render_reference_action,
 };
+
+use super::timezones::{KNOWN_IANA, validate_timezone};
 
 #[cfg(test)]
 use super::emit::apply_fill_with_to_plan;
@@ -535,6 +538,142 @@ pub(super) fn apply_narrowing_strategies_to_plan(
         }) = plan.actions.get_mut(warning.action_index)
         {
             *narrowing_strategy = Some(strategy.clone());
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// F20 — timezone conversion prompt
+// ---------------------------------------------------------------------------
+
+/// Sentinel labels appended after the IANA whitelist in the Select UI.
+const CUSTOM_IANA_LABEL: &str = "Custom IANA name (validated against whitelist)";
+const CUSTOM_OFFSET_LABEL: &str = "Custom UTC offset (±HH:MM)";
+
+/// Prompt the user to pick a timezone for every `timestamp ⇄ timestamptz`
+/// conversion queued in the current migration plan.
+///
+/// Returns `Ok(Some(choices))` with one timezone string per warning (in the
+/// input order) on successful completion. Returns `Ok(None)` when the user
+/// explicitly declines via the trailing Confirm or the validation loop fails
+/// repeatedly (after 3 attempts).
+#[cfg(not(tarpaulin_include))]
+pub(super) fn prompt_timezone_conversions(
+    warnings: &[TimezoneConversionWarning],
+) -> Result<Option<Vec<String>>> {
+    println!(
+        "\n{} {}",
+        "\u{26a0}".bright_yellow(),
+        format!(
+            "{} timestamp \u{21c4} timestamptz conversion(s) detected \
+             \u{2014} a timezone is required for safe migration:",
+            warnings.len()
+        )
+        .bright_yellow()
+    );
+
+    // Build the Select item list once: 30 IANA entries plus 2 custom slots.
+    let mut items: Vec<String> = KNOWN_IANA.iter().map(|s| (*s).to_string()).collect();
+    items.push(CUSTOM_IANA_LABEL.to_string());
+    items.push(CUSTOM_OFFSET_LABEL.to_string());
+
+    let mut choices = Vec::with_capacity(warnings.len());
+    for (idx, w) in warnings.iter().enumerate() {
+        println!("{}", "\u{2500}".repeat(60).bright_black());
+        println!(
+            "  {} {}/{}: {} ({})",
+            "\u{25b6}".bright_cyan(),
+            idx + 1,
+            warnings.len(),
+            format!("{}.{}", w.table, w.column).bright_white().bold(),
+            w.direction.label().bright_yellow().bold(),
+        );
+        match w.direction {
+            vespertide_planner::TimezoneConversionDirection::NaiveToAware => println!(
+                "    {} {}",
+                "interpretation:".bright_white(),
+                "existing naive values will be read AS IF they are in this timezone."
+                    .bright_black()
+            ),
+            vespertide_planner::TimezoneConversionDirection::AwareToNaive => println!(
+                "    {} {}",
+                "projection:    ".bright_white(),
+                "existing aware values will be projected INTO this timezone, then dropped."
+                    .bright_black()
+            ),
+        }
+        if let Some(prev) = &w.current_timezone {
+            println!(
+                "    {} {} {}",
+                "currently:".bright_white(),
+                prev.bright_cyan(),
+                "(picking again will overwrite this)".bright_black()
+            );
+        }
+        println!();
+
+        let selection = Select::new()
+            .with_prompt("  Select timezone")
+            .items(&items)
+            .default(0)
+            .interact()
+            .context("failed to read timezone selection")?;
+
+        let tz = if selection < KNOWN_IANA.len() {
+            KNOWN_IANA[selection].to_string()
+        } else {
+            // Custom path: ask for free-text and run validate_timezone with
+            // up to 3 retries. After 3 failures the prompt cancels — the user
+            // can re-run with `--timezone` later (future flag).
+            let label = items[selection].as_str();
+            match prompt_custom_timezone_with_retry(label, 3)? {
+                Some(custom) => custom,
+                None => return Ok(None),
+            }
+        };
+        println!("  {} {}", "selected:".bright_white(), tz.bright_green().bold());
+        choices.push(tz);
+    }
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+    Ok(Some(choices))
+}
+
+#[cfg(not(tarpaulin_include))]
+fn prompt_custom_timezone_with_retry(label: &str, max_attempts: u8) -> Result<Option<String>> {
+    for attempt in 1..=max_attempts {
+        let raw: String = Input::new()
+            .with_prompt(format!("  {label}"))
+            .interact_text()
+            .context("failed to read custom timezone")?;
+        match validate_timezone(&raw) {
+            Ok(tz) => return Ok(Some(tz)),
+            Err(why) => {
+                println!("  {} {}", "\u{2717}".bright_red(), why);
+                if attempt < max_attempts {
+                    println!(
+                        "  {} {} attempts left",
+                        "\u{21bb}".bright_yellow(),
+                        max_attempts - attempt
+                    );
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// Apply user-supplied timezones onto the plan in place. Each warning's
+/// `action_index` points at the `ModifyColumnType` action it came from.
+pub(super) fn apply_timezone_choices_to_plan(
+    plan: &mut MigrationPlan,
+    warnings: &[TimezoneConversionWarning],
+    choices: &[String],
+) {
+    for (warning, choice) in warnings.iter().zip(choices) {
+        if let Some(MigrationAction::ModifyColumnType { timezone, .. }) =
+            plan.actions.get_mut(warning.action_index)
+        {
+            *timezone = Some(choice.clone());
         }
     }
 }

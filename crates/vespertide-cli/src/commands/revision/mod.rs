@@ -3,8 +3,9 @@ use chrono::Utc;
 use colored::Colorize;
 use vespertide_core::NarrowingStrategy;
 use vespertide_planner::{
-    FkPolicyChangeWarning, TypeNarrowingWarning, find_fk_policy_changes, find_missing_fill_with,
-    find_type_narrowings, plan_next_migration, schema_from_plans,
+    FkPolicyChangeWarning, TimezoneConversionWarning, TypeNarrowingWarning, find_fk_policy_changes,
+    find_missing_fill_with, find_timezone_conversions, find_type_narrowings, plan_next_migration,
+    schema_from_plans,
 };
 
 use crate::utils::{load_config, load_migrations, load_models};
@@ -12,6 +13,7 @@ use crate::utils::{load_config, load_migrations, load_models};
 mod emit;
 mod parse;
 mod prompts;
+mod timezones;
 mod write;
 
 #[cfg(test)]
@@ -43,12 +45,13 @@ pub async fn cmd_revision(
             enum_bare: prompts::prompt_enum_value_bare,
             fk_policy_change: prompts::prompt_fk_policy_changes,
             type_narrowing: prompts::prompt_type_narrowings,
+            timezone_conversion: prompts::prompt_timezone_conversions,
         },
     )
     .await
 }
 
-struct RevisionPromptFns<R, D, F, E, EB, P, N> {
+struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ> {
     recreate: R,
     delete_null_rows: D,
     fill_with: F,
@@ -56,13 +59,18 @@ struct RevisionPromptFns<R, D, F, E, EB, P, N> {
     enum_bare: EB,
     fk_policy_change: P,
     type_narrowing: N,
+    timezone_conversion: TZ,
 }
 
-async fn cmd_revision_core<R, D, F, E, EB, P, N>(
+#[expect(
+    clippy::too_many_lines,
+    reason = "linear revision flow: load → plan → recreate → fill_with → enum fill_with → fk policy → narrowing → timezone → write. Extracting helpers scatters the ordering"
+)]
+async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ>(
     message: String,
     fill_with_args: Vec<String>,
     delete_null_rows_args: Vec<String>,
-    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N>,
+    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ>,
 ) -> Result<()>
 where
     R: Fn(&[RecreateTableRequired]) -> Result<bool>,
@@ -72,6 +80,7 @@ where
     EB: Fn(&str, &[String]) -> Result<String>,
     P: Fn(&[FkPolicyChangeWarning]) -> Result<bool>,
     N: Fn(&[TypeNarrowingWarning]) -> Result<Option<Vec<NarrowingStrategy>>>,
+    TZ: Fn(&[TimezoneConversionWarning]) -> Result<Option<Vec<String>>>,
 {
     let RevisionPromptFns {
         recreate: recreate_prompt_fn,
@@ -81,6 +90,7 @@ where
         enum_bare: enum_bare_prompt_fn,
         fk_policy_change: fk_policy_change_prompt_fn,
         type_narrowing: type_narrowing_prompt_fn,
+        timezone_conversion: timezone_conversion_prompt_fn,
     } = prompt_fns;
 
     let config = load_config()?;
@@ -175,6 +185,28 @@ where
             &narrowing_warnings,
             &strategies,
         );
+    }
+
+    // F20 — timestamp ↔ timestamptz conversions need an explicit timezone
+    // so the SQL generator can emit `... AT TIME ZONE '<tz>'` on PG. Mute
+    // for already-resolved conversions: only ask when timezone is missing.
+    let timezone_warnings: Vec<TimezoneConversionWarning> =
+        find_timezone_conversions(&plan, &baseline_schema)
+            .into_iter()
+            .filter(|w| w.current_timezone.is_none())
+            .collect();
+    if !timezone_warnings.is_empty() {
+        let Some(choices) = timezone_conversion_prompt_fn(&timezone_warnings)? else {
+            println!(
+                "{} {}",
+                "Cancelled.".bright_yellow().bold(),
+                "A timezone is required for safe timestamp \u{2194} timestamptz conversion. \
+                 Re-run when you've decided which timezone to use."
+                    .bright_white()
+            );
+            return Ok(());
+        };
+        prompts::apply_timezone_choices_to_plan(&mut plan, &timezone_warnings, &choices);
     }
 
     plan.id = uuid::Uuid::new_v4().to_string();

@@ -4,6 +4,7 @@ mod fk_policy_changes;
 mod foreign_keys;
 mod plan;
 mod schema;
+mod timezone_conversion;
 mod type_narrowing;
 
 pub use constraint_drops::{ConstraintDropWarning, find_constraint_drops_without_replacement};
@@ -16,6 +17,9 @@ pub use plan::{
     validate_migration_plan,
 };
 pub use schema::validate_schema;
+pub use timezone_conversion::{
+    TimezoneConversionDirection, TimezoneConversionWarning, find_timezone_conversions,
+};
 pub use type_narrowing::{
     NarrowingKind, TypeNarrowingWarning, find_type_narrowings, is_narrowing,
 };

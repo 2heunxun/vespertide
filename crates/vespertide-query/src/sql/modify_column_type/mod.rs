@@ -13,7 +13,7 @@ use vespertide_core::NarrowingStrategy;
 /// budget.
 #[expect(
     clippy::too_many_arguments,
-    reason = "mirrors build_modify_column_type plus narrowing_strategy + extends the public API entrypoint; threading these into a context struct would require a parallel sql-dispatch refactor"
+    reason = "mirrors build_modify_column_type plus narrowing_strategy + timezone; threading these into a context struct would require a parallel sql-dispatch refactor"
 )]
 pub fn build_with_narrowing_preprocess(
     backend: DatabaseBackend,
@@ -22,6 +22,7 @@ pub fn build_with_narrowing_preprocess(
     new_type: &ColumnType,
     fill_with: Option<&BTreeMap<String, String>>,
     narrowing_strategy: Option<&NarrowingStrategy>,
+    timezone: Option<&str>,
     current_schema: &[TableDef],
     pending_constraints: &[vespertide_core::TableConstraint],
 ) -> Result<Vec<BuiltQuery>, QueryError> {
@@ -36,7 +37,58 @@ pub fn build_with_narrowing_preprocess(
             current_schema,
         )?);
     }
-    queries.extend(build_modify_column_type(
+    queries.extend(build_modify_column_type_with_timezone(
+        backend,
+        table,
+        column,
+        new_type,
+        fill_with,
+        timezone,
+        current_schema,
+        pending_constraints,
+    )?);
+    Ok(queries)
+}
+
+/// Inject a `USING col AT TIME ZONE '<tz>'` clause on `PostgreSQL` when the
+/// action carries a timezone and the target type is `timestamp` or
+/// `timestamptz`. `MySQL` and `SQLite` ignore the timezone and fall back to
+/// the regular `build_modify_column_type` path because vespertide maps
+/// both `timestamp` and `timestamptz` to the same underlying SQL type on
+/// those backends — the conversion is a no-op there.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "timezone is passed alongside fill_with/narrowing/schema; consolidating would be a workspace-wide refactor and is tracked separately"
+)]
+fn build_modify_column_type_with_timezone(
+    backend: DatabaseBackend,
+    table: &str,
+    column: &str,
+    new_type: &ColumnType,
+    fill_with: Option<&BTreeMap<String, String>>,
+    timezone: Option<&str>,
+    current_schema: &[TableDef],
+    pending_constraints: &[vespertide_core::TableConstraint],
+) -> Result<Vec<BuiltQuery>, QueryError> {
+    if let Some(tz) = timezone
+        && backend == DatabaseBackend::Postgres
+    {
+        if let Some(q) = build_pg_alter_with_timezone(table, column, new_type, tz) {
+            return Ok(vec![q]);
+        }
+        // The action carries a timezone but the target type is not
+        // timestamp/timestamptz. Treat as user error so the migration
+        // is not silently mis-emitted.
+        return Err(QueryError::UnsupportedAction(format!(
+            "timezone metadata is only valid when converting to/from timestamp/timestamptz; \
+             got new_type = {new_type:?}"
+        )));
+    }
+    // MySQL / SQLite with a timezone: vespertide maps both timestamp and
+    // timestamptz to the same underlying SQL type, so the timezone has no
+    // effect on the emitted SQL. Recorded in the migration JSON for
+    // portability and we fall through to the regular ALTER path.
+    build_modify_column_type(
         backend,
         table,
         column,
@@ -44,8 +96,45 @@ pub fn build_with_narrowing_preprocess(
         fill_with,
         current_schema,
         pending_constraints,
-    )?);
-    Ok(queries)
+    )
+}
+
+/// PostgreSQL-only: emit `ALTER TABLE ... ALTER COLUMN ... TYPE ... USING ...`
+/// with the timezone-aware USING expression. Returns `None` when the target
+/// type is not `timestamp` / `timestamptz` so the caller can decide how to
+/// surface the misuse.
+fn build_pg_alter_with_timezone(
+    table: &str,
+    column: &str,
+    new_type: &ColumnType,
+    tz: &str,
+) -> Option<BuiltQuery> {
+    use vespertide_core::SimpleColumnType;
+
+    let qt = super::helpers::quote_ident(table, DatabaseBackend::Postgres);
+    let qc = super::helpers::quote_ident(column, DatabaseBackend::Postgres);
+    // validate_timezone in the CLI already rejected anything with quotes,
+    // but escape defensively to keep this layer safe in isolation.
+    let tz_lit = tz.replace('\'', "''");
+
+    let (target_sql_type, using_expr) = match new_type {
+        ColumnType::Simple(SimpleColumnType::Timestamptz) => (
+            "timestamptz",
+            // naive → aware: interpret stored naive values AS IF in <tz>.
+            format!("{qc} AT TIME ZONE '{tz_lit}'"),
+        ),
+        ColumnType::Simple(SimpleColumnType::Timestamp) => (
+            "timestamp",
+            // aware → naive: project UTC instant into <tz>, drop tz tag.
+            format!("({qc} AT TIME ZONE '{tz_lit}')::timestamp"),
+        ),
+        _ => return None,
+    };
+
+    let sql = format!(
+        "ALTER TABLE {qt} ALTER COLUMN {qc} TYPE {target_sql_type} USING {using_expr}"
+    );
+    Some(BuiltQuery::Raw(super::types::RawSql::uniform(sql)))
 }
 
 use std::collections::BTreeMap;
@@ -749,6 +838,171 @@ mod tests {
         assert!(sql.contains("CREATE TYPE"));
         assert!(sql.contains("status_type"));
         assert!(sql.contains("ALTER TABLE"));
+    }
+
+    // -----------------------------------------------------------------------
+    // F20 — timezone conversion (timestamp <-> timestamptz)
+    // -----------------------------------------------------------------------
+
+    fn tz_baseline(old_type: ColumnType) -> Vec<TableDef> {
+        vec![TableDef {
+            name: "events".into(),
+            description: None,
+            columns: vec![ColumnDef {
+                name: "at".into(),
+                r#type: old_type,
+                nullable: false,
+                default: None,
+                comment: None,
+                primary_key: None,
+                unique: None,
+                index: None,
+                foreign_key: None,
+            }],
+            constraints: vec![],
+        }]
+    }
+
+    fn run_with_tz(
+        backend: DatabaseBackend,
+        old_type: ColumnType,
+        new_type: &ColumnType,
+        timezone: Option<&str>,
+    ) -> Result<String, QueryError> {
+        let baseline = tz_baseline(old_type);
+        let queries = build_with_narrowing_preprocess(
+            backend,
+            "events",
+            "at",
+            new_type,
+            None,
+            None,
+            timezone,
+            &baseline,
+            &[],
+        )?;
+        Ok(queries
+            .iter()
+            .map(|q| q.build(backend))
+            .collect::<Vec<_>>()
+            .join(";\n"))
+    }
+
+    fn snap_tz(name: &str, sql: &str) {
+        with_settings!(
+            { snapshot_path => "../snapshots", snapshot_suffix => format!("tz_{}", name) },
+            { assert_snapshot!(sql); }
+        );
+    }
+
+    /// Run every timezone case against all three backends so the snapshots
+    /// form symmetric 3-of-a-kind triples — PG emits the `USING` clause,
+    /// `MySQL` / `SQLite` fall through to the regular `ALTER` (no-op intent)
+    /// for the same input. Mirrors the `supported_snap!` discipline used by
+    /// the narrowing preprocess suite.
+    macro_rules! tz_snap_all_backends {
+        ($name:ident, $old:expr, $new:expr, $tz:expr) => {
+            #[test]
+            fn $name() {
+                for (backend, tag) in [
+                    (DatabaseBackend::Postgres, "postgres"),
+                    (DatabaseBackend::MySql, "mysql"),
+                    (DatabaseBackend::Sqlite, "sqlite"),
+                ] {
+                    let sql = run_with_tz(backend, $old, &$new, $tz)
+                        .expect("timezone conversion across backends");
+                    snap_tz(&format!("{}_{}", stringify!($name), tag), &sql);
+                }
+            }
+        };
+    }
+
+    // --- timestamp -> timestamptz, every timezone shape × 3 backends ---
+    tz_snap_all_backends!(
+        ts_to_tstz_utc,
+        ColumnType::Simple(SimpleColumnType::Timestamp),
+        ColumnType::Simple(SimpleColumnType::Timestamptz),
+        Some("UTC")
+    );
+    tz_snap_all_backends!(
+        ts_to_tstz_asia_seoul,
+        ColumnType::Simple(SimpleColumnType::Timestamp),
+        ColumnType::Simple(SimpleColumnType::Timestamptz),
+        Some("Asia/Seoul")
+    );
+    tz_snap_all_backends!(
+        ts_to_tstz_offset_plus_09,
+        ColumnType::Simple(SimpleColumnType::Timestamp),
+        ColumnType::Simple(SimpleColumnType::Timestamptz),
+        Some("+09:00")
+    );
+    tz_snap_all_backends!(
+        ts_to_tstz_offset_minus_05,
+        ColumnType::Simple(SimpleColumnType::Timestamp),
+        ColumnType::Simple(SimpleColumnType::Timestamptz),
+        Some("-05:00")
+    );
+
+    // --- timestamptz -> timestamp × 3 backends ---
+    tz_snap_all_backends!(
+        tstz_to_ts_utc,
+        ColumnType::Simple(SimpleColumnType::Timestamptz),
+        ColumnType::Simple(SimpleColumnType::Timestamp),
+        Some("UTC")
+    );
+    tz_snap_all_backends!(
+        tstz_to_ts_asia_seoul,
+        ColumnType::Simple(SimpleColumnType::Timestamptz),
+        ColumnType::Simple(SimpleColumnType::Timestamp),
+        Some("Asia/Seoul")
+    );
+
+    // --- No-timezone fallback path (legacy migration JSON) × 3 backends ---
+    tz_snap_all_backends!(
+        ts_to_tstz_no_tz_fallback,
+        ColumnType::Simple(SimpleColumnType::Timestamp),
+        ColumnType::Simple(SimpleColumnType::Timestamptz),
+        None
+    );
+    tz_snap_all_backends!(
+        tstz_to_ts_no_tz_fallback,
+        ColumnType::Simple(SimpleColumnType::Timestamptz),
+        ColumnType::Simple(SimpleColumnType::Timestamp),
+        None
+    );
+
+    // --- Error path: PG + timezone + non-timestamp target ---
+    #[test]
+    fn pg_timezone_with_non_timestamp_target_returns_unsupported() {
+        let result = run_with_tz(
+            DatabaseBackend::Postgres,
+            ColumnType::Simple(SimpleColumnType::Timestamp),
+            &ColumnType::Complex(ComplexColumnType::Varchar { length: 30 }),
+            Some("UTC"),
+        );
+        assert!(
+            matches!(result, Err(QueryError::UnsupportedAction(_))),
+            "timezone on non-timestamp target should error, got: {result:?}"
+        );
+    }
+
+    // --- Defense-in-depth: single quote inside tz literal must be escaped ---
+    #[test]
+    fn pg_timezone_with_embedded_quote_escapes_safely() {
+        // The CLI validates first so this is theoretical, but
+        // build_pg_alter_with_timezone runs in isolation and must not
+        // generate broken SQL.
+        let sql = run_with_tz(
+            DatabaseBackend::Postgres,
+            ColumnType::Simple(SimpleColumnType::Timestamp),
+            &ColumnType::Simple(SimpleColumnType::Timestamptz),
+            Some("evil';--"),
+        )
+        .expect("escaping must not error");
+        assert!(
+            sql.contains("'evil'';--'"),
+            "single quote must be doubled, got: {sql}"
+        );
     }
 
     #[rstest]

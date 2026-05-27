@@ -169,6 +169,11 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
                 -> Result<Option<Vec<vespertide_core::NarrowingStrategy>>> {
                 panic!("type_narrowing prompt should not be called")
             },
+            // F20 / timezone conversion likewise must not fire here.
+            timezone_conversion: |_: &[vespertide_planner::TimezoneConversionWarning]|
+                -> Result<Option<Vec<String>>> {
+                panic!("timezone_conversion prompt should not be called")
+            },
         },
     )
     .await;
@@ -313,6 +318,11 @@ async fn cmd_revision_core_handles_fill_with_for_non_fk_column() {
             type_narrowing: |_: &[vespertide_planner::TypeNarrowingWarning]|
                 -> Result<Option<Vec<vespertide_core::NarrowingStrategy>>> {
                 panic!("type_narrowing prompt should not be called")
+            },
+            // F20 / timezone conversion likewise must not fire here.
+            timezone_conversion: |_: &[vespertide_planner::TimezoneConversionWarning]|
+                -> Result<Option<Vec<String>>> {
+                panic!("timezone_conversion prompt should not be called")
             },
         },
     )

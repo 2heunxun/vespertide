@@ -275,6 +275,7 @@ mod tests {
                     new_type: ColumnType::Simple(SimpleColumnType::BigInt),
                     fill_with: None,
                     narrowing_strategy: None,
+                    timezone: None,
                 },
             ],
         };

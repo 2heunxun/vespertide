@@ -82,12 +82,14 @@ fn prefix_column_or_constraint_action(action: MigrationAction, prefix: &str) -> 
             new_type,
             fill_with,
             narrowing_strategy,
+            timezone,
         } => MigrationAction::ModifyColumnType {
             table: add_prefix(table, prefix),
             column,
             new_type,
             fill_with,
             narrowing_strategy,
+            timezone,
         },
         MigrationAction::ModifyColumnNullable {
             table,

@@ -3,10 +3,10 @@ use std::fmt::Write as _;
 use anyhow::Result;
 use colored::Colorize;
 use vespertide_planner::{
-    ConstraintDropWarning, FkPolicyChangeWarning, MissingFkSupportingIndex, TypeNarrowingWarning,
-    find_constraint_drops_without_replacement, find_fk_policy_changes,
-    find_missing_fk_supporting_indexes, find_type_narrowings, plan_next_migration,
-    render_reference_action, schema_from_plans,
+    ConstraintDropWarning, FkPolicyChangeWarning, MissingFkSupportingIndex,
+    TimezoneConversionWarning, TypeNarrowingWarning, find_constraint_drops_without_replacement,
+    find_fk_policy_changes, find_missing_fk_supporting_indexes, find_timezone_conversions,
+    find_type_narrowings, plan_next_migration, render_reference_action, schema_from_plans,
 };
 
 use crate::utils::{load_config, load_migrations, load_models};
@@ -50,15 +50,79 @@ pub async fn cmd_diff() -> Result<()> {
     emit_constraint_drop_warnings(&plan);
     emit_fk_policy_change_warnings(&plan);
 
-    // Type narrowing needs the *baseline* schema (the type before this
-    // migration) — reconstruct it from the applied migration history.
-    // Failure here is non-fatal: we just skip the warning rather than
+    // Type narrowing + timezone conversion both need the *baseline* schema
+    // (the type before this migration). Reconstruct once and reuse.
+    // Failure here is non-fatal: we just skip both warnings rather than
     // shadowing the actual diff output.
     if let Ok(baseline) = schema_from_plans(&applied_plans) {
         emit_type_narrowing_warnings(&plan, &baseline);
+        emit_timezone_conversion_warnings(&plan, &baseline);
     }
 
     Ok(())
+}
+
+/// Surface `ModifyColumnType` actions that flip a column between
+/// `timestamp` and `timestamptz`. This is fault **F20**: without a
+/// recorded timezone, the conversion silently shifts every row by the
+/// server's (or session's) implicit timezone.
+fn emit_timezone_conversion_warnings(plan: &MigrationPlan, baseline: &[TableDef]) {
+    let warnings = find_timezone_conversions(plan, baseline);
+    if warnings.is_empty() {
+        return;
+    }
+
+    println!();
+    println!(
+        "{} {}",
+        "⚠".bright_yellow().bold(),
+        format!(
+            "{} timestamp \u{21c4} timestamptz conversion(s) — a timezone is required:",
+            warnings.len()
+        )
+        .bright_yellow()
+    );
+    for w in &warnings {
+        println!();
+        for line in format_timezone_conversion_warning(w).lines() {
+            println!("{line}");
+        }
+    }
+}
+
+/// Format a single `TimezoneConversionWarning` as a multi-line indented block.
+fn format_timezone_conversion_warning(w: &TimezoneConversionWarning) -> String {
+    let direction_explainer = match w.direction {
+        vespertide_planner::TimezoneConversionDirection::NaiveToAware =>
+            "existing naive values will be read AS IF they are in <tz>",
+        vespertide_planner::TimezoneConversionDirection::AwareToNaive =>
+            "existing aware values will be projected INTO <tz>, then dropped",
+    };
+    let mut out = format!(
+        "  {} {}\n  {} {}\n  {} {}",
+        "on:".bright_white(),
+        format!("{}.{}", w.table, w.column).bright_cyan(),
+        "direction:".bright_white(),
+        w.direction.label().bright_yellow().bold(),
+        "why:".bright_white(),
+        direction_explainer,
+    );
+    if let Some(tz) = &w.current_timezone {
+        let _ = write!(
+            out,
+            "\n  {} {} {}",
+            "currently:".bright_white(),
+            tz.bright_cyan(),
+            "(revision will skip the prompt)".bright_black()
+        );
+    } else {
+        let _ = write!(
+            out,
+            "\n  {} run `vespertide revision` and pick a timezone (UTC / IANA / ±HH:MM)",
+            "fix:".bright_green()
+        );
+    }
+    out
 }
 
 /// Surface `ModifyColumnType` actions that shrink a column's storable value
@@ -637,6 +701,7 @@ mod tests {
             new_type: ColumnType::Simple(SimpleColumnType::Integer),
             fill_with: None,
             narrowing_strategy: None,
+            timezone: None,
         },
         format!("{} {}.{} {} {}", "Modify column type:".bright_yellow(), "users".bright_cyan(), "id".bright_cyan().bold(), "->".bright_white(), "integer".bright_cyan().bold())
     )]

@@ -332,10 +332,11 @@ fn arb_modify_column_type_action() -> impl Strategy<Value = MigrationAction> {
                 column: column.into(),
                 new_type,
                 fill_with,
-                // `narrowing_strategy` is set only by the CLI revision flow
-                // after user selection; property tests of the action enum
-                // itself can leave it `None`.
+                // `narrowing_strategy` and `timezone` are set only by the CLI
+                // revision flow after user selection; property tests of the
+                // action enum itself can leave them `None`.
                 narrowing_strategy: None,
+                timezone: None,
             },
         )
 }

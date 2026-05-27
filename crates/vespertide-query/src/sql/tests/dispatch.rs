@@ -276,7 +276,8 @@ fn test_build_action_queries_modify_column_type(#[case] backend: DatabaseBackend
     // Test MigrationAction::ModifyColumnType (lines 60-63)
     let action = MigrationAction::ModifyColumnType { table: "users".into(),
     column: "age".into(),
-    new_type: ColumnType::Simple(SimpleColumnType::BigInt), fill_with: None, narrowing_strategy: None, };
+    new_type: ColumnType::Simple(SimpleColumnType::BigInt), fill_with: None, narrowing_strategy: None,
+        timezone: None, };
     let current_schema = vec![TableDef {
         name: "users".into(),
         description: None,

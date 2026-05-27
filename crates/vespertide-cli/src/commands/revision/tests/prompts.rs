@@ -600,6 +600,7 @@ fn test_apply_enum_fill_with_to_plan() {
             }),
             fill_with: None,
             narrowing_strategy: None,
+            timezone: None,
         }],
     };
 
@@ -635,6 +636,7 @@ fn test_handle_missing_enum_fill_with_collects_and_applies() {
             }),
             fill_with: None,
             narrowing_strategy: None,
+            timezone: None,
         }],
     };
 
@@ -716,6 +718,7 @@ fn test_apply_enum_fill_with_to_plan_extends_existing() {
             }),
             fill_with: Some(existing_fw),
             narrowing_strategy: None,
+            timezone: None,
         }],
     };
 

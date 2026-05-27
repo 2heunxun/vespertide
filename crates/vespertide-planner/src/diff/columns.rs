@@ -87,6 +87,9 @@ fn diff_column_types(
                     // Set by `cmd_revision` after the user picks a strategy
                     // in the type-narrowing select prompt.
                     narrowing_strategy: None,
+                    // Set by `cmd_revision` from the timezone-conversion prompt
+                    // when the column transitions between timestamp/timestamptz.
+                    timezone: None,
                 });
             }
         }
