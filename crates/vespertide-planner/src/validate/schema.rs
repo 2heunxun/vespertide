@@ -76,7 +76,8 @@ fn validate_table_entry(
     table
         .validate_unique_column_names()
         .map_err(|e| PlannerError::TableValidation(e.to_string()))?;
-    validate_table(table, table_map)
+    validate_table(table, table_map)?;
+    super::check_default::validate_default_vs_check(table)
 }
 
 pub(super) fn validate_table(

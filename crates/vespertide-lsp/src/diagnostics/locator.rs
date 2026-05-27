@@ -39,11 +39,11 @@ impl ErrorLocation {
     /// Extract the table/column/constraint tuple carried by a planner error.
     pub fn from_planner_error(err: &PlannerError) -> Option<Self> {
         use PlannerError::{
-            ColumnExists, ColumnNotFound, ConstraintColumnNotFound, DuplicateEnumValue,
-            DuplicateEnumVariantName, DuplicateTableName, EmptyConstraintColumns,
-            ForeignKeyColumnNotFound, ForeignKeyTableNotFound, IndexColumnNotFound, IndexNotFound,
-            InvalidAutoIncrement, InvalidEnumDefault, MissingFillWith, MissingPrimaryKey,
-            TableExists, TableNotFound, TableValidation,
+            ColumnExists, ColumnNotFound, ConstraintColumnNotFound, DefaultViolatesCheck,
+            DuplicateEnumValue, DuplicateEnumVariantName, DuplicateTableName,
+            EmptyConstraintColumns, ForeignKeyColumnNotFound, ForeignKeyTableNotFound,
+            IndexColumnNotFound, IndexNotFound, InvalidAutoIncrement, InvalidEnumDefault,
+            MissingFillWith, MissingPrimaryKey, TableExists, TableNotFound, TableValidation,
         };
 
         match err {
@@ -85,6 +85,13 @@ impl ErrorLocation {
                 &err.column_name,
                 ErrorField::Default,
             )),
+            DefaultViolatesCheck { table, column, .. } => {
+                // Squiggle goes on the `default` value — that's the field
+                // the user has to change to make the CHECK satisfiable. The
+                // CHECK constraint itself is also a candidate, but pointing
+                // at the column default is the more actionable target.
+                Some(Self::column_field(table, column, ErrorField::Default))
+            }
         }
     }
 

@@ -40,6 +40,18 @@ pub enum PlannerError {
         "auto_increment on non-integer column: {0}.{1} (type {2} does not support auto_increment)"
     )]
     InvalidAutoIncrement(String, String, String),
+    #[error(
+        "default value violates CHECK constraint: {table}.{column} default = {default_value} \
+         fails CHECK ({check_expr}) — every INSERT relying on this default will be rejected by \
+         the database. Change the default to satisfy the constraint, or relax the constraint."
+    )]
+    DefaultViolatesCheck {
+        table: String,
+        column: String,
+        default_value: String,
+        check_name: String,
+        check_expr: String,
+    },
 }
 
 /// An enum column has a default or `fill_with` value not in the allowed set.

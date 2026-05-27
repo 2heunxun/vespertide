@@ -1,3 +1,4 @@
+mod check_default;
 mod constraint_drops;
 mod enums;
 mod fk_policy_changes;
