@@ -188,6 +188,14 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
             > {
                 panic!("drop_resolution prompt should not be called")
             },
+            // F15 default-change resolution: these scenarios touch new
+            // columns only, never `ModifyColumnDefault`, so the prompt
+            // should never fire. Panic guards against silent flow drift.
+            default_change: |_: &vespertide_planner::DefaultChangeWarning| -> Result<
+                Option<crate::commands::revision::prompts::DefaultChoice>,
+            > {
+                panic!("default_change prompt should not be called")
+            },
         },
     )
     .await;
@@ -351,6 +359,14 @@ async fn cmd_revision_core_handles_fill_with_for_non_fk_column() {
                 Option<vespertide_planner::DropChoice>,
             > {
                 panic!("drop_resolution prompt should not be called")
+            },
+            // F15 default-change resolution: these scenarios touch new
+            // columns only, never `ModifyColumnDefault`, so the prompt
+            // should never fire. Panic guards against silent flow drift.
+            default_change: |_: &vespertide_planner::DefaultChangeWarning| -> Result<
+                Option<crate::commands::revision::prompts::DefaultChoice>,
+            > {
+                panic!("default_change prompt should not be called")
             },
         },
     )

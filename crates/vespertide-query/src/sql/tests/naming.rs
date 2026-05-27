@@ -336,10 +336,11 @@ fn test_build_action_queries_modify_column_nullable(#[case] backend: DatabaseBac
 #[case::sqlite_modify_default(DatabaseBackend::Sqlite)]
 fn test_build_action_queries_modify_column_default(#[case] backend: DatabaseBackend) {
     let action = MigrationAction::ModifyColumnDefault {
-        table: "users".into(),
-        column: "status".into(),
-        new_default: Some("'active'".into()),
-    };
+                table: "users".into(),
+                column: "status".into(),
+                new_default: Some("'active'".into()),
+                backfill: None,
+            };
     let current_schema = vec![TableDef {
         name: "users".into(),
         description: None,

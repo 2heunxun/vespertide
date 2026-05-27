@@ -482,6 +482,7 @@ fn apply_column_rename(
                 table: TableName::from(table),
                 column: ColumnName::from(new_column),
                 new_default: added.default.as_ref().map(DefaultValue::to_sql),
+                backfill: None,
             });
         }
     }
@@ -643,6 +644,7 @@ fn diff_table_columns(
                     table: TableName::from(table),
                     column: col.name.clone(),
                     new_default: col.default.as_ref().map(DefaultValue::to_sql),
+                    backfill: None,
                 });
             }
         }

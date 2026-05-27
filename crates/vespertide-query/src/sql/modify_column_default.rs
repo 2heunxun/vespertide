@@ -11,11 +11,24 @@ use super::types::{BuiltQuery, DatabaseBackend, RawSql};
 use crate::error::QueryError;
 
 /// Build SQL for changing column default value.
+///
+/// When `backfill` is `Some(value)`, an `UPDATE` statement is appended after
+/// the schema-level change so every existing row is rewritten to the given
+/// value (F15 backfill option β). The update uses identifier quoting
+/// appropriate for the backend and treats `value` as a raw SQL expression
+/// (already-quoted literals for strings, bare expressions like `NOW()` for
+/// functions). When `backfill` is `None` the action behaves exactly as in
+/// v0.2.0 — only the schema is touched, existing rows keep their values.
+#[expect(
+    clippy::too_many_lines,
+    reason = "three-backend dispatch (PG / MySQL / SQLite) plus optional backfill UPDATE; splitting per-backend helpers scatters the read flow"
+)]
 pub fn build_modify_column_default(
     backend: DatabaseBackend,
     table: &str,
     column: &str,
     new_default: Option<&str>,
+    backfill: Option<&str>,
     current_schema: &[TableDef],
     pending_constraints: &[vespertide_core::TableConstraint],
 ) -> Result<Vec<BuiltQuery>, QueryError> {
@@ -145,6 +158,18 @@ pub fn build_modify_column_default(
         }
     }
 
+    // F15 — backfill existing rows when the user explicitly opted in via
+    // the revision prompt. The schema-level change above only affects new
+    // rows; this UPDATE is what brings existing rows in line with the new
+    // default. Emitted *after* the ALTER so the new default is the one
+    // recorded in the catalog before we touch any row.
+    if let Some(value) = backfill {
+        let quoted_table = quote_ident(table, backend);
+        let quoted_column = quote_ident(column, backend);
+        let update_sql = format!("UPDATE {quoted_table} SET {quoted_column} = {value}");
+        queries.push(BuiltQuery::Raw(RawSql::uniform(update_sql)));
+    }
+
     Ok(queries)
 }
 
@@ -193,7 +218,7 @@ mod tests {
         )];
 
         let result =
-            build_modify_column_default(backend, "users", "email", new_default, &schema, &[]);
+            build_modify_column_default(backend, "users", "email", new_default, None, &schema, &[]);
         assert!(result.is_ok());
         let queries = result.unwrap();
         let sql = queries
@@ -233,7 +258,7 @@ mod tests {
         }
 
         let result =
-            build_modify_column_default(backend, "users", "email", Some("'default'"), &[], &[]);
+            build_modify_column_default(backend, "users", "email", Some("'default'"), None, &[], &[]);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("Table 'users' not found"));
@@ -262,7 +287,7 @@ mod tests {
         )];
 
         let result =
-            build_modify_column_default(backend, "users", "email", Some("'default'"), &schema, &[]);
+            build_modify_column_default(backend, "users", "email", Some("'default'"), None, &schema, &[]);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("Column 'email' not found"));
@@ -289,6 +314,7 @@ mod tests {
             "users",
             "status", // column not in schema
             Some("'active'"),
+            None,
             &schema,
             &[],
         );
@@ -327,6 +353,7 @@ mod tests {
             "users",
             "email",
             Some("'default@example.com'"),
+            None,
             &schema,
             &[],
         );
@@ -381,6 +408,7 @@ mod tests {
             "users",
             "email",
             Some("'new@example.com'"),
+            None,
             &schema,
             &[],
         );
@@ -426,7 +454,7 @@ mod tests {
         )];
 
         let result =
-            build_modify_column_default(backend, "products", "quantity", Some("0"), &schema, &[]);
+            build_modify_column_default(backend, "products", "quantity", Some("0"), None, &schema, &[]);
         assert!(result.is_ok());
         let queries = result.unwrap();
         let sql = queries
@@ -469,7 +497,7 @@ mod tests {
         )];
 
         let result =
-            build_modify_column_default(backend, "users", "is_active", Some("true"), &schema, &[]);
+            build_modify_column_default(backend, "users", "is_active", Some("true"), None, &schema, &[]);
         assert!(result.is_ok());
         let queries = result.unwrap();
         let sql = queries
@@ -521,6 +549,7 @@ mod tests {
             "events",
             "created_at",
             Some(default_value),
+            None,
             &schema,
             &[],
         );
@@ -569,6 +598,7 @@ mod tests {
             "orders",
             "status",
             None, // Drop default
+            None, // No backfill
             &schema,
             &[],
         );

@@ -243,6 +243,7 @@ pub fn arb_migration_action() -> impl Strategy<Value = MigrationAction> {
                     table: table.into(),
                     column: column.into(),
                     new_default,
+                    backfill: None,
                 }
             }),
         (

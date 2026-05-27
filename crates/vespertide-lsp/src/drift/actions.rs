@@ -18,6 +18,10 @@ use crate::diagnostics::{
 
 use super::types::{DriftKind, DriftRecord};
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive MigrationAction match: one arm per variant, each delegating to a small per-action drift builder; splitting would scatter the dispatch table"
+)]
 pub(super) fn action_to_drift(
     action: &MigrationAction,
     baseline: &[TableDef],
@@ -88,6 +92,7 @@ pub(super) fn action_to_drift(
             table,
             column,
             new_default,
+            ..
         } => Some(modify_column_default_drift(
             baseline,
             table,

@@ -114,10 +114,12 @@ fn prefix_remaining_action(action: MigrationAction, prefix: &str) -> MigrationAc
             table,
             column,
             new_default,
+            backfill,
         } => MigrationAction::ModifyColumnDefault {
             table: add_prefix(table, prefix),
             column,
             new_default,
+            backfill,
         },
         MigrationAction::ModifyColumnComment {
             table,

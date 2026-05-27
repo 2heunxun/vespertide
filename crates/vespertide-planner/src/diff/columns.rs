@@ -212,6 +212,7 @@ fn diff_column_defaults(
                     table: table_name.to_string().into(),
                     column: (*col).to_string().into(),
                     new_default: to_default,
+                    backfill: None,
                 });
             }
         }

@@ -1,6 +1,7 @@
 mod check_default;
 mod constraint_drops;
 mod dangling_fk_drops;
+mod default_changes;
 mod enums;
 mod fk_policy_changes;
 mod foreign_keys;
@@ -11,6 +12,9 @@ mod type_narrowing;
 
 pub use constraint_drops::{ConstraintDropWarning, find_constraint_drops_without_replacement};
 pub use dangling_fk_drops::{DanglingFkDrop, find_dangling_fk_drops};
+pub use default_changes::{
+    DefaultChangeKind, DefaultChangeWarning, RiskLevel, find_default_changes,
+};
 pub use fk_policy_changes::{
     FkPolicyChangeWarning, PolicyDelta, find_fk_policy_changes, render_reference_action,
 };

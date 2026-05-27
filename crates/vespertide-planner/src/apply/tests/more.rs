@@ -228,10 +228,11 @@ fn apply_modify_column_default_set() {
     apply_action(
         &mut schema,
         &MigrationAction::ModifyColumnDefault {
-            table: "users".into(),
-            column: "status".into(),
-            new_default: Some("'active'".into()),
-        },
+                    table: "users".into(),
+                    column: "status".into(),
+                    new_default: Some("'active'".into()),
+                    backfill: None,
+                },
     )
     .unwrap();
 
@@ -251,10 +252,11 @@ fn apply_modify_column_default_drop() {
     apply_action(
         &mut schema,
         &MigrationAction::ModifyColumnDefault {
-            table: "users".into(),
-            column: "status".into(),
-            new_default: None,
-        },
+                    table: "users".into(),
+                    column: "status".into(),
+                    new_default: None,
+                    backfill: None,
+                },
     )
     .unwrap();
 
@@ -268,10 +270,11 @@ fn apply_modify_column_default_table_not_found() {
     let err = apply_action(
         &mut schema,
         &MigrationAction::ModifyColumnDefault {
-            table: "users".into(),
-            column: "status".into(),
-            new_default: Some("'active'".into()),
-        },
+                    table: "users".into(),
+                    column: "status".into(),
+                    new_default: Some("'active'".into()),
+                    backfill: None,
+                },
     )
     .unwrap_err();
 
@@ -289,10 +292,11 @@ fn apply_modify_column_default_column_not_found() {
     let err = apply_action(
         &mut schema,
         &MigrationAction::ModifyColumnDefault {
-            table: "users".into(),
-            column: "status".into(),
-            new_default: Some("'active'".into()),
-        },
+                    table: "users".into(),
+                    column: "status".into(),
+                    new_default: Some("'active'".into()),
+                    backfill: None,
+                },
     )
     .unwrap_err();
 

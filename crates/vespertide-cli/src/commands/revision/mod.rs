@@ -1,13 +1,16 @@
 use anyhow::Result;
 use chrono::Utc;
 use colored::Colorize;
-use vespertide_core::{MigrationPlan, NarrowingStrategy};
+use vespertide_core::{MigrationAction, MigrationPlan, NarrowingStrategy};
 use vespertide_planner::{
-    DanglingFkDrop, DropChoice, DropResolution, FkPolicyChangeWarning, MultipleErrors,
-    PlannerError, TimezoneConversionWarning, TypeNarrowingWarning, apply_drop_resolution,
-    find_dangling_fk_drops, find_drop_resolutions, find_fk_policy_changes, find_missing_fill_with,
-    find_timezone_conversions, find_type_narrowings, plan_next_migration, schema_from_plans,
+    DanglingFkDrop, DefaultChangeWarning, DropChoice, DropResolution, FkPolicyChangeWarning,
+    MultipleErrors, PlannerError, TimezoneConversionWarning, TypeNarrowingWarning,
+    apply_drop_resolution, find_dangling_fk_drops, find_default_changes, find_drop_resolutions,
+    find_fk_policy_changes, find_missing_fill_with, find_timezone_conversions,
+    find_type_narrowings, plan_next_migration, schema_from_plans,
 };
+
+use prompts::DefaultChoice;
 
 use crate::utils::{load_config, load_migrations, load_models};
 
@@ -75,12 +78,13 @@ pub async fn cmd_revision(
             timezone_conversion: prompts::prompt_timezone_conversions,
             remap_enum_values: prompts::prompt_remap_enum_values,
             drop_resolution: prompts::prompt_drop_resolution,
+            default_change: prompts::prompt_default_change_resolution,
         },
     )
     .await
 }
 
-struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR> {
+struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC> {
     recreate: R,
     delete_null_rows: D,
     fill_with: F,
@@ -91,17 +95,18 @@ struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR> {
     timezone_conversion: TZ,
     remap_enum_values: RM,
     drop_resolution: DR,
+    default_change: DC,
 }
 
 #[expect(
     clippy::too_many_lines,
     reason = "linear revision flow: load → plan → recreate → drop resolution → dangling FK → fill_with → enum fill_with → fk policy → narrowing → timezone → remap → write. Extracting helpers scatters the ordering"
 )]
-async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM, DR>(
+async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM, DR, DC>(
     message: String,
     fill_with_args: Vec<String>,
     delete_null_rows_args: Vec<String>,
-    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR>,
+    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC>,
 ) -> Result<()>
 where
     R: Fn(&[RecreateTableRequired]) -> Result<bool>,
@@ -114,6 +119,7 @@ where
     TZ: Fn(&[TimezoneConversionWarning]) -> Result<Option<Vec<String>>>,
     RM: Fn(&MigrationPlan) -> Result<bool>,
     DR: Fn(&DropResolution) -> Result<Option<DropChoice>>,
+    DC: Fn(&DefaultChangeWarning) -> Result<Option<DefaultChoice>>,
 {
     let RevisionPromptFns {
         recreate: recreate_prompt_fn,
@@ -126,6 +132,7 @@ where
         timezone_conversion: timezone_conversion_prompt_fn,
         remap_enum_values: remap_enum_values_prompt_fn,
         drop_resolution: drop_resolution_prompt_fn,
+        default_change: default_change_prompt_fn,
     } = prompt_fns;
 
     let config = load_config()?;
@@ -299,6 +306,33 @@ where
             return Ok(());
         };
         prompts::apply_timezone_choices_to_plan(&mut plan, &timezone_warnings, &choices);
+    }
+
+    // F15 — DEFAULT value changes only affect new rows; existing rows keep
+    // their stored values by default. Surface every change with a risk
+    // classification and let the user pick Backfill (UPDATE all rows) /
+    // Skip (schema-only) / Cancel. Run last among the elective prompts so
+    // the user sees default changes in the context of any type / timezone
+    // narrowings that may have just been resolved on the same column.
+    let default_changes = find_default_changes(&plan, &baseline_schema);
+    for warning in &default_changes {
+        let Some(choice) = default_change_prompt_fn(warning)? else {
+            println!(
+                "{} {}",
+                "Cancelled.".bright_yellow().bold(),
+                "Default-change resolution declined; no migration written.".bright_white()
+            );
+            return Ok(());
+        };
+        if choice == DefaultChoice::Backfill
+            && let Some(MigrationAction::ModifyColumnDefault {
+                backfill,
+                new_default,
+                ..
+            }) = plan.actions.get_mut(warning.action_index)
+        {
+            backfill.clone_from(new_default);
+        }
     }
 
     plan.id = uuid::Uuid::new_v4().to_string();

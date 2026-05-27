@@ -7,9 +7,10 @@ use vespertide_core::{MigrationAction, MigrationPlan, NarrowingStrategy, TableDe
 #[cfg(test)]
 use vespertide_planner::find_missing_fill_with;
 use vespertide_planner::{
-    DropChoice, DropResolution, DropTarget, EnumFillWithRequired, FillWithRequired,
-    FkPolicyChangeWarning, Match, NarrowingKind, TimezoneConversionWarning, TypeNarrowingWarning,
-    find_missing_enum_fill_with, render_reference_action,
+    DefaultChangeWarning, DropChoice, DropResolution, DropTarget, EnumFillWithRequired,
+    FillWithRequired, FkPolicyChangeWarning, Match, NarrowingKind, RiskLevel,
+    TimezoneConversionWarning, TypeNarrowingWarning, find_missing_enum_fill_with,
+    render_reference_action,
 };
 
 use super::timezones::{KNOWN_IANA, validate_timezone};
@@ -973,6 +974,90 @@ fn format_candidate_label(c: &vespertide_planner::RenameCandidate) -> String {
         format!(" — {}", c.differences.join(", "))
     };
     format!("{marker}Rename \u{2192} {}{}", c.target_name, diff)
+}
+
+/// User's choice for a single F15 [`DefaultChangeWarning`].
+///
+/// `Cancel` is handled at the CLI layer (it aborts the whole `revision`
+/// command), so this enum only carries the two outcomes that translate into
+/// plan changes:
+/// - [`DefaultChoice::Backfill`] → set the action's `backfill` field so the
+///   SQL generator emits an `UPDATE` rewriting every existing row.
+/// - [`DefaultChoice::Skip`] → keep the action unchanged; existing rows
+///   stay as they are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum DefaultChoice {
+    /// UPDATE all existing rows to match the new default.
+    Backfill,
+    /// Schema-only change: existing rows keep their current values.
+    Skip,
+}
+
+/// Interactive resolution for a single `DefaultChangeWarning`.
+///
+/// Renders a header (with classified risk level) plus a `Select` menu:
+/// Backfill / Skip / Cancel. Returns `None` for Cancel, `Some(choice)`
+/// otherwise. When the action *removes* a default (`new_default = None`),
+/// the Backfill option is hidden because there is no value to write —
+/// only Skip / Cancel remain.
+pub(super) fn prompt_default_change_resolution(
+    warning: &DefaultChangeWarning,
+) -> Result<Option<DefaultChoice>> {
+    println!();
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+    println!("{}", format_default_change_header(warning));
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+
+    let backfill_available = warning.new_default.is_some();
+
+    let mut labels: Vec<String> = Vec::new();
+    let mut outcomes: Vec<Option<DefaultChoice>> = Vec::new();
+
+    if backfill_available {
+        let new_default = warning.new_default.as_deref().unwrap_or_default();
+        labels.push(format!(
+            "Backfill: UPDATE all rows to {}",
+            new_default.bright_green()
+        ));
+        outcomes.push(Some(DefaultChoice::Backfill));
+    }
+
+    labels.push("Skip: existing rows keep current values".to_string());
+    outcomes.push(Some(DefaultChoice::Skip));
+
+    labels.push("Cancel migration".to_string());
+    outcomes.push(None);
+
+    let selection = Select::new()
+        .with_prompt("  What should happen to existing rows?")
+        .items(&labels)
+        .default(0)
+        .interact()
+        .context("failed to read default-change choice")?;
+
+    Ok(outcomes[selection])
+}
+
+fn format_default_change_header(warning: &DefaultChangeWarning) -> String {
+    let risk = warning.kind.risk_level();
+    let risk_label = match risk {
+        RiskLevel::High => "HIGH RISK".bright_red().bold().to_string(),
+        RiskLevel::Medium => "MEDIUM RISK".bright_yellow().bold().to_string(),
+        RiskLevel::Low => "LOW RISK".bright_cyan().to_string(),
+    };
+    let kind_label = warning.kind.label();
+    let old = warning.old_default.as_deref().unwrap_or("(none)");
+    let new = warning.new_default.as_deref().unwrap_or("(none)");
+    format!(
+        "  {} Column DEFAULT change ({kind_label} \u{2014} {risk_label})\n\n  \
+         {}.{}:  {}  \u{2192}  {}\n\n  \
+         Existing rows are NOT automatically updated.",
+        "\u{26a0}".bright_yellow(),
+        warning.table.bright_white().bold(),
+        warning.column.bright_green(),
+        old.bright_white(),
+        new.bright_white(),
+    )
 }
 
 fn confirm_permanent_drop(target: &DropTarget) -> Result<Option<DropChoice>> {

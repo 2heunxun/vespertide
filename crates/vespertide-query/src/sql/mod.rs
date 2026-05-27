@@ -143,11 +143,13 @@ pub fn build_action_queries_with_pending(
             table,
             column,
             new_default,
+            backfill,
         } => build_modify_column_default(
             backend,
             table,
             column,
             new_default.as_deref(),
+            backfill.as_deref(),
             current_schema,
             pending_constraints,
         ),

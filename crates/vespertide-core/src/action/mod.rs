@@ -120,6 +120,20 @@ pub enum MigrationAction {
         column: ColumnName,
         /// The new default value, or `None` to remove the default.
         new_default: Option<String>,
+        /// **F15 fault gate — backfill existing rows.**
+        ///
+        /// `ALTER TABLE ... SET DEFAULT ...` only affects *new* rows. When
+        /// the user wants every existing row updated to the new default in
+        /// the same migration (the common "I want consistency right now"
+        /// intent), the CLI's `revision` prompt captures that choice and
+        /// stores the desired value here. The SQL generator then emits an
+        /// `UPDATE table SET col = <value>` immediately after the ALTER.
+        ///
+        /// `None` (default, wire-format identical to v0.2.0) → skip the
+        /// backfill: existing rows keep their current values. The action
+        /// behaves exactly as before this field existed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        backfill: Option<String>,
     },
     /// Change or remove the comment on a column.
     ModifyColumnComment {
@@ -594,6 +608,7 @@ mod tests {
             table: "users".into(),
             column: "status".into(),
             new_default: Some("'active'".into()),
+            backfill: None,
         },
         "ModifyColumnDefault: users.status -> 'active'"
     )]
@@ -602,6 +617,7 @@ mod tests {
             table: "users".into(),
             column: "status".into(),
             new_default: None,
+            backfill: None,
         },
         "ModifyColumnDefault: users.status -> (none)"
     )]
@@ -884,15 +900,17 @@ mod tests {
     #[test]
     fn test_action_with_prefix_modify_column_default() {
         let action = MigrationAction::ModifyColumnDefault {
-            table: "users".into(),
-            column: "status".into(),
-            new_default: Some("active".into()),
-        };
+                    table: "users".into(),
+                    column: "status".into(),
+                    new_default: Some("active".into()),
+                    backfill: None,
+                };
         let prefixed = action.with_prefix("myapp_");
         if let MigrationAction::ModifyColumnDefault {
             table,
             column,
             new_default,
+            ..
         } = prefixed
         {
             assert_eq!(table.as_str(), "myapp_users");

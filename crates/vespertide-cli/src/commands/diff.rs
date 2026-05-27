@@ -880,6 +880,7 @@ mod tests {
             table: "users".into(),
             column: "status".into(),
             new_default: Some("'active'".into()),
+            backfill: None,
         },
         format!(
             "{} {}.{} {} {}",
@@ -895,6 +896,7 @@ mod tests {
             table: "users".into(),
             column: "status".into(),
             new_default: None,
+            backfill: None,
         },
         format!(
             "{} {}.{} {} {}",

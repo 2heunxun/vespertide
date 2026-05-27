@@ -51,6 +51,7 @@ pub fn apply_action(
             table,
             column,
             new_default,
+            ..
         } => column_ops::modify_column_default(schema, table, column, new_default.as_deref()),
         MigrationAction::ModifyColumnComment {
             table,

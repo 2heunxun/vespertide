@@ -34,6 +34,7 @@ fn write_migration_action(f: &mut fmt::Formatter<'_>, action: &MigrationAction) 
             table,
             column,
             new_default,
+            ..
         } => write_default_action(f, table, column, new_default.as_deref()),
         MigrationAction::ModifyColumnComment {
             table,

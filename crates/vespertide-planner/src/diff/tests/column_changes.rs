@@ -51,6 +51,7 @@ mod default_changes {
                 table,
                 column,
                 new_default: Some(default),
+                ..
             } if table == "users" && column == "status" && default == "'active'"
         ));
     }
@@ -89,6 +90,7 @@ mod default_changes {
                 table,
                 column,
                 new_default: None,
+                ..
             } if table == "users" && column == "status"
         ));
     }
@@ -131,6 +133,7 @@ mod default_changes {
                 table,
                 column,
                 new_default: Some(default),
+                ..
             } if table == "users" && column == "status" && default == "'pending'"
         ));
     }
@@ -221,6 +224,7 @@ mod default_changes {
                     table,
                     column,
                     new_default: Some(default),
+                    ..
                 } if table == "users" && column == "status" && default == "'pending'"
             )
         });
@@ -233,6 +237,7 @@ mod default_changes {
                     table,
                     column,
                     new_default: None,
+                    ..
                 } if table == "users" && column == "role"
             )
         });
@@ -289,6 +294,7 @@ mod default_changes {
                     table,
                     column,
                     new_default: Some(default),
+                    ..
                 } if table == "users" && column == "count" && default == "'0'"
             )
         });
