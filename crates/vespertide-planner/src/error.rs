@@ -1,7 +1,37 @@
+use std::fmt;
+
 use thiserror::Error;
+
+/// Aggregates multiple [`PlannerError`]s into a single error so that batch
+/// validators can report every violation at once.
+///
+/// The `Display` implementation renders a numbered list (1-indexed) of the
+/// nested errors, preserving their order. Use this wherever multiple,
+/// independently-meaningful failures must be surfaced from a single
+/// validation pass — e.g. [`crate::validate::find_schema_violations`] or
+/// [`crate::validate::find_plan_violations`].
+#[derive(Debug)]
+pub struct MultipleErrors(pub Vec<PlannerError>);
+
+impl fmt::Display for MultipleErrors {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "{} validation violation(s):", self.0.len())?;
+        for (idx, err) in self.0.iter().enumerate() {
+            writeln!(f, "  {}. {err}", idx + 1)?;
+        }
+        write!(f, "Fix all of the above before re-running this command.")
+    }
+}
+
+impl std::error::Error for MultipleErrors {}
 
 #[derive(Debug, Error)]
 pub enum PlannerError {
+    /// Wraps two or more independent [`PlannerError`]s reported in a single
+    /// validation pass. Boxed via [`MultipleErrors`] to keep the enum size
+    /// small (`Vec<PlannerError>` would otherwise inflate every variant).
+    #[error("{0}")]
+    Multiple(Box<MultipleErrors>),
     #[error("table already exists: {0}")]
     TableExists(String),
     #[error("table not found: {0}")]

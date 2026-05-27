@@ -14,7 +14,7 @@ pub mod validate;
 
 pub use apply::apply_action;
 pub use diff::diff_schemas;
-pub use error::PlannerError;
+pub use error::{MultipleErrors, PlannerError};
 pub use plan::{plan_next_migration, plan_next_migration_with_baseline};
 pub use schema::schema_from_plans;
 pub use validate::{
@@ -22,6 +22,7 @@ pub use validate::{
     MissingFkSupportingIndex, NarrowingKind, PolicyDelta, TimezoneConversionDirection,
     TimezoneConversionWarning, TypeNarrowingWarning, find_constraint_drops_without_replacement,
     find_fk_policy_changes, find_missing_enum_fill_with, find_missing_fill_with,
-    find_missing_fk_supporting_indexes, find_timezone_conversions, find_type_narrowings,
-    is_narrowing, render_reference_action, validate_migration_plan, validate_schema,
+    find_missing_fk_supporting_indexes, find_plan_violations, find_schema_violations,
+    find_timezone_conversions, find_type_narrowings, is_narrowing, render_reference_action,
+    validate_migration_plan, validate_schema,
 };

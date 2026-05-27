@@ -399,7 +399,99 @@ fn validate_schema_cases(
         None => assert!(result.is_ok()),
         Some(pred) => {
             let err = result.unwrap_err();
-            assert!(pred(&err), "unexpected error: {err:?}");
+            assert!(
+                matches_in_error(&err, pred),
+                "unexpected error: {err:?}"
+            );
         }
     }
+}
+
+/// True if `pred` matches `err` itself, or — when `err` is a batched
+/// [`PlannerError::Multiple`] — matches at least one of its nested errors.
+///
+/// Schema validation may emit several independent violations in one pass
+/// (e.g. duplicate-table case yields both `DuplicateTableName` and
+/// follow-on `MissingPrimaryKey`s from the affected tables). Tests that
+/// assert "this specific variant must be present" stay meaningful as long
+/// as the variant appears *somewhere* in the batch.
+fn matches_in_error(err: &PlannerError, pred: fn(&PlannerError) -> bool) -> bool {
+    if pred(err) {
+        return true;
+    }
+    if let PlannerError::Multiple(inner) = err {
+        return inner.0.iter().any(pred);
+    }
+    false
+}
+
+/// Batch-reporting contract for [`crate::validate::validate_schema`]:
+/// a schema with multiple independent problems collapses into a single
+/// [`PlannerError::Multiple`] that preserves every nested error in the
+/// documented order (duplicate-name errors first, then per-table issues
+/// in table-index order). The `Display` impl renders a numbered list so
+/// CLI/loader callers surface every violation in one shot instead of
+/// forcing the user to fix-and-rerun for each problem.
+#[test]
+fn validate_schema_batches_multiple_violations() {
+    let schema = vec![
+        // Table 0: missing PK → 1 violation.
+        table(
+            "users",
+            vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
+            vec![],
+        ),
+        // Table 1: FK target table missing → 1 violation.
+        table(
+            "posts",
+            vec![
+                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+                col(
+                    "author_id",
+                    ColumnType::Simple(SimpleColumnType::Integer),
+                ),
+            ],
+            vec![
+                pk(vec!["id"]),
+                TableConstraint::ForeignKey {
+                    name: None,
+                    columns: vec!["author_id".into()],
+                    ref_table: "nonexistent".into(),
+                    ref_columns: vec!["id".into()],
+                    on_delete: None,
+                    on_update: None,
+                },
+            ],
+        ),
+    ];
+
+    let err = validate_schema(&schema).unwrap_err();
+
+    let PlannerError::Multiple(batch) = &err else {
+        panic!("expected PlannerError::Multiple, got: {err:?}");
+    };
+
+    assert_eq!(
+        batch.0.len(),
+        2,
+        "expected exactly 2 violations, got: {:?}",
+        batch.0
+    );
+    assert!(
+        batch.0.iter().any(is_missing_pk),
+        "missing PK violation absent: {:?}",
+        batch.0
+    );
+    assert!(
+        batch.0.iter().any(is_fk_table),
+        "FK target violation absent: {:?}",
+        batch.0
+    );
+
+    // Display contract — numbered list with a fix-all footer.
+    let rendered = format!("{err}");
+    assert!(rendered.starts_with("2 validation violation(s):"));
+    assert!(rendered.contains("\n  1. "));
+    assert!(rendered.contains("\n  2. "));
+    assert!(rendered.ends_with("Fix all of the above before re-running this command."));
 }

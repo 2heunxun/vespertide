@@ -15,9 +15,9 @@ pub use fk_policy_changes::{
 pub use foreign_keys::{MissingFkSupportingIndex, find_missing_fk_supporting_indexes};
 pub use plan::{
     EnumFillWithRequired, FillWithRequired, find_missing_enum_fill_with, find_missing_fill_with,
-    validate_migration_plan,
+    find_plan_violations, validate_migration_plan,
 };
-pub use schema::validate_schema;
+pub use schema::{find_schema_violations, validate_schema};
 pub use timezone_conversion::{
     TimezoneConversionDirection, TimezoneConversionWarning, find_timezone_conversions,
 };

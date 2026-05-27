@@ -5,34 +5,61 @@ use vespertide_core::{
 };
 
 use super::enums::validate_enum_value;
-use crate::error::PlannerError;
+use crate::error::{MultipleErrors, PlannerError};
 use crate::parallel_config::{VALIDATE_PLAN_PAR_ACTION_MIN_LEN, validate_plan_par_threshold};
 
 /// Validate a migration plan for correctness.
+///
+/// Returns `Ok(())` when every action is valid. On failure the returned error
+/// follows this contract so existing single-violation tests stay byte-identical
+/// while batch callers see every problem in one shot:
+///
+/// - exactly **1** violation → that violation's bare [`PlannerError`] variant,
+/// - **2 or more** violations → wrapped in [`PlannerError::Multiple`] with all
+///   violations preserved in action-index order.
+///
 /// Checks for:
 /// - `AddColumn` actions with NOT NULL columns without default must have `fill_with`
 /// - `ModifyColumnNullable` actions changing from nullable to non-nullable must have `fill_with`
 /// - Enum columns with `default/fill_with` values must have valid enum values
 pub fn validate_migration_plan(plan: &MigrationPlan) -> Result<(), PlannerError> {
-    let earliest_err = if plan.actions.len() < validate_plan_par_threshold() {
-        plan.actions
-            .iter()
-            .find_map(|action| validate_action(action).err())
-    } else {
-        plan.actions
-            .par_iter()
-            .enumerate()
-            .with_min_len(VALIDATE_PLAN_PAR_ACTION_MIN_LEN)
-            .filter_map(|(idx, action)| validate_action(action).err().map(|err| (idx, err)))
-            .min_by_key(|(idx, _)| *idx)
-            .map(|(_, err)| err)
-    };
-
-    if let Some(err) = earliest_err {
-        return Err(err);
+    let mut violations = find_plan_violations(plan);
+    match violations.len() {
+        0 => Ok(()),
+        1 => Err(violations.remove(0)),
+        _ => Err(PlannerError::Multiple(Box::new(MultipleErrors(violations)))),
     }
+}
 
-    Ok(())
+/// Collect every plan-level violation in one pass.
+///
+/// Returned violations are sorted by action index so the order matches the
+/// historical `validate_migration_plan` first-fail behaviour: index 0 of the
+/// returned vec is the same error `validate_migration_plan` would have
+/// produced under the old first-fail contract.
+///
+/// Prefer this over [`validate_migration_plan`] when surfacing **all**
+/// violations to the user (CLI batch error message, LSP diagnostics, etc.).
+#[must_use]
+pub fn find_plan_violations(plan: &MigrationPlan) -> Vec<PlannerError> {
+    let mut indexed: Vec<(usize, PlannerError)> =
+        if plan.actions.len() < validate_plan_par_threshold() {
+            plan.actions
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, action)| validate_action(action).err().map(|err| (idx, err)))
+                .collect()
+        } else {
+            plan.actions
+                .par_iter()
+                .enumerate()
+                .with_min_len(VALIDATE_PLAN_PAR_ACTION_MIN_LEN)
+                .filter_map(|(idx, action)| validate_action(action).err().map(|err| (idx, err)))
+                .collect()
+        };
+
+    indexed.sort_by_key(|(idx, _)| *idx);
+    indexed.into_iter().map(|(_, err)| err).collect()
 }
 
 fn validate_action(action: &MigrationAction) -> Result<(), PlannerError> {

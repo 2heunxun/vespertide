@@ -5,10 +5,20 @@ use vespertide_core::{TableConstraint, TableDef, schema::primary_key::PrimaryKey
 
 use super::enums::validate_column;
 use super::foreign_keys::validate_foreign_key_constraint;
-use crate::error::PlannerError;
+use crate::error::{MultipleErrors, PlannerError};
 use crate::parallel_config::{VALIDATE_SCHEMA_PAR_MIN_LEN, validate_schema_par_threshold};
 
 /// Validate a schema for data integrity issues.
+///
+/// Returns `Ok(())` when every table is valid. On failure the returned error
+/// follows this contract so existing single-violation tests stay byte-identical
+/// while batch callers see every problem in one shot:
+///
+/// - exactly **1** violation → that violation's bare [`PlannerError`] variant,
+/// - **2 or more** violations → wrapped in [`PlannerError::Multiple`] with all
+///   violations preserved in table-index order (duplicate-name errors come
+///   first, then per-table violations in declared order).
+///
 /// Checks for:
 /// - Duplicate table names
 /// - Foreign keys referencing non-existent tables
@@ -17,16 +27,44 @@ use crate::parallel_config::{VALIDATE_SCHEMA_PAR_MIN_LEN, validate_schema_par_th
 /// - Constraints referencing non-existent columns
 /// - Empty constraint column lists
 pub fn validate_schema(schema: &[TableDef]) -> Result<(), PlannerError> {
-    // Check for duplicate table names
+    let mut violations = find_schema_violations(schema);
+    match violations.len() {
+        0 => Ok(()),
+        1 => Err(violations.remove(0)),
+        _ => Err(PlannerError::Multiple(Box::new(MultipleErrors(violations)))),
+    }
+}
+
+/// Collect every schema-level violation in one pass.
+///
+/// Returned violations follow a stable order:
+/// 1. `DuplicateTableName` errors, in encounter order.
+/// 2. Per-table violations, ordered by the table's index in `schema`.
+///
+/// Within a single table, the first failing check wins (enum / PK / column /
+/// constraint helpers are still first-fail at the table-local level — see
+/// [`collect_table_violations`]). This keeps the helpers simple while still
+/// guaranteeing that *every table* with a problem contributes one violation.
+///
+/// Prefer this over [`validate_schema`] when surfacing **all** violations to
+/// the user (CLI batch error message, LSP diagnostics, etc.).
+#[must_use]
+pub fn find_schema_violations(schema: &[TableDef]) -> Vec<PlannerError> {
+    let mut violations = Vec::new();
+
+    // Phase 1: duplicate-name detection — sequential, set-accumulated.
+    // Reported before per-table violations so the user sees structural
+    // problems first.
     let mut table_names = HashSet::new();
     for table in schema {
         if !table_names.insert(&table.name) {
-            return Err(PlannerError::DuplicateTableName(table.name.to_string()));
+            violations.push(PlannerError::DuplicateTableName(table.name.to_string()));
         }
     }
 
-    // Build a map of table names to their column names for quick lookup
-    // perf: BTreeMap gives deterministic validation traversal and avoids hashing for small schemas.
+    // Phase 2: per-table validation. Each table contributes at most one
+    // violation (its first failing check). Collect indexed so parallel
+    // execution produces the same order as sequential.
     let table_map: BTreeMap<_, _> = schema
         .iter()
         .map(|t| {
@@ -35,9 +73,9 @@ pub fn validate_schema(schema: &[TableDef]) -> Result<(), PlannerError> {
         })
         .collect();
 
-    // Validate each table. Collect the indexed errors first so parallel validation
-    // reports the same earliest table error as the sequential path.
-    let earliest_err = if schema.len() < validate_schema_par_threshold() {
+    let mut per_table: Vec<(usize, PlannerError)> = if schema.len()
+        < validate_schema_par_threshold()
+    {
         schema
             .iter()
             .enumerate()
@@ -46,8 +84,7 @@ pub fn validate_schema(schema: &[TableDef]) -> Result<(), PlannerError> {
                     .err()
                     .map(|e| (index, e))
             })
-            .min_by_key(|(index, _)| *index)
-            .map(|(_, err)| err)
+            .collect()
     } else {
         schema
             .par_iter()
@@ -58,15 +95,13 @@ pub fn validate_schema(schema: &[TableDef]) -> Result<(), PlannerError> {
                     .err()
                     .map(|e| (index, e))
             })
-            .min_by_key(|(index, _)| *index)
-            .map(|(_, err)| err)
+            .collect()
     };
 
-    if let Some(err) = earliest_err {
-        return Err(err);
-    }
+    per_table.sort_by_key(|(index, _)| *index);
+    violations.extend(per_table.into_iter().map(|(_, err)| err));
 
-    Ok(())
+    violations
 }
 
 fn validate_table_entry(

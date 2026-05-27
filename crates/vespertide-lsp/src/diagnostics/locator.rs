@@ -43,10 +43,18 @@ impl ErrorLocation {
             DuplicateEnumValue, DuplicateEnumVariantName, DuplicateTableName,
             EmptyConstraintColumns, ForeignKeyColumnNotFound, ForeignKeyTableNotFound,
             IndexColumnNotFound, IndexNotFound, InvalidAutoIncrement, InvalidEnumDefault,
-            MissingFillWith, MissingPrimaryKey, TableExists, TableNotFound, TableValidation,
+            MissingFillWith, MissingPrimaryKey, Multiple, TableExists, TableNotFound,
+            TableValidation,
         };
 
         match err {
+            // Batched validation errors carry several independent violations.
+            // Locator returns *one* location per call, so we recurse into the
+            // first nested error to pick a sensible anchor. Per-violation
+            // diagnostics belong to the publisher (see TODO in
+            // `diagnostics::validation`): when it iterates `find_*_violations`
+            // each inner error is presented directly and this arm is bypassed.
+            Multiple(batch) => batch.0.first().and_then(Self::from_planner_error),
             TableExists(table)
             | TableNotFound(table)
             | DuplicateTableName(table)

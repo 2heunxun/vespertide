@@ -33,17 +33,58 @@ pub struct WorkspaceTable {
     pub tree: Option<tree_sitter::Tree>,
 }
 
-pub(super) fn validate_table(table: &TableDef, out: &mut Vec<DomainDiagnostic>) {
-    // Single-table validation. `vespertide_planner::validate_schema` expects
-    // `&[TableDef]`; for LSP per-file diagnostics, run on a singleton slice.
-    if let Err(e) = vespertide_planner::validate_schema(std::slice::from_ref(table)) {
+pub(super) fn validate_table(
+    table: &TableDef,
+    tree: Option<&tree_sitter::Tree>,
+    source: &str,
+    out: &mut Vec<DomainDiagnostic>,
+) {
+    // Single-table validation. `vespertide_planner::find_schema_violations`
+    // returns every violation in a single pass; we surface each as its own
+    // diagnostic so the editor shows one squiggle per problem instead of
+    // collapsing them into a single "validate-schema" entry. The locator is
+    // run per-violation so each squiggle lands on the responsible column /
+    // constraint inside this file.
+    for violation in
+        vespertide_planner::find_schema_violations(std::slice::from_ref(table))
+    {
+        let byte_range = byte_range_for_violation(&violation, tree, source);
         out.push(DomainDiagnostic {
-            byte_range: 0..1,
+            byte_range,
             severity: Severity::Error,
-            message: e.to_string(),
+            message: violation.to_string(),
             code: "validate-schema".to_string(),
         });
     }
+}
+
+/// Resolve the source byte range for a planner violation against this file.
+///
+/// Falls back through three layers:
+/// 1. Locator returns column-level location → squiggle the responsible
+///    column field (or column object).
+/// 2. Locator returns constraint-level location → squiggle that constraint.
+/// 3. Locator returns table-level (or `None`) → squiggle the top-level
+///    `name` key, or `0..1` as a last resort.
+fn byte_range_for_violation(
+    err: &vespertide_planner::PlannerError,
+    tree: Option<&tree_sitter::Tree>,
+    source: &str,
+) -> std::ops::Range<usize> {
+    let Some(loc) = super::locator::ErrorLocation::from_planner_error(err) else {
+        return 0..1;
+    };
+    if let Some(column) = &loc.column {
+        return if let Some(field) = loc.field {
+            super::locator::locate_column_field(tree, source, column, field)
+        } else {
+            super::locator::locate_column(tree, source, column)
+        };
+    }
+    if let Some(constraint) = &loc.constraint {
+        return super::locator::locate_constraint(tree, source, constraint);
+    }
+    super::locator::locate_top_name(tree, source).unwrap_or(0..1)
 }
 
 /// Fault **F51**: foreign-key constraints whose referencing columns are not
@@ -165,40 +206,54 @@ pub(super) fn validate_workspace(
     out: &mut Vec<DomainDiagnostic>,
 ) {
     let tables: Vec<TableDef> = workspace.iter().map(|entry| entry.table.clone()).collect();
-    let Err(err) = vespertide_planner::validate_schema(&tables) else {
-        return;
-    };
-
-    let Some(location) = super::locator::ErrorLocation::from_planner_error(&err) else {
-        push_validate_error(out, 0..1, err.to_string());
-        return;
-    };
-
-    let Some(target) = workspace
-        .iter()
-        .find(|entry| entry.table.name.as_str() == location.table.as_str())
-    else {
-        push_validate_error(out, 0..1, err.to_string());
-        return;
-    };
-
-    if target.uri != *current_uri {
+    let violations = vespertide_planner::find_schema_violations(&tables);
+    if violations.is_empty() {
         return;
     }
 
-    let byte_range = if let Some(column) = &location.column {
-        if let Some(field) = location.field {
-            super::locator::locate_column_field(target.tree.as_ref(), &target.source, column, field)
-        } else {
-            super::locator::locate_column(target.tree.as_ref(), &target.source, column)
-        }
-    } else if let Some(constraint) = &location.constraint {
-        super::locator::locate_constraint(target.tree.as_ref(), &target.source, constraint)
-    } else {
-        super::locator::locate_top_name(target.tree.as_ref(), &target.source).unwrap_or(0..1)
-    };
+    // Per-violation publish: each problem becomes one diagnostic, anchored
+    // to whichever workspace file owns the offending table. Diagnostics for
+    // other files are dropped here — they will be surfaced when the editor
+    // requests diagnostics for *those* files (LSP protocol is per-URI).
+    for err in &violations {
+        let Some(location) = super::locator::ErrorLocation::from_planner_error(err) else {
+            // Cross-cutting error (no table anchor) — attach to current file
+            // as a generic top-of-document squiggle so it is visible.
+            push_validate_error(out, 0..1, err.to_string());
+            continue;
+        };
 
-    push_validate_error(out, byte_range, err.to_string());
+        let Some(target) = workspace
+            .iter()
+            .find(|entry| entry.table.name.as_str() == location.table.as_str())
+        else {
+            push_validate_error(out, 0..1, err.to_string());
+            continue;
+        };
+
+        if target.uri != *current_uri {
+            continue;
+        }
+
+        let byte_range = if let Some(column) = &location.column {
+            if let Some(field) = location.field {
+                super::locator::locate_column_field(
+                    target.tree.as_ref(),
+                    &target.source,
+                    column,
+                    field,
+                )
+            } else {
+                super::locator::locate_column(target.tree.as_ref(), &target.source, column)
+            }
+        } else if let Some(constraint) = &location.constraint {
+            super::locator::locate_constraint(target.tree.as_ref(), &target.source, constraint)
+        } else {
+            super::locator::locate_top_name(target.tree.as_ref(), &target.source).unwrap_or(0..1)
+        };
+
+        push_validate_error(out, byte_range, err.to_string());
+    }
 }
 
 fn push_validate_error(

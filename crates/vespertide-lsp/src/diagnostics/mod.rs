@@ -104,7 +104,7 @@ fn compute_uncached(
 
     // Tier 3: planner validation (only if serde succeeded).
     if let Some(table) = parsed {
-        validation::validate_table(&table, &mut diagnostics);
+        validation::validate_table(&table, tree, text, &mut diagnostics);
         // Tier 3.5: static safety analyses (warnings).
         validation::validate_fk_supporting_indexes(&table, tree, text, &mut diagnostics);
     }

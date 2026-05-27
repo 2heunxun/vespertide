@@ -987,3 +987,115 @@ fn validate_enum_sql_keyword_or_expression_default_skipped(#[case] default: &str
 fn validate_enum_rejects_unbalanced_quoted_defaults(#[case] default: &str) {
     assert!(validate_migration_plan(&string_enum_default_plan(default)).is_err());
 }
+
+/// Batch-reporting contract for [`crate::validate::validate_migration_plan`]:
+/// a plan with multiple offending actions collapses into a single
+/// [`PlannerError::Multiple`] whose nested errors preserve action-index
+/// order. The `Display` impl renders a numbered list so loader / CLI
+/// callers surface every violation in one pass instead of forcing the
+/// user to fix-and-rerun for each one.
+#[test]
+fn validate_migration_plan_batches_multiple_violations() {
+    use vespertide_core::{ColumnDef, ColumnType, MigrationAction, MigrationPlan};
+
+    // Helper: build a NOT NULL AddColumn action without a default or
+    // fill_with — guaranteed to trigger MissingFillWith.
+    fn add_not_null(table: &str, column: &str) -> MigrationAction {
+        MigrationAction::AddColumn {
+            table: table.into(),
+            column: Box::new(ColumnDef {
+                name: column.into(),
+                r#type: ColumnType::Simple(SimpleColumnType::Text),
+                nullable: false,
+                default: None,
+                comment: None,
+                primary_key: None,
+                unique: None,
+                index: None,
+                foreign_key: None,
+            }),
+            fill_with: None,
+        }
+    }
+
+    let plan = MigrationPlan {
+        id: String::new(),
+        comment: None,
+        created_at: None,
+        version: 1,
+        actions: vec![
+            add_not_null("users", "email"),
+            add_not_null("orders", "total"),
+            add_not_null("products", "sku"),
+        ],
+    };
+
+    let err = validate_migration_plan(&plan).unwrap_err();
+
+    let PlannerError::Multiple(batch) = &err else {
+        panic!("expected PlannerError::Multiple, got: {err:?}");
+    };
+
+    assert_eq!(
+        batch.0.len(),
+        3,
+        "expected exactly 3 violations, got: {:?}",
+        batch.0
+    );
+
+    // Action-index order is preserved.
+    let extract = |idx: usize| -> (&str, &str) {
+        match &batch.0[idx] {
+            PlannerError::MissingFillWith(t, c) => (t.as_str(), c.as_str()),
+            other => panic!("violation #{idx} not MissingFillWith: {other:?}"),
+        }
+    };
+    assert_eq!(extract(0), ("users", "email"));
+    assert_eq!(extract(1), ("orders", "total"));
+    assert_eq!(extract(2), ("products", "sku"));
+
+    // Display contract — numbered list, fix-all footer.
+    let rendered = format!("{err}");
+    assert!(rendered.starts_with("3 validation violation(s):"));
+    assert!(rendered.contains("\n  1. "));
+    assert!(rendered.contains("\n  3. "));
+    assert!(rendered.ends_with("Fix all of the above before re-running this command."));
+}
+
+/// Single-violation contract preservation: a plan with exactly one
+/// offending action must still return the bare variant (not wrapped in
+/// `Multiple`). This is the compatibility guarantee that lets every
+/// pre-existing `matches!(err, PlannerError::Xxx(_))` test keep working
+/// after the batch change.
+#[test]
+fn validate_migration_plan_single_violation_returns_bare_variant() {
+    use vespertide_core::{ColumnDef, ColumnType, MigrationAction, MigrationPlan};
+
+    let plan = MigrationPlan {
+        id: String::new(),
+        comment: None,
+        created_at: None,
+        version: 1,
+        actions: vec![MigrationAction::AddColumn {
+            table: "users".into(),
+            column: Box::new(ColumnDef {
+                name: "email".into(),
+                r#type: ColumnType::Simple(SimpleColumnType::Text),
+                nullable: false,
+                default: None,
+                comment: None,
+                primary_key: None,
+                unique: None,
+                index: None,
+                foreign_key: None,
+            }),
+            fill_with: None,
+        }],
+    };
+
+    let err = validate_migration_plan(&plan).unwrap_err();
+    assert!(
+        matches!(err, PlannerError::MissingFillWith(_, _)),
+        "single-violation plan must return bare variant, got: {err:?}"
+    );
+}
