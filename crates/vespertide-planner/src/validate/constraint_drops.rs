@@ -93,7 +93,7 @@ fn constraint_label(constraint: &TableConstraint) -> String {
         TableConstraint::PrimaryKey { columns, .. } => {
             format!("PRIMARY KEY ({})", join_columns(columns))
         }
-        TableConstraint::Unique { name, columns } => match name {
+        TableConstraint::Unique { name, columns, .. } => match name {
             Some(n) => format!("{n} UNIQUE ({})", join_columns(columns)),
             None => format!("UNIQUE ({})", join_columns(columns)),
         },

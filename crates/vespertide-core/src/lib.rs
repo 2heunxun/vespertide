@@ -14,6 +14,7 @@ pub use action::{MigrationAction, MigrationPlan, NarrowingStrategy};
 pub use migration::{MigrationError, MigrationOptions};
 pub use schema::{
     ColumnDef, ColumnName, ColumnType, ComplexColumnType, ConstraintKind, DefaultValue, EnumValues,
-    IndexDef, IndexName, NumValue, ReferenceAction, SimpleColumnType, StrOrBoolOrArray,
+    IndexDef, IndexName, KeepPolicy, NumValue, ReferenceAction, SimpleColumnType, StrOrBoolOrArray,
     StringOrBool, TableConstraint, TableDef, TableName, TableValidationError,
+    UniqueConstraintStrategy,
 };

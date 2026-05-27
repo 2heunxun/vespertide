@@ -45,9 +45,10 @@ fn build_table_with_constraints(n: usize) -> Vec<TableDef> {
 
     let constraints = (0..n)
         .map(|i| TableConstraint::Unique {
-            name: Some(format!("uq_constraints__old_{i}")),
-            columns: vec![format!("constrained_col_{i}").into()],
-        })
+                    name: Some(format!("uq_constraints__old_{i}")),
+                    columns: vec![format!("constrained_col_{i}").into()],
+                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                })
         .collect();
 
     vec![TableDef {

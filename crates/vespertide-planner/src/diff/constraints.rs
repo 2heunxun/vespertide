@@ -163,8 +163,8 @@ fn diff_added_constraints(
             continue;
         }
         actions.push(MigrationAction::AddConstraint {
-            table: table_name.to_string().into(),
-            constraint: to_constraint.clone(),
-        });
+                    table: table_name.to_string().into(),
+                    constraint: to_constraint.clone(),
+                });
     }
 }

@@ -8,10 +8,11 @@ use vespertide_core::{MigrationAction, MigrationPlan, NarrowingStrategy, TableDe
 use vespertide_planner::find_missing_fill_with;
 use vespertide_planner::{
     DefaultChangeWarning, DropChoice, DropResolution, DropTarget, EnumFillWithRequired,
-    FillWithRequired, FkPolicyChangeWarning, Match, NarrowingKind, RiskLevel,
-    TimezoneConversionWarning, TypeNarrowingWarning, find_missing_enum_fill_with,
-    render_reference_action,
+    FillWithRequired, FkPolicyChangeWarning, Match, NarrowingKind, PkKind, RiskLevel,
+    TimezoneConversionWarning, TypeNarrowingWarning, UniqueAdditionWarning,
+    find_missing_enum_fill_with, render_reference_action,
 };
+use vespertide_core::{KeepPolicy, UniqueConstraintStrategy};
 
 use super::timezones::{KNOWN_IANA, validate_timezone};
 
@@ -1058,6 +1059,148 @@ fn format_default_change_header(warning: &DefaultChangeWarning) -> String {
         old.bright_white(),
         new.bright_white(),
     )
+}
+
+/// User's choice for a single F2 [`UniqueAdditionWarning`].
+///
+/// The CLI maps these into `TableConstraint::Unique.strategy`:
+/// - `DeleteDuplicates(KeepPolicy)` → strategy set, SQL generator emits
+///   the `DELETE ... NOT IN (SELECT MIN/MAX(pk) ...)` ahead of ADD.
+/// - `ContinueWithoutCleanup` → strategy left at default; the SQL
+///   generator falls back to bare ADD CONSTRAINT (no DELETE) for tables
+///   where PK shape can't drive auto-cleanup. The user accepts that
+///   apply may fail if duplicates exist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum UniqueAdditionChoice {
+    DeleteDuplicates(KeepPolicy),
+    ContinueWithoutCleanup,
+}
+
+/// Interactive resolution for a single F2 unique-addition.
+///
+/// Returns `Ok(None)` to cancel the whole revision. The set of offered
+/// options is tailored to `warning.pk_kind`:
+///
+/// - `SingleAutoCleanupCapable` → `KeepFirst` (default) / `KeepLast` /
+///   Continue / Cancel
+/// - any other kind (composite PK, PK inside unique set, no PK) →
+///   `ContinueWithoutCleanup` / Cancel (auto-cleanup is unavailable)
+pub(super) fn prompt_unique_additions(
+    warning: &UniqueAdditionWarning,
+) -> Result<Option<UniqueAdditionChoice>> {
+    println!();
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+    println!("{}", format_unique_addition_header(warning));
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+
+    let auto_cleanup_available =
+        matches!(warning.pk_kind, PkKind::SingleAutoCleanupCapable { .. });
+
+    let mut labels: Vec<String> = Vec::new();
+    let mut outcomes: Vec<Option<UniqueAdditionChoice>> = Vec::new();
+    if auto_cleanup_available {
+        labels.push(
+            "Delete duplicates, keep FIRST (smallest PK, recommended default)".to_string(),
+        );
+        outcomes.push(Some(UniqueAdditionChoice::DeleteDuplicates(
+            KeepPolicy::First,
+        )));
+        labels.push("Delete duplicates, keep LAST (largest PK)".to_string());
+        outcomes.push(Some(UniqueAdditionChoice::DeleteDuplicates(
+            KeepPolicy::Last,
+        )));
+    }
+    labels.push(
+        "Continue without auto-cleanup (DB will reject the migration if duplicates exist)"
+            .to_string(),
+    );
+    outcomes.push(Some(UniqueAdditionChoice::ContinueWithoutCleanup));
+    labels.push("Cancel migration".to_string());
+    outcomes.push(None);
+
+    let selection = Select::new()
+        .with_prompt("  How should pre-existing duplicates be handled?")
+        .items(&labels)
+        .default(0)
+        .interact()
+        .context("failed to read unique-addition choice")?;
+    Ok(outcomes[selection])
+}
+
+fn format_unique_addition_header(warning: &UniqueAdditionWarning) -> String {
+    let target = format!(
+        "{}.({})",
+        warning.table.bright_white().bold(),
+        warning.columns.join(", ").bright_green()
+    );
+    let pk_hint = match &warning.pk_kind {
+        PkKind::SingleAutoCleanupCapable { column } => format!(
+            "Single-column PK: {} — auto-cleanup available.",
+            column.bright_cyan()
+        ),
+        PkKind::SingleInsideUniqueSet { column } => format!(
+            "PK column '{}' is INSIDE the unique set — auto-cleanup unavailable (tautology).",
+            column.bright_yellow()
+        ),
+        PkKind::Composite { columns } => format!(
+            "Composite PK ({}) — auto-cleanup unavailable in v0.2. Pre-clean manually.",
+            columns.join(", ").bright_yellow()
+        ),
+        PkKind::None => "No PRIMARY KEY on table — auto-cleanup unavailable.".to_string(),
+    };
+    let fk_hint = if warning.fk_references.is_empty() {
+        String::new()
+    } else {
+        let names: Vec<String> = warning
+            .fk_references
+            .iter()
+            .map(|r| {
+                let label = r
+                    .constraint_name
+                    .clone()
+                    .unwrap_or_else(|| format!("({})", r.child_columns.join(", ")));
+                format!("{}.{}", r.child_table, label)
+            })
+            .collect();
+        format!(
+            "\n  Foreign keys reference this column set: {}.",
+            names.join(", ")
+        )
+    };
+    format!(
+        "  {} Adding UNIQUE on {target} (existing column)\n  {pk_hint}{fk_hint}",
+        "\u{26a0}".bright_yellow()
+    )
+}
+
+/// Apply a user's resolution to the plan. Mutates the matching
+/// `AddConstraint(Unique)` action's `strategy` field.
+pub(super) fn apply_unique_addition_choice(
+    plan: &mut vespertide_core::MigrationPlan,
+    warning: &UniqueAdditionWarning,
+    choice: UniqueAdditionChoice,
+) {
+    let Some(action) = plan.actions.get_mut(warning.action_index) else {
+        return;
+    };
+    let vespertide_core::MigrationAction::AddConstraint {
+        constraint: vespertide_core::TableConstraint::Unique { strategy, .. },
+        ..
+    } = action
+    else {
+        return;
+    };
+    match choice {
+        UniqueAdditionChoice::DeleteDuplicates(keep) => {
+            *strategy = UniqueConstraintStrategy::DeleteDuplicates { keep };
+        }
+        UniqueAdditionChoice::ContinueWithoutCleanup => {
+            // Strategy field stays at its default `DeleteDuplicates { First }`;
+            // the SQL generator's PK-shape fallback emits no DELETE for
+            // tables without a usable PK, so this records intent without
+            // changing SQL output.
+        }
+    }
 }
 
 fn confirm_permanent_drop(target: &DropTarget) -> Result<Option<DropChoice>> {

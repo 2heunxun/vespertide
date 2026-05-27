@@ -225,7 +225,7 @@ fn render_entity_part(table: &TableDef, used_types: &mut UsedTypes<'static>) -> 
         .constraints
         .iter()
         .filter_map(|c| {
-            if let TableConstraint::Unique { name, columns } = c {
+            if let TableConstraint::Unique { name, columns, .. } = c {
                 if columns.len() > 1 {
                     Some((name.clone(), columns.clone()))
                 } else {

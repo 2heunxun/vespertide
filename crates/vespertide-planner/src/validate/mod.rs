@@ -3,6 +3,7 @@ mod constraint_drops;
 mod constraint_type_changes;
 mod dangling_fk_drops;
 mod default_changes;
+mod unique_additions;
 mod enums;
 mod fk_policy_changes;
 mod foreign_keys;
@@ -16,6 +17,9 @@ pub use constraint_type_changes::{find_constraint_type_changes, find_primary_key
 pub use dangling_fk_drops::{DanglingFkDrop, find_dangling_fk_drops};
 pub use default_changes::{
     DefaultChangeKind, DefaultChangeWarning, RiskLevel, find_default_changes,
+};
+pub use unique_additions::{
+    FkReference as UniqueAdditionFkReference, PkKind, UniqueAdditionWarning, find_unique_additions,
 };
 pub use fk_policy_changes::{
     FkPolicyChangeWarning, PolicyDelta, find_fk_policy_changes, render_reference_action,

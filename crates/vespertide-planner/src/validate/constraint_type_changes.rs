@@ -267,9 +267,10 @@ mod tests {
 
     fn uq(name: Option<&str>, columns: Vec<&str>) -> TableConstraint {
         TableConstraint::Unique {
-            name: name.map(ToString::to_string),
-            columns: columns.into_iter().map(Into::into).collect(),
-        }
+                    name: name.map(ToString::to_string),
+                    columns: columns.into_iter().map(Into::into).collect(),
+                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                }
     }
 
     fn fk(
@@ -307,9 +308,9 @@ mod tests {
 
     fn add(table: &str, c: TableConstraint) -> MigrationAction {
         MigrationAction::AddConstraint {
-            table: TableName::from(table),
-            constraint: c,
-        }
+                    table: TableName::from(table),
+                    constraint: c,
+                }
     }
 
     // ── A: PK → UQ ──────────────────────────────────────────────────────

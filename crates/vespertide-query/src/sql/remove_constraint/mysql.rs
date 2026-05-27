@@ -19,7 +19,7 @@ pub fn build_remove_constraint(table: &str, constraint: &TableConstraint) -> Vec
                 pg_sql,
             ))]
         }
-        TableConstraint::Unique { name, columns } => {
+        TableConstraint::Unique { name, columns, .. } => {
             let constraint_name =
                 vespertide_naming::build_unique_constraint_name(table, columns, name.as_deref());
             let pg_constraint = quote_ident(&constraint_name, DatabaseBackend::Postgres);

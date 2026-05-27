@@ -16,9 +16,10 @@ fn pk_id() -> TableConstraint {
 
 fn unique(name: &str, columns: Vec<&str>) -> TableConstraint {
     TableConstraint::Unique {
-        name: Some(name.to_string()),
-        columns: columns.into_iter().map(Into::into).collect(),
-    }
+                name: Some(name.to_string()),
+                columns: columns.into_iter().map(Into::into).collect(),
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+            }
 }
 
 fn fk(name: Option<&str>, columns: Vec<&str>, ref_table: &str, ref_columns: Vec<&str>) -> TableConstraint {

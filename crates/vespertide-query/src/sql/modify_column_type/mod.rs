@@ -477,6 +477,7 @@ mod tests {
             constraints: vec![TableConstraint::Unique {
                 name: Some("uq_email".into()),
                 columns: vec!["email".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
             }],
         }];
 

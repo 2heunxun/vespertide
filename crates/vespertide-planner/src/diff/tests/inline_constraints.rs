@@ -329,6 +329,7 @@ fn add_constraint_to_existing_table() {
         vec![vespertide_core::TableConstraint::Unique {
             name: Some("uq_users_email".into()),
             columns: vec!["email".into()],
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
         }],
     )];
 
@@ -338,7 +339,7 @@ fn add_constraint_to_existing_table() {
         assert_eq!(table, "users");
         assert!(matches!(
             constraint,
-            vespertide_core::TableConstraint::Unique { name: Some(n), columns }
+            vespertide_core::TableConstraint::Unique { name: Some(n), columns, .. }
                 if n == "uq_users_email" && columns == &vec!["email".to_string()]
         ));
     } else {
@@ -358,6 +359,7 @@ fn remove_constraint_from_existing_table() {
         vec![vespertide_core::TableConstraint::Unique {
             name: Some("uq_users_email".into()),
             columns: vec!["email".into()],
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
         }],
     )];
 
@@ -376,7 +378,7 @@ fn remove_constraint_from_existing_table() {
         assert_eq!(table, "users");
         assert!(matches!(
             constraint,
-            vespertide_core::TableConstraint::Unique { name: Some(n), columns }
+            vespertide_core::TableConstraint::Unique { name: Some(n), columns, .. }
                 if n == "uq_users_email" && columns == &vec!["email".to_string()]
         ));
     } else {

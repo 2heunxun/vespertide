@@ -135,9 +135,10 @@ fn mutate_table(table: &mut TableDef, index: usize, mutation: u8) {
             true,
         )),
         4 => table.constraints.push(TableConstraint::Unique {
-            name: Some(format!("uq_{}__code", table.name)),
-            columns: vec!["code".into()],
-        }),
+                    name: Some(format!("uq_{}__code", table.name)),
+                    columns: vec!["code".into()],
+                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                }),
         5 => {
             if let Some(TableConstraint::Check { expr, .. }) = table.constraints.get_mut(2) {
                 *expr = "label IS NULL OR length(label) > 1".to_string();

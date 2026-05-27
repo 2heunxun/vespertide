@@ -76,6 +76,7 @@ pub(crate) fn basic_table_with_description() -> TableDef {
             TableConstraint::Unique {
                 name: None,
                 columns: vec!["email".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
             },
         ],
     }
@@ -340,10 +341,12 @@ pub(crate) fn unique_and_indexed() -> TableDef {
             TableConstraint::Unique {
                 name: None,
                 columns: vec!["email".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
             },
             TableConstraint::Unique {
                 name: Some("uq_username".into()),
                 columns: vec!["username".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
             },
             TableConstraint::Index {
                 name: Some("idx_department".into()),
@@ -542,6 +545,7 @@ pub(crate) fn composite_constraints() -> TableDef {
             TableConstraint::Unique {
                 name: Some("uq_order_items__order_product".into()),
                 columns: vec!["order_id".into(), "product_id".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
             },
             TableConstraint::Index {
                 name: Some("ix_order_items__order_id".into()),
@@ -564,6 +568,7 @@ pub(crate) fn composite_unique() -> TableDef {
             TableConstraint::Unique {
                 name: Some("uq_tenant_name".into()),
                 columns: vec!["tenant_id".into(), "name".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
             },
         ],
     )
@@ -604,6 +609,7 @@ pub(crate) fn unnamed_index_and_unique() -> TableDef {
             TableConstraint::Unique {
                 name: None,
                 columns: vec!["venue_id".into(), "date".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
             },
         ],
     )
@@ -640,6 +646,7 @@ pub(crate) fn unnamed_composite_unique() -> TableDef {
             TableConstraint::Unique {
                 name: None,
                 columns: vec!["col_a".into(), "col_b".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
             },
         ],
     )

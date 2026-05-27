@@ -86,6 +86,7 @@ fn add_create_table_constraints(
             TableConstraint::Unique {
                 name,
                 columns: unique_cols,
+                ..
             } => add_mysql_unique_constraint(stmt, backend, table, unique_cols, name.as_deref()),
             TableConstraint::ForeignKey { .. } => {
                 add_foreign_key_constraint(stmt, table, constraint);
@@ -272,6 +273,7 @@ pub fn build_create_table(
             if let TableConstraint::Unique {
                 name,
                 columns: unique_cols,
+                ..
             } = constraint
             {
                 // Always generate a proper name: uq_{table}_{key} or uq_{table}_{columns}
@@ -438,9 +440,10 @@ mod tests {
                 col("email", ColumnType::Simple(SimpleColumnType::Text)),
             ],
             &[TableConstraint::Unique {
-                name: Some("uq_email".into()),
-                columns: vec!["email".into()],
-            }],
+                        name: Some("uq_email".into()),
+                        columns: vec!["email".into()],
+                        strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                    }],
         )
         .unwrap();
         let sql = join_queries(&result, backend, "\n");
@@ -480,9 +483,10 @@ mod tests {
                 col("email", ColumnType::Simple(SimpleColumnType::Text)),
             ],
             &[TableConstraint::Unique {
-                name: None,
-                columns: vec!["email".into()],
-            }],
+                        name: None,
+                        columns: vec!["email".into()],
+                        strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                    }],
         )
         .unwrap();
         let sql = join_queries(&result, backend, "\n");

@@ -355,9 +355,10 @@ mod tests {
 
     fn unique_constraint() -> TableConstraint {
         TableConstraint::Unique {
-            name: None,
-            columns: vec!["category_id".into()],
-        }
+                    name: None,
+                    columns: vec!["category_id".into()],
+                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                }
     }
 
     fn index_constraint() -> TableConstraint {
@@ -379,9 +380,9 @@ mod tests {
         }];
         for c in order {
             actions.push(MigrationAction::AddConstraint {
-                table: "product".into(),
-                constraint: c.clone(),
-            });
+                        table: "product".into(),
+                        constraint: c.clone(),
+                    });
         }
         MigrationPlan {
             id: String::new(),
@@ -706,6 +707,7 @@ mod tests {
                     TableConstraint::Unique {
                         name: Some("invite_code".into()),
                         columns: vec!["invite_code".into()],
+                        strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
                     },
                     TableConstraint::Index {
                         name: None,

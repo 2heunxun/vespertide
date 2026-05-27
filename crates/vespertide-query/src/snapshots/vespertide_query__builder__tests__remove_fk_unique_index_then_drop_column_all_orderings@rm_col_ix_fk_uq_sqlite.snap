@@ -1,5 +1,5 @@
 ---
-source: crates/vespertide-query/src/builder.rs
+source: crates/vespertide-query/src/builder/mod.rs
 expression: sql
 ---
 -- Action 0: RemoveConstraint { table: "product", constraint: Index { name: None, columns: ["category_id"] } }
@@ -12,7 +12,7 @@ DROP TABLE "product";
 ALTER TABLE "product_temp" RENAME TO "product";
 CREATE UNIQUE INDEX "uq_product__category_id" ON "product" ("category_id")
 
--- Action 2: RemoveConstraint { table: "product", constraint: Unique { name: None, columns: ["category_id"] } }
+-- Action 2: RemoveConstraint { table: "product", constraint: Unique { name: None, columns: ["category_id"], strategy: DeleteDuplicates { keep: First } } }
 CREATE TABLE "product_temp" ( "id" integer, "category_id" bigint );
 INSERT INTO "product_temp" ("id", "category_id") SELECT "id", "category_id" FROM "product";
 DROP TABLE "product";

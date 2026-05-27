@@ -24,9 +24,10 @@ fn pk_constraint(columns: Vec<&str>) -> TableConstraint {
 
 fn unique_constraint(name: Option<&str>, columns: Vec<&str>) -> TableConstraint {
     TableConstraint::Unique {
-        name: name.map(ToString::to_string),
-        columns: columns.into_iter().map(Into::into).collect(),
-    }
+                name: name.map(ToString::to_string),
+                columns: columns.into_iter().map(Into::into).collect(),
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+            }
 }
 
 fn fk_constraint(

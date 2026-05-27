@@ -30,9 +30,18 @@ pub fn build_add_constraint(
             current_schema,
             pending_constraints,
         ),
-        TableConstraint::Unique { name, columns } => {
-            Ok(unique::build_unique(table, name.as_deref(), columns))
-        }
+        TableConstraint::Unique {
+            name,
+            columns,
+            strategy,
+        } => unique::build_unique(
+            backend,
+            table,
+            name.as_deref(),
+            columns,
+            strategy,
+            current_schema,
+        ),
         TableConstraint::ForeignKey {
             name,
             columns,

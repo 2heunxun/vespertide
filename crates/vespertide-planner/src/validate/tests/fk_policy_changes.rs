@@ -254,10 +254,12 @@ fn replace_non_fk_constraint_is_ignored() {
         TableConstraint::Unique {
             name: Some("uq".into()),
             columns: vec!["email".into()],
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
         },
         TableConstraint::Unique {
             name: Some("uq".into()),
             columns: vec!["email".into(), "tenant_id".into()],
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
         },
     )]);
 

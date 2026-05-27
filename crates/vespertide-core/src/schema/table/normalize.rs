@@ -96,6 +96,7 @@ fn add_unique_constraints_from_groups(
             constraints.push(TableConstraint::Unique {
                 name: constraint_name,
                 columns,
+                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
             });
         }
     }
@@ -165,6 +166,7 @@ fn unique_constraint_exists(
         if let TableConstraint::Unique {
             name,
             columns: cols,
+            ..
         } = c
         {
             match (constraint_name, name) {

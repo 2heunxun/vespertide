@@ -202,7 +202,7 @@ fn render_table_annotation(
     let unique_constraints: Vec<_> = constraints
         .iter()
         .filter_map(|c| {
-            if let TableConstraint::Unique { name, columns } = c {
+            if let TableConstraint::Unique { name, columns, .. } = c {
                 if columns.len() > 1 {
                     Some((name.clone(), columns.clone()))
                 } else {

@@ -646,7 +646,7 @@ pub fn recreate_indexes_after_rebuild(
                     sql,
                 )));
             }
-            TableConstraint::Unique { name, columns } => {
+            TableConstraint::Unique { name, columns, .. } => {
                 let index_name = build_unique_constraint_name(table, columns, name.as_deref());
                 let cols_sql = quote_idents(columns, DatabaseBackend::Sqlite);
                 let index_name = quote_ident(&index_name, DatabaseBackend::Sqlite);

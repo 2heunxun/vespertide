@@ -572,7 +572,7 @@ fn format_constraint_type(constraint: &vespertide_core::TableConstraint) -> Stri
         vespertide_core::TableConstraint::PrimaryKey { columns, .. } => {
             format!("PRIMARY KEY ({})", columns.join(", "))
         }
-        vespertide_core::TableConstraint::Unique { name, columns } => {
+        vespertide_core::TableConstraint::Unique { name, columns, .. } => {
             if let Some(n) = name {
                 format!("{} UNIQUE ({})", n, columns.join(", "))
             } else {
@@ -763,6 +763,7 @@ mod tests {
             constraint: vespertide_core::TableConstraint::Unique {
                 name: Some("unique_email".into()),
                 columns: vec!["email".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
             },
         },
         format!("{} {} {} {}", "Add constraint:".bright_green(), "unique_email UNIQUE (email)".bright_cyan().bold(), "on".bright_white(), "users".bright_cyan())
@@ -807,6 +808,7 @@ mod tests {
             constraint: vespertide_core::TableConstraint::Unique {
                 name: None,
                 columns: vec!["email".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
             },
         },
         format!("{} {} {} {}", "Remove constraint:".bright_red(), "UNIQUE (email)".bright_cyan().bold(), "from".bright_white(), "users".bright_cyan())

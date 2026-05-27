@@ -361,12 +361,13 @@ fn test_build_action_queries_rename_table(#[case] backend: DatabaseBackend) {
 fn test_build_action_queries_add_constraint(#[case] backend: DatabaseBackend) {
     // Test MigrationAction::AddConstraint (lines 73-74)
     let action = MigrationAction::AddConstraint {
-        table: "users".into(),
-        constraint: TableConstraint::Unique {
-            name: Some("uq_email".into()),
-            columns: vec!["email".into()],
-        },
-    };
+                table: "users".into(),
+                constraint: TableConstraint::Unique {
+                            name: Some("uq_email".into()),
+                            columns: vec!["email".into()],
+                            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                        },
+            };
     let current_schema = vec![TableDef {
         name: "users".into(),
         description: None,
@@ -419,9 +420,10 @@ fn test_build_action_queries_remove_constraint(#[case] backend: DatabaseBackend)
     let action = MigrationAction::RemoveConstraint {
         table: "users".into(),
         constraint: TableConstraint::Unique {
-            name: Some("uq_email".into()),
-            columns: vec!["email".into()],
-        },
+                    name: Some("uq_email".into()),
+                    columns: vec!["email".into()],
+                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                },
     };
     let current_schema = vec![TableDef {
         name: "users".into(),
@@ -453,6 +455,7 @@ fn test_build_action_queries_remove_constraint(#[case] backend: DatabaseBackend)
         constraints: vec![TableConstraint::Unique {
             name: Some("uq_email".into()),
             columns: vec!["email".into()],
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
         }],
     }];
     let result = build_action_queries(backend, &action, &current_schema).unwrap();
@@ -528,12 +531,12 @@ fn test_build_action_queries_add_column(#[case] backend: DatabaseBackend) {
 fn test_build_action_queries_add_index_constraint(#[case] backend: DatabaseBackend) {
     // Test MigrationAction::AddConstraint with Index variant
     let action = MigrationAction::AddConstraint {
-        table: "users".into(),
-        constraint: TableConstraint::Index {
-            name: Some("idx_email".into()),
-            columns: vec!["email".into()],
-        },
-    };
+                table: "users".into(),
+                constraint: TableConstraint::Index {
+                    name: Some("idx_email".into()),
+                    columns: vec!["email".into()],
+                },
+            };
     let result = build_action_queries(backend, &action, &[]).unwrap();
     assert_eq!(result.len(), 1);
     let sql = result[0].build(backend);
@@ -603,12 +606,12 @@ fn test_add_index_with_custom_name(
 ) {
     // Test that custom index names follow ix_table__name pattern
     let action = MigrationAction::AddConstraint {
-        table: "user".into(),
-        constraint: TableConstraint::Index {
-            name: Some(index_name.into()),
-            columns: columns.iter().copied().map(Into::into).collect(),
-        },
-    };
+                table: "user".into(),
+                constraint: TableConstraint::Index {
+                    name: Some(index_name.into()),
+                    columns: columns.iter().copied().map(Into::into).collect(),
+                },
+            };
     let result = build_action_queries(backend, &action, &[]).unwrap();
     let sql = result[0].build(backend);
 
@@ -652,12 +655,12 @@ fn test_add_index_with_custom_name(
 fn test_add_unnamed_index(#[case] backend: DatabaseBackend, #[case] columns: Vec<&str>) {
     // Test that unnamed indexes follow ix_table__col1_col2 pattern
     let action = MigrationAction::AddConstraint {
-        table: "user".into(),
-        constraint: TableConstraint::Index {
-            name: None,
-            columns: columns.iter().copied().map(Into::into).collect(),
-        },
-    };
+                table: "user".into(),
+                constraint: TableConstraint::Index {
+                    name: None,
+                    columns: columns.iter().copied().map(Into::into).collect(),
+                },
+            };
     let result = build_action_queries(backend, &action, &[]).unwrap();
     let sql = result[0].build(backend);
 

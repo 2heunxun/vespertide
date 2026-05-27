@@ -673,9 +673,9 @@ fn diff_table_constraints(
     for c in new {
         if !old.contains(c) {
             actions.push(MigrationAction::AddConstraint {
-                table: TableName::from(table),
-                constraint: c.clone(),
-            });
+                        table: TableName::from(table),
+                        constraint: c.clone(),
+                    });
         }
     }
     actions

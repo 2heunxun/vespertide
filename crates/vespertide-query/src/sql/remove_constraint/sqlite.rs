@@ -61,10 +61,12 @@ fn same_constraint(candidate: &TableConstraint, removed: &TableConstraint) -> bo
             TableConstraint::Unique {
                 name: candidate_name,
                 columns: candidate_columns,
+                ..
             },
             TableConstraint::Unique {
                 name: removed_name,
                 columns: removed_columns,
+                ..
             },
         )
         | (

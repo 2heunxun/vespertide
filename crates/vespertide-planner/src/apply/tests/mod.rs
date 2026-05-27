@@ -150,6 +150,7 @@ struct SuccessCase {
                 TableConstraint::Unique {
                     name: Some("u_old".into()),
                     columns: vec!["old".into()],
+                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
                 },
                 TableConstraint::ForeignKey {
                     name: Some("fk_old".into()),
@@ -192,6 +193,7 @@ struct SuccessCase {
                 TableConstraint::Unique {
                     name: Some("u_old".into()),
                     columns: vec!["old".into()],
+                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
                 },
                 TableConstraint::ForeignKey {
                     name: Some("fk_old".into()),
@@ -219,6 +221,7 @@ struct SuccessCase {
                 TableConstraint::Unique {
                     name: Some("u_old".into()),
                     columns: vec!["old".into()],
+                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
                 },
                 TableConstraint::ForeignKey {
                     name: Some("fk_old".into()),
@@ -431,6 +434,7 @@ fn apply_delete_column_preserves_foreign_key_ref_columns() {
             TableConstraint::Unique {
                 name: None,
                 columns: vec!["old".into(), "keep".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
             },
             TableConstraint::ForeignKey {
                 name: None,
@@ -453,6 +457,7 @@ fn apply_delete_column_preserves_foreign_key_ref_columns() {
             TableConstraint::Unique {
                 name: None,
                 columns: vec!["new".into(), "keep".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
             },
             TableConstraint::ForeignKey {
                 name: None,
@@ -662,6 +667,7 @@ fn remove_unique_constraint_clears_inline_unique_array() {
         vec![TableConstraint::Unique {
             name: Some("uq_email".into()),
             columns: vec!["email".into()],
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
         }],
     )];
 
@@ -670,9 +676,10 @@ fn remove_unique_constraint_clears_inline_unique_array() {
         &MigrationAction::RemoveConstraint {
             table: "users".into(),
             constraint: TableConstraint::Unique {
-                name: Some("uq_email".into()),
-                columns: vec!["email".into()],
-            },
+                        name: Some("uq_email".into()),
+                        columns: vec!["email".into()],
+                        strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                    },
         },
     )
     .unwrap();
@@ -702,6 +709,7 @@ fn remove_unique_constraint_clears_inline_unique_array_last_item() {
         vec![TableConstraint::Unique {
             name: Some("uq_email".into()),
             columns: vec!["email".into()],
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
         }],
     )];
 
@@ -710,9 +718,10 @@ fn remove_unique_constraint_clears_inline_unique_array_last_item() {
         &MigrationAction::RemoveConstraint {
             table: "users".into(),
             constraint: TableConstraint::Unique {
-                name: Some("uq_email".into()),
-                columns: vec!["email".into()],
-            },
+                        name: Some("uq_email".into()),
+                        columns: vec!["email".into()],
+                        strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                    },
         },
     )
     .unwrap();
@@ -737,6 +746,7 @@ fn remove_unique_constraint_clears_inline_unique_str() {
         vec![TableConstraint::Unique {
             name: Some("uq_email".into()),
             columns: vec!["email".into()],
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
         }],
     )];
 
@@ -745,9 +755,10 @@ fn remove_unique_constraint_clears_inline_unique_str() {
         &MigrationAction::RemoveConstraint {
             table: "users".into(),
             constraint: TableConstraint::Unique {
-                name: Some("uq_email".into()),
-                columns: vec!["email".into()],
-            },
+                        name: Some("uq_email".into()),
+                        columns: vec!["email".into()],
+                        strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                    },
         },
     )
     .unwrap();

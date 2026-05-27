@@ -3,7 +3,20 @@ use serde::{Deserialize, Serialize};
 use crate::schema::{
     ReferenceAction,
     names::{ColumnName, TableName},
+    unique_strategy::{KeepPolicy, UniqueConstraintStrategy},
 };
+
+/// `serde(skip_serializing_if)` helper — true when `strategy` is the
+/// canonical default (`DeleteDuplicates { keep: First }`). Lets the
+/// common case omit the field from the JSON wire format.
+fn is_default_unique_strategy(s: &UniqueConstraintStrategy) -> bool {
+    matches!(
+        s,
+        UniqueConstraintStrategy::DeleteDuplicates {
+            keep: KeepPolicy::First
+        }
+    )
+}
 
 /// A table-level constraint produced by [`TableDef::normalize`].
 ///
@@ -27,10 +40,20 @@ pub enum TableConstraint {
         columns: Vec<ColumnName>,
     },
     /// Unique constraint ensuring no two rows share the same value(s) in the listed columns.
+    ///
+    /// `strategy` controls how pre-existing duplicate rows are handled when
+    /// this constraint is added to an already-populated table. The
+    /// canonical default is [`UniqueConstraintStrategy::DeleteDuplicates { keep: KeepPolicy::First }`],
+    /// which matches v0.1.x behaviour and is omitted from the JSON wire
+    /// format. Other strategies (e.g. `DeleteDuplicates`) emit a pre-cleanup
+    /// step ahead of `ADD CONSTRAINT` so the migration succeeds even when
+    /// production data has duplicates.
     Unique {
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<String>,
         columns: Vec<ColumnName>,
+        #[serde(default, skip_serializing_if = "is_default_unique_strategy")]
+        strategy: UniqueConstraintStrategy,
     },
     /// Foreign key constraint linking columns in this table to columns in another table.
     ForeignKey {
@@ -147,9 +170,10 @@ mod tests {
     #[test]
     fn test_columns_unique() {
         let unique = TableConstraint::Unique {
-            name: Some("uq_email".into()),
-            columns: vec!["email".into()],
-        };
+                    name: Some("uq_email".into()),
+                    columns: vec!["email".into()],
+                    strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
+                };
         assert_eq!(unique.columns().len(), 1);
         assert_eq!(unique.columns()[0], "email");
     }
@@ -210,9 +234,10 @@ mod tests {
             ),
             (
                 TableConstraint::Unique {
-                    name: None,
-                    columns: vec!["email".into()],
-                },
+                            name: None,
+                            columns: vec!["email".into()],
+                            strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
+                        },
                 ConstraintKind::Unique,
             ),
             (
@@ -264,9 +289,10 @@ mod tests {
         assert_eq!(pk, prefixed);
 
         let unique = TableConstraint::Unique {
-            name: Some("uq_email".into()),
-            columns: vec!["email".into()],
-        };
+                    name: Some("uq_email".into()),
+                    columns: vec!["email".into()],
+                    strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
+                };
         let prefixed = unique.clone().with_prefix("myapp_");
         assert_eq!(unique, prefixed);
 

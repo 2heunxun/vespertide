@@ -270,6 +270,7 @@ fn validate_schema_rejects_integer_enum_values_outside_i32_range() {
             vec![pk(vec!["id"]), TableConstraint::Unique {
                 name: Some("u".into()),
                 columns: vec![],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
             }],
         )],
         Some(is_empty_columns as fn(&PlannerError) -> bool)
@@ -281,6 +282,7 @@ fn validate_schema_rejects_integer_enum_values_outside_i32_range() {
             vec![pk(vec!["id"]), TableConstraint::Unique {
                 name: None,
                 columns: vec!["missing".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
             }],
         )],
         Some(is_constraint_column as fn(&PlannerError) -> bool)

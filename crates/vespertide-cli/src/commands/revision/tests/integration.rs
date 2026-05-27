@@ -196,6 +196,15 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
             > {
                 panic!("default_change prompt should not be called")
             },
+            // F2 unique-addition resolution: these scenarios add columns or
+            // create tables only, never `AddConstraint(Unique)` on an
+            // existing column, so the prompt should never fire. Panic
+            // guards against silent flow drift.
+            unique_addition: |_: &vespertide_planner::UniqueAdditionWarning| -> Result<
+                Option<crate::commands::revision::prompts::UniqueAdditionChoice>,
+            > {
+                panic!("unique_addition prompt should not be called")
+            },
         },
     )
     .await;
@@ -367,6 +376,15 @@ async fn cmd_revision_core_handles_fill_with_for_non_fk_column() {
                 Option<crate::commands::revision::prompts::DefaultChoice>,
             > {
                 panic!("default_change prompt should not be called")
+            },
+            // F2 unique-addition resolution: these scenarios add columns or
+            // create tables only, never `AddConstraint(Unique)` on an
+            // existing column, so the prompt should never fire. Panic
+            // guards against silent flow drift.
+            unique_addition: |_: &vespertide_planner::UniqueAdditionWarning| -> Result<
+                Option<crate::commands::revision::prompts::UniqueAdditionChoice>,
+            > {
+                panic!("unique_addition prompt should not be called")
             },
         },
     )

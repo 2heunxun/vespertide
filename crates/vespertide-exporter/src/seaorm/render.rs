@@ -285,7 +285,7 @@ pub(super) fn render_indexes_and_uniques(lines: &mut Vec<String>, constraints: &
     let composite_uniques: Vec<_> = constraints
         .iter()
         .filter_map(|c| {
-            if let TableConstraint::Unique { name, columns } = c {
+            if let TableConstraint::Unique { name, columns, .. } = c {
                 if columns.len() > 1 {
                     Some((name, columns))
                 } else {

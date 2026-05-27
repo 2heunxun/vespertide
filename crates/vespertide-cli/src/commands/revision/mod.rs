@@ -5,13 +5,14 @@ use vespertide_core::{MigrationAction, MigrationPlan, NarrowingStrategy};
 use vespertide_planner::{
     DanglingFkDrop, DefaultChangeWarning, DropChoice, DropResolution, FkPolicyChangeWarning,
     MultipleErrors, PlannerError, TimezoneConversionWarning, TypeNarrowingWarning,
-    apply_drop_resolution, find_constraint_type_changes, find_dangling_fk_drops,
-    find_default_changes, find_drop_resolutions, find_fk_policy_changes, find_missing_fill_with,
-    find_primary_key_removals, find_timezone_conversions, find_type_narrowings,
+    UniqueAdditionWarning, apply_drop_resolution, find_constraint_type_changes,
+    find_dangling_fk_drops, find_default_changes, find_drop_resolutions,
+    find_fk_policy_changes, find_missing_fill_with, find_primary_key_removals,
+    find_timezone_conversions, find_type_narrowings, find_unique_additions,
     plan_next_migration, schema_from_plans,
 };
 
-use prompts::DefaultChoice;
+use prompts::{DefaultChoice, UniqueAdditionChoice};
 
 use crate::utils::{load_config, load_migrations, load_models};
 
@@ -80,12 +81,13 @@ pub async fn cmd_revision(
             remap_enum_values: prompts::prompt_remap_enum_values,
             drop_resolution: prompts::prompt_drop_resolution,
             default_change: prompts::prompt_default_change_resolution,
+            unique_addition: prompts::prompt_unique_additions,
         },
     )
     .await
 }
 
-struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC> {
+struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN> {
     recreate: R,
     delete_null_rows: D,
     fill_with: F,
@@ -97,17 +99,18 @@ struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC> {
     remap_enum_values: RM,
     drop_resolution: DR,
     default_change: DC,
+    unique_addition: UN,
 }
 
 #[expect(
     clippy::too_many_lines,
     reason = "linear revision flow: load → plan → recreate → drop resolution → dangling FK → fill_with → enum fill_with → fk policy → narrowing → timezone → remap → write. Extracting helpers scatters the ordering"
 )]
-async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM, DR, DC>(
+async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN>(
     message: String,
     fill_with_args: Vec<String>,
     delete_null_rows_args: Vec<String>,
-    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC>,
+    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN>,
 ) -> Result<()>
 where
     R: Fn(&[RecreateTableRequired]) -> Result<bool>,
@@ -121,6 +124,7 @@ where
     RM: Fn(&MigrationPlan) -> Result<bool>,
     DR: Fn(&DropResolution) -> Result<Option<DropChoice>>,
     DC: Fn(&DefaultChangeWarning) -> Result<Option<DefaultChoice>>,
+    UN: Fn(&UniqueAdditionWarning) -> Result<Option<UniqueAdditionChoice>>,
 {
     let RevisionPromptFns {
         recreate: recreate_prompt_fn,
@@ -134,6 +138,7 @@ where
         remap_enum_values: remap_enum_values_prompt_fn,
         drop_resolution: drop_resolution_prompt_fn,
         default_change: default_change_prompt_fn,
+        unique_addition: unique_addition_prompt_fn,
     } = prompt_fns;
 
     let config = load_config()?;
@@ -218,6 +223,24 @@ where
         _ => Some(PlannerError::Multiple(Box::new(MultipleErrors(f12_errors)))),
     } {
         return Err(anyhow::anyhow!("{err}"));
+    }
+
+    // F2 — Adding UNIQUE on an existing column risks DB rejection if
+    // production data has duplicates. Prompt for a deduplication strategy
+    // one warning at a time; the choice is stamped back onto the matching
+    // `TableConstraint::Unique.strategy` so re-running the revision
+    // produces the same SQL.
+    let unique_additions = find_unique_additions(&plan, &baseline_schema);
+    for warning in &unique_additions {
+        let Some(choice) = unique_addition_prompt_fn(warning)? else {
+            println!(
+                "{} {}",
+                "Cancelled.".bright_yellow().bold(),
+                "Unique addition declined; no migration written.".bright_white()
+            );
+            return Ok(());
+        };
+        prompts::apply_unique_addition_choice(&mut plan, warning, choice);
     }
 
     // Parse CLI fill_with arguments

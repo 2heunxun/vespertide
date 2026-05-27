@@ -231,6 +231,7 @@ fn test_reverse_relations_unique_fk() {
             TableConstraint::Unique {
                 name: None,
                 columns: vec!["user_id".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
             },
         ],
     };

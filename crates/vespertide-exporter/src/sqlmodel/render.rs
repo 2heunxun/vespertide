@@ -355,7 +355,7 @@ fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Ve
         .constraints
         .iter()
         .filter_map(|c| {
-            if let TableConstraint::Unique { name, columns } = c {
+            if let TableConstraint::Unique { name, columns, .. } = c {
                 if columns.len() > 1 {
                     Some((name.clone(), columns.clone()))
                 } else {

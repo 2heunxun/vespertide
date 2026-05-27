@@ -144,6 +144,12 @@ pub enum MigrationAction {
         new_comment: Option<String>,
     },
     /// Add a constraint (primary key, unique, foreign key, check, or index) to a table.
+    ///
+    /// F2 duplicate-handling strategy lives on the `Unique` variant of
+    /// [`TableConstraint`] itself (see `TableConstraint::Unique.strategy`),
+    /// not here — the strategy is intrinsic to a particular unique
+    /// constraint, regardless of whether it is added, replaced, or shipped
+    /// inside a `CreateTable`.
     AddConstraint {
         table: TableName,
         constraint: TableConstraint,
@@ -428,6 +434,7 @@ mod tests {
             constraint: TableConstraint::Unique {
                 name: Some("uq_email".into()),
                 columns: vec!["email".into()],
+                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
             },
         },
         "AddConstraint: users.uq_email (UNIQUE)"
@@ -438,6 +445,7 @@ mod tests {
             constraint: TableConstraint::Unique {
                 name: None,
                 columns: vec!["email".into()],
+                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
             },
         },
         "AddConstraint: users.UNIQUE"
@@ -501,6 +509,7 @@ mod tests {
             constraint: TableConstraint::Unique {
                 name: Some("uq_email".into()),
                 columns: vec!["email".into()],
+                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
             },
         },
         "RemoveConstraint: users.uq_email (UNIQUE)"
@@ -511,6 +520,7 @@ mod tests {
             constraint: TableConstraint::Unique {
                 name: None,
                 columns: vec!["email".into()],
+                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
             },
         },
         "RemoveConstraint: users.UNIQUE"
@@ -953,16 +963,16 @@ mod tests {
     #[test]
     fn test_action_with_prefix_add_constraint() {
         let action = MigrationAction::AddConstraint {
-            table: "posts".into(),
-            constraint: TableConstraint::ForeignKey {
-                name: Some("fk_user".into()),
-                columns: vec!["user_id".into()],
-                ref_table: "users".into(),
-                ref_columns: vec!["id".into()],
-                on_delete: None,
-                on_update: None,
-            },
-        };
+                    table: "posts".into(),
+                    constraint: TableConstraint::ForeignKey {
+                        name: Some("fk_user".into()),
+                        columns: vec!["user_id".into()],
+                        ref_table: "users".into(),
+                        ref_columns: vec!["id".into()],
+                        on_delete: None,
+                        on_update: None,
+                    },
+                };
         let prefixed = action.with_prefix("myapp_");
         if let MigrationAction::AddConstraint { table, constraint } = prefixed {
             assert_eq!(table.as_str(), "myapp_posts");
@@ -1023,10 +1033,12 @@ mod tests {
             from: TableConstraint::Unique {
                 name: None,
                 columns: vec!["email".into()],
+                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
             },
             to: TableConstraint::Unique {
                 name: Some("uq_email".into()),
                 columns: vec!["email".into()],
+                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
             },
         },
         "ReplaceConstraint: users.uq_email (UNIQUE)"
@@ -1037,10 +1049,12 @@ mod tests {
             from: TableConstraint::Unique {
                 name: Some("uq_email".into()),
                 columns: vec!["email".into()],
+                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
             },
             to: TableConstraint::Unique {
                 name: None,
                 columns: vec!["email".into()],
+                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
             },
         },
         "ReplaceConstraint: users.UNIQUE"

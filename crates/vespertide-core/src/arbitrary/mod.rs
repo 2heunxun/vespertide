@@ -178,6 +178,7 @@ pub fn arb_table_constraint() -> impl Strategy<Value = TableConstraint> {
             TableConstraint::Unique {
                 name,
                 columns: columns.into_iter().map(Into::into).collect(),
+                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
             }
         },),
         (

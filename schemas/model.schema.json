@@ -331,6 +331,21 @@
         }
       ]
     },
+    "KeepPolicy": {
+      "description": "Which row of a duplicate group is kept when `DeleteDuplicates` runs.\n\n\"First\" / \"Last\" are defined by the table's PRIMARY KEY ordering:\n`First = MIN(pk)`, `Last = MAX(pk)`. Requires a single-column PK.",
+      "oneOf": [
+        {
+          "description": "Keep the row with the smallest primary-key value.",
+          "type": "string",
+          "const": "first"
+        },
+        {
+          "description": "Keep the row with the largest primary-key value.",
+          "type": "string",
+          "const": "last"
+        }
+      ]
+    },
     "NumValue": {
       "description": "A single variant of an integer-backed enum, pairing a Rust-friendly name with its stored value.\n\nUsed inside [`EnumValues::Integer`] to define enums that are stored as `INTEGER` in the\ndatabase. Leave gaps between values (e.g. 0, 10, 20) so new variants can be inserted later\nwithout renumbering.",
       "type": "object",
@@ -585,7 +600,7 @@
           ]
         },
         {
-          "description": "Unique constraint ensuring no two rows share the same value(s) in the listed columns.",
+          "description": "Unique constraint ensuring no two rows share the same value(s) in the listed columns.\n\n`strategy` controls how pre-existing duplicate rows are handled when\nthis constraint is added to an already-populated table. The\ncanonical default is [`UniqueConstraintStrategy::DeleteDuplicates { keep: KeepPolicy::First }`],\nwhich matches v0.1.x behaviour and is omitted from the JSON wire\nformat. Other strategies (e.g. `DeleteDuplicates`) emit a pre-cleanup\nstep ahead of `ADD CONSTRAINT` so the migration succeeds even when\nproduction data has duplicates.",
           "type": "object",
           "properties": {
             "columns": {
@@ -599,6 +614,9 @@
                 "string",
                 "null"
               ]
+            },
+            "strategy": {
+              "$ref": "#/$defs/UniqueConstraintStrategy"
             },
             "type": {
               "type": "string",
@@ -719,6 +737,29 @@
     "TableName": {
       "description": "The name of a database table, always in `snake_case` by convention.\n\nConstruction:\n\n```rust\nuse vespertide_core::schema::names::TableName;\n\nlet via_new: TableName = TableName::new(\"user\");\nlet via_from: TableName = \"user\".into();\n\nassert_eq!(via_new.as_str(), \"user\");\nassert!(via_new == \"user\");\nassert_eq!(via_new.to_string(), \"user\");\nassert_eq!(via_new, via_from);\n```\n\nJSON wire format is byte-identical to a plain `String` thanks to\n`#[serde(transparent)]`. See [`ColumnName`] for a serde round-trip example.",
       "type": "string"
+    },
+    "UniqueConstraintStrategy": {
+      "description": "How `AddConstraint(Unique)` should handle pre-existing duplicate rows.",
+      "oneOf": [
+        {
+          "description": "Emit a `DELETE` statement just before the `ADD CONSTRAINT` so only\none row per group of duplicates survives. `keep` picks which one.\nThis is the only strategy in v0.2 — see module docs.",
+          "type": "object",
+          "properties": {
+            "keep": {
+              "description": "Which row of each duplicate group is preserved. See\n[`KeepPolicy`].",
+              "$ref": "#/$defs/KeepPolicy"
+            },
+            "kind": {
+              "type": "string",
+              "const": "delete_duplicates"
+            }
+          },
+          "required": [
+            "kind",
+            "keep"
+          ]
+        }
+      ]
     }
   }
 }

@@ -69,7 +69,7 @@ pub(super) fn clear_inline_constraint_fields(
     constraint: &TableConstraint,
 ) {
     match constraint {
-        TableConstraint::Unique { name, columns } => {
+        TableConstraint::Unique { name, columns, .. } => {
             clear_unique_fields(tbl, name.as_deref(), columns);
         }
         TableConstraint::PrimaryKey { columns, .. } => {

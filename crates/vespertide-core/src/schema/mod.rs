@@ -7,6 +7,7 @@ pub mod primary_key;
 pub mod reference;
 pub mod str_or_bool;
 pub mod table;
+pub mod unique_strategy;
 
 pub use column::{
     ColumnDef, ColumnType, ComplexColumnType, EnumValues, NumValue, SimpleColumnType,
@@ -18,6 +19,7 @@ pub use primary_key::PrimaryKeyDef;
 pub use reference::ReferenceAction;
 pub use str_or_bool::{DefaultValue, StrOrBoolOrArray, StringOrBool};
 pub use table::{TableDef, TableValidationError};
+pub use unique_strategy::{KeepPolicy, UniqueConstraintStrategy};
 
 #[cfg(test)]
 mod tests {

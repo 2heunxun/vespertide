@@ -36,16 +36,16 @@ mod sort_create_before_add_constraint_tests {
 
     fn make_add_fk(table: &str, ref_table: &str) -> MigrationAction {
         MigrationAction::AddConstraint {
-            table: table.into(),
-            constraint: TableConstraint::ForeignKey {
-                name: None,
-                columns: vec!["fk_col".into()],
-                ref_table: ref_table.into(),
-                ref_columns: vec!["id".into()],
-                on_delete: None,
-                on_update: None,
-            },
-        }
+                    table: table.into(),
+                    constraint: TableConstraint::ForeignKey {
+                        name: None,
+                        columns: vec!["fk_col".into()],
+                        ref_table: ref_table.into(),
+                        ref_columns: vec!["id".into()],
+                        on_delete: None,
+                        on_update: None,
+                    },
+                }
     }
 
     /// Test line 218: (false, true, _, _) - a is NOT `CreateTable`, b IS `CreateTable`

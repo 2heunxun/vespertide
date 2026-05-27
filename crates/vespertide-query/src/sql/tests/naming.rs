@@ -25,12 +25,13 @@ fn test_add_unique_with_custom_name(
 ) {
     // Test that custom unique constraint names follow uq_table__name pattern
     let action = MigrationAction::AddConstraint {
-        table: "user".into(),
-        constraint: TableConstraint::Unique {
-            name: Some(constraint_name.into()),
-            columns: columns.iter().copied().map(Into::into).collect(),
-        },
-    };
+                table: "user".into(),
+                constraint: TableConstraint::Unique {
+                            name: Some(constraint_name.into()),
+                            columns: columns.iter().copied().map(Into::into).collect(),
+                            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                        },
+            };
 
     let current_schema = vec![TableDef {
         name: "user".into(),
@@ -96,12 +97,13 @@ fn test_add_unique_with_custom_name(
 fn test_add_unnamed_unique(#[case] backend: DatabaseBackend, #[case] columns: Vec<&str>) {
     // Test that unnamed unique constraints follow uq_table__col1_col2 pattern
     let action = MigrationAction::AddConstraint {
-        table: "user".into(),
-        constraint: TableConstraint::Unique {
-            name: None,
-            columns: columns.iter().copied().map(Into::into).collect(),
-        },
-    };
+                table: "user".into(),
+                constraint: TableConstraint::Unique {
+                            name: None,
+                            columns: columns.iter().copied().map(Into::into).collect(),
+                            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                        },
+            };
 
     let schema_columns: Vec<ColumnDef> = columns
         .iter()
@@ -157,9 +159,10 @@ fn test_remove_unique_with_custom_name(
 ) {
     // Test that removing custom unique constraint uses uq_table__name pattern
     let constraint = TableConstraint::Unique {
-        name: Some(constraint_name.into()),
-        columns: columns.iter().copied().map(Into::into).collect(),
-    };
+                name: Some(constraint_name.into()),
+                columns: columns.iter().copied().map(Into::into).collect(),
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+            };
 
     let current_schema = vec![TableDef {
         name: "user".into(),
@@ -232,9 +235,10 @@ fn test_remove_unique_with_custom_name(
 fn test_remove_unnamed_unique(#[case] backend: DatabaseBackend, #[case] columns: Vec<&str>) {
     // Test that removing unnamed unique constraints uses uq_table__col1_col2 pattern
     let constraint = TableConstraint::Unique {
-        name: None,
-        columns: columns.iter().copied().map(Into::into).collect(),
-    };
+                name: None,
+                columns: columns.iter().copied().map(Into::into).collect(),
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+            };
 
     let schema_columns: Vec<ColumnDef> = columns
         .iter()
