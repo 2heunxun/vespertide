@@ -135,6 +135,34 @@ pub(super) fn validate_table(
         return Err(PlannerError::MissingPrimaryKey(table.name.to_string()));
     }
 
+    // F12 Scenario C: every column participating in a PRIMARY KEY must be
+    // NOT NULL. SQL standard defines `PRIMARY KEY` as `UNIQUE + NOT NULL`;
+    // PG, MySQL, and SQLite (in strict mode) all enforce it. Allowing a
+    // contradicting `nullable: true` would either silently get overridden
+    // at SQL-emit time or fall back to SQLite's historical bug behaviour.
+    // Reject the model up front so the typed-schema promise holds.
+    let mut pk_columns: HashSet<&str> = HashSet::new();
+    for constraint in &table.constraints {
+        if let TableConstraint::PrimaryKey { columns, .. } = constraint {
+            for c in columns {
+                pk_columns.insert(c.as_str());
+            }
+        }
+    }
+    for column in &table.columns {
+        if column.primary_key.is_some() {
+            pk_columns.insert(column.name.as_str());
+        }
+    }
+    for column in &table.columns {
+        if pk_columns.contains(column.name.as_str()) && column.nullable {
+            return Err(PlannerError::PrimaryKeyColumnNullable {
+                table: table.name.to_string(),
+                column: column.name.to_string(),
+            });
+        }
+    }
+
     // Validate auto_increment columns have integer types
     for constraint in &table.constraints {
         if let TableConstraint::PrimaryKey {

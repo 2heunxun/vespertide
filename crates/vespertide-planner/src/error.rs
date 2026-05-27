@@ -82,6 +82,69 @@ pub enum PlannerError {
         check_name: String,
         check_expr: String,
     },
+    /// Fault **F12 (Scenario C)**: a column declared with `nullable: true`
+    /// participates in a `PRIMARY KEY`. SQL-92 defines `PRIMARY KEY` as
+    /// `UNIQUE + NOT NULL`; `PostgreSQL`, `MySQL`, and `SQLite` (strict
+    /// mode) all enforce this. Allowing the contradiction would either
+    /// silently override `nullable` at SQL emit time or rely on `SQLite`'s
+    /// historical bug behaviour for non-INTEGER-PK columns. Reject the
+    /// model so the typed-schema promise stays portable.
+    #[error(
+        "primary key column nullable: {table}.{column} participates in a PRIMARY KEY \
+         but declares `nullable: true`. SQL standard requires primary-key columns \
+         to be NOT NULL. Either remove {column} from the primary key, or set \
+         `nullable: false`. (For uniqueness with NULL allowed, use UNIQUE instead.)"
+    )]
+    PrimaryKeyColumnNullable { table: String, column: String },
+    /// Fault **F12 (Scenario E)**: the plan removes a table's only PRIMARY
+    /// KEY without adding a replacement (or dropping the table). Every
+    /// Vespertide-managed table must have a primary key; without one
+    /// the `SeaORM` exporter cannot produce a usable `Model` and replay
+    /// against the baseline cannot match rows by identity.
+    #[error(
+        "table '{table}' would lose its PRIMARY KEY after this migration: \
+         the plan removes PK on ({columns}) without adding a replacement, \
+         and the table is not being dropped. Every Vespertide-managed table \
+         must have a primary key — re-add one in the same migration, or drop \
+         the table."
+    )]
+    PrimaryKeyRemovedWithoutReplacement { table: String, columns: String },
+    /// Fault **F12 (Scenarios A/B)**: the plan swaps `PRIMARY KEY` and
+    /// `UNIQUE` on the same column set within a single migration. Even
+    /// though both constraints look similar, the swap silently changes
+    /// every of the semantics tracked in the F12 design doc:
+    ///
+    /// - `PK → UQ` loses the implicit NOT NULL (existing rows may have
+    ///   NULLs after a separate nullable change), changes FK semantics
+    ///   (FK target was canonical, now optional), and turns single PK
+    ///   into one of potentially many UNIQUE constraints.
+    /// - `UQ → PK` adds implicit NOT NULL (the `ALTER` fails on every
+    ///   backend if any row has NULL in those columns) and makes the
+    ///   columns the canonical row identity (FK refs default to it).
+    ///
+    /// Vespertide blocks the swap so the user must explicitly express
+    /// intent through a multi-migration sequence (or different column
+    /// names). When foreign keys reference the column set, they are
+    /// listed in `fk_references` so the user sees the downstream impact.
+    ///
+    /// `kind` carries the direction; `(table, columns)` identifies the
+    /// affected constraint.
+    #[error(
+        "constraint type change blocked: {kind} on {table}.({columns}). \
+         PRIMARY KEY and UNIQUE have different NOT NULL / FK / identity \
+         semantics; vespertide refuses to swap them silently. \
+         {fk_hint} \
+         Split the change into separate migrations (e.g. add the new \
+         constraint on a new column first, then drop the old one)."
+    )]
+    ConstraintTypeChanged {
+        kind: &'static str,
+        table: String,
+        columns: String,
+        /// Already-rendered hint like `"FKs referencing this column: \
+        /// orders.user_id, posts.author_id."` or `""` when no FK targets it.
+        fk_hint: String,
+    },
     /// Fault **F9**: a column or table is being dropped while a foreign key on
     /// another table still references it, with no matching cleanup in the
     /// same plan.

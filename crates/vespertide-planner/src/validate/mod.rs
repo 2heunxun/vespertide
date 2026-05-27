@@ -1,5 +1,6 @@
 mod check_default;
 mod constraint_drops;
+mod constraint_type_changes;
 mod dangling_fk_drops;
 mod default_changes;
 mod enums;
@@ -11,6 +12,7 @@ mod timezone_conversion;
 mod type_narrowing;
 
 pub use constraint_drops::{ConstraintDropWarning, find_constraint_drops_without_replacement};
+pub use constraint_type_changes::{find_constraint_type_changes, find_primary_key_removals};
 pub use dangling_fk_drops::{DanglingFkDrop, find_dangling_fk_drops};
 pub use default_changes::{
     DefaultChangeKind, DefaultChangeWarning, RiskLevel, find_default_changes,

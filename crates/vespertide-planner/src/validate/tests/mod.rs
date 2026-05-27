@@ -8,7 +8,22 @@ pub(super) use vespertide_core::{
     MigrationPlan, NumValue, SimpleColumnType, TableConstraint, TableDef,
 };
 
+/// Test column helper. Defaults to `nullable: false` to match the
+/// production-model pattern (every example/* model in this repo declares
+/// `nullable` explicitly and the typed-schema convention is NOT NULL
+/// unless stated otherwise). Tests that need a nullable column should
+/// call [`col_nullable`].
 fn col(name: &str, ty: ColumnType) -> ColumnDef {
+    ColumnDef::new(name, ty, false)
+}
+
+/// Test column helper for the rare fixture that needs `nullable: true`.
+/// Not currently used inside `tests/` — fixtures that want a nullable
+/// column write the struct literal directly. Kept available as a hook
+/// for future tests that exercise nullable-column behaviour without
+/// duplicating the `ColumnDef::new(..., true)` boilerplate.
+#[expect(dead_code, reason = "kept available for future nullable-column fixtures")]
+fn col_nullable(name: &str, ty: ColumnType) -> ColumnDef {
     ColumnDef::new(name, ty, true)
 }
 

@@ -5,9 +5,10 @@ use vespertide_core::{MigrationAction, MigrationPlan, NarrowingStrategy};
 use vespertide_planner::{
     DanglingFkDrop, DefaultChangeWarning, DropChoice, DropResolution, FkPolicyChangeWarning,
     MultipleErrors, PlannerError, TimezoneConversionWarning, TypeNarrowingWarning,
-    apply_drop_resolution, find_dangling_fk_drops, find_default_changes, find_drop_resolutions,
-    find_fk_policy_changes, find_missing_fill_with, find_timezone_conversions,
-    find_type_narrowings, plan_next_migration, schema_from_plans,
+    apply_drop_resolution, find_constraint_type_changes, find_dangling_fk_drops,
+    find_default_changes, find_drop_resolutions, find_fk_policy_changes, find_missing_fill_with,
+    find_primary_key_removals, find_timezone_conversions, find_type_narrowings,
+    plan_next_migration, schema_from_plans,
 };
 
 use prompts::DefaultChoice;
@@ -200,6 +201,22 @@ where
     if let Some(err) =
         dangling_drops_to_planner_error(find_dangling_fk_drops(&plan, &baseline_schema))
     {
+        return Err(anyhow::anyhow!("{err}"));
+    }
+
+    // F12 — PK ↔ UQ constraint swaps and PRIMARY KEY removal without a
+    // replacement. Both are hard errors (per user policy: every F12
+    // scenario blocks at revision time). Combine the two detector outputs
+    // into the standard 0/1/N+ contract so multi-table violations are
+    // reported in one shot.
+    let mut f12_errors: Vec<PlannerError> = Vec::new();
+    f12_errors.extend(find_constraint_type_changes(&plan, &baseline_schema));
+    f12_errors.extend(find_primary_key_removals(&plan, &baseline_schema));
+    if let Some(err) = match f12_errors.len() {
+        0 => None,
+        1 => Some(f12_errors.remove(0)),
+        _ => Some(PlannerError::Multiple(Box::new(MultipleErrors(f12_errors)))),
+    } {
         return Err(anyhow::anyhow!("{err}"));
     }
 

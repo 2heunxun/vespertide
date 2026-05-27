@@ -39,12 +39,13 @@ impl ErrorLocation {
     /// Extract the table/column/constraint tuple carried by a planner error.
     pub fn from_planner_error(err: &PlannerError) -> Option<Self> {
         use PlannerError::{
-            ColumnExists, ColumnNotFound, ConstraintColumnNotFound, DanglingForeignKeyAfterDrop,
-            DefaultViolatesCheck, DuplicateEnumValue, DuplicateEnumVariantName, DuplicateTableName,
-            EmptyConstraintColumns, ForeignKeyColumnNotFound, ForeignKeyTableNotFound,
-            IndexColumnNotFound, IndexNotFound, InvalidAutoIncrement, InvalidEnumDefault,
-            MissingFillWith, MissingPrimaryKey, Multiple, TableExists, TableNotFound,
-            TableValidation,
+            ColumnExists, ColumnNotFound, ConstraintColumnNotFound, ConstraintTypeChanged,
+            DanglingForeignKeyAfterDrop, DefaultViolatesCheck, DuplicateEnumValue,
+            DuplicateEnumVariantName, DuplicateTableName, EmptyConstraintColumns,
+            ForeignKeyColumnNotFound, ForeignKeyTableNotFound, IndexColumnNotFound, IndexNotFound,
+            InvalidAutoIncrement, InvalidEnumDefault, MissingFillWith, MissingPrimaryKey, Multiple,
+            PrimaryKeyColumnNullable, PrimaryKeyRemovedWithoutReplacement, TableExists,
+            TableNotFound, TableValidation,
         };
 
         match err {
@@ -67,16 +68,34 @@ impl ErrorLocation {
                 Some(col) => Self::column(dropped_table, col),
                 None => Self::table(dropped_table),
             }),
-            TableExists(table)
+            // Table-anchored errors. F12 PK↔UQ swap / PK removal without
+            // replacement are listed alongside the existing table-name
+            // family because column-level anchoring on F12 would require
+            // parsing the comma-joined `columns` string, which is not
+            // worth the per-character precision for an LSP squiggle.
+            ConstraintTypeChanged { table, .. }
+            | PrimaryKeyRemovedWithoutReplacement { table, .. }
+            | TableExists(table)
             | TableNotFound(table)
             | DuplicateTableName(table)
             | MissingPrimaryKey(table) => Some(Self::table(table)),
             TableValidation(_) => None,
+            // Column-anchored errors. F12 Scenario C
+            // (`PrimaryKeyColumnNullable`) is a struct variant rather than
+            // a tuple, so its arm is listed separately even though the
+            // location resolution is identical — clippy's `match_same_arms`
+            // is silenced because merging would require restructuring the
+            // enum (tuple vs struct), not a meaningful code change.
             ColumnExists(table, column)
             | ColumnNotFound(table, column)
             | MissingFillWith(table, column)
             | DuplicateEnumVariantName(_, table, column, _)
             | DuplicateEnumValue(_, table, column, _) => Some(Self::column(table, column)),
+            #[expect(
+                clippy::match_same_arms,
+                reason = "struct variant cannot share an arm with the tuple-variant column-anchor group above"
+            )]
+            PrimaryKeyColumnNullable { table, column } => Some(Self::column(table, column)),
             InvalidAutoIncrement(table, column, _) => {
                 Some(Self::column_field(table, column, ErrorField::Type))
             }
