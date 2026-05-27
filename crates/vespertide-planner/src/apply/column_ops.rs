@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use vespertide_core::{
     ColumnDef, ColumnName, ColumnType, ComplexColumnType, EnumValues, TableConstraint, TableDef,
@@ -98,7 +98,7 @@ pub(super) fn remap_enum_values(
     schema: &mut [TableDef],
     table: &str,
     column: &str,
-    mapping: &[(i64, i64)],
+    mapping: &BTreeMap<i64, i64>,
 ) -> Result<(), PlannerError> {
     let col = find_column_mut(schema, table, column)?;
     if let ColumnType::Complex(ComplexColumnType::Enum {
@@ -106,9 +106,8 @@ pub(super) fn remap_enum_values(
         ..
     }) = &mut col.r#type
     {
-        let lookup: HashMap<i64, i64> = mapping.iter().copied().collect();
         for item in items.iter_mut() {
-            if let Some(&new_val) = lookup.get(&item.value) {
+            if let Some(&new_val) = mapping.get(&item.value) {
                 item.value = new_val;
             }
         }

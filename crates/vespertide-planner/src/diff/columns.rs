@@ -65,15 +65,15 @@ fn diff_integer_enum_remappings(
     }
 }
 
-/// Pure helper: returns `(old_value, new_value)` pairs for every
+/// Pure helper: returns a `BTreeMap<old_value, new_value>` for every
 /// integer-enum variant whose name is shared between `from` and `to` but
-/// whose `value` has shifted. Returns an empty vector for non-integer-enum
+/// whose `value` has shifted. Returns an empty map for non-integer-enum
 /// columns, for unchanged mappings, and for variants that exist on only
 /// one side (additions / removals are handled by other pathways).
 ///
-/// Sorted by `old_value` so the emitted action — and downstream
-/// snapshots — stay deterministic across map iteration orders.
-fn compute_integer_enum_remapping(from: &ColumnType, to: &ColumnType) -> Vec<(i64, i64)> {
+/// `BTreeMap` iterates in `old_value` order so the emitted action — and
+/// downstream snapshots — stay deterministic across runs.
+fn compute_integer_enum_remapping(from: &ColumnType, to: &ColumnType) -> BTreeMap<i64, i64> {
     let (
         ColumnType::Complex(ComplexColumnType::Enum {
             values: EnumValues::Integer(from_items),
@@ -85,13 +85,13 @@ fn compute_integer_enum_remapping(from: &ColumnType, to: &ColumnType) -> Vec<(i6
         }),
     ) = (from, to)
     else {
-        return Vec::new();
+        return BTreeMap::new();
     };
     let to_by_name: BTreeMap<&str, i64> = to_items
         .iter()
         .map(|nv| (nv.name.as_str(), nv.value))
         .collect();
-    let mut mapping: Vec<(i64, i64)> = from_items
+    from_items
         .iter()
         .filter_map(|from_item| {
             to_by_name
@@ -99,9 +99,7 @@ fn compute_integer_enum_remapping(from: &ColumnType, to: &ColumnType) -> Vec<(i6
                 .filter(|&&new_val| new_val != from_item.value)
                 .map(|&new_val| (from_item.value, new_val))
         })
-        .collect();
-    mapping.sort_by_key(|(old, _)| *old);
-    mapping
+        .collect()
 }
 
 fn diff_deleted_columns(

@@ -486,11 +486,29 @@
                 "type": "string"
               }
             },
+            "narrowing_strategy": {
+              "description": "Strategy for transforming existing rows that would violate a *narrowed* new type\n(smaller VARCHAR length, lower NUMERIC scale, smaller integer size, etc.) so the\n`ALTER COLUMN TYPE` cannot fail. When `None`, the SQL generator emits a plain ALTER —\nsafe only when the user has independently verified no row violates the new type\n(typically prompted by the `vespertide revision` type-narrowing select UI).",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/NarrowingStrategy"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "new_type": {
               "$ref": "#/$defs/ColumnType"
             },
             "table": {
               "$ref": "#/$defs/TableName"
+            },
+            "timezone": {
+              "description": "`IANA` timezone name (e.g. `\"Asia/Seoul\"`) or numeric UTC offset (e.g. `\"+09:00\"`)\nused when converting between `timestamp` and `timestamptz`. Required for safe\nmigration on `PostgreSQL` where the conversion is non-trivial; ignored on `MySQL`\nand `SQLite` where vespertide maps both `timestamp` and `timestamptz` to the same\nunderlying type. Validated by the CLI `revision` prompt against a 30-name\nwhitelist plus numeric offset format `±HH:MM`.",
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "type": {
               "type": "string",
@@ -547,6 +565,13 @@
           "description": "Change or remove the default value of a column.",
           "type": "object",
           "properties": {
+            "backfill": {
+              "description": "**F15 fault gate — backfill existing rows.**\n\n`ALTER TABLE ... SET DEFAULT ...` only affects *new* rows. When\nthe user wants every existing row updated to the new default in\nthe same migration (the common \"I want consistency right now\"\nintent), the CLI's `revision` prompt captures that choice and\nstores the desired value here. The SQL generator then emits an\n`UPDATE table SET col = <value>` immediately after the ALTER.\n\n`None` (default, wire-format identical to v0.2.0) → skip the\nbackfill: existing rows keep their current values. The action\nbehaves exactly as before this field existed.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "column": {
               "$ref": "#/$defs/ColumnName"
             },
@@ -667,6 +692,35 @@
           ]
         },
         {
+          "description": "Remap stored integer values of an integer-backed enum column.\n\nEmitted when the user changes the `value` of an existing integer\nenum variant in the model (e.g. `medium: 5 → 10`). Because integer\nenums are stored as plain `INTEGER` in the database, the DB itself\ncannot detect the drift; if Vespertide stayed silent the ORM mapping\nwould silently re-interpret existing rows. The SQL generator turns\nthis action into a single atomic `UPDATE table SET col = CASE WHEN\ncol = old THEN new ... END WHERE col IN (...)` that re-stamps every\naffected row before the new ORM mapping takes effect.\n\n`mapping` is a `BTreeMap<i64, i64>` keyed on the *old* value, so the\ntype system guarantees a single replacement per source value.\nCanonical JSON wire format is `{\"5\": 10, \"100\": 20}` (string keys\nare how JSON represents map keys; serde transparently parses them\nback to `i64`). For backward compatibility the legacy array form\n`[[5, 10], [100, 20]]` is still accepted on read — see\n[`remap_mapping_serde`] for the details. The map iterates in\n`old_value` order at emit time so snapshots stay deterministic.\nVariants whose name AND value are unchanged are absent; variants\nadded or removed (no name overlap on either side) are also absent\n— those need a separate migration action.",
+          "type": "object",
+          "properties": {
+            "column": {
+              "$ref": "#/$defs/ColumnName"
+            },
+            "mapping": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer",
+                "format": "int64"
+              }
+            },
+            "table": {
+              "$ref": "#/$defs/TableName"
+            },
+            "type": {
+              "type": "string",
+              "const": "remap_enum_values"
+            }
+          },
+          "required": [
+            "type",
+            "table",
+            "column",
+            "mapping"
+          ]
+        },
+        {
           "description": "Rename a table (`ALTER TABLE ... RENAME TO`).",
           "type": "object",
           "properties": {
@@ -702,6 +756,55 @@
           "required": [
             "type",
             "sql"
+          ]
+        }
+      ]
+    },
+    "NarrowingStrategy": {
+      "description": "How an existing row that violates the new (narrowed) column type should\nbe transformed *before* the `ALTER COLUMN TYPE` statement runs.\n\nThe wire format uses an internally tagged JSON representation\n(`{\"kind\": \"...\"}`) so future variants stay backwards compatible. The\nenum is `#[non_exhaustive]` — downstream `match` expressions must\ninclude a wildcard arm.",
+      "oneOf": [
+        {
+          "description": "Trim the violating value to fit the new type. The row is preserved;\nonly the column value loses its overflowing tail.\n\nApplicable to *string-like* narrowings (`varchar(N)`, `char(N)`,\n`text -> varchar(N)`) via `LEFT(col, N)` / `substr(col, 1, N)`, and\nto `NUMERIC` scale narrowing via `ROUND(col, new_scale)`.\n\n**Not** applicable to integer / float / timezone narrowings —\ntruncation has no natural definition there. The CLI revision UI\nhides this option for those cases.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "truncate"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "Delete the entire row containing a violating value. Other columns of\nthat row are lost along with it.\n\nUniversally applicable across every narrowing kind. Watch for FK\ncascade behaviour — deleting a parent row with `ON DELETE CASCADE`\ncan propagate into child tables.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "delete"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "Replace the violating value with a fixed sentinel that fits the new\ntype. The row is preserved; only the violating column is rewritten.\n\nThe `value` field is emitted verbatim into the generated SQL\n(`UPDATE ... SET col = <value>`), so callers must quote string\nliterals themselves (e.g. `\"'TRUNCATED'\"`, not `\"TRUNCATED\"`) and\nmust ensure the value itself fits the new type — otherwise the\nmigration will fail in a different way.\n\nUniversally applicable across every narrowing kind, including\ninteger overflow (e.g. `value: \"0\"`) and timezone loss\n(e.g. `value: \"(now() AT TIME ZONE 'UTC')\"`).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "set_to_value"
+            },
+            "value": {
+              "description": "SQL fragment substituted for violating values. Strings must be\npre-quoted by the caller. The CLI revision prompt wraps user\ninput with single quotes automatically when the new type is a\nstring-like type.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
           ]
         }
       ]

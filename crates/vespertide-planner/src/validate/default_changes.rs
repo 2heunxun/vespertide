@@ -431,7 +431,10 @@ mod tests {
             MigrationAction::RemapEnumValues {
                 table: TableName::from("user"),
                 column: ColumnName::from("priority"),
-                mapping: vec![(0_i64, 100_i64), (100_i64, 101_i64)],
+                mapping: std::collections::BTreeMap::from([
+                    (0_i64, 100_i64),
+                    (100_i64, 101_i64),
+                ]),
             },
             modify_default("user", "priority", Some("100")),
         ]);

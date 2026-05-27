@@ -1,6 +1,7 @@
 mod display;
 mod narrowing_strategy;
 mod prefix;
+mod remap_mapping_serde;
 
 use crate::schema::{ColumnDef, ColumnName, ColumnType, TableConstraint, TableName};
 pub use narrowing_strategy::NarrowingStrategy;
@@ -169,17 +170,23 @@ pub enum MigrationAction {
     /// col = old THEN new ... END WHERE col IN (...)` that re-stamps every
     /// affected row before the new ORM mapping takes effect.
     ///
-    /// `mapping` is an ordered list of `(old_value, new_value)` pairs.
-    /// JSON wire format is `[[5, 10], [10, 20]]` — `Vec<(i64, i64)>`
-    /// avoids the `serde_json` limitation that map keys must be strings.
-    /// The list is sorted by `old_value` at emit time so snapshots stay
-    /// deterministic. Variants whose name AND value are unchanged are
-    /// absent; variants added or removed (no name overlap on either side)
-    /// are also absent — those need a separate migration action.
+    /// `mapping` is a `BTreeMap<i64, i64>` keyed on the *old* value, so the
+    /// type system guarantees a single replacement per source value.
+    /// Canonical JSON wire format is `{"5": 10, "100": 20}` (string keys
+    /// are how JSON represents map keys; serde transparently parses them
+    /// back to `i64`). For backward compatibility the legacy array form
+    /// `[[5, 10], [100, 20]]` is still accepted on read — see
+    /// [`remap_mapping_serde`] for the details. The map iterates in
+    /// `old_value` order at emit time so snapshots stay deterministic.
+    /// Variants whose name AND value are unchanged are absent; variants
+    /// added or removed (no name overlap on either side) are also absent
+    /// — those need a separate migration action.
     RemapEnumValues {
         table: TableName,
         column: ColumnName,
-        mapping: Vec<(i64, i64)>,
+        #[serde(with = "remap_mapping_serde")]
+        #[cfg_attr(feature = "schema", schemars(with = "BTreeMap<String, i64>"))]
+        mapping: BTreeMap<i64, i64>,
     },
     /// Rename a table (`ALTER TABLE ... RENAME TO`).
     RenameTable { from: TableName, to: TableName },

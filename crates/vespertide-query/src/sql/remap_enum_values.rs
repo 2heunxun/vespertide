@@ -11,6 +11,8 @@
 //! The SQL is portable across `PostgreSQL`, `MySQL` and `SQLite` —
 //! `CASE WHEN` and `IN (...)` are universal.
 
+use std::collections::BTreeMap;
+
 use super::helpers::quote_ident;
 use super::types::{BuiltQuery, DatabaseBackend, RawSql};
 use crate::error::QueryError;
@@ -23,7 +25,7 @@ pub fn build_remap_enum_values(
     backend: DatabaseBackend,
     table: &str,
     column: &str,
-    mapping: &[(i64, i64)],
+    mapping: &BTreeMap<i64, i64>,
 ) -> Result<Vec<BuiltQuery>, QueryError> {
     if mapping.is_empty() {
         return Ok(vec![]);
@@ -34,7 +36,7 @@ pub fn build_remap_enum_values(
         .iter()
         .map(|(old, new)| format!("WHEN {qc} = {old} THEN {new}"))
         .collect();
-    let in_list: Vec<String> = mapping.iter().map(|(old, _)| old.to_string()).collect();
+    let in_list: Vec<String> = mapping.keys().map(i64::to_string).collect();
     let sql = format!(
         "UPDATE {qt} SET {qc} = CASE {arms} END WHERE {qc} IN ({in_list})",
         arms = case_arms.join(" "),
@@ -49,7 +51,8 @@ mod tests {
     use insta::{assert_snapshot, with_settings};
 
     fn run(backend: DatabaseBackend, mapping: &[(i64, i64)]) -> String {
-        build_remap_enum_values(backend, "tickets", "priority", mapping)
+        let map: BTreeMap<i64, i64> = mapping.iter().copied().collect();
+        build_remap_enum_values(backend, "tickets", "priority", &map)
             .expect("supported")
             .iter()
             .map(|q| q.build(backend))
@@ -105,7 +108,7 @@ mod tests {
             DatabaseBackend::Postgres,
             "tickets",
             "priority",
-            &[],
+            &BTreeMap::new(),
         )
         .expect("empty mapping is a valid no-op");
         assert!(queries.is_empty());

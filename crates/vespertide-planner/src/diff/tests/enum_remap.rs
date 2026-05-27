@@ -66,7 +66,14 @@ fn remap_actions(actions: &[MigrationAction]) -> Vec<(String, Vec<(i64, i64)>)> 
         .filter_map(|a| match a {
             MigrationAction::RemapEnumValues {
                 column, mapping, ..
-            } => Some((column.to_string(), mapping.clone())),
+            } => Some((
+                column.to_string(),
+                // Convert BTreeMap back to a Vec<(i64,i64)> so the existing
+                // tests can keep asserting on a sequence (the underlying
+                // type changed in 0.2.x for typed-uniqueness; the test
+                // shape is preserved).
+                mapping.iter().map(|(k, v)| (*k, *v)).collect(),
+            )),
             _ => None,
         })
         .collect()
