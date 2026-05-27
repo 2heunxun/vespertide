@@ -81,11 +81,13 @@ fn prefix_column_or_constraint_action(action: MigrationAction, prefix: &str) -> 
             column,
             new_type,
             fill_with,
+            narrowing_strategy,
         } => MigrationAction::ModifyColumnType {
             table: add_prefix(table, prefix),
             column,
             new_type,
             fill_with,
+            narrowing_strategy,
         },
         MigrationAction::ModifyColumnNullable {
             table,

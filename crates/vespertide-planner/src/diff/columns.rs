@@ -84,6 +84,9 @@ fn diff_column_types(
                     column: (*col).to_string().into(),
                     new_type: to_def.r#type.clone(),
                     fill_with: None,
+                    // Set by `cmd_revision` after the user picks a strategy
+                    // in the type-narrowing select prompt.
+                    narrowing_strategy: None,
                 });
             }
         }

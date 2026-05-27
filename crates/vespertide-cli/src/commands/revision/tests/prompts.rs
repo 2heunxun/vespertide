@@ -599,6 +599,7 @@ fn test_apply_enum_fill_with_to_plan() {
                 values: EnumValues::String(vec!["pending".into(), "shipped".into()]),
             }),
             fill_with: None,
+            narrowing_strategy: None,
         }],
     };
 
@@ -633,6 +634,7 @@ fn test_handle_missing_enum_fill_with_collects_and_applies() {
                 values: EnumValues::String(vec!["pending".into(), "shipped".into()]),
             }),
             fill_with: None,
+            narrowing_strategy: None,
         }],
     };
 
@@ -713,6 +715,7 @@ fn test_apply_enum_fill_with_to_plan_extends_existing() {
                 values: EnumValues::String(vec!["pending".into(), "shipped".into()]),
             }),
             fill_with: Some(existing_fw),
+            narrowing_strategy: None,
         }],
     };
 

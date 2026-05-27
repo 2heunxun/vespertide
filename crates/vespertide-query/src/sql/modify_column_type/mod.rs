@@ -1,5 +1,52 @@
 mod direct;
+mod narrowing_preprocess;
 mod sqlite_rebuild;
+
+pub use narrowing_preprocess::build_narrowing_preprocess;
+
+use vespertide_core::NarrowingStrategy;
+
+/// Combine narrowing pre-processing (when `narrowing_strategy` is set) with
+/// the normal `ModifyColumnType` SQL pipeline. This is the single entry
+/// point consumed by `sql::build_action_queries_with_pending` so the
+/// dispatcher stays short enough to satisfy the workspace `too_many_lines`
+/// budget.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mirrors build_modify_column_type plus narrowing_strategy + extends the public API entrypoint; threading these into a context struct would require a parallel sql-dispatch refactor"
+)]
+pub fn build_with_narrowing_preprocess(
+    backend: DatabaseBackend,
+    table: &str,
+    column: &str,
+    new_type: &ColumnType,
+    fill_with: Option<&BTreeMap<String, String>>,
+    narrowing_strategy: Option<&NarrowingStrategy>,
+    current_schema: &[TableDef],
+    pending_constraints: &[vespertide_core::TableConstraint],
+) -> Result<Vec<BuiltQuery>, QueryError> {
+    let mut queries = Vec::new();
+    if let Some(strategy) = narrowing_strategy {
+        queries.extend(build_narrowing_preprocess(
+            backend,
+            table,
+            column,
+            new_type,
+            strategy,
+            current_schema,
+        )?);
+    }
+    queries.extend(build_modify_column_type(
+        backend,
+        table,
+        column,
+        new_type,
+        fill_with,
+        current_schema,
+        pending_constraints,
+    )?);
+    Ok(queries)
+}
 
 use std::collections::BTreeMap;
 

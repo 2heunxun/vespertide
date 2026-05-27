@@ -26,6 +26,7 @@ fn find_missing_enum_fill_with_detects_removed_values() {
             column: "status".into(),
             new_type: string_enum("order_status", vec!["pending", "shipped"]),
             fill_with: None,
+            narrowing_strategy: None,
         }],
     };
     let baseline = vec![table(
@@ -57,6 +58,7 @@ fn find_missing_enum_fill_with_ignores_additions_only() {
             column: "status".into(),
             new_type: string_enum("order_status", vec!["pending", "shipped", "delivered"]),
             fill_with: None,
+            narrowing_strategy: None,
         }],
     };
     let baseline = vec![table(
@@ -90,6 +92,7 @@ fn find_missing_enum_fill_with_skips_already_covered() {
             column: "status".into(),
             new_type: string_enum("order_status", vec!["pending", "shipped"]),
             fill_with: Some(fw),
+            narrowing_strategy: None,
         }],
     };
     let baseline = vec![table(
@@ -123,6 +126,7 @@ fn find_missing_enum_fill_with_reports_partially_covered() {
             column: "status".into(),
             new_type: string_enum("order_status", vec!["pending"]),
             fill_with: Some(fw),
+            narrowing_strategy: None,
         }],
     };
     let baseline = vec![table(
@@ -176,6 +180,7 @@ fn find_missing_enum_fill_with_ignores_integer_enums() {
             column: "priority".into(),
             new_type,
             fill_with: None,
+            narrowing_strategy: None,
         }],
     };
     let baseline = vec![table("tasks", vec![col("priority", old_type)], vec![])];
@@ -199,6 +204,7 @@ fn find_missing_enum_fill_with_ignores_non_enum_type_change() {
             column: "age".into(),
             new_type: ColumnType::Simple(SimpleColumnType::BigInt),
             fill_with: None,
+            narrowing_strategy: None,
         }],
     };
     let baseline = vec![table(
@@ -232,6 +238,7 @@ fn validate_modify_column_type_fill_with_invalid_replacement() {
                 values: EnumValues::String(vec!["pending".into(), "shipped".into()]),
             }),
             fill_with: Some(fw),
+            narrowing_strategy: None,
         }],
     };
 
@@ -267,6 +274,7 @@ fn validate_modify_column_type_fill_with_valid_replacement() {
                 values: EnumValues::String(vec!["pending".into(), "shipped".into()]),
             }),
             fill_with: Some(fw),
+            narrowing_strategy: None,
         }],
     };
 

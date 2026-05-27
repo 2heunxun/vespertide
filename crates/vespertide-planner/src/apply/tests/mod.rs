@@ -263,6 +263,7 @@ struct SuccessCase {
                 column: "id".into(),
                 new_type: ColumnType::Simple(SimpleColumnType::Text),
                 fill_with: None,
+                narrowing_strategy: None,
             },
             MigrationAction::AddConstraint {
                 table: "users".into(),

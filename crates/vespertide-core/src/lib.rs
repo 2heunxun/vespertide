@@ -10,7 +10,7 @@ pub mod arbitrary;
 pub mod migration;
 pub mod schema;
 
-pub use action::{MigrationAction, MigrationPlan};
+pub use action::{MigrationAction, MigrationPlan, NarrowingStrategy};
 pub use migration::{MigrationError, MigrationOptions};
 pub use schema::{
     ColumnDef, ColumnName, ColumnType, ComplexColumnType, ConstraintKind, DefaultValue, EnumValues,

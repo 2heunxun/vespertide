@@ -1,9 +1,10 @@
 use anyhow::Result;
 use chrono::Utc;
 use colored::Colorize;
+use vespertide_core::NarrowingStrategy;
 use vespertide_planner::{
-    FkPolicyChangeWarning, find_fk_policy_changes, find_missing_fill_with, plan_next_migration,
-    schema_from_plans,
+    FkPolicyChangeWarning, TypeNarrowingWarning, find_fk_policy_changes, find_missing_fill_with,
+    find_type_narrowings, plan_next_migration, schema_from_plans,
 };
 
 use crate::utils::{load_config, load_migrations, load_models};
@@ -41,25 +42,27 @@ pub async fn cmd_revision(
             enum_quoted: prompts::prompt_enum_value,
             enum_bare: prompts::prompt_enum_value_bare,
             fk_policy_change: prompts::prompt_fk_policy_changes,
+            type_narrowing: prompts::prompt_type_narrowings,
         },
     )
     .await
 }
 
-struct RevisionPromptFns<R, D, F, E, EB, P> {
+struct RevisionPromptFns<R, D, F, E, EB, P, N> {
     recreate: R,
     delete_null_rows: D,
     fill_with: F,
     enum_quoted: E,
     enum_bare: EB,
     fk_policy_change: P,
+    type_narrowing: N,
 }
 
-async fn cmd_revision_core<R, D, F, E, EB, P>(
+async fn cmd_revision_core<R, D, F, E, EB, P, N>(
     message: String,
     fill_with_args: Vec<String>,
     delete_null_rows_args: Vec<String>,
-    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P>,
+    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N>,
 ) -> Result<()>
 where
     R: Fn(&[RecreateTableRequired]) -> Result<bool>,
@@ -68,6 +71,7 @@ where
     E: Fn(&str, &[String]) -> Result<String>,
     EB: Fn(&str, &[String]) -> Result<String>,
     P: Fn(&[FkPolicyChangeWarning]) -> Result<bool>,
+    N: Fn(&[TypeNarrowingWarning]) -> Result<Option<Vec<NarrowingStrategy>>>,
 {
     let RevisionPromptFns {
         recreate: recreate_prompt_fn,
@@ -76,6 +80,7 @@ where
         enum_quoted: enum_prompt_fn,
         enum_bare: enum_bare_prompt_fn,
         fk_policy_change: fk_policy_change_prompt_fn,
+        type_narrowing: type_narrowing_prompt_fn,
     } = prompt_fns;
 
     let config = load_config()?;
@@ -147,6 +152,29 @@ where
             "Review backend code before retrying revision.".bright_white()
         );
         return Ok(());
+    }
+
+    // F6/F19/F33/F87 — type narrowings can truncate, reject, or silently
+    // corrupt existing rows depending on backend. Surface every narrowing
+    // via per-narrowing Select UI; the chosen strategy is stamped onto the
+    // plan so the SQL generator can emit safe pre-processing alongside
+    // the ALTER. Returns None when the user declines or when the kind has
+    // no automatic strategy.
+    let narrowing_warnings = find_type_narrowings(&plan, &baseline_schema);
+    if !narrowing_warnings.is_empty() {
+        let Some(strategies) = type_narrowing_prompt_fn(&narrowing_warnings)? else {
+            println!(
+                "{} {}",
+                "Cancelled.".bright_yellow().bold(),
+                "Pre-clean the data manually before retrying revision.".bright_white()
+            );
+            return Ok(());
+        };
+        prompts::apply_narrowing_strategies_to_plan(
+            &mut plan,
+            &narrowing_warnings,
+            &strategies,
+        );
     }
 
     plan.id = uuid::Uuid::new_v4().to_string();

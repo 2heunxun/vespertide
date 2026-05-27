@@ -25,6 +25,7 @@ fn test_enum_value_change_generates_correct_sql() {
                 ]),
             }),
             fill_with: None,
+            narrowing_strategy: None,
         }],
     };
 

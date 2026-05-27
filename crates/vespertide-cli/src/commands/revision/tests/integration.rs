@@ -163,6 +163,12 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
             fk_policy_change: |_: &[vespertide_planner::FkPolicyChangeWarning]| -> Result<bool> {
                 panic!("fk_policy_change prompt should not be called")
             },
+            // F6 / type narrowing is irrelevant to these scenarios: assert
+            // via panic so any unexpected detection breaks the test.
+            type_narrowing: |_: &[vespertide_planner::TypeNarrowingWarning]|
+                -> Result<Option<Vec<vespertide_core::NarrowingStrategy>>> {
+                panic!("type_narrowing prompt should not be called")
+            },
         },
     )
     .await;
@@ -301,6 +307,12 @@ async fn cmd_revision_core_handles_fill_with_for_non_fk_column() {
             // assert via panic so any unexpected detection breaks the test.
             fk_policy_change: |_: &[vespertide_planner::FkPolicyChangeWarning]| -> Result<bool> {
                 panic!("fk_policy_change prompt should not be called")
+            },
+            // F6 / type narrowing is irrelevant to these scenarios: assert
+            // via panic so any unexpected detection breaks the test.
+            type_narrowing: |_: &[vespertide_planner::TypeNarrowingWarning]|
+                -> Result<Option<Vec<vespertide_core::NarrowingStrategy>>> {
+                panic!("type_narrowing prompt should not be called")
             },
         },
     )

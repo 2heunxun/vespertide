@@ -85,6 +85,7 @@ use super::*;
         column: "id".into(),
         new_type: ColumnType::Simple(SimpleColumnType::Text),
         fill_with: None,
+        narrowing_strategy: None,
     }]
 )]
 #[case::remove_index(

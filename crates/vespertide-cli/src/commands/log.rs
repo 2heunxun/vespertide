@@ -274,6 +274,7 @@ mod tests {
                     column: "id".into(),
                     new_type: ColumnType::Simple(SimpleColumnType::BigInt),
                     fill_with: None,
+                    narrowing_strategy: None,
                 },
             ],
         };

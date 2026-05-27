@@ -27,9 +27,8 @@ use self::{
     delete_table::build_delete_table, modify_column_comment::build_modify_column_comment,
     modify_column_default::build_modify_column_default,
     modify_column_nullable::build_modify_column_nullable,
-    modify_column_type::build_modify_column_type, remove_constraint::build_remove_constraint,
-    rename_column::build_rename_column, rename_table::build_rename_table,
-    replace_constraint::build_replace_constraint,
+    remove_constraint::build_remove_constraint, rename_column::build_rename_column,
+    rename_table::build_rename_table, replace_constraint::build_replace_constraint,
 };
 
 /// Build SQL for a single migration action against a known schema.
@@ -49,6 +48,10 @@ pub fn build_action_queries(
 /// `pending_constraints` are constraints that exist in the logical schema but haven't been
 /// physically created as database indexes yet. This is used by `SQLite` temp table rebuilds
 /// to avoid recreating indexes that will be created by future `AddConstraint` actions.
+#[expect(
+    clippy::too_many_lines,
+    reason = "flat 14-variant MigrationAction dispatcher kept inline so the variant→builder mapping stays auditable; extracting individual arms scatters the routing logic"
+)]
 pub fn build_action_queries_with_pending(
     backend: DatabaseBackend,
     action: &MigrationAction,
@@ -103,12 +106,14 @@ pub fn build_action_queries_with_pending(
             column,
             new_type,
             fill_with,
-        } => build_modify_column_type(
+            narrowing_strategy,
+        } => modify_column_type::build_with_narrowing_preprocess(
             backend,
-            table,
-            column,
+            table.as_str(),
+            column.as_str(),
             new_type,
             fill_with.as_ref(),
+            narrowing_strategy.as_ref(),
             current_schema,
             pending_constraints,
         ),

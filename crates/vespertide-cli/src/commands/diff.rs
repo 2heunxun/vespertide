@@ -3,13 +3,14 @@ use std::fmt::Write as _;
 use anyhow::Result;
 use colored::Colorize;
 use vespertide_planner::{
-    ConstraintDropWarning, FkPolicyChangeWarning, MissingFkSupportingIndex,
+    ConstraintDropWarning, FkPolicyChangeWarning, MissingFkSupportingIndex, TypeNarrowingWarning,
     find_constraint_drops_without_replacement, find_fk_policy_changes,
-    find_missing_fk_supporting_indexes, plan_next_migration, render_reference_action,
+    find_missing_fk_supporting_indexes, find_type_narrowings, plan_next_migration,
+    render_reference_action, schema_from_plans,
 };
 
 use crate::utils::{load_config, load_migrations, load_models};
-use vespertide_core::{MigrationAction, MigrationPlan};
+use vespertide_core::{MigrationAction, MigrationPlan, TableDef};
 
 pub async fn cmd_diff() -> Result<()> {
     let config = load_config()?;
@@ -49,7 +50,87 @@ pub async fn cmd_diff() -> Result<()> {
     emit_constraint_drop_warnings(&plan);
     emit_fk_policy_change_warnings(&plan);
 
+    // Type narrowing needs the *baseline* schema (the type before this
+    // migration) — reconstruct it from the applied migration history.
+    // Failure here is non-fatal: we just skip the warning rather than
+    // shadowing the actual diff output.
+    if let Ok(baseline) = schema_from_plans(&applied_plans) {
+        emit_type_narrowing_warnings(&plan, &baseline);
+    }
+
     Ok(())
+}
+
+/// Surface `ModifyColumnType` actions that shrink a column's storable value
+/// range. This is fault **F6 / F19 / F33 / F87**: the migration SQL may
+/// succeed silently on some backends (`MySQL` truncates, `SQLite` ignores)
+/// and fail outright on others (`PostgreSQL` rejects with "value too long").
+/// Vespertide cannot — and must not — silently apply destructive type
+/// changes; the user must explicitly pick a strategy via `revision`.
+fn emit_type_narrowing_warnings(plan: &MigrationPlan, baseline: &[TableDef]) {
+    let warnings = find_type_narrowings(plan, baseline);
+    if warnings.is_empty() {
+        return;
+    }
+
+    println!();
+    println!(
+        "{} {}",
+        "⚠".bright_yellow().bold(),
+        format!(
+            "{} type narrowing(s) — existing rows may be truncated, rejected, \
+             or silently corrupted depending on backend:",
+            warnings.len()
+        )
+        .bright_yellow()
+    );
+    for w in &warnings {
+        println!();
+        for line in format_type_narrowing_warning(w).lines() {
+            println!("{line}");
+        }
+    }
+}
+
+/// Format a single `TypeNarrowingWarning` as a multi-line indented block.
+/// Backend impacts are shown side by side so the user can see at a glance
+/// that the *same migration* behaves differently per backend — which is
+/// precisely the silent corruption surface Vespertide is closing.
+fn format_type_narrowing_warning(w: &TypeNarrowingWarning) -> String {
+    let mut out = format!(
+        "  {} {}\n  {} {} {} {}",
+        "on:".bright_white(),
+        format!("{}.{}", w.table, w.column).bright_cyan(),
+        "change:".bright_white(),
+        w.from_display.bright_red(),
+        "->".bright_white(),
+        w.to_display.bright_yellow().bold(),
+    );
+    let _ = write!(
+        out,
+        "\n  {} {}",
+        "postgres:".bright_white(),
+        w.kind.postgres_impact().bright_red()
+    );
+    let _ = write!(
+        out,
+        "\n  {} {}",
+        "mysql:   ".bright_white(),
+        w.kind.mysql_impact().bright_red()
+    );
+    let _ = write!(
+        out,
+        "\n  {} {}",
+        "sqlite:  ".bright_white(),
+        w.kind.sqlite_impact().bright_black()
+    );
+    let _ = write!(
+        out,
+        "\n  {} pick a `narrowing_strategy` in revision (truncate / delete / set_to_value) \
+         so the migration succeeds on every backend",
+        "fix:".bright_green()
+    );
+    out
 }
 
 /// Surface `ReplaceConstraint` actions that change FK `on_delete` /
@@ -555,6 +636,7 @@ mod tests {
             column: "id".into(),
             new_type: ColumnType::Simple(SimpleColumnType::Integer),
             fill_with: None,
+            narrowing_strategy: None,
         },
         format!("{} {}.{} {} {}", "Modify column type:".bright_yellow(), "users".bright_cyan(), "id".bright_cyan().bold(), "->".bright_white(), "integer".bright_cyan().bold())
     )]
@@ -1095,5 +1177,103 @@ mod tests {
         w.constraint_name = None;
         let out = format_fk_policy_change_warning(&w);
         assert!(out.contains("(unnamed)"));
+    }
+
+    // -----------------------------------------------------------------------
+    // F6/F19/F33/F87: type narrowing warnings
+    // -----------------------------------------------------------------------
+
+    use vespertide_planner::NarrowingKind;
+
+    fn narrowing(
+        table: &str,
+        column: &str,
+        from_display: &str,
+        to_display: &str,
+        kind: NarrowingKind,
+    ) -> TypeNarrowingWarning {
+        TypeNarrowingWarning {
+            action_index: 0,
+            table: table.to_string(),
+            column: column.to_string(),
+            kind,
+            from_display: from_display.to_string(),
+            to_display: to_display.to_string(),
+        }
+    }
+
+    #[test]
+    fn format_type_narrowing_warning_varchar_renders_all_three_backends() {
+        let w = narrowing(
+            "users",
+            "email",
+            "varchar(40)",
+            "varchar(30)",
+            NarrowingKind::VarcharLength { from: 40, to: 30 },
+        );
+        let out = format_type_narrowing_warning(&w);
+
+        // Identity line
+        assert!(out.contains("users.email"));
+        assert!(out.contains("varchar(40)"));
+        assert!(out.contains("varchar(30)"));
+
+        // Each backend line must be present and distinct.
+        assert!(out.contains("postgres:"));
+        assert!(out.contains("mysql:"));
+        assert!(out.contains("sqlite:"));
+
+        // Backend behavior must come through.
+        assert!(out.to_lowercase().contains("rejects"), "PG should reject");
+        assert!(
+            out.to_lowercase().contains("silently truncates"),
+            "MySQL should silently truncate"
+        );
+        assert!(
+            out.to_lowercase().contains("advisory"),
+            "SQLite should show advisory-only"
+        );
+
+        // Fix must mention all 3 strategies the user can pick (no `reject`).
+        assert!(out.contains("truncate"));
+        assert!(out.contains("delete"));
+        assert!(out.contains("set_to_value"));
+    }
+
+    #[test]
+    fn format_type_narrowing_warning_integer_size_uses_integer_impacts() {
+        let w = narrowing(
+            "events",
+            "offset_id",
+            "bigint",
+            "integer",
+            NarrowingKind::IntegerSize {
+                from: "bigint",
+                to: "integer",
+            },
+        );
+        let out = format_type_narrowing_warning(&w);
+        assert!(out.contains("events.offset_id"));
+        assert!(out.to_lowercase().contains("out of range"));
+        assert!(out.to_lowercase().contains("sql_mode"));
+    }
+
+    #[test]
+    fn format_type_narrowing_warning_numeric_scale_uses_decimal_impacts() {
+        let w = narrowing(
+            "accounts",
+            "balance",
+            "numeric(10,4)",
+            "numeric(10,2)",
+            NarrowingKind::NumericScale {
+                from_scale: 4,
+                to_scale: 2,
+            },
+        );
+        let out = format_type_narrowing_warning(&w);
+        assert!(out.contains("accounts.balance"));
+        assert!(out.contains("numeric(10,4)"));
+        assert!(out.contains("numeric(10,2)"));
+        assert!(out.to_lowercase().contains("decimal"));
     }
 }

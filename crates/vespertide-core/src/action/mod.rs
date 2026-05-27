@@ -1,7 +1,9 @@
 mod display;
+mod narrowing_strategy;
 mod prefix;
 
 use crate::schema::{ColumnDef, ColumnName, ColumnType, TableConstraint, TableName};
+pub use narrowing_strategy::NarrowingStrategy;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -83,6 +85,13 @@ pub enum MigrationAction {
         /// e.g., `{"cancelled": "'pending'"}` generates an `UPDATE` before the type change.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fill_with: Option<BTreeMap<String, String>>,
+        /// Strategy for transforming existing rows that would violate a *narrowed* new type
+        /// (smaller VARCHAR length, lower NUMERIC scale, smaller integer size, etc.) so the
+        /// `ALTER COLUMN TYPE` cannot fail. When `None`, the SQL generator emits a plain ALTER —
+        /// safe only when the user has independently verified no row violates the new type
+        /// (typically prompted by the `vespertide revision` type-narrowing select UI).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        narrowing_strategy: Option<NarrowingStrategy>,
     },
     /// Change whether a column accepts `NULL` values.
     ModifyColumnNullable {
@@ -261,6 +270,7 @@ mod tests {
             column: "age".into(),
             new_type: ColumnType::Simple(SimpleColumnType::Integer),
             fill_with: None,
+            narrowing_strategy: None,
         },
         "ModifyColumnType: users.age"
     )]
@@ -786,6 +796,7 @@ mod tests {
             column: "age".into(),
             new_type: ColumnType::Simple(SimpleColumnType::BigInt),
             fill_with: None,
+            narrowing_strategy: None,
         };
         let prefixed = action.with_prefix("myapp_");
         if let MigrationAction::ModifyColumnType {
@@ -793,6 +804,7 @@ mod tests {
             column,
             new_type,
             fill_with,
+            ..
         } = prefixed
         {
             assert_eq!(table.as_str(), "myapp_users");

@@ -88,6 +88,9 @@ fn validate_action(action: &MigrationAction) -> Result<(), PlannerError> {
             column,
             new_type,
             fill_with,
+            // `narrowing_strategy` is validated separately by
+            // `find_type_narrowings`; nothing to enum-check here.
+            ..
         } => {
             // Validate that fill_with replacement values are valid enum values in the NEW type
             if let (
@@ -280,6 +283,7 @@ fn missing_enum_fill_with_for_action(
         column,
         new_type,
         fill_with,
+        ..
     } = action
     else {
         return None;
