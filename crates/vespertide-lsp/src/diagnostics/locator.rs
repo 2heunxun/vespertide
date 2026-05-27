@@ -39,8 +39,8 @@ impl ErrorLocation {
     /// Extract the table/column/constraint tuple carried by a planner error.
     pub fn from_planner_error(err: &PlannerError) -> Option<Self> {
         use PlannerError::{
-            ColumnExists, ColumnNotFound, ConstraintColumnNotFound, DefaultViolatesCheck,
-            DuplicateEnumValue, DuplicateEnumVariantName, DuplicateTableName,
+            ColumnExists, ColumnNotFound, ConstraintColumnNotFound, DanglingForeignKeyAfterDrop,
+            DefaultViolatesCheck, DuplicateEnumValue, DuplicateEnumVariantName, DuplicateTableName,
             EmptyConstraintColumns, ForeignKeyColumnNotFound, ForeignKeyTableNotFound,
             IndexColumnNotFound, IndexNotFound, InvalidAutoIncrement, InvalidEnumDefault,
             MissingFillWith, MissingPrimaryKey, Multiple, TableExists, TableNotFound,
@@ -55,6 +55,18 @@ impl ErrorLocation {
             // `diagnostics::validation`): when it iterates `find_*_violations`
             // each inner error is presented directly and this arm is bypassed.
             Multiple(batch) => batch.0.first().and_then(Self::from_planner_error),
+            // F9 dangling FK after drop: anchor on the *dropped* target so the
+            // squiggle lands on the column/table the user removed. When only
+            // the table name is known (`dropped_column = None`), fall through
+            // to table-level location.
+            DanglingForeignKeyAfterDrop {
+                dropped_table,
+                dropped_column,
+                ..
+            } => Some(match dropped_column {
+                Some(col) => Self::column(dropped_table, col),
+                None => Self::table(dropped_table),
+            }),
             TableExists(table)
             | TableNotFound(table)
             | DuplicateTableName(table)

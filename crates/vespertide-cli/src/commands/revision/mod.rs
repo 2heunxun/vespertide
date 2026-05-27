@@ -3,9 +3,9 @@ use chrono::Utc;
 use colored::Colorize;
 use vespertide_core::{MigrationPlan, NarrowingStrategy};
 use vespertide_planner::{
-    FkPolicyChangeWarning, TimezoneConversionWarning, TypeNarrowingWarning, find_fk_policy_changes,
-    find_missing_fill_with, find_timezone_conversions, find_type_narrowings, plan_next_migration,
-    schema_from_plans,
+    DanglingFkDrop, FkPolicyChangeWarning, MultipleErrors, PlannerError, TimezoneConversionWarning,
+    TypeNarrowingWarning, find_dangling_fk_drops, find_fk_policy_changes, find_missing_fill_with,
+    find_timezone_conversions, find_type_narrowings, plan_next_migration, schema_from_plans,
 };
 
 use crate::utils::{load_config, load_migrations, load_models};
@@ -27,6 +27,32 @@ use parse::*;
 use prompts::*;
 
 use emit::RecreateTableRequired;
+
+/// Convert a list of dangling FK drops to a single [`PlannerError`] suitable
+/// for surfacing to the user. Follows the same 0/1/N+ contract as
+/// [`vespertide_planner::validate_schema`]:
+/// - 0 drops → `None` (no error)
+/// - 1 drop  → bare [`PlannerError::DanglingForeignKeyAfterDrop`]
+/// - 2+      → [`PlannerError::Multiple`] so the user sees every dangling
+///   reference in one shot.
+fn dangling_drops_to_planner_error(drops: Vec<DanglingFkDrop>) -> Option<PlannerError> {
+    if drops.is_empty() {
+        return None;
+    }
+    let mut errors: Vec<PlannerError> = drops
+        .into_iter()
+        .map(|d| PlannerError::DanglingForeignKeyAfterDrop {
+            dropped_table: d.dropped_table,
+            dropped_column: d.dropped_column,
+            referencing_table: d.referencing_table,
+            referencing_constraint: d.referencing_constraint,
+        })
+        .collect();
+    Some(match errors.len() {
+        1 => errors.remove(0),
+        _ => PlannerError::Multiple(Box::new(MultipleErrors(errors))),
+    })
+}
 
 pub async fn cmd_revision(
     message: String,
@@ -119,6 +145,19 @@ where
     // Reconstruct baseline schema for column type lookups
     let baseline_schema = schema_from_plans(&applied_plans)
         .map_err(|e| anyhow::anyhow!("schema reconstruction error: {e}"))?;
+
+    // F9 — Dangling foreign key after a column or table drop. Hard error
+    // (no prompt): dropping a column or table while another table's FK
+    // still references it would silently leave a stale FK pointing at
+    // nothing. The plan must clean up the offending FK (or its owning
+    // table/column) in the same revision. Surfaced *before* any interactive
+    // prompt so the user is not asked for fill_with values on a plan that
+    // is going to be rejected anyway.
+    if let Some(err) =
+        dangling_drops_to_planner_error(find_dangling_fk_drops(&plan, &baseline_schema))
+    {
+        return Err(anyhow::anyhow!("{err}"));
+    }
 
     // Parse CLI fill_with arguments
     let mut fill_values = parse::parse_fill_with_args(&fill_with_args);

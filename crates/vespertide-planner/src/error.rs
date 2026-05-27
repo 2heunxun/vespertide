@@ -82,6 +82,47 @@ pub enum PlannerError {
         check_name: String,
         check_expr: String,
     },
+    /// Fault **F9**: a column or table is being dropped while a foreign key on
+    /// another table still references it, with no matching cleanup in the
+    /// same plan.
+    ///
+    /// Surviving foreign keys whose `(ref_table, ref_column)` is removed by
+    /// this plan would silently break referential integrity once applied.
+    /// The plan must either drop the offending FK (`RemoveConstraint`) or
+    /// drop the entire referencing table in the same migration.
+    ///
+    /// - `dropped_table` is the table whose column or whole row is being removed.
+    /// - `dropped_column` is `Some(col)` for `DeleteColumn`; `None` for
+    ///   `DeleteTable` (the whole table is going away).
+    /// - `referencing_table` is the *other* table whose FK is now dangling.
+    /// - `referencing_constraint` is the FK constraint's declared name, or
+    ///   `None` when the FK was inlined without an explicit name.
+    #[error(
+        "cannot drop {}: foreign key {} on table `{referencing_table}` references it. \
+         Either drop that foreign key in the same migration, or drop the `{referencing_table}` table.",
+        format_dropped(dropped_table, dropped_column.as_deref()),
+        format_fk(referencing_constraint.as_deref()),
+    )]
+    DanglingForeignKeyAfterDrop {
+        dropped_table: String,
+        dropped_column: Option<String>,
+        referencing_table: String,
+        referencing_constraint: Option<String>,
+    },
+}
+
+fn format_dropped(table: &str, column: Option<&str>) -> String {
+    match column {
+        Some(col) => format!("column `{table}.{col}`"),
+        None => format!("table `{table}`"),
+    }
+}
+
+fn format_fk(name: Option<&str>) -> String {
+    match name {
+        Some(n) => format!("`{n}`"),
+        None => "(unnamed)".to_string(),
+    }
 }
 
 /// An enum column has a default or `fill_with` value not in the allowed set.

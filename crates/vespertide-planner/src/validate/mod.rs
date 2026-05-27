@@ -1,5 +1,6 @@
 mod check_default;
 mod constraint_drops;
+mod dangling_fk_drops;
 mod enums;
 mod fk_policy_changes;
 mod foreign_keys;
@@ -9,6 +10,7 @@ mod timezone_conversion;
 mod type_narrowing;
 
 pub use constraint_drops::{ConstraintDropWarning, find_constraint_drops_without_replacement};
+pub use dangling_fk_drops::{DanglingFkDrop, find_dangling_fk_drops};
 pub use fk_policy_changes::{
     FkPolicyChangeWarning, PolicyDelta, find_fk_policy_changes, render_reference_action,
 };
