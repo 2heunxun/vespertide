@@ -5,6 +5,12 @@ use super::super::helpers::{quote_ident, to_sea_fk_action};
 use super::super::types::{BuiltQuery, DatabaseBackend, RawSql};
 use super::{QueryError, TableDef, rebuild_sqlite_table_with_added_constraint};
 
+/// Render `ON DELETE <kw>` / `ON UPDATE <kw>` clause text, or empty
+/// string when the action is `None`. Used by the F11 PG raw-SQL path.
+fn render_fk_action_clause(prefix: &str, action: Option<&ReferenceAction>) -> String {
+    action.map_or_else(String::new, |a| format!(" {prefix} {}", a.to_sql_keyword()))
+}
+
 /// Build the SQL for `AddConstraint(ForeignKey)` plus the F3 pre-cleanup
 /// statement dictated by `orphan_strategy`.
 ///
@@ -56,6 +62,42 @@ pub(super) fn build_foreign_key<T: AsRef<str>, U: AsRef<str>>(
     }
 
     let fk_name = vespertide_naming::build_foreign_key_name(table, columns, name);
+    let mut queries = cleanup;
+
+    if backend == DatabaseBackend::Postgres {
+        // F11: PG NOT VALID + VALIDATE 2-step. Both statements run
+        // inside the migration transaction so PG rollback reverts the
+        // pair on failure - no partial-apply zombie. The sea-query
+        // `ForeignKey` builder has no `NOT VALID` switch, so we emit
+        // raw SQL here. MySQL still uses the builder below.
+        let quoted_table = quote_ident(table, backend);
+        let quoted_name = quote_ident(&fk_name, backend);
+        let quoted_ref_table = quote_ident(ref_table, backend);
+        let cols = columns
+            .iter()
+            .map(|c| quote_ident(c.as_ref(), backend))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let ref_cols = ref_columns
+            .iter()
+            .map(|c| quote_ident(c.as_ref(), backend))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let on_delete_clause = render_fk_action_clause("ON DELETE", on_delete);
+        let on_update_clause = render_fk_action_clause("ON UPDATE", on_update);
+
+        let add_not_valid = format!(
+            "ALTER TABLE {quoted_table} ADD CONSTRAINT {quoted_name} \
+             FOREIGN KEY ({cols}) REFERENCES {quoted_ref_table} ({ref_cols})\
+             {on_delete_clause}{on_update_clause} NOT VALID"
+        );
+        let validate = format!("ALTER TABLE {quoted_table} VALIDATE CONSTRAINT {quoted_name}");
+        queries.push(BuiltQuery::Raw(RawSql::uniform(add_not_valid)));
+        queries.push(BuiltQuery::Raw(RawSql::uniform(validate)));
+        return Ok(queries);
+    }
+
+    // MySQL: single statement via sea-query builder (no NOT VALID).
     let mut fk = ForeignKey::create();
     fk.name(&fk_name);
     fk.from_tbl(Alias::new(table));
@@ -73,7 +115,6 @@ pub(super) fn build_foreign_key<T: AsRef<str>, U: AsRef<str>>(
         fk.on_update(to_sea_fk_action(action));
     }
 
-    let mut queries = cleanup;
     queries.push(BuiltQuery::CreateForeignKey(Box::new(fk)));
     Ok(queries)
 }

@@ -25,3 +25,21 @@ pub enum ReferenceAction {
     /// Do nothing to child rows; the database defers enforcement or raises an error (`NO ACTION`).
     NoAction,
 }
+
+impl ReferenceAction {
+    /// SQL keyword representation as written in `ALTER TABLE ... ADD
+    /// CONSTRAINT ... FOREIGN KEY ... ON DELETE <keyword>` etc. Used by
+    /// `vespertide-query` when emitting raw SQL (e.g. the F11
+    /// `NOT VALID` + `VALIDATE` PG path, which bypasses the sea-query
+    /// `ForeignKey` builder).
+    #[must_use]
+    pub fn to_sql_keyword(&self) -> &'static str {
+        match self {
+            Self::Cascade => "CASCADE",
+            Self::Restrict => "RESTRICT",
+            Self::SetNull => "SET NULL",
+            Self::SetDefault => "SET DEFAULT",
+            Self::NoAction => "NO ACTION",
+        }
+    }
+}

@@ -67,7 +67,16 @@ pub fn arb_complex_column_type() -> impl Strategy<Value = ComplexColumnType> {
             })
             .prop_map(|(precision, scale)| ComplexColumnType::Numeric { precision, scale }),
         (1_u32..=64).prop_map(|length| ComplexColumnType::Char { length }),
-        arb_safe_ident().prop_map(|custom_type| ComplexColumnType::Custom { custom_type }),
+        // Custom column types must be at least 4 characters to avoid
+        // collisions with short SQL reserved words (`AS`, `IS`, `IN`,
+        // `BY`, `ON`, `OR`, `TO`, `ALL`, `AND`, `NOT`, ...) that
+        // SQLite/PG/MySQL reject when used as a column type identifier.
+        // Every real-world SQL data type name is >= 4 chars (INT4,
+        // TEXT, JSONB, MONEY, INET, ...), so this filter is a tighter
+        // proptest fuzz domain rather than a model restriction.
+        arb_safe_ident()
+            .prop_filter("custom type name must be >= 4 chars to avoid SQL keyword conflicts", |s| s.len() >= 4)
+            .prop_map(|custom_type| ComplexColumnType::Custom { custom_type }),
         (arb_safe_ident(), arb_enum_values())
             .prop_map(|(name, values)| { ComplexColumnType::Enum { name, values } }),
     ]

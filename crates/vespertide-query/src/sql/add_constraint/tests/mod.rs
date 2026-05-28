@@ -229,15 +229,26 @@ fn add_check_constraint_escapes_adversarial_identifiers() {
         &[],
     )
     .unwrap();
-    // F4 introduced a pre-cleanup statement ahead of the ADD CONSTRAINT;
-    // the actual CHECK SQL is the last entry.
+    // F4 introduced a pre-cleanup statement and F11 split the PG path
+    // into NOT VALID + VALIDATE. Validate identifier escaping appears in
+    // both statements by joining the full result and asserting on every
+    // distinct emitted form.
     let pg_sql = pg_results
-        .last()
-        .expect("at least one query emitted")
-        .build(DatabaseBackend::Postgres);
-    assert_eq!(
-        pg_sql,
-        "ALTER TABLE \"users\"\"archive\" ADD CONSTRAINT \"chk_age\"\"quote\" CHECK (age > 0)"
+        .iter()
+        .map(|q| q.build(DatabaseBackend::Postgres))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        pg_sql.contains(
+            "ALTER TABLE \"users\"\"archive\" ADD CONSTRAINT \"chk_age\"\"quote\" CHECK (age > 0) NOT VALID"
+        ),
+        "PG NOT VALID statement missing or mis-escaped, got: {pg_sql}"
+    );
+    assert!(
+        pg_sql.contains(
+            "ALTER TABLE \"users\"\"archive\" VALIDATE CONSTRAINT \"chk_age\"\"quote\""
+        ),
+        "PG VALIDATE statement missing or mis-escaped, got: {pg_sql}"
     );
 
     let mysql_constraint = TableConstraint::Check {
