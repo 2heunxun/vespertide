@@ -36,15 +36,15 @@ The `vespertide-lsp` binary ships with VSCode and Zed extensions (`apps/vscode-e
 
 | Capability | What it does |
 |---|---|
-| **Diagnostics** | Real-time validation: unknown type, duplicate column, FK target missing, enum default invalid, filename ↔ table name mismatch, complex-type field shape (`enum` requires `values`, `varchar` requires `length`, …) |
-| **Completion** | Context-aware: column type, `kind`, ref_table, ref_columns (cross-file), on_delete actions, type-aware default (`now()` for timestamp, `gen_random_uuid()` for uuid, enum values for enum), all 4 key positions (table, column, foreign_key, type object) |
-| **Hover** | Column / FK target preview with on-disk fallback (closed-file targets still resolve) |
+| **Diagnostics** | Real-time validation: unknown type, duplicate column, FK target missing, enum default invalid, filename ↔ table name mismatch, complex-type field shape (`enum` requires `values`, `varchar` requires `length`, …), **CHECK-expression faults** (literal type-mismatch, reversed `BETWEEN` bounds, self-contradiction) |
+| **Completion** | Context-aware: column type, `kind`, ref_table, ref_columns (cross-file), on_delete actions, type-aware default (`now()` for timestamp, `gen_random_uuid()` for uuid, enum values for enum), all 4 key positions (table, column, foreign_key, type object), **inside CHECK expressions** (column names, operators, keywords — position-aware with partial-token replace) |
+| **Hover** | Column / FK target preview with on-disk fallback (closed-file targets still resolve); **CHECK-expression structure** popup (parsed AND/OR/comparison/BETWEEN/IN breakdown) |
 | **Go to Definition** | F12 on `ref_table` → target table; F12 on `ref_columns` entry → target column |
-| **Find References** | Shift+F12 — workspace-wide. Column references are scoped to the owning table (`user.email` does not collide with `other.email`) |
-| **Rename** | F2 with prepare-rename. Renames propagate to every `ref_columns` / `ref_table` mention |
-| **Code Actions** | 8 refactors: toggle PK/UQ/IX, toggle nullable, convert simple type to `varchar(N)`/`numeric(P,S)`, extract default to enum, add FK skeleton |
-| **Inlay Hints** | Column flags (`PK · UQ · IX`) and FK target (`⟶ user.id`) shown inline at the column's `{` |
-| **Semantic Tokens** | Table/column/type/enum colored by meaning (not just syntax). VSCode extension ships default DevFive palette |
+| **Find References** | Shift+F12 — workspace-wide. Column references are scoped to the owning table (`user.email` does not collide with `other.email`); **column identifiers inside CHECK `expr` strings** are also reported as references |
+| **Rename** | F2 with prepare-rename. Renames propagate to every `ref_columns` / `ref_table` mention **and into CHECK `expr` predicates** (renaming a column rewrites `age > 0` → `years > 0`, so the CHECK never goes stale) |
+| **Code Actions** | 9 refactors: toggle PK/UQ/IX, toggle nullable, convert simple type to `varchar(N)`/`numeric(P,S)`, extract default to enum, add FK skeleton, **swap reversed CHECK `BETWEEN` bounds** |
+| **Inlay Hints** | Column flags (`PK · UQ · IX`) and FK target (`⟶ user.id`) shown inline at the column's `{`; **column-type echoes** (`: integer`) after column references inside CHECK expressions |
+| **Semantic Tokens** | Table/column/type/enum colored by meaning (not just syntax). VSCode extension ships default DevFive palette. **CHECK-expression internals** (column refs, operators, keywords, literals) tokenized inside JSON strings and YAML quoted/plain/block scalars |
 | **Document Symbol** | Ctrl+Shift+O — table → columns outline |
 | **Workspace Symbol** | Ctrl+T — fuzzy search every table and column |
 | **Folding / Selection / Highlight** | Standard LSP file-local features (column objects fold, Ctrl+Shift+→ expands, same-symbol auto-highlight) |

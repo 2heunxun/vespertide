@@ -18,6 +18,10 @@ use crate::cache::{RingCache, hash_text};
 use crate::parser::DocumentFormat;
 use crate::workspace_index::WorkspaceIndex;
 
+#[expect(
+    clippy::match_same_arms,
+    reason = "diagnostic locator groups semantically distinct planner variants by anchor shape for maintainability"
+)]
 pub mod locator;
 pub mod mapper;
 pub mod validation;
@@ -108,6 +112,9 @@ fn compute_uncached(
         // Tier 3.5: static safety analyses (warnings).
         validation::validate_fk_supporting_indexes(&table, tree, text, &mut diagnostics);
         validation::validate_sequence_exhaustion(&table, tree, text, &mut diagnostics);
+        validation::validate_check_type_mismatches(&table, tree, text, &mut diagnostics);
+        validation::validate_check_between_order(&table, tree, text, &mut diagnostics);
+        validation::validate_check_self_contradiction(&table, tree, text, &mut diagnostics);
     }
 
     diagnostics
@@ -180,6 +187,9 @@ pub fn compute_workspace(
         // so a freshly opened file picks them up before any did_change.
         validation::validate_fk_supporting_indexes(table, tree, text, &mut diagnostics);
         validation::validate_sequence_exhaustion(table, tree, text, &mut diagnostics);
+        validation::validate_check_type_mismatches(table, tree, text, &mut diagnostics);
+        validation::validate_check_between_order(table, tree, text, &mut diagnostics);
+        validation::validate_check_self_contradiction(table, tree, text, &mut diagnostics);
     }
 
     diagnostics
@@ -857,5 +867,159 @@ mod tests {
             diags.iter().all(|d| d.code != "sequence-exhaustion"),
             "big_int PK should be safe, got: {diags:?}"
         );
+    }
+
+    #[test]
+    fn check_valid_expression_emits_no_check_diagnostics() {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let src = r#"{"name":"users","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true},{"name":"age","type":"integer","nullable":false}],"constraints":[{"type":"check","name":"check_age_reasonable","expr":"age > 0 AND age < 150"}]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json);
+        let diags = compute(src, DocumentFormat::Json, tree.as_ref(), &idx);
+
+        let check_diag_count = diags
+            .iter()
+            .filter(|d| {
+                d.code.starts_with("check-")
+                    || (d.code == "validate-schema" && d.message.contains("CHECK"))
+            })
+            .count();
+        assert_eq!(
+            check_diag_count, 0,
+            "valid CHECK should emit no CHECK diagnostics, got: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn check_between_reversed_emits_error() {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let src = r#"{"name":"users","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true},{"name":"age","type":"integer","nullable":false}],"constraints":[{"type":"check","name":"check_age_between","expr":"age BETWEEN 100 AND 0"}]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json);
+        let diags = compute(src, DocumentFormat::Json, tree.as_ref(), &idx);
+
+        let check_diags = diags
+            .iter()
+            .filter(|d| d.message.contains("BETWEEN"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            check_diags.len(),
+            1,
+            "reversed BETWEEN should emit exactly one diagnostic, got: {diags:?}"
+        );
+        let diag = check_diags[0];
+        assert_eq!(diag.code, "check-between-reversed");
+        assert_eq!(diag.severity, Severity::Error);
+        assert_ne!(
+            diag.byte_range,
+            0..1,
+            "diagnostic should be located, not fallback 0..1"
+        );
+        assert!(
+            diag.byte_range.start < diag.byte_range.end,
+            "diagnostic range should be non-empty, got: {:?}",
+            diag.byte_range
+        );
+    }
+
+    #[test]
+    fn check_self_contradiction_emits_error() {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let src = r#"{"name":"users","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true},{"name":"age","type":"integer","nullable":false}],"constraints":[{"type":"check","name":"check_age_impossible","expr":"age > 100 AND age < 0"}]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json);
+        let diags = compute(src, DocumentFormat::Json, tree.as_ref(), &idx);
+
+        let check_diags = diags
+            .iter()
+            .filter(|d| d.message.contains("contradiction"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            check_diags.len(),
+            1,
+            "self-contradictory CHECK should emit exactly one diagnostic, got: {diags:?}"
+        );
+        let diag = check_diags[0];
+        assert_eq!(diag.code, "check-self-contradiction");
+        assert_eq!(diag.severity, Severity::Error);
+        assert!(
+            diag.message.contains("CHECK self-contradiction")
+                || diag.message.contains("self-contradiction")
+                || diag.message.contains("contradiction"),
+            "message should mention self-contradiction, got: {}",
+            diag.message
+        );
+    }
+
+    #[test]
+    fn check_type_mismatch_emits_warning() {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let src = r#"{"name":"users","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true},{"name":"age","type":"integer","nullable":false}],"constraints":[{"type":"check","name":"check_age_type","expr":"age = 'abc'"}]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json);
+        let diags = compute(src, DocumentFormat::Json, tree.as_ref(), &idx);
+
+        let mismatch_diags = diags
+            .iter()
+            .filter(|d| d.code == "check-type-mismatch")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            mismatch_diags.len(),
+            1,
+            "type-mismatched CHECK should emit exactly one diagnostic, got: {diags:?}"
+        );
+        assert_eq!(mismatch_diags[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn f86_default_violates_check_still_works() {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let src = r#"{"name":"users","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true},{"name":"age","type":"integer","nullable":false,"default":5}],"constraints":[{"type":"check","name":"check_age_min","expr":"age > 10"}]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json);
+        let diags = compute(src, DocumentFormat::Json, tree.as_ref(), &idx);
+
+        let default_diags = diags
+            .iter()
+            .filter(|d| d.message.contains("default") && d.message.contains("CHECK"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            default_diags.len(),
+            1,
+            "default violating CHECK should emit exactly one diagnostic, got: {diags:?}"
+        );
+        let diag = default_diags[0];
+        assert_eq!(diag.severity, Severity::Error);
+        let snippet = &src[diag.byte_range.clone()];
+        assert!(
+            snippet.contains("default"),
+            "diagnostic should be anchored at the default field, got: {snippet}"
+        );
+    }
+
+    #[test]
+    fn yaml_check_type_mismatch_emits_warning() {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let src = "name: users\ncolumns:\n  - name: id\n    type: integer\n    nullable: false\n    primary_key: true\n  - name: age\n    type: integer\n    nullable: false\nconstraints:\n  - type: check\n    name: check_age_type\n    expr: age = 'abc'\n";
+        let tree = pool.parse(src, DocumentFormat::Yaml);
+        let diags = compute(src, DocumentFormat::Yaml, tree.as_ref(), &idx);
+
+        let mismatch_diags = diags
+            .iter()
+            .filter(|d| d.code == "check-type-mismatch")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            mismatch_diags.len(),
+            1,
+            "YAML type-mismatched CHECK should emit exactly one diagnostic, got: {diags:?}"
+        );
+        assert_eq!(mismatch_diags[0].severity, Severity::Warning);
     }
 }

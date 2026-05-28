@@ -82,6 +82,48 @@ pub enum PlannerError {
         check_name: String,
         check_expr: String,
     },
+    /// Fault **F-novel-15**: a CHECK constraint of the form
+    /// `col BETWEEN low AND high` where `low > high` (literal boundaries
+    /// swapped). SQL standard defines `BETWEEN` as
+    /// `col >= low AND col <= high`; when `low > high` the conjunction
+    /// is always false, so *every* `INSERT` is rejected by the
+    /// database. Almost always an authoring error — the user intended
+    /// `BETWEEN high AND low`. Reject the model up front rather than
+    /// shipping a constraint that breaks every insert.
+    #[error(
+        "BETWEEN boundary order reversed: {table}.{column} CHECK '{check_name}' \
+         is `BETWEEN {low} AND {high}` (low > high) — every row would be rejected by \
+         the database. Swap the boundaries to `BETWEEN {high} AND {low}`."
+    )]
+    BetweenBoundaryReversed {
+        table: String,
+        column: String,
+        check_name: String,
+        low: String,
+        high: String,
+    },
+    /// Fault **F-novel-1**: a CHECK constraint whose top-level
+    /// conjuncts contain a *demonstrable* contradiction on the same
+    /// column (e.g. `age > 100 AND age < 0`, `status = 'a' AND
+    /// status = 'b'`, `col IS NULL AND col IS NOT NULL`). Every
+    /// `INSERT` is rejected by the database because no value can
+    /// satisfy both conjuncts simultaneously. Almost always an
+    /// authoring error - the user transposed an operator, mixed up
+    /// two columns, or copy-pasted a stale fragment.
+    #[error(
+        "CHECK self-contradiction: {table} CHECK '{check_name}' \
+         contains conjuncts that cannot all be satisfied — \
+         `{first}` and `{second}` reference column `{column}` but \
+         demand disjoint values. Every row would be rejected by the \
+         database. Reconcile or drop one of the conjuncts."
+    )]
+    CheckSelfContradiction {
+        table: String,
+        check_name: String,
+        column: String,
+        first: String,
+        second: String,
+    },
     /// Fault **F12 (Scenario C)**: a column declared with `nullable: true`
     /// participates in a `PRIMARY KEY`. SQL-92 defines `PRIMARY KEY` as
     /// `UNIQUE + NOT NULL`; `PostgreSQL`, `MySQL`, and `SQLite` (strict

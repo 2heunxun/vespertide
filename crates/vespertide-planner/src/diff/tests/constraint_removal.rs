@@ -242,7 +242,9 @@ fn diff_detects_replace_unique_constraint() {
         vec![TableConstraint::Unique {
             name: Some("uq_old".into()),
             columns: vec!["email".into()],
-            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
         }],
     )];
     let to = vec![table(
@@ -254,7 +256,9 @@ fn diff_detects_replace_unique_constraint() {
         vec![TableConstraint::Unique {
             name: Some("uq_new".into()),
             columns: vec!["email".into()],
-            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
         }],
     )];
     let plan = diff_schemas(&from, &to).unwrap();
@@ -330,12 +334,16 @@ fn diff_already_paired_constraint_not_double_matched() {
             TableConstraint::Unique {
                 name: Some("uq_email_old".into()),
                 columns: vec!["email".into()],
-                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                    keep: vespertide_core::KeepPolicy::First,
+                },
             },
             TableConstraint::Unique {
                 name: Some("uq_name_old".into()),
                 columns: vec!["name".into()],
-                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                    keep: vespertide_core::KeepPolicy::First,
+                },
             },
         ],
     )];
@@ -349,12 +357,16 @@ fn diff_already_paired_constraint_not_double_matched() {
             TableConstraint::Unique {
                 name: Some("uq_email_new".into()),
                 columns: vec!["email".into()],
-                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                    keep: vespertide_core::KeepPolicy::First,
+                },
             },
             TableConstraint::Unique {
                 name: Some("uq_name_new".into()),
                 columns: vec!["name".into()],
-                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                    keep: vespertide_core::KeepPolicy::First,
+                },
             },
         ],
     )];
@@ -382,7 +394,9 @@ fn diff_mismatched_constraint_types_not_paired() {
         vec![TableConstraint::Unique {
             name: Some("uq_email".into()),
             columns: vec!["email".into()],
-            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
         }],
     )];
     let to = vec![table(

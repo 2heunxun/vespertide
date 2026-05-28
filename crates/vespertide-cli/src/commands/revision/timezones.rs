@@ -60,13 +60,15 @@ pub(super) fn validate_timezone(input: &str) -> Result<String, String> {
     if KNOWN_IANA.contains(&trimmed) {
         return Ok(trimmed.to_string());
     }
-    validate_offset(trimmed).map(|()| trimmed.to_string()).map_err(|why| {
-        format!(
-            "'{trimmed}' is not in the IANA whitelist and is not a valid numeric offset \
+    validate_offset(trimmed)
+        .map(|()| trimmed.to_string())
+        .map_err(|why| {
+            format!(
+                "'{trimmed}' is not in the IANA whitelist and is not a valid numeric offset \
              ({why}). Use one of {:?} or a literal like '+09:00'.",
-            KNOWN_IANA.iter().take(5).collect::<Vec<_>>()
-        )
-    })
+                KNOWN_IANA.iter().take(5).collect::<Vec<_>>()
+            )
+        })
 }
 
 /// Validate numeric UTC offset in the SQL-portable `±HH:MM` format.
@@ -83,8 +85,8 @@ pub(super) fn validate_offset(input: &str) -> Result<(), String> {
     if bytes[3] != b':' {
         return Err("hours and minutes must be separated by ':'".to_string());
     }
-    let hh = parse_two_digit(&bytes[1..3])
-        .ok_or_else(|| "hour part must be two digits".to_string())?;
+    let hh =
+        parse_two_digit(&bytes[1..3]).ok_or_else(|| "hour part must be two digits".to_string())?;
     let mm = parse_two_digit(&bytes[4..6])
         .ok_or_else(|| "minute part must be two digits".to_string())?;
     if hh > 14 {
@@ -136,7 +138,11 @@ mod tests {
     fn whitelist_size_is_exactly_thirty() {
         // Locked at 30 per design discussion; raising it requires updating
         // the prompt UI footer that mentions the size.
-        assert_eq!(KNOWN_IANA.len(), 30, "whitelist must contain exactly 30 entries");
+        assert_eq!(
+            KNOWN_IANA.len(),
+            30,
+            "whitelist must contain exactly 30 entries"
+        );
     }
 
     #[test]
@@ -148,7 +154,9 @@ mod tests {
 
     #[test]
     fn valid_offsets_accept() {
-        for ok in &["+00:00", "-00:00", "+09:00", "-05:00", "+05:30", "+14:00", "-12:00"] {
+        for ok in &[
+            "+00:00", "-00:00", "+09:00", "-05:00", "+05:30", "+14:00", "-12:00",
+        ] {
             assert!(validate_offset(ok).is_ok(), "{ok} should validate");
             assert_eq!(validate_timezone(ok).as_deref(), Ok(*ok));
         }
@@ -157,15 +165,15 @@ mod tests {
     #[test]
     fn invalid_offsets_reject_with_reason() {
         let cases = [
-            ("",            "6 characters"),
-            ("+9:00",       "6 characters"),
-            ("09:00:00",    "6 characters"),
-            ("*09:00",      "'+' or '-'"),
-            ("+09-00",      "':'"),
-            ("+aa:00",      "two digits"),
-            ("+09:ab",      "two digits"),
-            ("+15:00",      "exceeds maximum"),
-            ("+09:60",      "exceeds 59"),
+            ("", "6 characters"),
+            ("+9:00", "6 characters"),
+            ("09:00:00", "6 characters"),
+            ("*09:00", "'+' or '-'"),
+            ("+09-00", "':'"),
+            ("+aa:00", "two digits"),
+            ("+09:ab", "two digits"),
+            ("+15:00", "exceeds maximum"),
+            ("+09:60", "exceeds 59"),
         ];
         for (input, expected_fragment) in cases {
             let err = validate_offset(input)
@@ -188,7 +196,10 @@ mod tests {
     fn unknown_iana_name_rejects_with_suggestion() {
         let err = validate_timezone("Asia/Sakhalin").unwrap_err();
         assert!(err.contains("Asia/Sakhalin"), "should echo input: {err}");
-        assert!(err.contains("'+09:00'"), "should suggest offset syntax: {err}");
+        assert!(
+            err.contains("'+09:00'"),
+            "should suggest offset syntax: {err}"
+        );
     }
 
     #[test]

@@ -1,5 +1,6 @@
 //! Hover provider — pure domain layer (no LSP protocol types).
 
+mod check_expr;
 mod column;
 mod foreign_key;
 
@@ -47,6 +48,13 @@ pub fn compute_with_workspace_tables(
     let _ = format;
     let tree = tree?;
     let node = node_at_byte(tree, byte_offset)?;
+
+    // CHECK-expression hover is dispatched FIRST. Inside a constraint
+    // expression a column-name identifier must be interpreted as part
+    // of the CHECK expression, not as a column declaration object.
+    if let Some(hover) = check_expr::try_hover(node, text, byte_offset) {
+        return Some(hover);
+    }
 
     // `foreign_key.ref_table` is nested inside a column object, so try the
     // specific FK hover first before falling back to the broader column hover.

@@ -235,7 +235,9 @@ mod tests {
             constraints: vec![TableConstraint::Unique {
                 name: None,
                 columns: vec!["gift_code".into()],
-                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                    keep: vespertide_core::KeepPolicy::First,
+                },
             }],
         }];
 
@@ -317,7 +319,9 @@ mod tests {
             constraints: vec![TableConstraint::Unique {
                 name: None,
                 columns: vec!["gift_code".into()],
-                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                    keep: vespertide_core::KeepPolicy::First,
+                },
             }],
         }];
 
@@ -350,7 +354,9 @@ mod tests {
             constraints: vec![TableConstraint::Unique {
                 name: Some("gift_code".into()),
                 columns: vec!["gift_code".into()],
-                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                    keep: vespertide_core::KeepPolicy::First,
+                },
             }],
         }];
 
@@ -626,7 +632,9 @@ mod tests {
                 TableConstraint::Unique {
                     name: None,
                     columns: vec!["email".into()],
-                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                        keep: vespertide_core::KeepPolicy::First,
+                    },
                 },
             ],
         }];
@@ -777,7 +785,9 @@ mod tests {
             constraints: vec![TableConstraint::Unique {
                 name: None,
                 columns: vec!["email".into()],
-                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                    keep: vespertide_core::KeepPolicy::First,
+                },
             }],
         }];
 

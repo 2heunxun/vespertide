@@ -97,7 +97,9 @@ fn add_unique_constraints_from_groups(
             constraints.push(TableConstraint::Unique {
                 name: constraint_name,
                 columns,
-                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
+                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates {
+                    keep: crate::schema::KeepPolicy::First,
+                },
             });
         }
     }

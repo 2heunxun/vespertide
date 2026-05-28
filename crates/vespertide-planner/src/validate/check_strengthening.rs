@@ -1,0 +1,762 @@
+#![expect(
+    clippy::doc_markdown,
+    reason = "narrative prose: backend names (PostgreSQL, MySQL, SQLite) appear as plain words intentionally"
+)]
+//! Fault **F29** - CHECK expression strengthening detection.
+//!
+//! When a migration replaces a CHECK constraint with a *strictly
+//! stricter* predicate, every existing row that satisfied the old
+//! predicate but fails the new one would be silently rejected by the
+//! database at `VALIDATE CONSTRAINT` time (PostgreSQL) or
+//! `ADD CONSTRAINT` time (MySQL / SQLite). The migration plan looks
+//! benign - a CHECK is just being swapped - but the actual apply may
+//! fail half-way through, leaving the schema in an inconsistent state.
+//!
+//! This validator detects the strengthening *statically* by parsing
+//! the old + new CHECK expression with the shared
+//! [`super::check_expr_parser`] and comparing them with a
+//! deliberately *conservative* strictness rule: a warning fires only
+//! when the new predicate is demonstrably a *strict subset* of the
+//! values accepted by the old one. Ambiguous, dialect-edged, or
+//! semantically incomparable expressions silently pass (same policy
+//! as F86 - false positives would block legitimate schema changes,
+//! and any actual data-violation is caught by the database itself).
+//!
+//! # Matching sources
+//!
+//! F29 considers a CHECK to have been *replaced* when any of the
+//! following holds, scoped per-`(table, constraint_name)`:
+//!
+//! 1. The plan contains a [`MigrationAction::ReplaceConstraint`] whose
+//!    `from` and `to` are both `TableConstraint::Check` with the same
+//!    name.
+//! 2. The plan contains an [`MigrationAction::AddConstraint`] of a
+//!    Check whose name matches an earlier `RemoveConstraint` of a
+//!    Check on the same table (typical SQLite rebuild path).
+//! 3. The plan contains an `AddConstraint(Check)` whose name matches
+//!    an *existing* Check in the `baseline` schema (typical PG
+//!    drop+add path where the diff produces a single add action).
+//!
+//! All three sources are checked in the order listed; the first
+//! match wins.
+//!
+//! # Conservative strictness rules
+//!
+//! The comparator only returns "stricter" for these *demonstrable*
+//! transitions. All other shapes return *not stricter* (no warning):
+//!
+//! - **Same column, same comparison operator, tighter literal**:
+//!   `col > 0` -> `col > 10`, `col < 100` -> `col < 50`,
+//!   `col >= 1` -> `col >= 5`, `col <= 100` -> `col <= 50`
+//! - **Same column, operator boundary tightening with same literal**:
+//!   `col >= N` -> `col > N`, `col <= N` -> `col < N`
+//! - **IN list strict subset**:
+//!   `col IN (a,b,c)` -> `col IN (a,b)` (set shrinks, no new values)
+//! - **BETWEEN range narrows** (at least one boundary tightens, neither widens):
+//!   `col BETWEEN 0 AND 100` -> `col BETWEEN 10 AND 90`
+//! - **Conjunct added** (single -> AND with old as a part, or
+//!   AND -> AND with extra conjuncts and all old conjuncts retained):
+//!   `col > 0` -> `col > 0 AND col < 100`
+//! - **Disjunct removed** (OR shrinks; all new disjuncts already
+//!   present in old):
+//!   `col = 'a' OR col = 'b' OR col = 'c'` -> `col = 'a' OR col = 'b'`
+//!
+//! Out of scope (silent pass):
+//! - Mixed-type literals (string compared to integer, etc.)
+//! - Changes that swap the column being constrained
+//! - Operator changes that aren't strict boundary tightening
+//!   (e.g. `=` -> `>`)
+//! - Anything either parser returns as `Unparseable`
+
+use std::cmp::Ordering;
+use std::collections::HashMap;
+
+use vespertide_core::{MigrationAction, MigrationPlan, TableConstraint, TableDef};
+
+use super::check_expr_parser::{CheckExpr, Literal, Op, parse};
+
+/// Classification of *how* the new CHECK is stricter than the old.
+/// Multiple kinds may apply in principle; the comparator reports the
+/// most specific one detected first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CheckStrengtheningKind {
+    /// Same operator, tighter literal (e.g. `> 0` -> `> 10`).
+    BoundaryTightened,
+    /// Operator boundary tightened with same literal (e.g. `>=` -> `>`).
+    OperatorTightened,
+    /// `IN (...)` list shrunk (new is strict subset of old).
+    InListShrunk,
+    /// `BETWEEN ... AND ...` range narrowed.
+    BetweenNarrowed,
+    /// Extra `AND` conjunct added (old predicate retained, plus more).
+    ConjunctAdded,
+    /// `OR` disjunct removed (new is strict subset of old branches).
+    DisjunctRemoved,
+}
+
+/// One CHECK strengthening site needing user confirmation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckStrengtheningWarning {
+    /// Plan-action index of the triggering `AddConstraint` or
+    /// `ReplaceConstraint`.
+    pub action_index: usize,
+    /// Table the CHECK lives on.
+    pub table: String,
+    /// Constraint name (the matching key between old and new).
+    pub constraint_name: String,
+    /// Verbatim old expression as it appeared in the previous schema
+    /// (baseline replay or in-plan `RemoveConstraint` / `from`).
+    pub old_expr: String,
+    /// Verbatim new expression as it appears in the plan action.
+    pub new_expr: String,
+    /// Which strictness shape fired.
+    pub kind: CheckStrengtheningKind,
+}
+
+/// Scan `plan` against `baseline` for CHECK strengthenings.
+///
+/// Returns warnings in plan-order. Empty when the plan introduces no
+/// strictly-stricter CHECK replacements.
+#[must_use]
+pub fn find_check_strengthenings(
+    plan: &MigrationPlan,
+    baseline: &[TableDef],
+) -> Vec<CheckStrengtheningWarning> {
+    let baseline_checks = build_baseline_check_map(baseline);
+    let removed_in_plan = build_removed_in_plan_map(plan);
+
+    let mut out = Vec::new();
+    for (idx, action) in plan.actions.iter().enumerate() {
+        match action {
+            MigrationAction::ReplaceConstraint {
+                table,
+                from:
+                    TableConstraint::Check {
+                        name: from_name,
+                        expr: from_expr,
+                        ..
+                    },
+                to:
+                    TableConstraint::Check {
+                        name: to_name,
+                        expr: to_expr,
+                        ..
+                    },
+                ..
+            } if from_name == to_name => {
+                if let Some(kind) = classify_strengthening(from_expr, to_expr) {
+                    out.push(CheckStrengtheningWarning {
+                        action_index: idx,
+                        table: table.to_string(),
+                        constraint_name: to_name.clone(),
+                        old_expr: from_expr.clone(),
+                        new_expr: to_expr.clone(),
+                        kind,
+                    });
+                }
+            }
+            MigrationAction::AddConstraint {
+                table,
+                constraint:
+                    TableConstraint::Check {
+                        name,
+                        expr: new_expr,
+                        ..
+                    },
+            } => {
+                let key = (table.to_string(), name.clone());
+                // Source 2: same-plan RemoveConstraint wins over baseline
+                // because it represents the user's *explicit* intent in
+                // this plan, while baseline match is inferred.
+                let old_expr_opt = removed_in_plan
+                    .get(&key)
+                    .cloned()
+                    .or_else(|| baseline_checks.get(&key).cloned());
+                let Some(old_expr) = old_expr_opt else {
+                    continue;
+                };
+                if let Some(kind) = classify_strengthening(&old_expr, new_expr) {
+                    out.push(CheckStrengtheningWarning {
+                        action_index: idx,
+                        table: table.to_string(),
+                        constraint_name: name.clone(),
+                        old_expr,
+                        new_expr: new_expr.clone(),
+                        kind,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn build_baseline_check_map(baseline: &[TableDef]) -> HashMap<(String, String), String> {
+    let mut out = HashMap::new();
+    for table in baseline {
+        for constraint in &table.constraints {
+            if let TableConstraint::Check { name, expr, .. } = constraint {
+                out.insert((table.name.to_string(), name.clone()), expr.clone());
+            }
+        }
+    }
+    out
+}
+
+fn build_removed_in_plan_map(plan: &MigrationPlan) -> HashMap<(String, String), String> {
+    let mut out = HashMap::new();
+    for action in &plan.actions {
+        if let MigrationAction::RemoveConstraint {
+            table,
+            constraint: TableConstraint::Check { name, expr, .. },
+        } = action
+        {
+            out.insert((table.to_string(), name.clone()), expr.clone());
+        }
+    }
+    out
+}
+
+/// Classify whether `new_expr_str` is *demonstrably* stricter than
+/// `old_expr_str`. Returns `None` for ambiguous, equal, or
+/// non-stricter pairs.
+fn classify_strengthening(
+    old_expr_str: &str,
+    new_expr_str: &str,
+) -> Option<CheckStrengtheningKind> {
+    if old_expr_str.trim() == new_expr_str.trim() {
+        return None;
+    }
+    let old = parse(old_expr_str);
+    let new = parse(new_expr_str);
+    if matches!(old, CheckExpr::Unparseable) || matches!(new, CheckExpr::Unparseable) {
+        return None;
+    }
+    if old == new {
+        return None;
+    }
+    classify_pair(&old, &new)
+}
+
+fn classify_pair(old: &CheckExpr, new: &CheckExpr) -> Option<CheckStrengtheningKind> {
+    match (old, new) {
+        (
+            CheckExpr::Compare {
+                column: c1,
+                op: op1,
+                value: v1,
+            },
+            CheckExpr::Compare {
+                column: c2,
+                op: op2,
+                value: v2,
+            },
+        ) if c1 == c2 => compare_strictness(*op1, v1, *op2, v2),
+        (
+            CheckExpr::In {
+                column: c1,
+                values: vs1,
+                negated: false,
+            },
+            CheckExpr::In {
+                column: c2,
+                values: vs2,
+                negated: false,
+            },
+        ) if c1 == c2 && in_is_strict_subset(vs2, vs1) => {
+            Some(CheckStrengtheningKind::InListShrunk)
+        }
+        (
+            CheckExpr::Between {
+                column: c1,
+                low: l1,
+                high: h1,
+                negated: false,
+            },
+            CheckExpr::Between {
+                column: c2,
+                low: l2,
+                high: h2,
+                negated: false,
+            },
+        ) if c1 == c2 && between_is_narrower(l1, h1, l2, h2) => {
+            Some(CheckStrengtheningKind::BetweenNarrowed)
+        }
+        // Old single predicate; new is AND containing old as a part.
+        (old_atom, CheckExpr::And(new_parts))
+            if !matches!(old_atom, CheckExpr::And(_))
+                && new_parts.len() >= 2
+                && new_parts.iter().any(|p| p == old_atom) =>
+        {
+            Some(CheckStrengtheningKind::ConjunctAdded)
+        }
+        // Both AND: every old conjunct present in new + at least one new conjunct.
+        (CheckExpr::And(old_parts), CheckExpr::And(new_parts))
+            if new_parts.len() > old_parts.len()
+                && old_parts
+                    .iter()
+                    .all(|op| new_parts.iter().any(|np| np == op)) =>
+        {
+            Some(CheckStrengtheningKind::ConjunctAdded)
+        }
+        // OR shrinks: every new disjunct already in old, and at least one removed.
+        (CheckExpr::Or(old_parts), CheckExpr::Or(new_parts))
+            if !new_parts.is_empty()
+                && new_parts.len() < old_parts.len()
+                && new_parts
+                    .iter()
+                    .all(|np| old_parts.iter().any(|op| op == np)) =>
+        {
+            Some(CheckStrengtheningKind::DisjunctRemoved)
+        }
+        _ => None,
+    }
+}
+
+/// Strict-than for `Compare` predicates with matching column.
+///
+/// Returns `Some(BoundaryTightened)` for same-op tighter literal,
+/// `Some(OperatorTightened)` for boundary operator strengthening with
+/// equal literal, and `None` otherwise (including identical pairs
+/// and incomparable types).
+fn compare_strictness(
+    op1: Op,
+    v1: &Literal,
+    op2: Op,
+    v2: &Literal,
+) -> Option<CheckStrengtheningKind> {
+    if op1 == op2 && literal_equals(v1, v2) {
+        return None; // identical
+    }
+    // Same operator family, tighter literal:
+    if op1 == op2 {
+        let cmp = literal_compare(v1, v2)?;
+        let tighter = match op1 {
+            Op::Gt | Op::Ge => cmp == Ordering::Less, // newer literal is larger
+            Op::Lt | Op::Le => cmp == Ordering::Greater, // newer literal is smaller
+            // Eq with different literal = different set (not stricter, just other).
+            // Ne with different literal = different exclusion (not necessarily stricter).
+            _ => false,
+        };
+        if tighter {
+            return Some(CheckStrengtheningKind::BoundaryTightened);
+        }
+        return None;
+    }
+    // Boundary operator tightening with same literal:
+    if literal_equals(v1, v2) {
+        match (op1, op2) {
+            (Op::Ge, Op::Gt) | (Op::Le, Op::Lt) => {
+                return Some(CheckStrengtheningKind::OperatorTightened);
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// True when `subset` is a strict subset of `superset` by literal
+/// equality. Order-insensitive.
+fn in_is_strict_subset(subset: &[Literal], superset: &[Literal]) -> bool {
+    if subset.len() >= superset.len() {
+        return false;
+    }
+    if subset.is_empty() {
+        // `IN ()` is rejected at parse time; can't happen, but guard.
+        return false;
+    }
+    subset
+        .iter()
+        .all(|s| superset.iter().any(|o| literal_equals(s, o)))
+}
+
+/// True when the new BETWEEN range is strictly inside the old range:
+/// new_low >= old_low AND new_high <= old_high, with at least one
+/// strict inequality.
+fn between_is_narrower(
+    old_low: &Literal,
+    old_high: &Literal,
+    new_low: &Literal,
+    new_high: &Literal,
+) -> bool {
+    let Some(lo_cmp) = literal_compare(old_low, new_low) else {
+        return false;
+    };
+    let Some(hi_cmp) = literal_compare(old_high, new_high) else {
+        return false;
+    };
+    // old_low <= new_low (new low is tighter or equal)
+    let lo_ok = matches!(lo_cmp, Ordering::Less | Ordering::Equal);
+    // old_high >= new_high (new high is tighter or equal)
+    let hi_ok = matches!(hi_cmp, Ordering::Greater | Ordering::Equal);
+    let any_strict = lo_cmp == Ordering::Less || hi_cmp == Ordering::Greater;
+    lo_ok && hi_ok && any_strict
+}
+
+fn literal_equals(a: &Literal, b: &Literal) -> bool {
+    match (a, b) {
+        (Literal::Integer(x), Literal::Integer(y)) => x == y,
+        (Literal::Float(x), Literal::Float(y)) => (x - y).abs() < f64::EPSILON,
+        (Literal::Integer(x), Literal::Float(y)) => (i64_to_f64(*x) - y).abs() < f64::EPSILON,
+        (Literal::Float(x), Literal::Integer(y)) => (x - i64_to_f64(*y)).abs() < f64::EPSILON,
+        (Literal::String(x), Literal::String(y)) => x == y,
+        (Literal::Bool(x), Literal::Bool(y)) => x == y,
+        (Literal::Null, Literal::Null) => true,
+        _ => false,
+    }
+}
+
+fn literal_compare(a: &Literal, b: &Literal) -> Option<Ordering> {
+    match (a, b) {
+        (Literal::Integer(x), Literal::Integer(y)) => Some(x.cmp(y)),
+        (Literal::Float(x), Literal::Float(y)) => x.partial_cmp(y),
+        (Literal::Integer(x), Literal::Float(y)) => i64_to_f64(*x).partial_cmp(y),
+        (Literal::Float(x), Literal::Integer(y)) => x.partial_cmp(&i64_to_f64(*y)),
+        (Literal::String(x), Literal::String(y)) => Some(x.cmp(y)),
+        _ => None,
+    }
+}
+
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "F29 strictness comparison: rounding integers beyond 2^53 acceptable; F29 silent-passes on ambiguity"
+)]
+fn i64_to_f64(v: i64) -> f64 {
+    v as f64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vespertide_core::{CheckViolationStrategy, MigrationAction, MigrationPlan, TableDef};
+
+    fn check(name: &str, expr: &str) -> TableConstraint {
+        TableConstraint::Check {
+            name: name.to_string(),
+            expr: expr.to_string(),
+            strategy: CheckViolationStrategy::default(),
+        }
+    }
+
+    fn baseline_with_check(table: &str, name: &str, expr: &str) -> Vec<TableDef> {
+        vec![TableDef {
+            name: table.into(),
+            description: None,
+            columns: Vec::new(),
+            constraints: vec![check(name, expr)],
+        }]
+    }
+
+    fn plan(actions: Vec<MigrationAction>) -> MigrationPlan {
+        MigrationPlan {
+            id: String::new(),
+            comment: None,
+            created_at: None,
+            version: 0,
+            actions,
+        }
+    }
+
+    fn add_check(table: &str, name: &str, expr: &str) -> MigrationAction {
+        MigrationAction::AddConstraint {
+            table: table.into(),
+            constraint: check(name, expr),
+        }
+    }
+
+    fn remove_check(table: &str, name: &str, expr: &str) -> MigrationAction {
+        MigrationAction::RemoveConstraint {
+            table: table.into(),
+            constraint: check(name, expr),
+        }
+    }
+
+    fn replace_check(table: &str, name: &str, from_expr: &str, to_expr: &str) -> MigrationAction {
+        MigrationAction::ReplaceConstraint {
+            table: table.into(),
+            from: check(name, from_expr),
+            to: check(name, to_expr),
+        }
+    }
+
+    // -- Boundary tightening (same op, tighter literal) ------------------
+
+    #[test]
+    fn gt_boundary_tightened_via_baseline_match() {
+        let baseline = baseline_with_check("users", "chk_age", "age > 0");
+        let p = plan(vec![add_check("users", "chk_age", "age > 18")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::BoundaryTightened);
+        assert_eq!(warnings[0].constraint_name, "chk_age");
+        assert_eq!(warnings[0].old_expr, "age > 0");
+        assert_eq!(warnings[0].new_expr, "age > 18");
+    }
+
+    #[test]
+    fn lt_boundary_tightened() {
+        let baseline = baseline_with_check("orders", "chk_amount", "amount < 1000");
+        let p = plan(vec![add_check("orders", "chk_amount", "amount < 500")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::BoundaryTightened);
+    }
+
+    #[test]
+    fn ge_boundary_tightened() {
+        let baseline = baseline_with_check("t", "c", "x >= 1");
+        let p = plan(vec![add_check("t", "c", "x >= 10")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::BoundaryTightened);
+    }
+
+    #[test]
+    fn boundary_loosened_emits_no_warning() {
+        let baseline = baseline_with_check("users", "chk_age", "age > 18");
+        let p = plan(vec![add_check("users", "chk_age", "age > 0")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn equal_predicate_emits_no_warning() {
+        let baseline = baseline_with_check("t", "c", "x > 0");
+        let p = plan(vec![add_check("t", "c", "x > 0")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    // -- Operator tightening (boundary >= -> >, <= -> <) -----------------
+
+    #[test]
+    fn ge_to_gt_with_same_literal_is_operator_tightened() {
+        let baseline = baseline_with_check("t", "c", "x >= 0");
+        let p = plan(vec![add_check("t", "c", "x > 0")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::OperatorTightened);
+    }
+
+    #[test]
+    fn le_to_lt_with_same_literal_is_operator_tightened() {
+        let baseline = baseline_with_check("t", "c", "x <= 100");
+        let p = plan(vec![add_check("t", "c", "x < 100")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::OperatorTightened);
+    }
+
+    #[test]
+    fn gt_to_ge_with_same_literal_is_loosening() {
+        let baseline = baseline_with_check("t", "c", "x > 0");
+        let p = plan(vec![add_check("t", "c", "x >= 0")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    // -- IN list shrunk --------------------------------------------------
+
+    #[test]
+    fn in_list_strict_subset_warns() {
+        let baseline = baseline_with_check("t", "c", "s IN ('a', 'b', 'c')");
+        let p = plan(vec![add_check("t", "c", "s IN ('a', 'b')")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::InListShrunk);
+    }
+
+    #[test]
+    fn in_list_unchanged_emits_no_warning() {
+        let baseline = baseline_with_check("t", "c", "s IN ('a', 'b')");
+        let p = plan(vec![add_check("t", "c", "s IN ('a', 'b')")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn in_list_added_value_emits_no_warning() {
+        // Adding a value is loosening, not strengthening.
+        let baseline = baseline_with_check("t", "c", "s IN ('a', 'b')");
+        let p = plan(vec![add_check("t", "c", "s IN ('a', 'b', 'c')")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn in_list_swapped_values_emits_no_warning() {
+        // Replacing 'c' with 'd' is *not* a subset relationship.
+        let baseline = baseline_with_check("t", "c", "s IN ('a', 'b', 'c')");
+        let p = plan(vec![add_check("t", "c", "s IN ('a', 'b', 'd')")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    // -- BETWEEN narrowed ------------------------------------------------
+
+    #[test]
+    fn between_narrowed_on_both_sides_warns() {
+        let baseline = baseline_with_check("t", "c", "x BETWEEN 0 AND 100");
+        let p = plan(vec![add_check("t", "c", "x BETWEEN 10 AND 90")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::BetweenNarrowed);
+    }
+
+    #[test]
+    fn between_narrowed_on_one_side_warns() {
+        let baseline = baseline_with_check("t", "c", "x BETWEEN 0 AND 100");
+        let p = plan(vec![add_check("t", "c", "x BETWEEN 10 AND 100")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::BetweenNarrowed);
+    }
+
+    #[test]
+    fn between_widened_emits_no_warning() {
+        let baseline = baseline_with_check("t", "c", "x BETWEEN 10 AND 90");
+        let p = plan(vec![add_check("t", "c", "x BETWEEN 0 AND 100")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    // -- Conjunct added (AND composition) --------------------------------
+
+    #[test]
+    fn single_predicate_to_and_with_old_as_part_warns() {
+        let baseline = baseline_with_check("t", "c", "age > 0");
+        let p = plan(vec![add_check("t", "c", "age > 0 AND age < 150")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::ConjunctAdded);
+    }
+
+    #[test]
+    fn and_to_and_with_extra_conjunct_warns() {
+        let baseline = baseline_with_check("t", "c", "age > 0 AND age < 150");
+        let p = plan(vec![add_check(
+            "t",
+            "c",
+            "age > 0 AND age < 150 AND age <> 42",
+        )]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::ConjunctAdded);
+    }
+
+    #[test]
+    fn and_to_unrelated_and_emits_no_warning() {
+        // Old conjunct `age > 0` not preserved; can't conclude stricter.
+        let baseline = baseline_with_check("t", "c", "age > 0 AND age < 150");
+        let p = plan(vec![add_check("t", "c", "age > 50 AND age < 150")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        // Even though it's actually stricter, we conservatively skip
+        // (we'd need per-conjunct strictness check which is out of
+        // scope for the v1 comparator).
+        assert!(warnings.is_empty());
+    }
+
+    // -- Disjunct removed (OR shrinks) -----------------------------------
+
+    #[test]
+    fn or_with_one_branch_removed_warns() {
+        let baseline = baseline_with_check("t", "c", "s = 'a' OR s = 'b' OR s = 'c'");
+        let p = plan(vec![add_check("t", "c", "s = 'a' OR s = 'b'")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::DisjunctRemoved);
+    }
+
+    #[test]
+    fn or_with_extra_branch_emits_no_warning() {
+        // Adding a disjunct is loosening.
+        let baseline = baseline_with_check("t", "c", "s = 'a' OR s = 'b'");
+        let p = plan(vec![add_check("t", "c", "s = 'a' OR s = 'b' OR s = 'c'")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    // -- ReplaceConstraint path ------------------------------------------
+
+    #[test]
+    fn replace_constraint_with_stricter_to_warns() {
+        let p = plan(vec![replace_check("t", "c", "age > 0", "age > 18")]);
+        let warnings = find_check_strengthenings(&p, &[]);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::BoundaryTightened);
+    }
+
+    #[test]
+    fn replace_constraint_with_different_names_skipped() {
+        // from/to with different names = treated as drop+add of two
+        // different constraints, not a replacement of one.
+        let p = plan(vec![MigrationAction::ReplaceConstraint {
+            table: "t".into(),
+            from: check("chk_old", "age > 0"),
+            to: check("chk_new", "age > 18"),
+        }]);
+        let warnings = find_check_strengthenings(&p, &[]);
+        assert!(warnings.is_empty());
+    }
+
+    // -- Same-plan Remove + Add path -------------------------------------
+
+    #[test]
+    fn remove_then_add_with_stricter_warns() {
+        let p = plan(vec![
+            remove_check("t", "chk_age", "age > 0"),
+            add_check("t", "chk_age", "age > 18"),
+        ]);
+        let warnings = find_check_strengthenings(&p, &[]);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::BoundaryTightened);
+    }
+
+    // -- Conservative behaviour ------------------------------------------
+
+    #[test]
+    fn unparseable_old_silently_passes() {
+        let baseline = baseline_with_check("t", "c", "LENGTH(name) > 0");
+        let p = plan(vec![add_check("t", "c", "name > 'aaa'")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn unparseable_new_silently_passes() {
+        let baseline = baseline_with_check("t", "c", "x > 0");
+        let p = plan(vec![add_check("t", "c", "LOWER(x) = 'foo'")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn different_columns_skipped() {
+        // The columns being constrained differ; can't conclude stricter.
+        let baseline = baseline_with_check("t", "c", "age > 0");
+        let p = plan(vec![add_check("t", "c", "weight > 100")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn type_mismatch_literal_skipped() {
+        // String compared to integer-typed literal — can't order.
+        let baseline = baseline_with_check("t", "c", "s = 'a'");
+        let p = plan(vec![add_check("t", "c", "s = 1")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        // The pair is Eq with different *types* — neither stricter
+        // nor BoundaryTightened applies.
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn no_baseline_match_and_no_plan_remove_skipped() {
+        // AddConstraint with no corresponding baseline or same-plan
+        // RemoveConstraint = a fresh CHECK addition (F4 territory),
+        // not strengthening.
+        let p = plan(vec![add_check("t", "chk_new", "age > 18")]);
+        let warnings = find_check_strengthenings(&p, &[]);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn float_literal_boundary_tightened() {
+        let baseline = baseline_with_check("t", "c", "ratio > 0.1");
+        let p = plan(vec![add_check("t", "c", "ratio > 0.5")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::BoundaryTightened);
+    }
+}

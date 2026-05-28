@@ -45,9 +45,10 @@ pub(super) fn validate_table(
     // collapsing them into a single "validate-schema" entry. The locator is
     // run per-violation so each squiggle lands on the responsible column /
     // constraint inside this file.
-    for violation in
-        vespertide_planner::find_schema_violations(std::slice::from_ref(table))
-    {
+    for violation in vespertide_planner::find_schema_violations(std::slice::from_ref(table)) {
+        if is_dedicated_check_violation(&violation) {
+            continue;
+        }
         let byte_range = byte_range_for_violation(&violation, tree, source);
         out.push(DomainDiagnostic {
             byte_range,
@@ -204,6 +205,111 @@ pub(super) fn validate_sequence_exhaustion(
     }
 }
 
+/// Fault **F-novel-4**: CHECK constraint literal type-mismatch detection.
+///
+/// Emits one `Warning`-severity `DomainDiagnostic` per
+/// `CheckTypeMismatchWarning` produced by the planner. Synthesises a
+/// single-action `CreateTable` plan from the parsed `TableDef` and
+/// queries `find_check_type_mismatches` with an empty baseline to
+/// surface file-local warnings. The squiggle is anchored to the
+/// `constraints` entry by name; column-level fallback when the
+/// constraint cannot be located.
+pub(super) fn validate_check_type_mismatches(
+    table: &TableDef,
+    tree: Option<&tree_sitter::Tree>,
+    source: &str,
+    out: &mut Vec<DomainDiagnostic>,
+) {
+    let plan = MigrationPlan {
+        id: String::new(),
+        comment: None,
+        created_at: None,
+        version: 0,
+        actions: vec![MigrationAction::CreateTable {
+            table: table.name.clone(),
+            columns: table.columns.clone(),
+            constraints: table.constraints.clone(),
+        }],
+    };
+    for warning in vespertide_planner::find_check_type_mismatches(&plan, &[]) {
+        let constraint_range =
+            super::locator::locate_constraint(tree, source, &warning.constraint_name);
+        let byte_range = if constraint_range == (0..1) {
+            super::locator::locate_column(tree, source, &warning.column)
+        } else {
+            constraint_range
+        };
+        out.push(DomainDiagnostic {
+            byte_range,
+            severity: Severity::Warning,
+            message: format!(
+                "CHECK constraint `{}` on `{}.{}` compares a `{}` column to a {} literal `{}` \
+                 — this is a likely type error. Backend-specific coercion may silently succeed \
+                 on MySQL/SQLite but PostgreSQL rejects it at ADD CONSTRAINT time.",
+                warning.constraint_name,
+                warning.table,
+                warning.column,
+                warning.column_type_label,
+                warning.literal_kind.to_lowercase(),
+                warning.literal_text,
+            ),
+            code: "check-type-mismatch".to_string(),
+        });
+    }
+}
+
+/// Fault **F-novel-15** (BETWEEN boundary reversed) — collect-all,
+/// constraint-anchored. Replaces the first-fail `validate_schema` path for this
+/// fault in the LSP.
+pub(super) fn validate_check_between_order(
+    table: &TableDef,
+    tree: Option<&tree_sitter::Tree>,
+    source: &str,
+    out: &mut Vec<DomainDiagnostic>,
+) {
+    for err in vespertide_planner::find_between_boundary_reversals(table) {
+        if let vespertide_planner::PlannerError::BetweenBoundaryReversed { check_name, .. } = &err {
+            let byte_range = super::locator::locate_constraint(tree, source, check_name);
+            out.push(DomainDiagnostic {
+                byte_range,
+                severity: Severity::Error,
+                message: err.to_string(),
+                code: "check-between-reversed".to_string(),
+            });
+        }
+    }
+}
+
+/// Fault **F-novel-1** (CHECK self-contradiction) — collect-all,
+/// constraint-anchored. Replaces the first-fail `validate_schema` path for this
+/// fault in the LSP.
+pub(super) fn validate_check_self_contradiction(
+    table: &TableDef,
+    tree: Option<&tree_sitter::Tree>,
+    source: &str,
+    out: &mut Vec<DomainDiagnostic>,
+) {
+    for err in vespertide_planner::find_self_contradictions(table) {
+        if let vespertide_planner::PlannerError::CheckSelfContradiction { check_name, .. } = &err {
+            let byte_range = super::locator::locate_constraint(tree, source, check_name);
+            out.push(DomainDiagnostic {
+                byte_range,
+                severity: Severity::Error,
+                message: err.to_string(),
+                code: "check-self-contradiction".to_string(),
+            });
+        }
+    }
+}
+
+fn is_dedicated_check_violation(err: &vespertide_planner::PlannerError) -> bool {
+    matches!(
+        err,
+        vespertide_planner::PlannerError::BetweenBoundaryReversed { .. }
+            | vespertide_planner::PlannerError::CheckSelfContradiction { .. }
+    )
+}
+
 fn simple_type_label(ty: SimpleColumnType) -> &'static str {
     match ty {
         SimpleColumnType::SmallInt => "small_int",
@@ -303,6 +409,9 @@ pub(super) fn validate_workspace(
     // other files are dropped here — they will be surfaced when the editor
     // requests diagnostics for *those* files (LSP protocol is per-URI).
     for err in &violations {
+        if is_dedicated_check_violation(err) {
+            continue;
+        }
         let Some(location) = super::locator::ErrorLocation::from_planner_error(err) else {
             // Cross-cutting error (no table anchor) — attach to current file
             // as a generic top-of-document squiggle so it is visible.

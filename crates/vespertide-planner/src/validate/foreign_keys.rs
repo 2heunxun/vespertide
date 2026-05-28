@@ -155,10 +155,7 @@ fn missing_fk_supporting_indexes_for_table(table: &TableDef) -> Vec<MissingFkSup
                     columns: columns.iter().map(ToString::to_string).collect(),
                     ref_table: ref_table.to_string(),
                     ref_columns: ref_columns.iter().map(ToString::to_string).collect(),
-                    suggested_index_name: build_suggested_index_name(
-                        table.name.as_str(),
-                        columns,
-                    ),
+                    suggested_index_name: build_suggested_index_name(table.name.as_str(), columns),
                 })
             }
             _ => None,

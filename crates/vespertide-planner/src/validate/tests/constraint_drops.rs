@@ -25,10 +25,12 @@ fn pk_constraint(columns: Vec<&str>) -> TableConstraint {
 
 fn unique_constraint(name: Option<&str>, columns: Vec<&str>) -> TableConstraint {
     TableConstraint::Unique {
-                name: name.map(ToString::to_string),
-                columns: columns.into_iter().map(Into::into).collect(),
-                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
-            }
+        name: name.map(ToString::to_string),
+        columns: columns.into_iter().map(Into::into).collect(),
+        strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+            keep: vespertide_core::KeepPolicy::First,
+        },
+    }
 }
 
 fn fk_constraint(
@@ -70,11 +72,7 @@ fn remove(table: &str, constraint: TableConstraint) -> MigrationAction {
     }
 }
 
-fn replace(
-    table: &str,
-    from: TableConstraint,
-    to: TableConstraint,
-) -> MigrationAction {
+fn replace(table: &str, from: TableConstraint, to: TableConstraint) -> MigrationAction {
     MigrationAction::ReplaceConstraint {
         table: table.into(),
         from,
@@ -137,16 +135,18 @@ fn unique_drop_without_name_uses_anonymous_label() {
 fn foreign_key_drop_is_warned_with_ref_table_in_label() {
     let plan = plan_with(vec![remove(
         "orders",
-        fk_constraint(Some("fk_orders__user"), vec!["user_id"], "users", vec!["id"]),
+        fk_constraint(
+            Some("fk_orders__user"),
+            vec!["user_id"],
+            "users",
+            vec!["id"],
+        ),
     )]);
     let warnings = find_constraint_drops_without_replacement(&plan);
 
     assert_eq!(warnings.len(), 1);
     assert_eq!(warnings[0].kind, ConstraintKind::ForeignKey);
-    assert_eq!(
-        warnings[0].label,
-        "fk_orders__user FK (user_id) -> users"
-    );
+    assert_eq!(warnings[0].label, "fk_orders__user FK (user_id) -> users");
 }
 
 #[test]
@@ -182,7 +182,12 @@ fn index_drop_is_not_warned() {
 fn replace_constraint_is_not_warned() {
     let plan = plan_with(vec![replace(
         "orders",
-        fk_constraint(Some("fk_orders__user"), vec!["user_id"], "users", vec!["id"]),
+        fk_constraint(
+            Some("fk_orders__user"),
+            vec!["user_id"],
+            "users",
+            vec!["id"],
+        ),
         fk_constraint(
             Some("fk_orders__user"),
             vec!["user_id"],
@@ -226,13 +231,16 @@ fn mixed_plan_returns_only_warned_drops_with_correct_indices() {
     let plan = plan_with(vec![
         add("users", unique_constraint(Some("uq_a"), vec!["a"])), // 0  safe
         remove("users", index_constraint("ix_a", vec!["a"])),     // 1  safe (Index)
-        remove("orders", fk_constraint(Some("fk_o"), vec!["uid"], "users", vec!["id"])), // 2  WARN
+        remove(
+            "orders",
+            fk_constraint(Some("fk_o"), vec!["uid"], "users", vec!["id"]),
+        ), // 2  WARN
         replace(
             "users",
             unique_constraint(Some("uq_b"), vec!["b"]),
             unique_constraint(Some("uq_b"), vec!["b"]),
-        ),                                                                          // 3  safe
-        remove("users", pk_constraint(vec!["id"])),                                 // 4  WARN
+        ), // 3  safe
+        remove("users", pk_constraint(vec!["id"])),               // 4  WARN
     ]);
     let warnings = find_constraint_drops_without_replacement(&plan);
 

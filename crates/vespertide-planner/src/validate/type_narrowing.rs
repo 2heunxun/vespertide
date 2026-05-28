@@ -64,11 +64,20 @@ pub enum NarrowingKind {
     NumericScale { from_scale: u32, to_scale: u32 },
     /// `numeric(P1, S1) -> numeric(P2, S2)` where `(P2 - S2) < (P1 - S1)`.
     /// Integer-part digits lost — overflow risk.
-    NumericIntegerDigits { from_int_digits: u32, to_int_digits: u32 },
+    NumericIntegerDigits {
+        from_int_digits: u32,
+        to_int_digits: u32,
+    },
     /// Integer size shrinking, e.g. `bigint -> integer`, `integer -> smallint`.
-    IntegerSize { from: &'static str, to: &'static str },
+    IntegerSize {
+        from: &'static str,
+        to: &'static str,
+    },
     /// Float size shrinking, `double precision -> real`.
-    FloatSize { from: &'static str, to: &'static str },
+    FloatSize {
+        from: &'static str,
+        to: &'static str,
+    },
     /// `text -> varchar(N)`. All rows >N chars will be affected.
     TextToVarchar { to_length: u32 },
     /// `text -> char(N)`. All rows >N chars will be affected.
@@ -217,28 +226,16 @@ pub fn is_narrowing(from: &ColumnType, to: &ColumnType) -> Option<NarrowingKind>
     match (from, to) {
         // --- VARCHAR / CHAR length narrowing -------------------------------
         (Complex(Varchar { length: a }), Complex(Varchar { length: b })) if b < a => {
-            Some(NarrowingKind::VarcharLength {
-                from: *a,
-                to: *b,
-            })
+            Some(NarrowingKind::VarcharLength { from: *a, to: *b })
         }
         (Complex(Char { length: a }), Complex(Char { length: b })) if b < a => {
-            Some(NarrowingKind::CharLength {
-                from: *a,
-                to: *b,
-            })
+            Some(NarrowingKind::CharLength { from: *a, to: *b })
         }
         (Complex(Varchar { length: a }), Complex(Char { length: b })) if b < a => {
-            Some(NarrowingKind::VarcharToCharShorter {
-                from: *a,
-                to: *b,
-            })
+            Some(NarrowingKind::VarcharToCharShorter { from: *a, to: *b })
         }
         (Complex(Char { length: a }), Complex(Varchar { length: b })) if b < a => {
-            Some(NarrowingKind::CharToVarcharShorter {
-                from: *a,
-                to: *b,
-            })
+            Some(NarrowingKind::CharToVarcharShorter { from: *a, to: *b })
         }
         // --- TEXT -> bounded length ---------------------------------------
         (Simple(Text), Complex(Varchar { length })) => {

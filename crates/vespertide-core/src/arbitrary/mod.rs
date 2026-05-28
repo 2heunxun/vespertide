@@ -75,7 +75,10 @@ pub fn arb_complex_column_type() -> impl Strategy<Value = ComplexColumnType> {
         // TEXT, JSONB, MONEY, INET, ...), so this filter is a tighter
         // proptest fuzz domain rather than a model restriction.
         arb_safe_ident()
-            .prop_filter("custom type name must be >= 4 chars to avoid SQL keyword conflicts", |s| s.len() >= 4)
+            .prop_filter(
+                "custom type name must be >= 4 chars to avoid SQL keyword conflicts",
+                |s| s.len() >= 4
+            )
             .prop_map(|custom_type| ComplexColumnType::Custom { custom_type }),
         (arb_safe_ident(), arb_enum_values())
             .prop_map(|(name, values)| { ComplexColumnType::Enum { name, values } }),
@@ -188,7 +191,9 @@ pub fn arb_table_constraint() -> impl Strategy<Value = TableConstraint> {
             TableConstraint::Unique {
                 name,
                 columns: columns.into_iter().map(Into::into).collect(),
-                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
+                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates {
+                    keep: crate::schema::KeepPolicy::First,
+                },
             }
         },),
         (
@@ -212,14 +217,13 @@ pub fn arb_table_constraint() -> impl Strategy<Value = TableConstraint> {
                     }
                 },
             ),
-        (arb_safe_ident(), arb_check_expr())
-            .prop_map(|(name, expr)| {
-                TableConstraint::Check {
-                    name,
-                    expr,
-                    strategy: crate::schema::CheckViolationStrategy::default(),
-                }
-            }),
+        (arb_safe_ident(), arb_check_expr()).prop_map(|(name, expr)| {
+            TableConstraint::Check {
+                name,
+                expr,
+                strategy: crate::schema::CheckViolationStrategy::default(),
+            }
+        }),
         (prop::option::of(arb_safe_ident()), unique_idents(1..=4)).prop_map(|(name, columns)| {
             TableConstraint::Index {
                 name,

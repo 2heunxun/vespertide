@@ -127,7 +127,11 @@ pub fn find_sequence_exhaustion_risks(
     // exposed cases (`D8` - only flag *new* exposure).
     let baseline_existing_risky_pk: HashSet<(String, String)> = baseline
         .iter()
-        .flat_map(|t| risky_single_pk_columns(t).into_iter().map(move |(c, _)| (t.name.to_string(), c)))
+        .flat_map(|t| {
+            risky_single_pk_columns(t)
+                .into_iter()
+                .map(move |(c, _)| (t.name.to_string(), c))
+        })
         .collect();
 
     // Lookup of baseline (and plan-future) PK column types - needed
@@ -213,9 +217,7 @@ pub fn find_sequence_exhaustion_risks(
                 let col_name = columns[0].as_str();
                 // Suppress when the baseline already exposes the same
                 // shape - the user has already lived with it.
-                if baseline_existing_risky_pk
-                    .contains(&(table.to_string(), col_name.to_string()))
-                {
+                if baseline_existing_risky_pk.contains(&(table.to_string(), col_name.to_string())) {
                     continue;
                 }
                 // Resolve the column type from baseline (column must
@@ -224,7 +226,10 @@ pub fn find_sequence_exhaustion_risks(
                 else {
                     continue;
                 };
-                let Some(col) = table_def.columns.iter().find(|c| c.name.as_str() == col_name)
+                let Some(col) = table_def
+                    .columns
+                    .iter()
+                    .find(|c| c.name.as_str() == col_name)
                 else {
                     continue;
                 };
@@ -248,9 +253,7 @@ pub fn find_sequence_exhaustion_risks(
                 table,
                 constraint:
                     TableConstraint::ForeignKey {
-                        columns,
-                        ref_table,
-                        ..
+                        columns, ref_table, ..
                     },
             } => {
                 if columns.len() != 1 {
@@ -264,7 +267,10 @@ pub fn find_sequence_exhaustion_risks(
                 else {
                     continue;
                 };
-                let Some(col) = table_def.columns.iter().find(|c| c.name.as_str() == col_name)
+                let Some(col) = table_def
+                    .columns
+                    .iter()
+                    .find(|c| c.name.as_str() == col_name)
                 else {
                     continue;
                 };
@@ -362,11 +368,10 @@ fn risky_single_pk_columns(table: &TableDef) -> Vec<(String, SimpleColumnType)> 
 /// missing PKs.
 fn single_pk_column_with_type(table: &TableDef) -> Option<(String, SimpleColumnType)> {
     // Table-level PK.
-    let table_level: Option<Vec<ColumnName>> =
-        table.constraints.iter().find_map(|c| match c {
-            TableConstraint::PrimaryKey { columns, .. } => Some(columns.clone()),
-            _ => None,
-        });
+    let table_level: Option<Vec<ColumnName>> = table.constraints.iter().find_map(|c| match c {
+        TableConstraint::PrimaryKey { columns, .. } => Some(columns.clone()),
+        _ => None,
+    });
     let pk_columns: Vec<ColumnName> = if let Some(cols) = table_level {
         cols
     } else {
@@ -456,10 +461,7 @@ fn inline_fk_parent_table(col: &ColumnDef) -> Option<String> {
             // "parent.column" -> parent
             s.split_once('.').map(|(t, _)| t.to_string())
         }
-        ForeignKeySyntax::Reference(r) => r
-            .references
-            .split_once('.')
-            .map(|(t, _)| t.to_string()),
+        ForeignKeySyntax::Reference(r) => r.references.split_once('.').map(|(t, _)| t.to_string()),
         ForeignKeySyntax::Object(o) => Some(o.ref_table.to_string()),
     }
 }
@@ -467,11 +469,10 @@ fn inline_fk_parent_table(col: &ColumnDef) -> Option<String> {
 /// True when the column with `column_name` is the **only** column of
 /// the PK on `table_def`.
 fn is_single_pk_column(table_def: &TableDef, column_name: &str) -> bool {
-    let table_level: Option<Vec<ColumnName>> =
-        table_def.constraints.iter().find_map(|c| match c {
-            TableConstraint::PrimaryKey { columns, .. } => Some(columns.clone()),
-            _ => None,
-        });
+    let table_level: Option<Vec<ColumnName>> = table_def.constraints.iter().find_map(|c| match c {
+        TableConstraint::PrimaryKey { columns, .. } => Some(columns.clone()),
+        _ => None,
+    });
     let pk_cols: Vec<ColumnName> = if let Some(cols) = table_level {
         cols
     } else {
@@ -688,7 +689,9 @@ mod tests {
         assert_eq!(ws.len(), 1);
         assert!(matches!(
             &ws[0].kind,
-            SequenceExhaustionKind::PkTypeNarrowing { from: SimpleColumnType::BigInt }
+            SequenceExhaustionKind::PkTypeNarrowing {
+                from: SimpleColumnType::BigInt
+            }
         ));
     }
 
@@ -759,7 +762,12 @@ mod tests {
     fn case_09_uuid_pk_safe() {
         let mut col = int_col("id", SimpleColumnType::Uuid);
         col.r#type = ColumnType::Simple(SimpleColumnType::Uuid);
-        let p = plan(vec![create_table_inline_pk("users", vec![col], "id", false)]);
+        let p = plan(vec![create_table_inline_pk(
+            "users",
+            vec![col],
+            "id",
+            false,
+        )]);
         assert!(find_sequence_exhaustion_risks(&p, &[]).is_empty());
     }
 

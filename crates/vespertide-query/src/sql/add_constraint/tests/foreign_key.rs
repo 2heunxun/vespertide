@@ -150,7 +150,9 @@ fn test_add_constraint_foreign_key_sqlite_with_unique_constraint() {
         constraints: vec![TableConstraint::Unique {
             name: Some("uq_user_id".into()),
             columns: vec!["user_id".into()],
-            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
         }],
     }];
     let result = build_add_constraint(

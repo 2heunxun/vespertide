@@ -27,7 +27,7 @@
     reason = "semantic-token classifier context tracks independent JSON ancestor flags; collapsing them would obscure token rules"
 )]
 
-use super::{RawToken, legend::ModIdx, legend::TokenIdx};
+use super::{RawToken, check_expr_tokens, legend::ModIdx, legend::TokenIdx};
 
 /// Classify the entire JSON document.
 #[must_use]
@@ -54,6 +54,8 @@ struct Ctx {
     inside_foreign_key: bool,
     /// `ref_columns` array under a `foreign_key`.
     inside_ref_columns: bool,
+    /// `constraints` array — CHECK `expr` strings get SQL-ish tokenisation.
+    inside_constraints: bool,
     /// Depth of object nesting we've already walked. The TOP-LEVEL
     /// object (the table itself) is depth 1.
     object_depth: u32,
@@ -115,6 +117,18 @@ fn classify_pair(pair: tree_sitter::Node<'_>, source: &[u8], ctx: Ctx, out: &mut
                 ..ctx
             };
             recurse_into_value(value, source, new_ctx, out);
+            return;
+        }
+        "constraints" => {
+            let new_ctx = Ctx {
+                inside_constraints: true,
+                ..ctx
+            };
+            recurse_into_value(value, source, new_ctx, out);
+            return;
+        }
+        "expr" if ctx.inside_constraints && value.kind() == "string" => {
+            emit_json_check_expr_tokens(value, source, out);
             return;
         }
         "type" if ctx.inside_columns => {
@@ -261,6 +275,31 @@ fn classify_default_value(value: tree_sitter::Node<'_>, out: &mut Vec<RawToken>)
         }),
         _ => {}
     }
+}
+
+fn emit_json_check_expr_tokens(
+    string_node: tree_sitter::Node<'_>,
+    source: &[u8],
+    out: &mut Vec<RawToken>,
+) {
+    let raw = string_node.byte_range();
+    if raw.end.saturating_sub(raw.start) < 2 {
+        return;
+    }
+
+    let inner_start = raw.start + 1;
+    let inner_end = raw.end - 1;
+    if inner_end <= inner_start {
+        return;
+    }
+
+    let Some(bytes) = source.get(inner_start..inner_end) else {
+        return;
+    };
+    let Ok(expr_text) = std::str::from_utf8(bytes) else {
+        return;
+    };
+    check_expr_tokens::emit_check_expr_tokens(expr_text, inner_start, out);
 }
 
 /// Emit a token covering only the INNER content of a JSON string node
@@ -454,5 +493,175 @@ mod tests {
         assert!(present.contains(&(TokenIdx::Class as u32)));
         assert!(present.contains(&(TokenIdx::Property as u32)));
         assert!(present.contains(&(TokenIdx::Type as u32)));
+    }
+
+    #[test]
+    fn check_expr_tokens_emitted_for_simple_compare_and_composition() {
+        let src = r#"{"name":"users","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true},{"name":"age","type":"integer","nullable":false}],"constraints":[{"type":"check","name":"chk_age_range","expr":"age > 0 AND age < 150"}]}"#;
+        let tokens = classify_src(src);
+        let expr_start = src.find("age > 0").expect("expr start present");
+        let expr_end = src.find(r#"150""#).expect("expr end present") + 3;
+        let check_tokens: Vec<&RawToken> = tokens
+            .iter()
+            .filter(|t| t.byte_range.start >= expr_start && t.byte_range.end <= expr_end + 1)
+            .collect();
+
+        assert_eq!(
+            check_tokens.len(),
+            7,
+            "got {} check tokens: {:?}",
+            check_tokens.len(),
+            check_tokens
+        );
+
+        let types: Vec<u32> = check_tokens.iter().map(|t| t.token_type).collect();
+        assert_eq!(
+            types,
+            vec![
+                TokenIdx::Property as u32,
+                TokenIdx::Keyword as u32,
+                TokenIdx::Number as u32,
+                TokenIdx::Keyword as u32,
+                TokenIdx::Property as u32,
+                TokenIdx::Keyword as u32,
+                TokenIdx::Number as u32,
+            ]
+        );
+        assert!(
+            check_tokens.iter().all(|t| t.token_modifiers == 0),
+            "CHECK expression tokens must not carry declaration/definition modifiers: {check_tokens:?}"
+        );
+    }
+
+    #[test]
+    fn multiple_check_constraints_emit_tokens_independently() {
+        let src = r#"{"name":"users","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true},{"name":"age","type":"integer","nullable":false},{"name":"height","type":"integer","nullable":false}],"constraints":[{"type":"check","name":"chk_age","expr":"age > 0"},{"type":"check","name":"chk_height","expr":"height < 250"}]}"#;
+        let tokens = classify_src(src);
+        let expr_ranges = [
+            {
+                let start = src.find("age > 0").expect("age expr present");
+                start..start + "age > 0".len()
+            },
+            {
+                let start = src.find("height < 250").expect("height expr present");
+                start..start + "height < 250".len()
+            },
+        ];
+
+        let check_tokens: Vec<&RawToken> = tokens
+            .iter()
+            .filter(|t| {
+                expr_ranges
+                    .iter()
+                    .any(|range| t.byte_range.start >= range.start && t.byte_range.end <= range.end)
+            })
+            .collect();
+
+        assert_eq!(
+            check_tokens.len(),
+            6,
+            "got {} check tokens: {:?}",
+            check_tokens.len(),
+            check_tokens
+        );
+        assert_eq!(
+            check_tokens
+                .iter()
+                .filter(|t| t.token_type == TokenIdx::Property as u32)
+                .count(),
+            2,
+            "one column token should be emitted per CHECK expression: {check_tokens:?}"
+        );
+        assert_eq!(
+            check_tokens
+                .iter()
+                .filter(|t| t.token_type == TokenIdx::Number as u32)
+                .count(),
+            2,
+            "one numeric literal token should be emitted per CHECK expression: {check_tokens:?}"
+        );
+    }
+
+    #[test]
+    fn non_constraint_tokens_unchanged_when_check_added() {
+        let src = r#"{
+            "name": "post",
+            "columns": [
+                {"name":"id","type":"integer","primary_key":true},
+                {"name":"author_id","type":"integer","foreign_key":{"ref_table":"user","ref_columns":["id"]}}
+            ],
+            "constraints": [
+                {"type":"check","name":"chk_author_positive","expr":"author_id > 0"}
+            ]
+        }"#;
+        let tokens = classify_src(src);
+
+        let post_start = src
+            .find(r#""name": "post""#)
+            .expect("top-level name present")
+            + 9;
+        let post = tokens
+            .iter()
+            .find(|t| t.byte_range.start == post_start)
+            .expect("token not found at byte offset for top-level table name 'post'");
+        assert_eq!(post.token_type, TokenIdx::Class as u32);
+        assert_eq!(post.token_modifiers, ModIdx::Declaration as u32);
+
+        for column in ["id", "author_id"] {
+            let needle = format!(r#""name":"{column}""#);
+            let start = src.find(&needle).expect("column name present") + 8;
+            let token = tokens
+                .iter()
+                .find(|t| t.byte_range.start == start)
+                .expect("token not found at byte offset for column name");
+            assert_eq!(token.token_type, TokenIdx::Property as u32);
+            assert_eq!(token.token_modifiers, ModIdx::Declaration as u32);
+        }
+
+        let integer_tokens = src
+            .match_indices(r#""type":"integer""#)
+            .map(|(idx, _)| idx + 8);
+        for start in integer_tokens {
+            let token = tokens
+                .iter()
+                .find(|t| t.byte_range.start == start)
+                .expect("token not found at byte offset for simple type 'integer'");
+            assert_eq!(token.token_type, TokenIdx::Type as u32);
+            assert_eq!(token.token_modifiers, 0);
+        }
+
+        let user_start = src
+            .find(r#""ref_table":"user""#)
+            .expect("ref_table present")
+            + 13;
+        let user = tokens
+            .iter()
+            .find(|t| t.byte_range.start == user_start)
+            .expect("token not found at byte offset for ref_table value 'user'");
+        assert_eq!(user.token_type, TokenIdx::Class as u32);
+        assert_eq!(user.token_modifiers, ModIdx::Definition as u32);
+
+        let ref_id_start = src
+            .find(r#""ref_columns":["id"]"#)
+            .expect("ref_columns present")
+            + 16;
+        let ref_id = tokens
+            .iter()
+            .find(|t| t.byte_range.start == ref_id_start)
+            .expect("token not found at byte offset for ref_columns value 'id'");
+        assert_eq!(ref_id.token_type, TokenIdx::Property as u32);
+        assert_eq!(ref_id.token_modifiers, ModIdx::Definition as u32);
+
+        let expr_start = src.find("author_id > 0").expect("CHECK expr present");
+        let expr_end = expr_start + "author_id > 0".len();
+        let check_tokens: Vec<&RawToken> = tokens
+            .iter()
+            .filter(|t| t.byte_range.start >= expr_start && t.byte_range.end <= expr_end)
+            .collect();
+        assert_eq!(
+            check_tokens.len(),
+            3,
+            "CHECK expression tokens should be additive and not replace existing tokens: {check_tokens:?}"
+        );
     }
 }

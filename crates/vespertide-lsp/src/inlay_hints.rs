@@ -15,7 +15,12 @@
 //! The hint is intentionally terse — inlay hints share screen space with
 //! the actual code, and noisy annotations are worse than none.
 
+use std::collections::HashMap;
 use std::ops::Range;
+
+use vespertide_planner::{CheckTokenKind, lex_check_expr};
+
+use crate::check_expr_range::expr_inner_range;
 
 /// A single inline annotation. The LSP layer maps `byte_offset` to an LSP
 /// `Position` and uses [`InlayHintKind::TYPE`] for these (matching how
@@ -49,15 +54,161 @@ pub fn compute(
     };
 
     let mut out = Vec::new();
-    for column in direct_column_objects(columns_value) {
+    let column_objects = direct_column_objects(columns_value);
+    for column in &column_objects {
         if !ranges_overlap(&column.byte_range(), &visible_range) {
             continue;
         }
-        if let Some(hint) = column_to_hint(column, source_bytes) {
+        if let Some(hint) = column_to_hint(*column, source_bytes) {
             out.push(hint);
         }
     }
+
+    // CHECK-expr column-type hints. Resolve `column_name -> type_label`
+    // from the SAME in-doc columns pass — never from disk, so unsaved
+    // edits never race.
+    let type_map = build_column_type_map(&column_objects, source_bytes);
+    if !type_map.is_empty()
+        && let Some(constraints_value) =
+            find_value_for_key(tree.root_node(), source_bytes, "constraints")
+    {
+        emit_check_expr_type_hints(
+            constraints_value,
+            source_bytes,
+            &type_map,
+            &visible_range,
+            &mut out,
+        );
+    }
+
     out
+}
+
+/// Walk every column object and pull its `name` + `type` into a flat
+/// `name -> type_label` map. Simple string types render as-is
+/// (`"integer"` → `integer`); complex object types render their `kind`
+/// (`{"kind":"varchar",...}` → `varchar`). Columns with malformed or
+/// missing `type` are skipped — the inlay just won't show for them.
+fn build_column_type_map(
+    columns: &[tree_sitter::Node<'_>],
+    source: &[u8],
+) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for column in columns {
+        let Some(name) = pair_string_value(*column, source, "name") else {
+            continue;
+        };
+        let Some(type_label) = column_type_label(*column, source) else {
+            continue;
+        };
+        map.insert(name, type_label);
+    }
+    map
+}
+
+fn pair_string_value(object: tree_sitter::Node<'_>, source: &[u8], key: &str) -> Option<String> {
+    let pair = find_pair_with_key(object, source, key)?;
+    let value_raw = pair.named_child(1)?;
+    let value = unwrap_yaml_node(value_raw);
+    let text = std::str::from_utf8(source.get(value.byte_range())?).ok()?;
+    Some(strip_quotes(text.trim()).to_string())
+}
+
+fn column_type_label(column: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let pair = find_pair_with_key(column, source, "type")?;
+    let value_raw = pair.named_child(1)?;
+    let value = unwrap_yaml_node(value_raw);
+    match value.kind() {
+        "object" | "block_mapping" | "flow_mapping" => {
+            // Complex type — render the `kind` discriminant.
+            pair_string_value(value, source, "kind")
+        }
+        _ => {
+            let text = std::str::from_utf8(source.get(value.byte_range())?).ok()?;
+            let stripped = strip_quotes(text.trim());
+            if stripped.is_empty() {
+                None
+            } else {
+                Some(stripped.to_string())
+            }
+        }
+    }
+}
+
+/// Walk `constraints[*].expr` scalars within `visible_range`. For each
+/// expression, lex it, and emit a `: <type>` hint anchored at the END
+/// of every Column token whose name resolves in `type_map`.
+fn emit_check_expr_type_hints(
+    constraints_value: tree_sitter::Node<'_>,
+    source: &[u8],
+    type_map: &HashMap<String, String>,
+    visible_range: &Range<usize>,
+    out: &mut Vec<DomainInlayHint>,
+) {
+    let array = unwrap_yaml_node(constraints_value);
+    if !matches!(array.kind(), "array" | "block_sequence" | "flow_sequence") {
+        return;
+    }
+
+    let mut cursor = array.walk();
+    for raw_child in array.children(&mut cursor) {
+        let item = unwrap_yaml_node(raw_child);
+        let object = match item.kind() {
+            "object" | "block_mapping" | "flow_mapping" => item,
+            "block_sequence_item" => {
+                let mut inner_cursor = item.walk();
+                let Some(found) = item.children(&mut inner_cursor).find_map(|c| {
+                    let inner = unwrap_yaml_node(c);
+                    matches!(inner.kind(), "object" | "block_mapping" | "flow_mapping")
+                        .then_some(inner)
+                }) else {
+                    continue;
+                };
+                found
+            }
+            _ => continue,
+        };
+
+        let Some(expr_pair) = find_pair_with_key(object, source, "expr") else {
+            continue;
+        };
+        let Some(expr_value_raw) = expr_pair.named_child(1) else {
+            continue;
+        };
+        let expr_value = unwrap_yaml_node(expr_value_raw);
+
+        let Some(inner) = expr_inner_range(expr_value) else {
+            continue;
+        };
+        if !ranges_overlap(&inner, visible_range) {
+            continue;
+        }
+        let Some(expr_bytes) = source.get(inner.clone()) else {
+            continue;
+        };
+        let Ok(expr_text) = std::str::from_utf8(expr_bytes) else {
+            continue;
+        };
+
+        for token in lex_check_expr(expr_text) {
+            if token.kind != CheckTokenKind::Column {
+                continue;
+            }
+            let Some(name_bytes) = expr_text.as_bytes().get(token.span.clone()) else {
+                continue;
+            };
+            let Ok(name) = std::str::from_utf8(name_bytes) else {
+                continue;
+            };
+            let Some(type_label) = type_map.get(name) else {
+                continue;
+            };
+            out.push(DomainInlayHint {
+                byte_offset: inner.start + token.span.end,
+                label: format!(": {type_label}"),
+            });
+        }
+    }
 }
 
 fn column_to_hint(column: tree_sitter::Node<'_>, source: &[u8]) -> Option<DomainInlayHint> {
@@ -375,5 +526,101 @@ mod tests {
         let hints = compute(src, Some(&tree), 0..src.len());
         assert_eq!(hints.len(), 1);
         assert!(hints[0].label.contains("user.id"));
+    }
+
+    // ----------------------------------------------------------------------
+    // CHECK-expr inlay hints — type annotation for column refs inside CHECK
+    // expressions. The hint is anchored at the END of the column identifier
+    // INSIDE the `expr` string (so it reads as `age|: integer | > 0`).
+    // ----------------------------------------------------------------------
+
+    /// I-S1: a CHECK expression that references a declared column gets a
+    /// `": integer"` type hint anchored at the end of the `age` token
+    /// INSIDE the `expr` string value.
+    #[test]
+    fn i_s1_check_expr_column_gets_type_hint() {
+        let src = r#"{"name":"u","columns":[{"name":"age","type":"integer","nullable":false}],"constraints":[{"type":"check","name":"chk","expr":"age > 0"}]}"#;
+        let tree = parse(src);
+        let hints = compute(src, Some(&tree), 0..src.len());
+
+        // Compute expected anchor: end of `age` INSIDE the expr string.
+        // The expr value is `"age > 0"`. The inner content starts right
+        // after the opening quote of that string.
+        let expr_field = r#""expr":"age > 0""#;
+        let expr_field_start = src.find(expr_field).expect("expr field present");
+        // After `"expr":"` the inner content begins.
+        let inner_start = expr_field_start + r#""expr":""#.len();
+        let age_offset_in_expr = "age > 0".find("age").unwrap();
+        let expected_anchor = inner_start + age_offset_in_expr + "age".len();
+
+        let check_hint = hints
+            .iter()
+            .find(|h| h.byte_offset == expected_anchor)
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected a CHECK-expr type hint at byte_offset {expected_anchor}; got: {hints:?}"
+                )
+            });
+        assert!(
+            check_hint.label.contains("integer"),
+            "expected label to contain `integer`, got: {:?}",
+            check_hint.label,
+        );
+        assert!(
+            check_hint.label.contains(':'),
+            "expected `: integer`-style label, got: {:?}",
+            check_hint.label,
+        );
+    }
+
+    /// I-S2: a CHECK expression referencing an UNDECLARED column produces
+    /// NO type hint at that column's position. We pin this by computing
+    /// the position where the hint *would* go and asserting no hint sits
+    /// there.
+    #[test]
+    fn i_s2_check_expr_unknown_column_no_hint() {
+        let src = r#"{"name":"u","columns":[{"name":"age","type":"integer","nullable":false}],"constraints":[{"type":"check","name":"chk","expr":"unknownCol > 0"}]}"#;
+        let tree = parse(src);
+        let hints = compute(src, Some(&tree), 0..src.len());
+
+        let expr_field = r#""expr":"unknownCol > 0""#;
+        let expr_field_start = src.find(expr_field).expect("expr field present");
+        let inner_start = expr_field_start + r#""expr":""#.len();
+        let unknown_end = inner_start + "unknownCol".len();
+
+        assert!(
+            !hints.iter().any(|h| h.byte_offset == unknown_end),
+            "no hint should be emitted for an undeclared column; got: {hints:?}"
+        );
+        // Also: no hint label should mention `unknownCol`.
+        assert!(
+            !hints.iter().any(|h| h.label.contains("unknownCol")),
+            "no hint label should reference unknownCol; got: {hints:?}"
+        );
+    }
+
+    /// I-S3 regression: adding CHECK-expr inlays must NOT disturb the
+    /// existing column-flag inlay (PK at the column's `{`).
+    #[test]
+    fn i_s3_existing_column_flag_inlays_unchanged() {
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true},{"name":"age","type":"integer","nullable":false}],"constraints":[{"type":"check","name":"chk","expr":"age > 0"}]}"#;
+        let tree = parse(src);
+        let hints = compute(src, Some(&tree), 0..src.len());
+
+        // The PK column inlay must still appear at the byte AFTER `{` of
+        // the `id` column object — same anchor rule as the legacy pass.
+        let id_col_start = src
+            .find(r#"{"name":"id""#)
+            .expect("id column object present");
+        let pk_anchor = id_col_start + 1;
+        let pk_hint = hints
+            .iter()
+            .find(|h| h.byte_offset == pk_anchor)
+            .unwrap_or_else(|| panic!("PK flag inlay missing at {pk_anchor}; got: {hints:?}"));
+        assert!(
+            pk_hint.label.contains("PK"),
+            "expected PK in legacy flag inlay, got: {:?}",
+            pk_hint.label,
+        );
     }
 }

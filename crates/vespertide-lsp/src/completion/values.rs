@@ -1,6 +1,6 @@
 //! Concrete completion values: schema literals and cross-file table lookups.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, ops::Range};
 
 use super::{CompletionItemKind, DomainCompletion};
 use crate::store::DocumentStore;
@@ -82,6 +82,28 @@ const TYPE_OBJECT_KEYS: &[(&str, &str)] = &[
     ("name", "Enum type name"),
     ("values", "Enum values"),
     ("custom_type", "Raw SQL type (kind=custom)"),
+];
+
+const CHECK_EXPR_OPERATORS_AND_KEYWORDS: &[(&str, &str)] = &[
+    ("=", "Equals"),
+    ("!=", "Not equals"),
+    ("<>", "SQL not equals"),
+    ("<", "Less than"),
+    ("<=", "Less than or equal"),
+    (">", "Greater than"),
+    (">=", "Greater than or equal"),
+    ("IN", "Value is in a list"),
+    ("NOT IN", "Value is not in a list"),
+    ("BETWEEN", "Value falls within a range"),
+    ("IS NULL", "Value is NULL"),
+    ("IS NOT NULL", "Value is not NULL"),
+    ("AND", "Combine with another predicate"),
+    ("OR", "Alternative predicate"),
+];
+
+const CHECK_EXPR_OPERAND_HELPERS: &[(&str, &str)] = &[
+    ("NOT", "Negate the next predicate"),
+    ("(", "Start a grouped predicate"),
 ];
 
 /// Scalar `type` completions valid inside a JSON/YAML string literal —
@@ -226,6 +248,61 @@ pub(super) fn reference_actions() -> Vec<DomainCompletion> {
         .collect()
 }
 
+pub(super) fn check_expr_operands(columns: &[String]) -> Vec<DomainCompletion> {
+    let mut completions = check_expr_column_completions(columns, None);
+    completions.extend(check_expr_values(CHECK_EXPR_OPERAND_HELPERS));
+    completions
+}
+
+pub(super) fn check_expr_operators() -> Vec<DomainCompletion> {
+    check_expr_values(CHECK_EXPR_OPERATORS_AND_KEYWORDS)
+}
+
+pub(super) fn check_expr_partial_columns(
+    columns: &[String],
+    prefix: &str,
+    replace_range: Option<&Range<usize>>,
+) -> Vec<DomainCompletion> {
+    let matching = columns
+        .iter()
+        .filter(|column| column.starts_with(prefix))
+        .cloned()
+        .collect::<Vec<_>>();
+    check_expr_column_completions(&matching, replace_range)
+}
+
+fn check_expr_column_completions(
+    columns: &[String],
+    replace_range: Option<&Range<usize>>,
+) -> Vec<DomainCompletion> {
+    columns
+        .iter()
+        .enumerate()
+        .map(|(idx, column)| DomainCompletion {
+            label: column.clone(),
+            kind: CompletionItemKind::Reference,
+            detail: Some("CHECK expression column".to_string()),
+            insert_text: replace_range.map(|_| column.clone()),
+            sort_priority: u8::try_from(idx + 1).unwrap_or(u8::MAX),
+            replace_range_bytes: replace_range.cloned(),
+        })
+        .collect()
+}
+
+fn check_expr_values(entries: &[(&str, &str)]) -> Vec<DomainCompletion> {
+    entries
+        .iter()
+        .enumerate()
+        .map(|(idx, (label, detail))| DomainCompletion {
+            label: (*label).to_string(),
+            kind: CompletionItemKind::Value,
+            detail: Some((*detail).to_string()),
+            sort_priority: u8::try_from(idx + 1).unwrap_or(u8::MAX),
+            ..DomainCompletion::default()
+        })
+        .collect()
+}
+
 /// Default-value variants the LSP knows how to format.
 #[derive(Debug, Clone, Copy)]
 enum DefaultKind {
@@ -242,8 +319,8 @@ enum DefaultKind {
 
 struct DefaultCandidate {
     /// Label shown in the popup, in canonical SQL form (without JSON quotes).
-    label: &'static str,
-    detail: &'static str,
+    label: String,
+    detail: String,
     kind: DefaultKind,
 }
 
@@ -260,8 +337,8 @@ pub(super) fn default_values(
     let mut candidates = type_candidates(type_kind, enum_values);
     // `null` is always valid as a SQL default.
     candidates.push(DefaultCandidate {
-        label: "null",
-        detail: "SQL NULL",
+        label: "null".to_string(),
+        detail: "SQL NULL".to_string(),
         kind: DefaultKind::JsonLiteral,
     });
 
@@ -297,8 +374,8 @@ fn type_candidates(type_kind: Option<&str>, enum_values: &[String]) -> Vec<Defau
         Some("text" | "varchar" | "char") => vec![
             sql_expr("''", "Empty string literal"),
             DefaultCandidate {
-                label: "'${1:value}'",
-                detail: "Custom string literal",
+                label: "'${1:value}'".to_string(),
+                detail: "Custom string literal".to_string(),
                 kind: DefaultKind::SqlSnippet,
             },
         ],
@@ -335,35 +412,28 @@ fn generic_default_fallback() -> Vec<DefaultCandidate> {
 }
 
 fn enum_candidates(enum_values: &[String]) -> Vec<DefaultCandidate> {
-    // Leak each formatted label so its lifetime matches the `'static`
-    // candidate descriptors. Completion is requested rarely enough that the
-    // allocation is fine; the cost is paid once per enum.
     enum_values
         .iter()
-        .map(|name| {
-            let label: &'static str = Box::leak(format!("'{name}'").into_boxed_str());
-            let detail: &'static str = Box::leak(format!("Enum value: {name}").into_boxed_str());
-            DefaultCandidate {
-                label,
-                detail,
-                kind: DefaultKind::SqlExpression,
-            }
+        .map(|name| DefaultCandidate {
+            label: format!("'{name}'"),
+            detail: format!("Enum value: {name}"),
+            kind: DefaultKind::SqlExpression,
         })
         .collect()
 }
 
 fn sql_expr(literal: &'static str, detail: &'static str) -> DefaultCandidate {
     DefaultCandidate {
-        label: literal,
-        detail,
+        label: literal.to_string(),
+        detail: detail.to_string(),
         kind: DefaultKind::SqlExpression,
     }
 }
 
 fn json_literal(literal: &'static str, detail: &'static str) -> DefaultCandidate {
     DefaultCandidate {
-        label: literal,
-        detail,
+        label: literal.to_string(),
+        detail: detail.to_string(),
         kind: DefaultKind::JsonLiteral,
     }
 }
@@ -392,10 +462,10 @@ fn build_default_completion(
     //   * Bare value slot — JSON literals stay bare (`null`/`true`/`0`);
     //     SQL expressions get JSON-quoted so the slot remains valid.
     let insert_text = if in_string {
-        candidate.label.to_string()
+        candidate.label.clone()
     } else {
         match candidate.kind {
-            DefaultKind::JsonLiteral => candidate.label.to_string(),
+            DefaultKind::JsonLiteral => candidate.label.clone(),
             DefaultKind::SqlExpression | DefaultKind::SqlSnippet => {
                 format!("\"{}\"", candidate.label)
             }
@@ -407,9 +477,9 @@ fn build_default_completion(
     };
 
     DomainCompletion {
-        label: candidate.label.to_string(),
+        label: candidate.label.clone(),
         kind,
-        detail: Some(candidate.detail.to_string()),
+        detail: Some(candidate.detail.clone()),
         insert_text: Some(insert_text),
         sort_priority,
         // Inner-only range avoids VS Code's prefix-filter rejecting items

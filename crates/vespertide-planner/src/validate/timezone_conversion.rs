@@ -22,9 +22,7 @@
 //! choice is recorded in the migration JSON for portability but does not
 //! influence the SQL emitted for those backends.
 
-use vespertide_core::{
-    ColumnType, MigrationAction, MigrationPlan, SimpleColumnType, TableDef,
-};
+use vespertide_core::{ColumnType, MigrationAction, MigrationPlan, SimpleColumnType, TableDef};
 
 /// Direction of a `timestamp` ⇄ `timestamptz` conversion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,10 +122,7 @@ fn warning_for_action(
     })
 }
 
-fn classify_direction(
-    from: &ColumnType,
-    to: &ColumnType,
-) -> Option<TimezoneConversionDirection> {
+fn classify_direction(from: &ColumnType, to: &ColumnType) -> Option<TimezoneConversionDirection> {
     match (from, to) {
         (
             ColumnType::Simple(SimpleColumnType::Timestamp),

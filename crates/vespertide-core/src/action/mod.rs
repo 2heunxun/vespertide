@@ -927,11 +927,11 @@ mod tests {
     #[test]
     fn test_action_with_prefix_modify_column_default() {
         let action = MigrationAction::ModifyColumnDefault {
-                    table: "users".into(),
-                    column: "status".into(),
-                    new_default: Some("active".into()),
-                    backfill: None,
-                };
+            table: "users".into(),
+            column: "status".into(),
+            new_default: Some("active".into()),
+            backfill: None,
+        };
         let prefixed = action.with_prefix("myapp_");
         if let MigrationAction::ModifyColumnDefault {
             table,
@@ -973,17 +973,17 @@ mod tests {
     #[test]
     fn test_action_with_prefix_add_constraint() {
         let action = MigrationAction::AddConstraint {
-                    table: "posts".into(),
-                    constraint: TableConstraint::ForeignKey {
-                        name: Some("fk_user".into()),
-                        columns: vec!["user_id".into()],
-                        ref_table: "users".into(),
-                        ref_columns: vec!["id".into()],
-                        on_delete: None,
-                        on_update: None,
-                        orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
-                    },
-                };
+            table: "posts".into(),
+            constraint: TableConstraint::ForeignKey {
+                name: Some("fk_user".into()),
+                columns: vec!["user_id".into()],
+                ref_table: "users".into(),
+                ref_columns: vec!["id".into()],
+                on_delete: None,
+                on_update: None,
+                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
+            },
+        };
         let prefixed = action.with_prefix("myapp_");
         if let MigrationAction::AddConstraint { table, constraint } = prefixed {
             assert_eq!(table.as_str(), "myapp_posts");

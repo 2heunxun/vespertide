@@ -92,11 +92,7 @@ pub fn find_primary_key_additions(
     for (idx, action) in plan.actions.iter().enumerate() {
         let MigrationAction::AddConstraint {
             table,
-            constraint:
-                TableConstraint::PrimaryKey {
-                    columns,
-                    ..
-                },
+            constraint: TableConstraint::PrimaryKey { columns, .. },
         } = action
         else {
             continue;
@@ -289,7 +285,10 @@ mod tests {
         let p = plan(vec![add_pk("audit", &["team_id", "member_id"])]);
         let ws = find_primary_key_additions(&p, &baseline);
         assert_eq!(ws.len(), 1);
-        assert_eq!(ws[0].columns, vec!["team_id".to_string(), "member_id".to_string()]);
+        assert_eq!(
+            ws[0].columns,
+            vec!["team_id".to_string(), "member_id".to_string()]
+        );
         assert_eq!(ws[0].nullable_columns, vec!["team_id".to_string()]);
         // composite ⇒ no auto cleanup (single-column only)
         assert!(!ws[0].auto_cleanup_capable);

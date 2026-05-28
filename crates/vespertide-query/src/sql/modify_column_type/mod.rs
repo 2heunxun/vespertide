@@ -131,9 +131,8 @@ fn build_pg_alter_with_timezone(
         _ => return None,
     };
 
-    let sql = format!(
-        "ALTER TABLE {qt} ALTER COLUMN {qc} TYPE {target_sql_type} USING {using_expr}"
-    );
+    let sql =
+        format!("ALTER TABLE {qt} ALTER COLUMN {qc} TYPE {target_sql_type} USING {using_expr}");
     Some(BuiltQuery::Raw(super::types::RawSql::uniform(sql)))
 }
 
@@ -477,7 +476,9 @@ mod tests {
             constraints: vec![TableConstraint::Unique {
                 name: Some("uq_email".into()),
                 columns: vec!["email".into()],
-                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                    keep: vespertide_core::KeepPolicy::First,
+                },
             }],
         }];
 

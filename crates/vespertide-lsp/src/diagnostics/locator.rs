@@ -39,13 +39,14 @@ impl ErrorLocation {
     /// Extract the table/column/constraint tuple carried by a planner error.
     pub fn from_planner_error(err: &PlannerError) -> Option<Self> {
         use PlannerError::{
+            AddColumnWithFkRequiresNullable, BetweenBoundaryReversed, CheckSelfContradiction,
             ColumnExists, ColumnNotFound, ConstraintColumnNotFound, ConstraintTypeChanged,
             DanglingForeignKeyAfterDrop, DefaultViolatesCheck, DuplicateEnumValue,
             DuplicateEnumVariantName, DuplicateTableName, EmptyConstraintColumns,
-            AddColumnWithFkRequiresNullable, ForeignKeyColumnNotFound, ForeignKeyTableNotFound,
-            IndexColumnNotFound, IndexNotFound, InvalidAutoIncrement, InvalidEnumDefault,
-            MissingFillWith, MissingPrimaryKey, Multiple, PrimaryKeyColumnNullable,
-            PrimaryKeyRemovedWithoutReplacement, TableExists, TableNotFound, TableValidation,
+            ForeignKeyColumnNotFound, ForeignKeyTableNotFound, IndexColumnNotFound, IndexNotFound,
+            InvalidAutoIncrement, InvalidEnumDefault, MissingFillWith, MissingPrimaryKey, Multiple,
+            PrimaryKeyColumnNullable, PrimaryKeyRemovedWithoutReplacement, TableExists,
+            TableNotFound, TableValidation,
         };
 
         match err {
@@ -97,9 +98,9 @@ impl ErrorLocation {
             // column location identically; merged so the arm is shared
             // (clippy's `match_same_arms` would otherwise fire).
             PrimaryKeyColumnNullable { table, column }
-            | AddColumnWithFkRequiresNullable { table, column } => {
-                Some(Self::column(table, column))
-            }
+            | AddColumnWithFkRequiresNullable { table, column }
+            | BetweenBoundaryReversed { table, column, .. }
+            | CheckSelfContradiction { table, column, .. } => Some(Self::column(table, column)),
             InvalidAutoIncrement(table, column, _) => {
                 Some(Self::column_field(table, column, ErrorField::Type))
             }

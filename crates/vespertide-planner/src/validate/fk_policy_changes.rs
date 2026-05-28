@@ -113,7 +113,11 @@ fn warning_for_action(idx: usize, action: &MigrationAction) -> Option<FkPolicyCh
     // if it was renamed, we report the new name (consistent with how the
     // applied migration will leave the database).
     let constraint_name = to_name.clone().or_else(|| from_name.clone());
-    let columns = if to_cols.is_empty() { from_cols } else { to_cols };
+    let columns = if to_cols.is_empty() {
+        from_cols
+    } else {
+        to_cols
+    };
     let ref_table = if to_ref_table.as_str().is_empty() {
         from_ref_table
     } else {

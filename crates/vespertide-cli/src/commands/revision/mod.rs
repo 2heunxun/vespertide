@@ -3,21 +3,23 @@ use chrono::Utc;
 use colored::Colorize;
 use vespertide_core::{MigrationAction, MigrationPlan, NarrowingStrategy};
 use vespertide_planner::{
-    CascadeReachWarning, CheckAdditionWarning, DanglingFkDrop, DefaultChangeWarning, DropChoice,
-    DropResolution, FkOrphanAdditionWarning, FkPolicyChangeWarning, MultipleErrors, PlannerError,
-    PrimaryKeyAdditionWarning, SequenceExhaustionWarning, TimezoneConversionWarning,
-    TypeNarrowingWarning, UniqueAdditionWarning, apply_drop_resolution,
-    find_addcolumn_fk_nullable_violations, find_cascade_reach_violations, find_check_additions,
-    find_constraint_type_changes, find_dangling_fk_drops, find_default_changes,
-    find_drop_resolutions, find_fk_orphan_additions, find_fk_policy_changes,
+    CascadeReachWarning, CheckAdditionWarning, CheckStrengtheningWarning, CheckTypeMismatchWarning,
+    DanglingFkDrop, DefaultChangeWarning, DropChoice, DropResolution, FkOrphanAdditionWarning,
+    FkPolicyChangeWarning, MultipleErrors, PlannerError, PrimaryKeyAdditionWarning,
+    SequenceExhaustionWarning, TimezoneConversionWarning, TypeNarrowingWarning,
+    UniqueAdditionWarning, apply_drop_resolution, find_addcolumn_fk_nullable_violations,
+    find_cascade_reach_violations, find_check_additions, find_check_strengthenings,
+    find_check_type_mismatches, find_constraint_type_changes, find_dangling_fk_drops,
+    find_default_changes, find_drop_resolutions, find_fk_orphan_additions, find_fk_policy_changes,
     find_missing_fill_with, find_primary_key_additions, find_primary_key_removals,
     find_sequence_exhaustion_risks, find_timezone_conversions, find_type_narrowings,
     find_unique_additions, plan_next_migration, schema_from_plans,
 };
 
 use prompts::{
-    CascadeReachChoice, CheckViolationChoice, DefaultChoice, FkOrphanChoice,
-    PrimaryKeyAdditionChoice, SequenceExhaustionChoice, UniqueAdditionChoice,
+    CascadeReachChoice, CheckStrengtheningChoice, CheckTypeMismatchChoice, CheckViolationChoice,
+    DefaultChoice, FkOrphanChoice, PrimaryKeyAdditionChoice, SequenceExhaustionChoice,
+    UniqueAdditionChoice,
 };
 
 use crate::utils::{load_config, load_migrations, load_models};
@@ -93,12 +95,14 @@ pub async fn cmd_revision(
             pk_addition: prompts::prompt_pk_additions,
             cascade_reach: prompts::prompt_cascade_reach,
             sequence_exhaustion: prompts::prompt_sequence_exhaustion,
+            check_strengthening: prompts::prompt_check_strengthening,
+            check_type_mismatch: prompts::prompt_check_type_mismatch,
         },
     )
     .await
 }
 
-struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK, CR, SE> {
+struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK, CR, SE, CS, CTM> {
     recreate: R,
     delete_null_rows: D,
     fill_with: F,
@@ -116,6 +120,8 @@ struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK, C
     pk_addition: PK,
     cascade_reach: CR,
     sequence_exhaustion: SE,
+    check_strengthening: CS,
+    check_type_mismatch: CTM,
 }
 
 #[expect(
@@ -124,13 +130,33 @@ struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK, C
 )]
 #[expect(
     clippy::type_complexity,
-    reason = "RevisionPromptFns gathers 13 closure types parameterised by the warning struct each prompt receives; extracting them to type aliases would scatter the signature across the file without aiding readability"
+    reason = "RevisionPromptFns gathers 19 closure types parameterised by the warning struct each prompt receives; extracting them to type aliases would scatter the signature across the file without aiding readability"
 )]
-async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK, CR, SE>(
+async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK, CR, SE, CS, CTM>(
     message: String,
     fill_with_args: Vec<String>,
     delete_null_rows_args: Vec<String>,
-    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK, CR, SE>,
+    prompt_fns: RevisionPromptFns<
+        R,
+        D,
+        F,
+        E,
+        EB,
+        P,
+        N,
+        TZ,
+        RM,
+        DR,
+        DC,
+        UN,
+        FO,
+        CK,
+        PK,
+        CR,
+        SE,
+        CS,
+        CTM,
+    >,
 ) -> Result<()>
 where
     R: Fn(&[RecreateTableRequired]) -> Result<bool>,
@@ -150,6 +176,8 @@ where
     PK: Fn(&PrimaryKeyAdditionWarning) -> Result<Option<PrimaryKeyAdditionChoice>>,
     CR: Fn(&CascadeReachWarning) -> Result<Option<CascadeReachChoice>>,
     SE: Fn(&SequenceExhaustionWarning) -> Result<Option<SequenceExhaustionChoice>>,
+    CS: Fn(&CheckStrengtheningWarning) -> Result<Option<CheckStrengtheningChoice>>,
+    CTM: Fn(&CheckTypeMismatchWarning) -> Result<Option<CheckTypeMismatchChoice>>,
 {
     let RevisionPromptFns {
         recreate: recreate_prompt_fn,
@@ -169,6 +197,8 @@ where
         pk_addition: pk_addition_prompt_fn,
         cascade_reach: cascade_reach_prompt_fn,
         sequence_exhaustion: sequence_exhaustion_prompt_fn,
+        check_strengthening: check_strengthening_prompt_fn,
+        check_type_mismatch: check_type_mismatch_prompt_fn,
     } = prompt_fns;
 
     let config = load_config()?;
@@ -281,7 +311,9 @@ where
     if let Some(err) = match edge1_errors.len() {
         0 => None,
         1 => Some(edge1_errors.into_iter().next().expect("len == 1")),
-        _ => Some(PlannerError::Multiple(Box::new(MultipleErrors(edge1_errors)))),
+        _ => Some(PlannerError::Multiple(Box::new(MultipleErrors(
+            edge1_errors,
+        )))),
     } {
         return Err(anyhow::anyhow!("{err}"));
     }
@@ -380,6 +412,47 @@ where
         prompts::apply_sequence_exhaustion_choice(&mut plan, warning, choice);
     }
 
+    // F29 — CHECK expression strengthening. A migration replaces a
+    // CHECK predicate with a *demonstrably* stricter one (literal
+    // tightened, operator boundary tightened, IN list shrunk,
+    // BETWEEN narrowed, AND conjunct added, or OR disjunct removed).
+    // Any existing row that satisfied the old predicate but fails
+    // the new one will fail the migration at `VALIDATE CONSTRAINT`
+    // / `ADD CONSTRAINT` time. No mutation: vespertide cannot widen
+    // a user-authored predicate — the user pre-cleans violating
+    // rows in a separate migration or acknowledges the risk and
+    // proceeds. Run AFTER F76 so the analysis sees the final plan.
+    let check_strengthenings = find_check_strengthenings(&plan, &baseline_schema);
+    for warning in &check_strengthenings {
+        let Some(_choice) = check_strengthening_prompt_fn(warning)? else {
+            println!(
+                "{} {}",
+                "Cancelled.".bright_yellow().bold(),
+                "CHECK strengthening declined; no migration written.".bright_white()
+            );
+            return Ok(());
+        };
+    }
+
+    // F-novel-4 — CHECK literal type-mismatch. A CHECK constraint
+    // compares a column to a literal of a demonstrably incompatible
+    // type (e.g. `int_col = 'abc'`, `bool_col = 'x'`, `uuid_col > 0`).
+    // PostgreSQL rejects these at `ADD CONSTRAINT` time; MySQL and
+    // SQLite may coerce silently. vespertide cannot auto-correct the
+    // user-authored literal — the user fixes the model or acknowledges
+    // and proceeds. Run AFTER F29 so the analysis sees the final plan.
+    let check_type_mismatches = find_check_type_mismatches(&plan, &baseline_schema);
+    for warning in &check_type_mismatches {
+        let Some(_choice) = check_type_mismatch_prompt_fn(warning)? else {
+            println!(
+                "{} {}",
+                "Cancelled.".bright_yellow().bold(),
+                "CHECK type mismatch declined; no migration written.".bright_white()
+            );
+            return Ok(());
+        };
+    }
+
     // Parse CLI fill_with arguments
     let mut fill_values = parse::parse_fill_with_args(&fill_with_args);
     let delete_set = parse::parse_delete_null_rows_args(&delete_null_rows_args);
@@ -456,11 +529,7 @@ where
             );
             return Ok(());
         };
-        prompts::apply_narrowing_strategies_to_plan(
-            &mut plan,
-            &narrowing_warnings,
-            &strategies,
-        );
+        prompts::apply_narrowing_strategies_to_plan(&mut plan, &narrowing_warnings, &strategies);
     }
 
     // F20 — timestamp ↔ timestamptz conversions need an explicit timezone

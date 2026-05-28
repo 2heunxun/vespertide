@@ -7,8 +7,8 @@
 
 use crate::diff_schemas;
 use vespertide_core::{
-    ColumnDef, ColumnType, ComplexColumnType, EnumValues, MigrationAction, NumValue, TableConstraint,
-    TableDef,
+    ColumnDef, ColumnType, ComplexColumnType, EnumValues, MigrationAction, NumValue,
+    TableConstraint, TableDef,
 };
 
 // ---------------------------------------------------------------------------
@@ -16,10 +16,12 @@ use vespertide_core::{
 // ---------------------------------------------------------------------------
 
 fn pk_int_col(name: &str) -> ColumnDef {
-    let mut c = ColumnDef::new(name, ColumnType::Simple(vespertide_core::SimpleColumnType::Integer), false);
-    c.primary_key = Some(
-        vespertide_core::schema::primary_key::PrimaryKeySyntax::Bool(true),
+    let mut c = ColumnDef::new(
+        name,
+        ColumnType::Simple(vespertide_core::SimpleColumnType::Integer),
+        false,
     );
+    c.primary_key = Some(vespertide_core::schema::primary_key::PrimaryKeySyntax::Bool(true));
     c
 }
 
@@ -88,11 +90,19 @@ fn remap_actions(actions: &[MigrationAction]) -> Vec<(String, Vec<(i64, i64)>)> 
 fn detects_single_shifted_value() {
     let from = table(
         "tickets",
-        enum_col("priority", "ticket_priority", vec![("low", 0), ("medium", 5), ("high", 10)]),
+        enum_col(
+            "priority",
+            "ticket_priority",
+            vec![("low", 0), ("medium", 5), ("high", 10)],
+        ),
     );
     let to = table(
         "tickets",
-        enum_col("priority", "ticket_priority", vec![("low", 0), ("medium", 100), ("high", 10)]),
+        enum_col(
+            "priority",
+            "ticket_priority",
+            vec![("low", 0), ("medium", 100), ("high", 10)],
+        ),
     );
     let actions = diff_pair(from, to);
     let remaps = remap_actions(&actions);
@@ -105,16 +115,28 @@ fn detects_single_shifted_value() {
 fn detects_multiple_shifted_values_sorted_by_old() {
     let from = table(
         "tickets",
-        enum_col("priority", "ticket_priority", vec![("low", 0), ("medium", 5), ("high", 10)]),
+        enum_col(
+            "priority",
+            "ticket_priority",
+            vec![("low", 0), ("medium", 5), ("high", 10)],
+        ),
     );
     let to = table(
         "tickets",
-        enum_col("priority", "ticket_priority", vec![("low", 0), ("medium", 100), ("high", 200)]),
+        enum_col(
+            "priority",
+            "ticket_priority",
+            vec![("low", 0), ("medium", 100), ("high", 200)],
+        ),
     );
     let actions = diff_pair(from, to);
     let remaps = remap_actions(&actions);
     assert_eq!(remaps.len(), 1);
-    assert_eq!(remaps[0].1, vec![(5, 100), (10, 200)], "mapping must be sorted by old value");
+    assert_eq!(
+        remaps[0].1,
+        vec![(5, 100), (10, 200)],
+        "mapping must be sorted by old value"
+    );
 }
 
 #[test]
@@ -123,11 +145,19 @@ fn value_swap_is_detected() {
     // the SQL generator's atomic CASE WHEN handles the swap correctly.
     let from = table(
         "tickets",
-        enum_col("priority", "ticket_priority", vec![("low", 0), ("medium", 5), ("high", 10)]),
+        enum_col(
+            "priority",
+            "ticket_priority",
+            vec![("low", 0), ("medium", 5), ("high", 10)],
+        ),
     );
     let to = table(
         "tickets",
-        enum_col("priority", "ticket_priority", vec![("low", 0), ("medium", 10), ("high", 5)]),
+        enum_col(
+            "priority",
+            "ticket_priority",
+            vec![("low", 0), ("medium", 10), ("high", 5)],
+        ),
     );
     let actions = diff_pair(from, to);
     let remaps = remap_actions(&actions);
@@ -143,7 +173,11 @@ fn value_swap_is_detected() {
 fn unchanged_values_emit_no_remap() {
     let from = table(
         "tickets",
-        enum_col("priority", "ticket_priority", vec![("low", 0), ("medium", 5)]),
+        enum_col(
+            "priority",
+            "ticket_priority",
+            vec![("low", 0), ("medium", 5)],
+        ),
     );
     let to = from.clone();
     let actions = diff_pair(from, to);
@@ -154,7 +188,11 @@ fn unchanged_values_emit_no_remap() {
 fn variant_added_is_not_a_remap() {
     let from = table(
         "tickets",
-        enum_col("priority", "ticket_priority", vec![("low", 0), ("medium", 5)]),
+        enum_col(
+            "priority",
+            "ticket_priority",
+            vec![("low", 0), ("medium", 5)],
+        ),
     );
     let to = table(
         "tickets",
@@ -165,7 +203,10 @@ fn variant_added_is_not_a_remap() {
         ),
     );
     let actions = diff_pair(from, to);
-    assert!(remap_actions(&actions).is_empty(), "new variant is additive — no remap");
+    assert!(
+        remap_actions(&actions).is_empty(),
+        "new variant is additive — no remap"
+    );
 }
 
 #[test]
@@ -180,10 +221,17 @@ fn variant_removed_is_not_a_remap() {
     );
     let to = table(
         "tickets",
-        enum_col("priority", "ticket_priority", vec![("low", 0), ("medium", 5)]),
+        enum_col(
+            "priority",
+            "ticket_priority",
+            vec![("low", 0), ("medium", 5)],
+        ),
     );
     let actions = diff_pair(from, to);
-    assert!(remap_actions(&actions).is_empty(), "removal is handled by other paths");
+    assert!(
+        remap_actions(&actions).is_empty(),
+        "removal is handled by other paths"
+    );
 }
 
 #[test]
@@ -194,7 +242,11 @@ fn variant_renamed_with_same_value_is_not_a_remap() {
     );
     let to = table(
         "tickets",
-        enum_col("priority", "ticket_priority", vec![("low", 0), ("medium", 5)]),
+        enum_col(
+            "priority",
+            "ticket_priority",
+            vec![("low", 0), ("medium", 5)],
+        ),
     );
     let actions = diff_pair(from, to);
     // No shared name with shifted value — `med` removed, `medium` added.
@@ -231,5 +283,8 @@ fn string_enum_is_ignored_by_this_pass() {
     let from = table("orders", from_payload);
     let to = table("orders", to_payload);
     let actions = diff_pair(from, to);
-    assert!(remap_actions(&actions).is_empty(), "string enums are handled by ModifyColumnType + fill_with");
+    assert!(
+        remap_actions(&actions).is_empty(),
+        "string enums are handled by ModifyColumnType + fill_with"
+    );
 }

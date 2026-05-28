@@ -46,8 +46,14 @@ pub(super) fn build_foreign_key<T: AsRef<str>, U: AsRef<str>>(
     current_schema: &[TableDef],
     pending_constraints: &[TableConstraint],
 ) -> Result<Vec<BuiltQuery>, QueryError> {
-    let cleanup =
-        build_fk_orphan_cleanup(backend, table, columns, ref_table, ref_columns, orphan_strategy)?;
+    let cleanup = build_fk_orphan_cleanup(
+        backend,
+        table,
+        columns,
+        ref_table,
+        ref_columns,
+        orphan_strategy,
+    )?;
 
     if backend == DatabaseBackend::Sqlite {
         let mut queries = cleanup;
@@ -156,8 +162,7 @@ fn build_fk_orphan_cleanup<T: AsRef<str>, U: AsRef<str>>(
         .collect();
     let join_cond = join_cond.join(" AND ");
 
-    let not_exists =
-        format!("NOT EXISTS (SELECT 1 FROM {quoted_ref} WHERE {join_cond})");
+    let not_exists = format!("NOT EXISTS (SELECT 1 FROM {quoted_ref} WHERE {join_cond})");
 
     let sql = match &strategy {
         ForeignKeyOrphanStrategy::NullifyOrphans => {
@@ -179,9 +184,7 @@ fn build_fk_orphan_cleanup<T: AsRef<str>, U: AsRef<str>>(
                 .collect();
             let null_guard = null_guard.join(" OR ");
 
-            format!(
-                "UPDATE {quoted_child} SET {set_clause} WHERE ({null_guard}) AND {not_exists}"
-            )
+            format!("UPDATE {quoted_child} SET {set_clause} WHERE ({null_guard}) AND {not_exists}")
         }
         ForeignKeyOrphanStrategy::DeleteOrphans => {
             format!("DELETE FROM {quoted_child} WHERE {not_exists}")

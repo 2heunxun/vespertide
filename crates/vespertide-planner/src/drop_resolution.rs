@@ -129,15 +129,18 @@ pub struct DropResolution {
 /// returned [`DropResolution::candidates`] is pre-sorted by closeness so the
 /// CLI can render the prompt directly.
 #[must_use]
-pub fn find_drop_resolutions(
-    plan: &MigrationPlan,
-    baseline: &[TableDef],
-) -> Vec<DropResolution> {
+pub fn find_drop_resolutions(plan: &MigrationPlan, baseline: &[TableDef]) -> Vec<DropResolution> {
     let mut out = Vec::new();
     for (idx, action) in plan.actions.iter().enumerate() {
         match action {
             MigrationAction::DeleteColumn { table, column } => {
-                out.push(resolve_column_drop(idx, table.as_str(), column.as_str(), plan, baseline));
+                out.push(resolve_column_drop(
+                    idx,
+                    table.as_str(),
+                    column.as_str(),
+                    plan,
+                    baseline,
+                ));
             }
             MigrationAction::DeleteTable { table } => {
                 out.push(resolve_table_drop(idx, table.as_str(), plan, baseline));
@@ -212,7 +215,11 @@ fn resolve_table_drop(
                 table: new_name,
                 columns,
                 ..
-            } => Some(table_candidate(&baseline_columns, new_name.as_str(), columns)),
+            } => Some(table_candidate(
+                &baseline_columns,
+                new_name.as_str(),
+                columns,
+            )),
             _ => None,
         })
         .collect();
@@ -228,10 +235,7 @@ fn resolve_table_drop(
     }
 }
 
-fn column_candidate(
-    dropped: Option<&ColumnDef>,
-    added: &ColumnDef,
-) -> RenameCandidate {
+fn column_candidate(dropped: Option<&ColumnDef>, added: &ColumnDef) -> RenameCandidate {
     // No baseline info → cannot grade. Treat as Different with a single hint
     // that the comparison was skipped; sorts to the bottom of the list.
     let Some(dropped) = dropped else {
@@ -293,8 +297,7 @@ fn table_candidate(
     let added_set: std::collections::HashSet<&str> =
         added_names.iter().map(String::as_str).collect();
 
-    let only_in_baseline: Vec<&&str> =
-        baseline_set.difference(&added_set).collect();
+    let only_in_baseline: Vec<&&str> = baseline_set.difference(&added_set).collect();
     let only_in_new: Vec<&&str> = added_set.difference(&baseline_set).collect();
 
     let mut differences = Vec::new();
@@ -419,10 +422,10 @@ fn apply_column_rename(
     let delete_idx = plan
         .actions
         .iter()
-        .position(
-            |a| matches!(a, MigrationAction::DeleteColumn { table: t, column: c }
-                if t.as_str() == table && c.as_str() == old_column),
-        )
+        .position(|a| {
+            matches!(a, MigrationAction::DeleteColumn { table: t, column: c }
+                if t.as_str() == table && c.as_str() == old_column)
+        })
         .ok_or_else(|| {
             DropResolutionError::DropActionMissing(format!("DeleteColumn {table}.{old_column}"))
         })?;
@@ -518,13 +521,11 @@ fn apply_table_rename(
     let delete_idx = plan
         .actions
         .iter()
-        .position(
-            |a| matches!(a, MigrationAction::DeleteTable { table }
-                if table.as_str() == old_name),
-        )
-        .ok_or_else(|| {
-            DropResolutionError::DropActionMissing(format!("DeleteTable {old_name}"))
-        })?;
+        .position(|a| {
+            matches!(a, MigrationAction::DeleteTable { table }
+                if table.as_str() == old_name)
+        })
+        .ok_or_else(|| DropResolutionError::DropActionMissing(format!("DeleteTable {old_name}")))?;
 
     let create_idx = plan
         .actions
@@ -585,11 +586,7 @@ fn apply_table_rename(
 
 /// Compute the per-column diff between the old (baseline) table and the new
 /// declaration, expressed in the renamed table's namespace.
-fn diff_table_columns(
-    table: &str,
-    old: &[ColumnDef],
-    new: &[ColumnDef],
-) -> Vec<MigrationAction> {
+fn diff_table_columns(table: &str, old: &[ColumnDef], new: &[ColumnDef]) -> Vec<MigrationAction> {
     let mut actions = Vec::new();
     let old_by_name: std::collections::HashMap<&str, &ColumnDef> =
         old.iter().map(|c| (c.name.as_str(), c)).collect();
@@ -673,9 +670,9 @@ fn diff_table_constraints(
     for c in new {
         if !old.contains(c) {
             actions.push(MigrationAction::AddConstraint {
-                        table: TableName::from(table),
-                        constraint: c.clone(),
-                    });
+                table: TableName::from(table),
+                constraint: c.clone(),
+            });
         }
     }
     actions
@@ -750,7 +747,10 @@ mod tests {
         )];
         let plan = plan_with(vec![
             delete_column("user", "email"),
-            add_column("user", col_not_null("email_address", SimpleColumnType::Text)),
+            add_column(
+                "user",
+                col_not_null("email_address", SimpleColumnType::Text),
+            ),
         ]);
 
         let resolutions = find_drop_resolutions(&plan, &baseline);
@@ -781,7 +781,12 @@ mod tests {
 
         let r = &find_drop_resolutions(&plan, &baseline)[0];
         assert_eq!(r.candidates[0].match_quality, Match::Different);
-        assert!(r.candidates[0].differences.iter().any(|d| d.contains("type:")));
+        assert!(
+            r.candidates[0]
+                .differences
+                .iter()
+                .any(|d| d.contains("type:"))
+        );
     }
 
     /// Case 3: type same, nullable different → `Match::SameType`.
@@ -800,7 +805,12 @@ mod tests {
 
         let r = &find_drop_resolutions(&plan, &baseline)[0];
         assert_eq!(r.candidates[0].match_quality, Match::SameType);
-        assert!(r.candidates[0].differences.iter().any(|d| d.contains("nullable")));
+        assert!(
+            r.candidates[0]
+                .differences
+                .iter()
+                .any(|d| d.contains("nullable"))
+        );
     }
 
     /// Case 4: column drop with no candidates → empty list, prompt collapses
@@ -830,16 +840,25 @@ mod tests {
         let plan = plan_with(vec![
             delete_column("user", "email"),
             // Different (Integer != Text)
-            add_column("user", col_not_null("legacy_email", SimpleColumnType::Integer)),
+            add_column(
+                "user",
+                col_not_null("legacy_email", SimpleColumnType::Integer),
+            ),
             // Exact
-            add_column("user", col_not_null("renamed_email", SimpleColumnType::Text)),
+            add_column(
+                "user",
+                col_not_null("renamed_email", SimpleColumnType::Text),
+            ),
             // SameType (nullable differs)
             add_column("user", col("alt_email", SimpleColumnType::Text)),
         ]);
 
         let r = &find_drop_resolutions(&plan, &baseline)[0];
         let grades: Vec<_> = r.candidates.iter().map(|c| c.match_quality).collect();
-        assert_eq!(grades, vec![Match::Exact, Match::SameType, Match::Different]);
+        assert_eq!(
+            grades,
+            vec![Match::Exact, Match::SameType, Match::Different]
+        );
         assert_eq!(r.candidates[0].target_name, "renamed_email");
     }
 
@@ -944,7 +963,10 @@ mod tests {
         )];
         let mut plan = plan_with(vec![
             delete_column("user", "email"),
-            add_column("user", col_not_null("email_address", SimpleColumnType::Text)),
+            add_column(
+                "user",
+                col_not_null("email_address", SimpleColumnType::Text),
+            ),
         ]);
         let resolutions = find_drop_resolutions(&plan, &baseline);
 
@@ -993,8 +1015,14 @@ mod tests {
         .unwrap();
 
         assert_eq!(plan.actions.len(), 2);
-        assert!(matches!(&plan.actions[0], MigrationAction::RenameColumn { .. }));
-        assert!(matches!(&plan.actions[1], MigrationAction::ModifyColumnType { .. }));
+        assert!(matches!(
+            &plan.actions[0],
+            MigrationAction::RenameColumn { .. }
+        ));
+        assert!(matches!(
+            &plan.actions[1],
+            MigrationAction::ModifyColumnType { .. }
+        ));
     }
 
     /// Case 11: `RenameTo` with nullable + default differences emits the
@@ -1025,7 +1053,10 @@ mod tests {
         // Expected: RenameColumn + ModifyColumnNullable + ModifyColumnDefault.
         // ModifyColumnType is absent because the type did not change.
         assert_eq!(plan.actions.len(), 3);
-        assert!(matches!(&plan.actions[0], MigrationAction::RenameColumn { .. }));
+        assert!(matches!(
+            &plan.actions[0],
+            MigrationAction::RenameColumn { .. }
+        ));
         assert!(matches!(
             &plan.actions[1],
             MigrationAction::ModifyColumnNullable { .. }
@@ -1116,7 +1147,10 @@ mod tests {
 
         // Expected: RenameTable, DeleteColumn(name), AddColumn(email).
         // Constraints unchanged (both have PK on id) so no constraint actions.
-        assert!(matches!(&plan.actions[0], MigrationAction::RenameTable { .. }));
+        assert!(matches!(
+            &plan.actions[0],
+            MigrationAction::RenameTable { .. }
+        ));
         assert!(plan.actions.iter().any(|a| matches!(
             a,
             MigrationAction::DeleteColumn { column, .. } if column.as_str() == "name"
@@ -1150,4 +1184,3 @@ mod tests {
         assert!(matches!(err, DropResolutionError::TargetActionMissing(_)));
     }
 }
-

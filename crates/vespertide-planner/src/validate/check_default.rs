@@ -6,22 +6,29 @@
 //! the database at runtime. The migration itself succeeds — only the first
 //! application `INSERT` discovers the mismatch.
 //!
-//! Vespertide rejects this *statically* during `validate_schema`. The
-//! checker recognises two simple CHECK shapes (intentionally narrow to
-//! avoid embedding a SQL parser):
+//! Vespertide rejects this *statically* during `validate_schema`. CHECK
+//! expressions are tokenised by the shared
+//! [`super::check_expr_parser`] (also used by F29) which recognises the
+//! dialect-neutral subset of SQL boolean expressions. F86 only triggers
+//! on the narrow per-column predicate shapes:
 //!
 //! ```text
 //!   <column> <op>  <literal>          // op ∈ { > >= < <= = <> != }
 //!   <column> IN (<lit>, <lit>, ...)
 //! ```
 //!
-//! Anything else (function calls, AND/OR composition, subqueries, casts,
-//! references to other columns) is treated as *unparseable* and silently
-//! passes — by design, since misjudging a complex expression as violated
-//! would block legitimate schemas.
+//! Anything else (compound expressions via AND/OR, BETWEEN, IS NULL,
+//! function calls, casts, references to other columns) is treated as
+//! *unparseable* for F86 purposes and silently passes — by design,
+//! since misjudging a complex expression as violated would block
+//! legitimate schemas. F29 (CHECK strengthening) consumes the same
+//! parser but uses the full AST including AND/OR composition.
 
 use vespertide_core::{DefaultValue, TableConstraint, TableDef};
 
+use super::check_expr_parser::{
+    Literal, Op, SimpleColumnCheck, extract_simple_column_check, parse,
+};
 use crate::error::PlannerError;
 
 /// Inspect every column in `table`: if it has a default value AND there is
@@ -41,10 +48,11 @@ pub(super) fn validate_default_vs_check(table: &TableDef) -> Result<(), PlannerE
             let TableConstraint::Check { name, expr, .. } = constraint else {
                 continue;
             };
-            let Some(parsed) = parse_simple_check(expr, column_name) else {
-                continue; // unparseable shape — silent pass by design
+            let parsed = parse(expr);
+            let Some(simple) = extract_simple_column_check(&parsed, column_name) else {
+                continue; // unparseable for F86 — silent pass by design
             };
-            if !check_satisfied(&parsed, default) {
+            if !check_satisfied(&simple, default) {
                 return Err(PlannerError::DefaultViolatesCheck {
                     table: table.name.to_string(),
                     column: column_name.to_string(),
@@ -58,197 +66,10 @@ pub(super) fn validate_default_vs_check(table: &TableDef) -> Result<(), PlannerE
     Ok(())
 }
 
-/// Recognised shapes of a CHECK expression that this checker can evaluate.
-#[derive(Debug, Clone, PartialEq)]
-enum SimpleCheck {
-    /// `<column> <op> <literal>`.
-    Op { op: Op, value: Literal },
-    /// `<column> IN (<lit>, <lit>, ...)`. Empty list is rejected at parse
-    /// time so we never see it here.
-    In(Vec<Literal>),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Op {
-    Eq,
-    Ne,
-    Lt,
-    Le,
-    Gt,
-    Ge,
-}
-
-/// Lightweight literal representation that survives `DefaultValue`
-/// comparison without dragging in a full SQL grammar.
-///
-/// `Eq` is intentionally not derived because the `Float` variant wraps an
-/// `f64`. Equality is computed by [`literal_equals`] which folds Integer
-/// and Float into the same numeric axis.
-#[derive(Debug, Clone, PartialEq)]
-enum Literal {
-    Integer(i64),
-    Float(f64),
-    /// SQL string literal *as written*, e.g. `'pending'`. Single quotes
-    /// are preserved so equality with `DefaultValue::String`'s `to_sql()`
-    /// output works without ad-hoc unquoting.
-    String(String),
-    Bool(bool),
-    Null,
-}
-
-/// Boolean shim so callers outside `check_default` can ask "is this
-/// CHECK in the narrow recognisable shape against this column?" without
-/// touching the private [`SimpleCheck`] / [`Literal`] / [`Op`] types.
-/// Used by [`super::check_additions`] (F4) to identify the target
-/// column of an added CHECK.
-pub(super) fn matches_simple_check(expr: &str, column: &str) -> bool {
-    parse_simple_check(expr, column).is_some()
-}
-
-fn parse_simple_check(expr: &str, column: &str) -> Option<SimpleCheck> {
-    let trimmed = expr.trim();
-
-    // Try IN list first because `<col> IN ...` would otherwise look like
-    // a comparison op below.
-    if let Some(rest) = strip_column_then_keyword(trimmed, column, "IN") {
-        return parse_paren_list(rest.trim()).map(SimpleCheck::In);
-    }
-
-    // Try `<col> <op> <literal>`. Longer operators first so `<=` is not
-    // misread as `<`.
-    for &(token, op) in &[
-        (">=", Op::Ge),
-        ("<=", Op::Le),
-        ("<>", Op::Ne),
-        ("!=", Op::Ne),
-        (">", Op::Gt),
-        ("<", Op::Lt),
-        ("=", Op::Eq),
-    ] {
-        if let Some((lhs, rhs)) = split_once_outside_strings(trimmed, token)
-            && lhs.trim() == column
-        {
-            let value = parse_literal(rhs.trim())?;
-            return Some(SimpleCheck::Op { op, value });
-        }
-    }
-    None
-}
-
-/// `column IN (rest)` — return `Some(rest)` when the trimmed expression
-/// starts with the column identifier followed by the `IN` keyword
-/// (case-insensitive, whitespace-tolerant).
-fn strip_column_then_keyword<'a>(expr: &'a str, column: &str, keyword: &str) -> Option<&'a str> {
-    let rest = expr.strip_prefix(column)?;
-    let rest = rest.trim_start();
-    let keyword_upper = keyword.to_ascii_uppercase();
-    let rest_upper = rest.get(..keyword_upper.len())?.to_ascii_uppercase();
-    if rest_upper != keyword_upper {
-        return None;
-    }
-    // The next char must be whitespace or `(` so we don't match `INTEGER`.
-    let after = rest.get(keyword_upper.len()..)?;
-    if after.chars().next()? != ' ' && after.chars().next()? != '(' {
-        return None;
-    }
-    Some(after.trim_start())
-}
-
-/// Parse `( lit, lit, lit )` into a `Vec<Literal>`. Returns `None` if the
-/// surface shape isn't a parenthesised comma-separated literal list.
-fn parse_paren_list(rest: &str) -> Option<Vec<Literal>> {
-    let stripped = rest.strip_prefix('(')?.strip_suffix(')')?;
-    let mut items = Vec::new();
-    for chunk in split_top_level_commas(stripped) {
-        items.push(parse_literal(chunk.trim())?);
-    }
-    if items.is_empty() {
-        return None;
-    }
-    Some(items)
-}
-
-/// Comma-split that respects single-quoted strings (so `'a,b', 'c'` becomes
-/// two chunks). No nested parens / functions allowed — those land us in
-/// "unparseable, silent pass" territory.
-fn split_top_level_commas(s: &str) -> Vec<&str> {
-    let mut out = Vec::new();
-    let mut in_string = false;
-    let mut start = 0usize;
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if b == b'\'' {
-            // doubled quote is SQL escape; skip both
-            if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
-                i += 2;
-                continue;
-            }
-            in_string = !in_string;
-        } else if b == b',' && !in_string {
-            out.push(&s[start..i]);
-            start = i + 1;
-        }
-        i += 1;
-    }
-    out.push(&s[start..]);
-    out
-}
-
-/// Like `str::split_once`, but skips matches inside single-quoted strings
-/// so `status = 'a=b'` parses correctly.
-fn split_once_outside_strings<'a>(s: &'a str, sep: &str) -> Option<(&'a str, &'a str)> {
-    let sep_bytes = sep.as_bytes();
-    let bytes = s.as_bytes();
-    let mut in_string = false;
-    let mut i = 0;
-    while i + sep_bytes.len() <= bytes.len() {
-        let b = bytes[i];
-        if b == b'\'' {
-            if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
-                i += 2;
-                continue;
-            }
-            in_string = !in_string;
-            i += 1;
-            continue;
-        }
-        if !in_string && &bytes[i..i + sep_bytes.len()] == sep_bytes {
-            return Some((&s[..i], &s[i + sep_bytes.len()..]));
-        }
-        i += 1;
-    }
-    None
-}
-
-fn parse_literal(s: &str) -> Option<Literal> {
-    let s = s.trim();
-    if s.eq_ignore_ascii_case("NULL") {
-        return Some(Literal::Null);
-    }
-    if s.eq_ignore_ascii_case("TRUE") {
-        return Some(Literal::Bool(true));
-    }
-    if s.eq_ignore_ascii_case("FALSE") {
-        return Some(Literal::Bool(false));
-    }
-    if s.starts_with('\'') && s.ends_with('\'') && s.len() >= 2 {
-        return Some(Literal::String(s.to_string()));
-    }
-    if let Ok(i) = s.parse::<i64>() {
-        return Some(Literal::Integer(i));
-    }
-    if let Ok(f) = s.parse::<f64>() {
-        return Some(Literal::Float(f));
-    }
-    None
-}
-
-fn check_satisfied(check: &SimpleCheck, default: &DefaultValue) -> bool {
+fn check_satisfied(check: &SimpleColumnCheck, default: &DefaultValue) -> bool {
     match check {
-        SimpleCheck::Op { op, value } => evaluate_op(*op, default, value),
-        SimpleCheck::In(list) => list.iter().any(|v| literal_equals(default, v)),
+        SimpleColumnCheck::Op { op, value } => evaluate_op(*op, default, value),
+        SimpleColumnCheck::In(list) => list.iter().any(|v| literal_equals(default, v)),
     }
 }
 
@@ -328,12 +149,8 @@ fn literal_equals(default: &DefaultValue, lit: &Literal) -> bool {
     match (default, lit) {
         (DefaultValue::Integer(a), Literal::Integer(b)) => a == b,
         (DefaultValue::Float(a), Literal::Float(b)) => (a - b).abs() < f64::EPSILON,
-        (DefaultValue::Integer(a), Literal::Float(b)) => {
-            (i64_to_f64(*a) - b).abs() < f64::EPSILON
-        }
-        (DefaultValue::Float(a), Literal::Integer(b)) => {
-            (a - i64_to_f64(*b)).abs() < f64::EPSILON
-        }
+        (DefaultValue::Integer(a), Literal::Float(b)) => (i64_to_f64(*a) - b).abs() < f64::EPSILON,
+        (DefaultValue::Float(a), Literal::Integer(b)) => (a - i64_to_f64(*b)).abs() < f64::EPSILON,
         (DefaultValue::String(a), Literal::String(b)) => a == b,
         (DefaultValue::Bool(a), Literal::Bool(b)) => a == b,
         _ => false,

@@ -387,7 +387,7 @@ fn validate_auto_increment_on_integer_column_succeeds() {
 fn validate_inline_auto_increment_on_text_column_fails() {
     let mut col_def = col("id", ColumnType::Simple(SimpleColumnType::Text));
     col_def.primary_key = Some(PrimaryKeySyntax::Object(PrimaryKeyDef {
-        auto_increment: true
+        auto_increment: true,
     }));
 
     let table_def = table("users", vec![col_def], vec![]);

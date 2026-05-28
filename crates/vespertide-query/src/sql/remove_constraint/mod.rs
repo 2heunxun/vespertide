@@ -116,10 +116,12 @@ mod tests {
 
     fn unique(name: Option<&str>, columns: &[&str]) -> TableConstraint {
         TableConstraint::Unique {
-                    name: name.map(Into::into),
-                    columns: columns.iter().copied().map(Into::into).collect(),
-                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
-                }
+            name: name.map(Into::into),
+            columns: columns.iter().copied().map(Into::into).collect(),
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
+        }
     }
 
     fn fk(name: Option<&str>) -> TableConstraint {

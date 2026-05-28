@@ -95,7 +95,9 @@ fn build_truncate(
         NarrowingKind::NumericScale { to_scale, .. } => {
             // Decimal-place trim via ROUND(col, new_scale). The same SQL
             // works on every backend.
-            return Ok(vec![numeric_round_update(backend, table, column, *to_scale)]);
+            return Ok(vec![numeric_round_update(
+                backend, table, column, *to_scale,
+            )]);
         }
         NarrowingKind::NumericIntegerDigits { .. }
         | NarrowingKind::IntegerSize { .. }
@@ -129,15 +131,15 @@ fn string_left_update(
     let t = quote_ident(table, backend);
     let c = quote_ident(column, backend);
     let sql = match backend {
-        DatabaseBackend::Postgres => format!(
-            "UPDATE {t} SET {c} = LEFT({c}, {new_len}) WHERE LENGTH({c}) > {new_len}"
-        ),
-        DatabaseBackend::MySql => format!(
-            "UPDATE {t} SET {c} = LEFT({c}, {new_len}) WHERE CHAR_LENGTH({c}) > {new_len}"
-        ),
-        DatabaseBackend::Sqlite => format!(
-            "UPDATE {t} SET {c} = substr({c}, 1, {new_len}) WHERE length({c}) > {new_len}"
-        ),
+        DatabaseBackend::Postgres => {
+            format!("UPDATE {t} SET {c} = LEFT({c}, {new_len}) WHERE LENGTH({c}) > {new_len}")
+        }
+        DatabaseBackend::MySql => {
+            format!("UPDATE {t} SET {c} = LEFT({c}, {new_len}) WHERE CHAR_LENGTH({c}) > {new_len}")
+        }
+        DatabaseBackend::Sqlite => {
+            format!("UPDATE {t} SET {c} = substr({c}, 1, {new_len}) WHERE length({c}) > {new_len}")
+        }
     };
     BuiltQuery::Raw(RawSql::uniform(sql))
 }
@@ -212,9 +214,7 @@ fn violation_predicate(
         NarrowingKind::VarcharLength { to, .. }
         | NarrowingKind::CharLength { to, .. }
         | NarrowingKind::VarcharToCharShorter { to, .. }
-        | NarrowingKind::CharToVarcharShorter { to, .. } => {
-            Ok(format!("{len_fn}({c}) > {to}"))
-        }
+        | NarrowingKind::CharToVarcharShorter { to, .. } => Ok(format!("{len_fn}({c}) > {to}")),
         NarrowingKind::TextToVarchar { to_length } | NarrowingKind::TextToChar { to_length } => {
             Ok(format!("{len_fn}({c}) > {to_length}"))
         }
@@ -668,4 +668,3 @@ mod tests {
         assert!(queries.is_empty());
     }
 }
-

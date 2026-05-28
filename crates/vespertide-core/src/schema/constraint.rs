@@ -258,10 +258,12 @@ mod tests {
     #[test]
     fn test_columns_unique() {
         let unique = TableConstraint::Unique {
-                    name: Some("uq_email".into()),
-                    columns: vec!["email".into()],
-                    strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
-                };
+            name: Some("uq_email".into()),
+            columns: vec!["email".into()],
+            strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: crate::schema::KeepPolicy::First,
+            },
+        };
         assert_eq!(unique.columns().len(), 1);
         assert_eq!(unique.columns()[0], "email");
     }
@@ -326,10 +328,12 @@ mod tests {
             ),
             (
                 TableConstraint::Unique {
-                            name: None,
-                            columns: vec!["email".into()],
-                            strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
-                        },
+                    name: None,
+                    columns: vec!["email".into()],
+                    strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates {
+                        keep: crate::schema::KeepPolicy::First,
+                    },
+                },
                 ConstraintKind::Unique,
             ),
             (
@@ -384,10 +388,12 @@ mod tests {
         assert_eq!(pk, prefixed);
 
         let unique = TableConstraint::Unique {
-                    name: Some("uq_email".into()),
-                    columns: vec!["email".into()],
-                    strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
-                };
+            name: Some("uq_email".into()),
+            columns: vec!["email".into()],
+            strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: crate::schema::KeepPolicy::First,
+            },
+        };
         let prefixed = unique.clone().with_prefix("myapp_");
         assert_eq!(unique, prefixed);
 

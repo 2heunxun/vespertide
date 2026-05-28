@@ -80,7 +80,10 @@ fn timestamptz_to_timestamp_is_detected_as_aware_to_naive() {
     let warnings = find_timezone_conversions(&plan, &baseline);
 
     assert_eq!(warnings.len(), 1);
-    assert_eq!(warnings[0].direction, TimezoneConversionDirection::AwareToNaive);
+    assert_eq!(
+        warnings[0].direction,
+        TimezoneConversionDirection::AwareToNaive
+    );
     assert_eq!(warnings[0].direction.label(), "timestamptz -> timestamp");
 }
 
@@ -219,10 +222,16 @@ fn mixed_plan_returns_only_timezone_conversions_with_indices() {
 
     assert_eq!(warnings.len(), 2);
     assert_eq!(warnings[0].action_index, 1);
-    assert_eq!(warnings[0].direction, TimezoneConversionDirection::NaiveToAware);
+    assert_eq!(
+        warnings[0].direction,
+        TimezoneConversionDirection::NaiveToAware
+    );
     assert!(warnings[0].current_timezone.is_none());
     assert_eq!(warnings[1].action_index, 2);
-    assert_eq!(warnings[1].direction, TimezoneConversionDirection::AwareToNaive);
+    assert_eq!(
+        warnings[1].direction,
+        TimezoneConversionDirection::AwareToNaive
+    );
     assert_eq!(warnings[1].current_timezone.as_deref(), Some("UTC"));
 }
 

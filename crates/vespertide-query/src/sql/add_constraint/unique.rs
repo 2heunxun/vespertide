@@ -112,7 +112,11 @@ fn try_resolve_single_pk_column<T: AsRef<str>>(
                 .filter(|col| col.primary_key.is_some())
                 .map(|col| col.name.to_string())
                 .collect();
-            if inline.is_empty() { None } else { Some(inline) }
+            if inline.is_empty() {
+                None
+            } else {
+                Some(inline)
+            }
         })?;
 
     if pk_columns.len() != 1 {
@@ -126,11 +130,7 @@ fn try_resolve_single_pk_column<T: AsRef<str>>(
     Some(pk_column)
 }
 
-fn build_unique_index<T: AsRef<str>>(
-    table: &str,
-    name: Option<&str>,
-    columns: &[T],
-) -> BuiltQuery {
+fn build_unique_index<T: AsRef<str>>(table: &str, name: Option<&str>, columns: &[T]) -> BuiltQuery {
     let index_name = build_unique_constraint_name(table, columns, name);
     let mut idx = Index::create()
         .table(Alias::new(table))

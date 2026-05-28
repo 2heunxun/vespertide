@@ -79,10 +79,12 @@ fn test_add_constraint(
         }
     } else if title.contains("unique") {
         TableConstraint::Unique {
-                    name: Some("uq_email".into()),
-                    columns: vec!["email".into()],
-                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
-                }
+            name: Some("uq_email".into()),
+            columns: vec!["email".into()],
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
+        }
     } else if title.contains("foreign_key") {
         TableConstraint::ForeignKey {
             name: Some("fk_user".into()),
@@ -247,9 +249,8 @@ fn add_check_constraint_escapes_adversarial_identifiers() {
         "PG NOT VALID statement missing or mis-escaped, got: {pg_sql}"
     );
     assert!(
-        pg_sql.contains(
-            "ALTER TABLE \"users\"\"archive\" VALIDATE CONSTRAINT \"chk_age\"\"quote\""
-        ),
+        pg_sql
+            .contains("ALTER TABLE \"users\"\"archive\" VALIDATE CONSTRAINT \"chk_age\"\"quote\""),
         "PG VALIDATE statement missing or mis-escaped, got: {pg_sql}"
     );
 
@@ -386,7 +387,9 @@ fn test_add_constraint_primary_key_sqlite_with_unique_constraint() {
         constraints: vec![TableConstraint::Unique {
             name: Some("uq_email".into()),
             columns: vec!["email".into()],
-            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
         }],
     }];
     let result = build_add_constraint(
@@ -573,7 +576,9 @@ fn test_add_constraint_check_sqlite_with_unique_constraint() {
         constraints: vec![TableConstraint::Unique {
             name: Some("uq_age".into()),
             columns: vec!["age".into()],
-            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
         }],
     }];
     let result = build_add_constraint(
@@ -852,7 +857,9 @@ fn test_extract_check_clauses_with_mixed_constraints() {
         TableConstraint::Unique {
             name: Some("uq".into()),
             columns: vec!["email".into()],
-            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
         },
     ];
     let clauses = crate::sql::helpers::extract_check_clauses(&constraints);
@@ -871,7 +878,9 @@ fn test_extract_check_clauses_with_no_check_constraints() {
         TableConstraint::Unique {
             name: None,
             columns: vec!["email".into()],
-            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
         },
     ];
     let clauses = crate::sql::helpers::extract_check_clauses(&constraints);

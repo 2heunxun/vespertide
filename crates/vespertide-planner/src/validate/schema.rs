@@ -73,30 +73,29 @@ pub fn find_schema_violations(schema: &[TableDef]) -> Vec<PlannerError> {
         })
         .collect();
 
-    let mut per_table: Vec<(usize, PlannerError)> = if schema.len()
-        < validate_schema_par_threshold()
-    {
-        schema
-            .iter()
-            .enumerate()
-            .filter_map(|(index, table)| {
-                validate_table_entry(table, &table_map)
-                    .err()
-                    .map(|e| (index, e))
-            })
-            .collect()
-    } else {
-        schema
-            .par_iter()
-            .with_min_len(VALIDATE_SCHEMA_PAR_MIN_LEN)
-            .enumerate()
-            .filter_map(|(index, table)| {
-                validate_table_entry(table, &table_map)
-                    .err()
-                    .map(|e| (index, e))
-            })
-            .collect()
-    };
+    let mut per_table: Vec<(usize, PlannerError)> =
+        if schema.len() < validate_schema_par_threshold() {
+            schema
+                .iter()
+                .enumerate()
+                .filter_map(|(index, table)| {
+                    validate_table_entry(table, &table_map)
+                        .err()
+                        .map(|e| (index, e))
+                })
+                .collect()
+        } else {
+            schema
+                .par_iter()
+                .with_min_len(VALIDATE_SCHEMA_PAR_MIN_LEN)
+                .enumerate()
+                .filter_map(|(index, table)| {
+                    validate_table_entry(table, &table_map)
+                        .err()
+                        .map(|e| (index, e))
+                })
+                .collect()
+        };
 
     per_table.sort_by_key(|(index, _)| *index);
     violations.extend(per_table.into_iter().map(|(_, err)| err));
@@ -112,7 +111,9 @@ fn validate_table_entry(
         .validate_unique_column_names()
         .map_err(|e| PlannerError::TableValidation(e.to_string()))?;
     validate_table(table, table_map)?;
-    super::check_default::validate_default_vs_check(table)
+    super::check_default::validate_default_vs_check(table)?;
+    super::check_between_order::validate_between_boundary_order(table)?;
+    super::check_self_contradiction::validate_self_contradiction(table)
 }
 
 pub(super) fn validate_table(

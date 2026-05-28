@@ -22,7 +22,10 @@ fn col(name: &str, ty: ColumnType) -> ColumnDef {
 /// column write the struct literal directly. Kept available as a hook
 /// for future tests that exercise nullable-column behaviour without
 /// duplicating the `ColumnDef::new(..., true)` boilerplate.
-#[expect(dead_code, reason = "kept available for future nullable-column fixtures")]
+#[expect(
+    dead_code,
+    reason = "kept available for future nullable-column fixtures"
+)]
 fn col_nullable(name: &str, ty: ColumnType) -> ColumnDef {
     ColumnDef::new(name, ty, true)
 }

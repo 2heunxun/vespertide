@@ -791,7 +791,10 @@ fn test_resolve_fk_target_deep_chain() {
     assert_eq!(columns, vec!["id"]);
 }
 
-#[expect(clippy::too_many_lines, reason = "F3 wire-format change added one line per ForeignKey literal; fixture is otherwise atomic")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "F3 wire-format change added one line per ForeignKey literal; fixture is otherwise atomic"
+)]
 #[test]
 fn test_render_entity_with_schema_cyclic_fk_chain_returns_current_target() {
     use vespertide_core::{ColumnType, SimpleColumnType};

@@ -24,11 +24,7 @@ fn baseline_table(table_name: &str, column: ColumnDef) -> TableDef {
     )
 }
 
-fn modify_type(
-    table: &str,
-    column: &str,
-    new_type: ColumnType,
-) -> MigrationAction {
+fn modify_type(table: &str, column: &str, new_type: ColumnType) -> MigrationAction {
     MigrationAction::ModifyColumnType {
         table: table.into(),
         column: column.into(),
@@ -74,10 +70,7 @@ fn simple(t: SimpleColumnType) -> ColumnType {
 
 #[test]
 fn varchar_length_shrink_is_detected() {
-    let baseline = vec![baseline_table(
-        "users",
-        baseline_col("email", varchar(40)),
-    )];
+    let baseline = vec![baseline_table("users", baseline_col("email", varchar(40)))];
     let plan = plan_with(vec![modify_type("users", "email", varchar(30))]);
 
     let warnings = find_type_narrowings(&plan, &baseline);
@@ -94,10 +87,7 @@ fn varchar_length_shrink_is_detected() {
 
 #[test]
 fn varchar_length_grow_is_not_detected() {
-    let baseline = vec![baseline_table(
-        "users",
-        baseline_col("email", varchar(30)),
-    )];
+    let baseline = vec![baseline_table("users", baseline_col("email", varchar(30)))];
     let plan = plan_with(vec![modify_type("users", "email", varchar(40))]);
 
     let warnings = find_type_narrowings(&plan, &baseline);
@@ -201,10 +191,15 @@ fn text_to_char_is_always_detected() {
 
 #[test]
 fn varchar_to_text_is_widening_and_not_detected() {
-    let baseline = vec![baseline_table("articles", baseline_col("body", varchar(255)))];
-    let plan = plan_with(vec![
-        modify_type("articles", "body", simple(SimpleColumnType::Text)),
-    ]);
+    let baseline = vec![baseline_table(
+        "articles",
+        baseline_col("body", varchar(255)),
+    )];
+    let plan = plan_with(vec![modify_type(
+        "articles",
+        "body",
+        simple(SimpleColumnType::Text),
+    )]);
     assert!(find_type_narrowings(&plan, &baseline).is_empty());
 }
 
@@ -282,9 +277,11 @@ fn bigint_to_integer_is_detected() {
         "events",
         baseline_col("offset_id", simple(SimpleColumnType::BigInt)),
     )];
-    let plan = plan_with(vec![
-        modify_type("events", "offset_id", simple(SimpleColumnType::Integer)),
-    ]);
+    let plan = plan_with(vec![modify_type(
+        "events",
+        "offset_id",
+        simple(SimpleColumnType::Integer),
+    )]);
 
     let warnings = find_type_narrowings(&plan, &baseline);
     assert_eq!(warnings.len(), 1);
@@ -303,9 +300,11 @@ fn integer_to_smallint_is_detected() {
         "events",
         baseline_col("level", simple(SimpleColumnType::Integer)),
     )];
-    let plan = plan_with(vec![
-        modify_type("events", "level", simple(SimpleColumnType::SmallInt)),
-    ]);
+    let plan = plan_with(vec![modify_type(
+        "events",
+        "level",
+        simple(SimpleColumnType::SmallInt),
+    )]);
     let warnings = find_type_narrowings(&plan, &baseline);
     assert_eq!(
         warnings[0].kind,
@@ -322,9 +321,11 @@ fn bigint_to_smallint_is_detected() {
         "events",
         baseline_col("offset_id", simple(SimpleColumnType::BigInt)),
     )];
-    let plan = plan_with(vec![
-        modify_type("events", "offset_id", simple(SimpleColumnType::SmallInt)),
-    ]);
+    let plan = plan_with(vec![modify_type(
+        "events",
+        "offset_id",
+        simple(SimpleColumnType::SmallInt),
+    )]);
     let warnings = find_type_narrowings(&plan, &baseline);
     assert_eq!(
         warnings[0].kind,
@@ -341,9 +342,11 @@ fn integer_to_bigint_is_widening_and_not_detected() {
         "events",
         baseline_col("offset_id", simple(SimpleColumnType::Integer)),
     )];
-    let plan = plan_with(vec![
-        modify_type("events", "offset_id", simple(SimpleColumnType::BigInt)),
-    ]);
+    let plan = plan_with(vec![modify_type(
+        "events",
+        "offset_id",
+        simple(SimpleColumnType::BigInt),
+    )]);
     assert!(find_type_narrowings(&plan, &baseline).is_empty());
 }
 
@@ -357,9 +360,11 @@ fn double_precision_to_real_is_detected() {
         "metrics",
         baseline_col("ratio", simple(SimpleColumnType::DoublePrecision)),
     )];
-    let plan = plan_with(vec![
-        modify_type("metrics", "ratio", simple(SimpleColumnType::Real)),
-    ]);
+    let plan = plan_with(vec![modify_type(
+        "metrics",
+        "ratio",
+        simple(SimpleColumnType::Real),
+    )]);
     let warnings = find_type_narrowings(&plan, &baseline);
     assert_eq!(
         warnings[0].kind,
@@ -376,9 +381,11 @@ fn timestamptz_to_timestamp_is_detected() {
         "events",
         baseline_col("at", simple(SimpleColumnType::Timestamptz)),
     )];
-    let plan = plan_with(vec![
-        modify_type("events", "at", simple(SimpleColumnType::Timestamp)),
-    ]);
+    let plan = plan_with(vec![modify_type(
+        "events",
+        "at",
+        simple(SimpleColumnType::Timestamp),
+    )]);
     let warnings = find_type_narrowings(&plan, &baseline);
     assert_eq!(warnings[0].kind, NarrowingKind::TimestamptzToTimestamp);
 }
@@ -434,10 +441,7 @@ fn missing_baseline_column_yields_no_warning() {
 fn mixed_plan_aggregates_only_narrowings_with_correct_indices() {
     let baseline = vec![
         baseline_table("users", baseline_col("email", varchar(40))),
-        baseline_table(
-            "accounts",
-            baseline_col("balance", numeric(10, 4)),
-        ),
+        baseline_table("accounts", baseline_col("balance", numeric(10, 4))),
     ];
     let plan = plan_with(vec![
         // 0  WIDEN — not warned
@@ -474,7 +478,13 @@ fn empty_plan_returns_empty_warnings() {
 fn is_narrowing_widening_returns_none() {
     assert!(is_narrowing(&varchar(30), &varchar(40)).is_none());
     assert!(is_narrowing(&numeric(8, 2), &numeric(12, 4)).is_none());
-    assert!(is_narrowing(&simple(SimpleColumnType::Integer), &simple(SimpleColumnType::BigInt)).is_none());
+    assert!(
+        is_narrowing(
+            &simple(SimpleColumnType::Integer),
+            &simple(SimpleColumnType::BigInt)
+        )
+        .is_none()
+    );
 }
 
 #[test]
@@ -518,8 +528,14 @@ fn narrowing_kind_impacts_are_non_empty_for_every_variant() {
         NarrowingKind::TimestamptzToTimestamp,
     ];
     for k in &kinds {
-        assert!(!k.postgres_impact().is_empty(), "postgres impact empty for {k:?}");
+        assert!(
+            !k.postgres_impact().is_empty(),
+            "postgres impact empty for {k:?}"
+        );
         assert!(!k.mysql_impact().is_empty(), "mysql impact empty for {k:?}");
-        assert!(!k.sqlite_impact().is_empty(), "sqlite impact empty for {k:?}");
+        assert!(
+            !k.sqlite_impact().is_empty(),
+            "sqlite impact empty for {k:?}"
+        );
     }
 }

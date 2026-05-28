@@ -31,25 +31,18 @@ fn check_constraint(name: &str, expr: &str) -> TableConstraint {
 fn pk_col(name: &str) -> ColumnDef {
     let mut c = col(name, ColumnType::Simple(SimpleColumnType::Integer));
     c.nullable = false;
-    c.primary_key = Some(
-        vespertide_core::schema::primary_key::PrimaryKeySyntax::Bool(true),
-    );
+    c.primary_key = Some(vespertide_core::schema::primary_key::PrimaryKeySyntax::Bool(true));
     c
 }
 
-fn table_with(
-    name: &str,
-    payload_col: ColumnDef,
-    checks: Vec<TableConstraint>,
-) -> TableDef {
+fn table_with(name: &str, payload_col: ColumnDef, checks: Vec<TableConstraint>) -> TableDef {
     let mut constraints = checks;
     constraints.push(TableConstraint::PrimaryKey {
         auto_increment: false,
         columns: vec!["id".into()],
         strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     });
-    table("the_table", vec![pk_col("id"), payload_col], constraints)
-        .with_name_for_test(name)
+    table("the_table", vec![pk_col("id"), payload_col], constraints).with_name_for_test(name)
 }
 
 trait WithNameForTest {
@@ -147,9 +140,7 @@ fn string_default_violates_equality() {
         ),
         vec![check_constraint("chk_role", "role = 'user'")],
     );
-    assert!(is_default_violates_check(
-        &validate_one(table).unwrap_err()
-    ));
+    assert!(is_default_violates_check(&validate_one(table).unwrap_err()));
 }
 
 #[test]
@@ -163,9 +154,7 @@ fn integer_default_violates_ne() {
         ),
         vec![check_constraint("chk_not_zero", "amount <> 0")],
     );
-    assert!(is_default_violates_check(
-        &validate_one(table).unwrap_err()
-    ));
+    assert!(is_default_violates_check(&validate_one(table).unwrap_err()));
 }
 
 // ---------------------------------------------------------------------------
@@ -246,10 +235,7 @@ fn and_composed_check_is_silent_pass() {
             ColumnType::Simple(SimpleColumnType::Integer),
             DefaultValue::Integer(50),
         ),
-        vec![check_constraint(
-            "chk_range",
-            "amount > 0 AND amount < 100",
-        )],
+        vec![check_constraint("chk_range", "amount > 0 AND amount < 100")],
     );
     // Default 50 *would* satisfy, but AND-composition isn't evaluated
     // either way — silent pass holds.

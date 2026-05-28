@@ -67,8 +67,7 @@ fn build_pk_pre_cleanup<T: AsRef<str>>(
         PrimaryKeyAdditionStrategy::DeleteDuplicates { keep } => *keep,
         _ => return vec![],
     };
-    let Some(old_pk_column) =
-        try_resolve_single_pk_column(table, current_schema, new_pk_columns)
+    let Some(old_pk_column) = try_resolve_single_pk_column(table, current_schema, new_pk_columns)
     else {
         return vec![];
     };
@@ -114,7 +113,11 @@ fn try_resolve_single_pk_column<T: AsRef<str>>(
                 .filter(|col| col.primary_key.is_some())
                 .map(|col| col.name.to_string())
                 .collect();
-            if inline.is_empty() { None } else { Some(inline) }
+            if inline.is_empty() {
+                None
+            } else {
+                Some(inline)
+            }
         })?;
 
     if pk_columns.len() != 1 {

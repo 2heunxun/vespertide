@@ -22,7 +22,7 @@
     reason = "semantic-token classifier context tracks independent YAML ancestor flags; collapsing them would obscure token rules"
 )]
 
-use super::{RawToken, legend::ModIdx, legend::TokenIdx};
+use super::{RawToken, check_expr_tokens, legend::ModIdx, legend::TokenIdx};
 
 #[must_use]
 pub fn classify(source: &str, tree: &tree_sitter::Tree) -> Vec<RawToken> {
@@ -44,6 +44,7 @@ struct Ctx {
     inside_enum_values_array: bool,
     inside_foreign_key: bool,
     inside_ref_columns: bool,
+    inside_constraints: bool,
     mapping_depth: u32,
 }
 
@@ -105,6 +106,18 @@ fn classify_pair(pair: tree_sitter::Node<'_>, source: &[u8], ctx: Ctx, out: &mut
                 ..ctx
             };
             recurse_value(value_node, source, new_ctx, out);
+            return;
+        }
+        "constraints" => {
+            let new_ctx = Ctx {
+                inside_constraints: true,
+                ..ctx
+            };
+            recurse_value(value_node, source, new_ctx, out);
+            return;
+        }
+        "expr" if ctx.inside_constraints => {
+            emit_yaml_check_expr_tokens(value_node, source, out);
             return;
         }
         "type" if ctx.inside_columns => {
@@ -241,6 +254,32 @@ fn classify_default(value: tree_sitter::Node<'_>, out: &mut Vec<RawToken>) {
     }
 }
 
+fn emit_yaml_check_expr_tokens(
+    value: tree_sitter::Node<'_>,
+    source: &[u8],
+    out: &mut Vec<RawToken>,
+) {
+    let scalar = unwrap_yaml(value);
+    let Some(range) = check_expr_scalar_range(scalar) else {
+        return;
+    };
+    if range.end <= range.start {
+        return;
+    }
+
+    let Some(bytes) = source.get(range.clone()) else {
+        return;
+    };
+    let Ok(expr_text) = std::str::from_utf8(bytes) else {
+        return;
+    };
+    check_expr_tokens::emit_check_expr_tokens(expr_text, range.start, out);
+}
+
+fn check_expr_scalar_range(node: tree_sitter::Node<'_>) -> Option<std::ops::Range<usize>> {
+    crate::check_expr_range::expr_inner_range(node)
+}
+
 fn push_scalar(
     node: tree_sitter::Node<'_>,
     token_type: TokenIdx,
@@ -317,6 +356,41 @@ mod tests {
         classify(src, &tree)
     }
 
+    fn assert_check_expr_tokens(src: &str, expr: &str, expected: &[(&str, TokenIdx)]) {
+        let tree = ParserPool::new()
+            .parse(src, DocumentFormat::Yaml)
+            .expect("parse");
+        let tokens = classify(src, &tree);
+        let expr_start = src.find(expr).expect("CHECK expr present");
+        let expr_end = expr_start + expr.len();
+        let check_tokens: Vec<&RawToken> = tokens
+            .iter()
+            .filter(|t| t.byte_range.start >= expr_start && t.byte_range.end <= expr_end)
+            .collect();
+
+        assert_eq!(
+            check_tokens.len(),
+            expected.len(),
+            "got {} check tokens: {:?}",
+            check_tokens.len(),
+            check_tokens
+        );
+
+        let actual: Vec<(&str, u32)> = check_tokens
+            .iter()
+            .map(|token| (&src[token.byte_range.clone()], token.token_type))
+            .collect();
+        let expected: Vec<(&str, u32)> = expected
+            .iter()
+            .map(|(text, token_type)| (*text, *token_type as u32))
+            .collect();
+        assert_eq!(actual, expected);
+        assert!(
+            check_tokens.iter().all(|t| t.token_modifiers == 0),
+            "CHECK expression tokens must not carry declaration/definition modifiers: {check_tokens:?}"
+        );
+    }
+
     #[test]
     fn yaml_table_and_column_names_classified() {
         let src = "name: user\ncolumns:\n  - name: id\n    type: integer\n";
@@ -347,5 +421,71 @@ mod tests {
             .expect("ref_table token");
         assert_eq!(tok.token_type, TokenIdx::Class as u32);
         assert_eq!(tok.token_modifiers, ModIdx::Definition as u32);
+    }
+
+    #[test]
+    fn bs_s1_literal_block_scalar_emits_check_tokens() {
+        let src = "name: users\ncolumns:\n  - {name: id, type: integer, nullable: false, primary_key: true}\n  - {name: age, type: integer, nullable: false}\nconstraints:\n  - type: check\n    name: chk_age\n    expr: |\n      age > 0 AND age < 120\n";
+
+        assert_check_expr_tokens(
+            src,
+            "age > 0 AND age < 120",
+            &[
+                ("age", TokenIdx::Property),
+                (">", TokenIdx::Keyword),
+                ("0", TokenIdx::Number),
+                ("AND", TokenIdx::Keyword),
+                ("age", TokenIdx::Property),
+                ("<", TokenIdx::Keyword),
+                ("120", TokenIdx::Number),
+            ],
+        );
+    }
+
+    #[test]
+    fn bs_s2_folded_block_scalar_emits_check_tokens() {
+        let src = "name: users\ncolumns:\n  - {name: id, type: integer, nullable: false, primary_key: true}\n  - {name: age, type: integer, nullable: false}\nconstraints:\n  - type: check\n    name: chk_age\n    expr: >\n      age > 0\n";
+
+        assert_check_expr_tokens(
+            src,
+            "age > 0",
+            &[
+                ("age", TokenIdx::Property),
+                (">", TokenIdx::Keyword),
+                ("0", TokenIdx::Number),
+            ],
+        );
+    }
+
+    #[test]
+    fn bs_s3_block_scalar_with_reversed_between_still_tokenizes() {
+        let src = "name: users\ncolumns:\n  - {name: id, type: integer, nullable: false, primary_key: true}\n  - {name: age, type: integer, nullable: false}\nconstraints:\n  - type: check\n    name: chk_age\n    expr: |\n      age BETWEEN 100 AND 0\n";
+
+        assert_check_expr_tokens(
+            src,
+            "age BETWEEN 100 AND 0",
+            &[
+                ("age", TokenIdx::Property),
+                ("BETWEEN", TokenIdx::Keyword),
+                ("100", TokenIdx::Number),
+                ("AND", TokenIdx::Keyword),
+                ("0", TokenIdx::Number),
+            ],
+        );
+    }
+
+    #[test]
+    fn bs_s4_quoted_scalar_check_tokens_unchanged() {
+        let src = "name: users\ncolumns:\n  - {name: id, type: integer, nullable: false, primary_key: true}\n  - {name: age, type: integer, nullable: false}\nconstraints:\n  - type: check\n    name: chk_age_range\n    expr: \"age > 0\"\n";
+
+        assert_check_expr_tokens(
+            src,
+            "age > 0",
+            &[
+                ("age", TokenIdx::Property),
+                (">", TokenIdx::Keyword),
+                ("0", TokenIdx::Number),
+            ],
+        );
     }
 }

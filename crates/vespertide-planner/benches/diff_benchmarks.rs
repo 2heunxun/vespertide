@@ -1,3 +1,8 @@
+#![expect(
+    clippy::result_large_err,
+    reason = "bench harness propagates PlannerError directly from diff_schemas; PlannerError variants grow when new fault classes land (F-novel-1, F-novel-15) — refactoring to Box every Err in bench code is noise that obscures the actual workload being measured"
+)]
+
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
@@ -45,10 +50,12 @@ fn build_table_with_constraints(n: usize) -> Vec<TableDef> {
 
     let constraints = (0..n)
         .map(|i| TableConstraint::Unique {
-                    name: Some(format!("uq_constraints__old_{i}")),
-                    columns: vec![format!("constrained_col_{i}").into()],
-                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
-                })
+            name: Some(format!("uq_constraints__old_{i}")),
+            columns: vec![format!("constrained_col_{i}").into()],
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
+        })
         .collect();
 
     vec![TableDef {

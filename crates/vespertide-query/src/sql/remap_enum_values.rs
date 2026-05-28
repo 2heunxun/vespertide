@@ -114,4 +114,3 @@ mod tests {
         assert!(queries.is_empty());
     }
 }
-

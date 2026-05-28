@@ -443,10 +443,12 @@ mod tests {
                 col("email", ColumnType::Simple(SimpleColumnType::Text)),
             ],
             &[TableConstraint::Unique {
-                        name: Some("uq_email".into()),
-                        columns: vec!["email".into()],
-                        strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
-                    }],
+                name: Some("uq_email".into()),
+                columns: vec!["email".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                    keep: vespertide_core::KeepPolicy::First,
+                },
+            }],
         )
         .unwrap();
         let sql = join_queries(&result, backend, "\n");
@@ -486,10 +488,12 @@ mod tests {
                 col("email", ColumnType::Simple(SimpleColumnType::Text)),
             ],
             &[TableConstraint::Unique {
-                        name: None,
-                        columns: vec!["email".into()],
-                        strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
-                    }],
+                name: None,
+                columns: vec!["email".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                    keep: vespertide_core::KeepPolicy::First,
+                },
+            }],
         )
         .unwrap();
         let sql = join_queries(&result, backend, "\n");

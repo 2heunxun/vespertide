@@ -196,10 +196,7 @@ mod tests {
     #[rstest]
     fn case_01_existing_nullable_column_flagged_with_nullify_available() {
         // Child column exists in baseline and is nullable -> warning + NullifyOrphans valid.
-        let baseline = vec![table(
-            "posts",
-            vec![col("id", false), col("user_id", true)],
-        )];
+        let baseline = vec![table("posts", vec![col("id", false), col("user_id", true)])];
         let p = plan(vec![add_fk(
             "posts",
             Some("fk_user"),
@@ -222,13 +219,7 @@ mod tests {
             "posts",
             vec![col("id", false), col("user_id", false)],
         )];
-        let p = plan(vec![add_fk(
-            "posts",
-            None,
-            &["user_id"],
-            "users",
-            &["id"],
-        )]);
+        let p = plan(vec![add_fk("posts", None, &["user_id"], "users", &["id"])]);
         let ws = find_fk_orphan_additions(&p, &baseline);
         assert_eq!(ws.len(), 1);
         assert!(!ws[0].all_columns_nullable);
@@ -238,13 +229,7 @@ mod tests {
     fn case_03_new_column_skipped() {
         // FK references a column that doesn't yet exist in baseline -> no warning.
         let baseline = vec![table("posts", vec![col("id", false)])];
-        let p = plan(vec![add_fk(
-            "posts",
-            None,
-            &["user_id"],
-            "users",
-            &["id"],
-        )]);
+        let p = plan(vec![add_fk("posts", None, &["user_id"], "users", &["id"])]);
         let ws = find_fk_orphan_additions(&p, &baseline);
         assert!(ws.is_empty());
     }
@@ -254,7 +239,11 @@ mod tests {
         // Composite FK over two existing columns -> single warning, columns preserved in order.
         let baseline = vec![table(
             "audit",
-            vec![col("id", false), col("team_id", true), col("member_id", true)],
+            vec![
+                col("id", false),
+                col("team_id", true),
+                col("member_id", true),
+            ],
         )];
         let p = plan(vec![add_fk(
             "audit",
@@ -265,17 +254,17 @@ mod tests {
         )]);
         let ws = find_fk_orphan_additions(&p, &baseline);
         assert_eq!(ws.len(), 1);
-        assert_eq!(ws[0].columns, vec!["team_id".to_string(), "member_id".to_string()]);
+        assert_eq!(
+            ws[0].columns,
+            vec!["team_id".to_string(), "member_id".to_string()]
+        );
         assert!(ws[0].all_columns_nullable);
     }
 
     #[rstest]
     fn case_05_composite_fk_mixed_existing_and_new_skipped() {
         // Composite FK with one new column -> Edge #1's responsibility, skipped here.
-        let baseline = vec![table(
-            "audit",
-            vec![col("id", false), col("team_id", true)],
-        )];
+        let baseline = vec![table("audit", vec![col("id", false), col("team_id", true)])];
         let p = plan(vec![add_fk(
             "audit",
             None,
@@ -333,13 +322,7 @@ mod tests {
     fn case_08_table_not_in_baseline_skipped() {
         // FK on a table that is being created in this plan -> no rows yet -> skip.
         let baseline: Vec<TableDef> = vec![];
-        let p = plan(vec![add_fk(
-            "posts",
-            None,
-            &["user_id"],
-            "users",
-            &["id"],
-        )]);
+        let p = plan(vec![add_fk("posts", None, &["user_id"], "users", &["id"])]);
         let ws = find_fk_orphan_additions(&p, &baseline);
         assert!(ws.is_empty());
     }

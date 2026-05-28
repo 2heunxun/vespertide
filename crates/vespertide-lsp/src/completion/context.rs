@@ -1,5 +1,11 @@
 //! Completion context detection via tree-sitter node ancestry.
 
+use std::ops::Range;
+
+use vespertide_planner::{CheckToken, CheckTokenKind, lex_check_expr};
+
+use crate::check_expr_range::expr_inner_range;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Context {
     // ------------------- VALUE positions -------------------
@@ -42,7 +48,15 @@ pub(super) enum Context {
         /// range of that string (quotes included). Completions use it as
         /// the `TextEdit` range so accepting a suggestion wipes the
         /// existing literal instead of appending to it.
-        string_byte_range: Option<std::ops::Range<usize>>,
+        string_byte_range: Option<Range<usize>>,
+    },
+    /// Cursor is inside a table-level CHECK expression string
+    /// (`constraints[*].expr`). The position decides whether we suggest
+    /// operands (columns), operators/SQL keywords, or a partial-column edit.
+    CheckExpr {
+        table_columns: Vec<String>,
+        position: CheckExprPos,
+        replace_range_bytes: Option<Range<usize>>,
     },
 
     // ------------------- KEY positions ---------------------
@@ -58,6 +72,13 @@ pub(super) enum Context {
     None,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum CheckExprPos {
+    Operand,
+    Operator,
+    PartialColumn { prefix: String },
+}
+
 pub(super) fn detect(tree: &tree_sitter::Tree, source: &str, byte_offset: usize) -> Context {
     let Some(node) = node_at_byte(tree, byte_offset) else {
         return Context::None;
@@ -70,10 +91,15 @@ pub(super) fn detect(tree: &tree_sitter::Tree, source: &str, byte_offset: usize)
     }
 
     let path = collect_key_path(node, source);
-    classify_path(&path, node, source)
+    classify_path(&path, node, source, byte_offset)
 }
 
-fn classify_path(path: &[String], cursor_node: tree_sitter::Node<'_>, source: &str) -> Context {
+fn classify_path(
+    path: &[String],
+    cursor_node: tree_sitter::Node<'_>,
+    source: &str,
+    byte_offset: usize,
+) -> Context {
     let last = path.last().map(String::as_str);
     let has = |key: &str| path.iter().any(|part| part == key);
 
@@ -110,8 +136,201 @@ fn classify_path(path: &[String], cursor_node: tree_sitter::Node<'_>, source: &s
                 string_byte_range: enclosing_string_range(cursor_node),
             }
         }
+        Some("expr") if has("constraints") => {
+            check_expr_context(cursor_node, source, byte_offset).unwrap_or(Context::None)
+        }
         _ => Context::None,
     }
+}
+
+fn check_expr_context(
+    cursor: tree_sitter::Node<'_>,
+    source: &str,
+    byte_offset: usize,
+) -> Option<Context> {
+    let expr_pair = enclosing_pair_with_key(cursor, source, "expr")?;
+    if !is_inside_constraints(expr_pair, source) {
+        return None;
+    }
+
+    let expr_value = expr_pair.named_child(1).map(unwrap_flow_node)?;
+    let inner = expr_inner_range(expr_value)?;
+    if byte_offset < inner.start || byte_offset > inner.end {
+        return None;
+    }
+
+    let expr_text = source.get(inner.clone())?;
+    let cursor_rel = clamp_to_char_boundary(
+        expr_text,
+        byte_offset.saturating_sub(inner.start).min(expr_text.len()),
+    );
+    let table_columns = current_table_columns(cursor, source);
+    let (position, replace_range_bytes) =
+        classify_check_expr_position(expr_text, inner.start, cursor_rel, &table_columns);
+
+    Some(Context::CheckExpr {
+        table_columns,
+        position,
+        replace_range_bytes,
+    })
+}
+
+fn classify_check_expr_position(
+    expr_text: &str,
+    inner_start: usize,
+    cursor_rel: usize,
+    table_columns: &[String],
+) -> (CheckExprPos, Option<Range<usize>>) {
+    let prefix = &expr_text[..cursor_rel];
+    if prefix.trim().is_empty() {
+        return (CheckExprPos::Operand, None);
+    }
+
+    let tokens = lex_check_expr(prefix);
+    let Some(last) = tokens.last() else {
+        return (CheckExprPos::Operand, None);
+    };
+
+    if let Some((typed_prefix, replace_range)) =
+        partial_column_at_cursor(prefix, last, cursor_rel, inner_start, table_columns)
+    {
+        return (
+            CheckExprPos::PartialColumn {
+                prefix: typed_prefix,
+            },
+            Some(replace_range),
+        );
+    }
+
+    if token_expects_operand(last, prefix) {
+        (CheckExprPos::Operand, None)
+    } else {
+        (CheckExprPos::Operator, None)
+    }
+}
+
+fn partial_column_at_cursor(
+    prefix: &str,
+    token: &CheckToken,
+    cursor_rel: usize,
+    inner_start: usize,
+    table_columns: &[String],
+) -> Option<(String, Range<usize>)> {
+    if token.kind != CheckTokenKind::Column || token.span.end != cursor_rel {
+        return None;
+    }
+
+    let typed_prefix = prefix.get(token.span.clone())?;
+    if typed_prefix.is_empty() || table_columns.iter().any(|column| column == typed_prefix) {
+        return None;
+    }
+
+    let replace_range = (inner_start + token.span.start)..(inner_start + token.span.end);
+    Some((typed_prefix.to_string(), replace_range))
+}
+
+fn token_expects_operand(token: &CheckToken, expr_prefix: &str) -> bool {
+    let text = expr_prefix.get(token.span.clone()).unwrap_or_default();
+    match token.kind {
+        CheckTokenKind::Operator => true,
+        CheckTokenKind::Punctuation => matches!(text, "(" | ","),
+        CheckTokenKind::Keyword => keyword_expects_operand(text),
+        CheckTokenKind::Column | CheckTokenKind::Number | CheckTokenKind::String => false,
+    }
+}
+
+fn keyword_expects_operand(keyword: &str) -> bool {
+    ["AND", "OR", "NOT", "IN", "BETWEEN"]
+        .iter()
+        .any(|expected| keyword.eq_ignore_ascii_case(expected))
+}
+
+fn is_inside_constraints(node: tree_sitter::Node<'_>, source: &str) -> bool {
+    let mut current = node.parent();
+    while let Some(candidate) = current {
+        if is_pair(candidate) && key_text(candidate, source) == Some("constraints") {
+            return true;
+        }
+        current = candidate.parent();
+    }
+    false
+}
+
+fn current_table_columns(node: tree_sitter::Node<'_>, source: &str) -> Vec<String> {
+    let root = document_value(node);
+    let Some(columns_pair) = find_pair_with_key(root, source, "columns") else {
+        return Vec::new();
+    };
+    let Some(columns_value_raw) = columns_pair.named_child(1) else {
+        return Vec::new();
+    };
+
+    collect_column_names(unwrap_flow_node(columns_value_raw), source)
+}
+
+fn document_value(mut node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
+    while let Some(parent) = node.parent() {
+        node = parent;
+    }
+
+    node.named_child(0).map_or(node, unwrap_flow_node)
+}
+
+fn collect_column_names(columns_value: tree_sitter::Node<'_>, source: &str) -> Vec<String> {
+    if !matches!(
+        columns_value.kind(),
+        "array" | "block_sequence" | "flow_sequence"
+    ) {
+        return Vec::new();
+    }
+
+    let mut out = Vec::new();
+    let mut cursor = columns_value.walk();
+    for raw_child in columns_value.children(&mut cursor) {
+        let child = unwrap_flow_node(raw_child);
+        let Some(column_object) = column_object_from_sequence_child(child) else {
+            continue;
+        };
+        if let Some(name) = string_value_for_key(column_object, source, "name")
+            && !name.is_empty()
+        {
+            out.push(name.to_string());
+        }
+    }
+    out
+}
+
+fn column_object_from_sequence_child(
+    child: tree_sitter::Node<'_>,
+) -> Option<tree_sitter::Node<'_>> {
+    match child.kind() {
+        "object" | "block_mapping" | "flow_mapping" => Some(child),
+        "block_sequence_item" => {
+            let mut cursor = child.walk();
+            child.children(&mut cursor).find_map(|raw_inner| {
+                let inner = unwrap_flow_node(raw_inner);
+                matches!(inner.kind(), "object" | "block_mapping" | "flow_mapping").then_some(inner)
+            })
+        }
+        _ => None,
+    }
+}
+
+fn string_value_for_key<'source>(
+    object: tree_sitter::Node<'_>,
+    source: &'source str,
+    key: &str,
+) -> Option<&'source str> {
+    let pair = find_pair_with_key(object, source, key)?;
+    let value = pair.named_child(1).map(unwrap_flow_node)?;
+    source.get(value.byte_range()).map(strip_quotes)
+}
+
+fn clamp_to_char_boundary(text: &str, mut byte_offset: usize) -> usize {
+    while byte_offset > 0 && !text.is_char_boundary(byte_offset) {
+        byte_offset -= 1;
+    }
+    byte_offset
 }
 
 /// Walk to the enclosing column object and inspect its `type` sibling.

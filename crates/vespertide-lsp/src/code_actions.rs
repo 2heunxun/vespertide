@@ -48,16 +48,202 @@ pub fn compute(
         return Vec::new();
     };
     let source_bytes = source.as_bytes();
-    let Some(column) = enclosing_column_object(tree.root_node(), source_bytes, byte_range.start)
-    else {
+    let mut actions = Vec::new();
+    // Column-scoped actions fire only when the cursor sits inside a column
+    // object (the `columns` array). CHECK constraints live in the
+    // table-level `constraints` array, so their actions are gated
+    // separately below.
+    if let Some(column) = enclosing_column_object(tree.root_node(), source_bytes, byte_range.start)
+    {
+        actions.extend(flag_toggles(column, source_bytes));
+        actions.extend(type_conversions(column, source_bytes));
+        actions.extend(enum_extraction(column, source_bytes));
+        actions.extend(fk_skeleton(column, source_bytes));
+    }
+    actions.extend(check_expr_actions(tree, source_bytes, byte_range.start));
+    actions
+}
+
+/// Quick-fixes available when the cursor sits inside a table-level CHECK
+/// `expr` string. Currently a single deterministic refactor: swapping the
+/// bounds of a reversed `BETWEEN low AND high` (`low > high`), which pairs
+/// with the `check-between-reversed` hard-error diagnostic.
+fn check_expr_actions(
+    tree: &tree_sitter::Tree,
+    source: &[u8],
+    byte_offset: usize,
+) -> Vec<DomainCodeAction> {
+    let Some(expr_value) = enclosing_check_expr_value(tree.root_node(), source, byte_offset) else {
         return Vec::new();
     };
-    let mut actions = Vec::new();
-    actions.extend(flag_toggles(column, source_bytes));
-    actions.extend(type_conversions(column, source_bytes));
-    actions.extend(enum_extraction(column, source_bytes));
-    actions.extend(fk_skeleton(column, source_bytes));
-    actions
+    let Some(inner) = crate::check_expr_range::expr_inner_range(expr_value) else {
+        return Vec::new();
+    };
+    let Some(expr_text) = std::str::from_utf8(&source[inner.clone()]).ok() else {
+        return Vec::new();
+    };
+    swap_reversed_between(expr_text, inner.start)
+}
+
+/// Scan the CHECK expression's token stream for `BETWEEN low AND high`
+/// nodes whose literal bounds are reversed, and emit a swap edit for each.
+/// `base` is the absolute byte offset of the first character of `expr_text`
+/// within the source document (i.e. just inside the opening quote).
+///
+/// Mirrors the planner's F-novel-15 detection semantics: integer/float
+/// (and cross-numeric) compared numerically, string compared
+/// lexicographically, anything mixed or non-orderable (bool/null) skipped.
+/// `NOT BETWEEN` is skipped — a reversed `NOT BETWEEN` is always-true and
+/// therefore harmless.
+fn swap_reversed_between(expr_text: &str, base: usize) -> Vec<DomainCodeAction> {
+    use vespertide_planner::{CheckTokenKind, lex_check_expr};
+
+    let tokens = lex_check_expr(expr_text);
+    let mut out = Vec::new();
+    for i in 0..tokens.len() {
+        // tokens[i] must be the BETWEEN keyword.
+        if tokens[i].kind != CheckTokenKind::Keyword
+            || !token_text(expr_text, &tokens[i]).eq_ignore_ascii_case("between")
+        {
+            continue;
+        }
+        // Skip `NOT BETWEEN` — reversed form is always-true (harmless).
+        if i >= 1
+            && tokens[i - 1].kind == CheckTokenKind::Keyword
+            && token_text(expr_text, &tokens[i - 1]).eq_ignore_ascii_case("not")
+        {
+            continue;
+        }
+        // Expect: low literal, AND keyword, high literal.
+        let (Some(low), Some(andt), Some(high)) =
+            (tokens.get(i + 1), tokens.get(i + 2), tokens.get(i + 3))
+        else {
+            continue;
+        };
+        if !is_literal(low.kind)
+            || andt.kind != CheckTokenKind::Keyword
+            || !token_text(expr_text, andt).eq_ignore_ascii_case("and")
+            || !is_literal(high.kind)
+        {
+            continue;
+        }
+        let low_text = token_text(expr_text, low);
+        let high_text = token_text(expr_text, high);
+        if !literal_greater(low_text, high_text) {
+            continue;
+        }
+        out.push(DomainCodeAction {
+            title: "Swap reversed BETWEEN bounds".to_string(),
+            kind: CodeActionKind::Refactor,
+            edits: vec![
+                DomainTextEdit {
+                    byte_range: (base + low.span.start)..(base + low.span.end),
+                    new_text: high_text.to_string(),
+                },
+                DomainTextEdit {
+                    byte_range: (base + high.span.start)..(base + high.span.end),
+                    new_text: low_text.to_string(),
+                },
+            ],
+        });
+    }
+    out
+}
+
+fn token_text<'a>(expr_text: &'a str, token: &vespertide_planner::CheckToken) -> &'a str {
+    &expr_text[token.span.clone()]
+}
+
+fn is_literal(kind: vespertide_planner::CheckTokenKind) -> bool {
+    matches!(
+        kind,
+        vespertide_planner::CheckTokenKind::Number | vespertide_planner::CheckTokenKind::String
+    )
+}
+
+/// True iff `a` is *demonstrably* greater than `b` under the same
+/// conservative ordering the planner uses (F-novel-15): exact integer,
+/// then float (covering cross-numeric), then lexicographic for two quoted
+/// string literals. Mixed numeric/string, bool, and null fold to `false`
+/// so an ambiguous pair never produces a (possibly wrong) swap.
+fn literal_greater(a: &str, b: &str) -> bool {
+    if let (Ok(x), Ok(y)) = (a.parse::<i64>(), b.parse::<i64>()) {
+        return x > y;
+    }
+    if let (Ok(x), Ok(y)) = (a.parse::<f64>(), b.parse::<f64>()) {
+        return x > y;
+    }
+    // Two single-quoted SQL string literals: the leading quote is equal so
+    // comparing the as-written forms is equivalent to comparing contents.
+    if a.starts_with('\'') && b.starts_with('\'') {
+        return a > b;
+    }
+    false
+}
+
+/// Walk down to the deepest node containing `byte_offset`, then back up to
+/// the JSON `string` value of an `expr` pair whose constraint object
+/// carries `type: "check"`. Returns that string value node, or `None`.
+fn enclosing_check_expr_value<'tree>(
+    root: tree_sitter::Node<'tree>,
+    source: &[u8],
+    byte_offset: usize,
+) -> Option<tree_sitter::Node<'tree>> {
+    let mut current = root;
+    'outer: loop {
+        let mut cursor = current.walk();
+        for child in current.children(&mut cursor) {
+            if child.byte_range().contains(&byte_offset) {
+                current = child;
+                continue 'outer;
+            }
+        }
+        break;
+    }
+    let mut node = Some(current);
+    while let Some(candidate) = node {
+        if candidate.kind() == "string" && is_check_expr_value(candidate, source) {
+            return Some(candidate);
+        }
+        node = candidate.parent();
+    }
+    None
+}
+
+/// True when `string_node` is the value side of an `expr` pair whose
+/// enclosing constraint object has a sibling `type: "check"`.
+fn is_check_expr_value(string_node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    let mut current = string_node.parent();
+    let pair = loop {
+        match current {
+            Some(n) if n.kind() == "pair" => break n,
+            Some(n) => current = n.parent(),
+            None => return false,
+        }
+    };
+    // The cursor's string must be the value, not the key.
+    let Some(value) = pair.named_child(1) else {
+        return false;
+    };
+    if !value.byte_range().contains(&string_node.start_byte()) {
+        return false;
+    }
+    let key_is_expr = pair
+        .named_child(0)
+        .and_then(|key| std::str::from_utf8(&source[key.byte_range()]).ok())
+        .map(strip_quotes)
+        == Some("expr");
+    if !key_is_expr {
+        return false;
+    }
+    let Some(constraint_object) = pair.parent() else {
+        return false;
+    };
+    find_pair(constraint_object, source, "type")
+        .and_then(|p| p.named_child(1))
+        .and_then(|v| std::str::from_utf8(&source[v.byte_range()]).ok())
+        .map(strip_quotes)
+        == Some("check")
 }
 
 fn flag_toggles(column: tree_sitter::Node<'_>, source: &[u8]) -> Vec<DomainCodeAction> {
@@ -599,5 +785,138 @@ mod tests {
         let cursor = src.find("name: id").unwrap();
         let actions = compute(src, DocumentFormat::Yaml, Some(&tree), cursor..cursor);
         assert!(actions.is_empty(), "YAML actions are out of scope in V1");
+    }
+
+    // -- CHECK BETWEEN-swap quick-fix (F-novel-15 companion) --------------
+    //
+    // When the cursor sits inside a table-level CHECK `expr` whose
+    // `BETWEEN low AND high` literal bounds are reversed (`low > high`),
+    // offer a deterministic "Swap reversed BETWEEN bounds" refactor that
+    // transposes the two literals. Pairs with the `check-between-reversed`
+    // hard-error diagnostic.
+
+    /// Apply `action`'s edits to `src` (front-to-back safe) and return the
+    /// resulting document.
+    fn apply(src: &str, action: &DomainCodeAction) -> String {
+        let mut edits = action.edits.clone();
+        edits.sort_by_key(|e| std::cmp::Reverse(e.byte_range.start));
+        let mut out = src.to_string();
+        for e in &edits {
+            out.replace_range(e.byte_range.clone(), &e.new_text);
+        }
+        out
+    }
+
+    #[test]
+    fn reversed_integer_between_offers_swap() {
+        let src = r#"{"name":"u","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk","expr":"age BETWEEN 100 AND 0"}]}"#;
+        let tree = parse(src);
+        let cursor = src.find("BETWEEN").unwrap() + 2; // inside the CHECK expr
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        let swap = actions
+            .iter()
+            .find(|a| a.title == "Swap reversed BETWEEN bounds")
+            .expect("BETWEEN swap action missing");
+        let after = apply(src, swap);
+        assert!(
+            after.contains(r#""expr":"age BETWEEN 0 AND 100""#),
+            "bounds must be swapped, got: {after}"
+        );
+        serde_json::from_str::<serde_json::Value>(&after).expect("valid JSON after swap");
+    }
+
+    #[test]
+    fn correctly_ordered_between_offers_no_swap() {
+        let src = r#"{"name":"u","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk","expr":"age BETWEEN 0 AND 100"}]}"#;
+        let tree = parse(src);
+        let cursor = src.find("BETWEEN").unwrap() + 2;
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        assert!(
+            actions
+                .iter()
+                .all(|a| a.title != "Swap reversed BETWEEN bounds"),
+            "correctly-ordered BETWEEN must not offer a swap"
+        );
+    }
+
+    #[test]
+    fn not_between_reversed_offers_no_swap() {
+        // `NOT BETWEEN 100 AND 0` is always-true (harmless) — no swap.
+        let src = r#"{"name":"u","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk","expr":"age NOT BETWEEN 100 AND 0"}]}"#;
+        let tree = parse(src);
+        let cursor = src.find("BETWEEN").unwrap() + 2;
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        assert!(
+            actions
+                .iter()
+                .all(|a| a.title != "Swap reversed BETWEEN bounds"),
+            "NOT BETWEEN reversed is harmless; no swap expected"
+        );
+    }
+
+    #[test]
+    fn reversed_string_between_offers_swap() {
+        let src = r#"{"name":"u","columns":[{"name":"code","type":"text"}],"constraints":[{"type":"check","name":"chk","expr":"code BETWEEN 'z' AND 'a'"}]}"#;
+        let tree = parse(src);
+        let cursor = src.find("BETWEEN").unwrap() + 2;
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        let swap = actions
+            .iter()
+            .find(|a| a.title == "Swap reversed BETWEEN bounds")
+            .expect("string BETWEEN swap action missing");
+        let after = apply(src, swap);
+        assert!(
+            after.contains(r#""expr":"code BETWEEN 'a' AND 'z'""#),
+            "string bounds must be swapped, got: {after}"
+        );
+        serde_json::from_str::<serde_json::Value>(&after).expect("valid JSON after swap");
+    }
+
+    #[test]
+    fn mixed_type_between_offers_no_swap() {
+        // int vs string boundary — not orderable, conservative skip.
+        let src = r#"{"name":"u","columns":[{"name":"x","type":"integer"}],"constraints":[{"type":"check","name":"chk","expr":"x BETWEEN 100 AND 'a'"}]}"#;
+        let tree = parse(src);
+        let cursor = src.find("BETWEEN").unwrap() + 2;
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        assert!(
+            actions
+                .iter()
+                .all(|a| a.title != "Swap reversed BETWEEN bounds"),
+            "mixed-type BETWEEN must not offer a swap"
+        );
+    }
+
+    #[test]
+    fn cursor_on_column_offers_no_between_swap() {
+        // Cursor on the column declaration, not inside the CHECK expr.
+        let src = r#"{"name":"u","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk","expr":"age BETWEEN 100 AND 0"}]}"#;
+        let tree = parse(src);
+        let cursor = src.find(r#""name":"age""#).unwrap() + 8;
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        assert!(
+            actions
+                .iter()
+                .all(|a| a.title != "Swap reversed BETWEEN bounds"),
+            "BETWEEN swap must only fire inside the CHECK expr"
+        );
+    }
+
+    #[test]
+    fn between_swap_inside_and_composition() {
+        // Reversed BETWEEN nested in an AND composition is still fixable.
+        let src = r#"{"name":"u","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk","expr":"age > 0 AND age BETWEEN 150 AND 18"}]}"#;
+        let tree = parse(src);
+        let cursor = src.find("BETWEEN").unwrap() + 2;
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        let swap = actions
+            .iter()
+            .find(|a| a.title == "Swap reversed BETWEEN bounds")
+            .expect("nested BETWEEN swap action missing");
+        let after = apply(src, swap);
+        assert!(
+            after.contains("age > 0 AND age BETWEEN 18 AND 150"),
+            "nested bounds must be swapped, got: {after}"
+        );
     }
 }

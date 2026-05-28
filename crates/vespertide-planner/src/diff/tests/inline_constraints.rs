@@ -331,7 +331,9 @@ fn add_constraint_to_existing_table() {
         vec![vespertide_core::TableConstraint::Unique {
             name: Some("uq_users_email".into()),
             columns: vec!["email".into()],
-            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
         }],
     )];
 
@@ -361,7 +363,9 @@ fn remove_constraint_from_existing_table() {
         vec![vespertide_core::TableConstraint::Unique {
             name: Some("uq_users_email".into()),
             columns: vec!["email".into()],
-            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
         }],
     )];
 

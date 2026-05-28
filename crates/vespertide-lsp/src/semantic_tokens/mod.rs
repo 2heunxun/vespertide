@@ -19,6 +19,7 @@
 //!     both `semantic_tokens_full` and `semantic_tokens_range` (range
 //!     is a strict subset, computed by pre-filtering on `RawToken`).
 
+mod check_expr_tokens;
 mod classify_json;
 mod classify_yaml;
 mod encode;

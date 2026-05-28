@@ -58,8 +58,51 @@ pub(super) fn resolve(
                 column: symbol_text.to_string(),
             })
         }
+        // Cursor inside a table-level CHECK `expr` string. The bare
+        // identifier the cursor sits on is a reference to a column of the
+        // CHECK's owning table.
+        "expr" if is_check_constraint_pair(pair, source) => {
+            resolve_check_expr_column(string_node, pair, source, byte_offset)
+        }
         _ => None,
     }
+}
+
+/// True when this `expr` pair belongs to a CHECK constraint object — i.e.
+/// it sits next to a sibling `type: "check"` pair inside a `constraints`
+/// array element.
+fn is_check_constraint_pair(expr_pair: tree_sitter::Node<'_>, source: &str) -> bool {
+    let Some(constraint_object) = expr_pair.parent().and_then(skip_yaml_wrappers) else {
+        return false;
+    };
+    direct_child_value(constraint_object, source, "type")
+        .is_some_and(|raw| strip_quotes(raw) == "check")
+}
+
+/// Given the cursor byte offset inside a CHECK `expr` string, lex the
+/// expression and, if the cursor sits on a column identifier, resolve it to
+/// the owning table's column.
+fn resolve_check_expr_column(
+    string_node: tree_sitter::Node<'_>,
+    expr_pair: tree_sitter::Node<'_>,
+    source: &str,
+    byte_offset: usize,
+) -> Option<ReferenceSymbol> {
+    let inner = crate::check_expr_range::expr_inner_range(string_node)?;
+    let expr_text = source.get(inner.clone())?;
+    let rel = byte_offset.checked_sub(inner.start)?;
+    let column = vespertide_planner::lex_check_expr(expr_text)
+        .into_iter()
+        .find(|tok| {
+            tok.kind == vespertide_planner::CheckTokenKind::Column && tok.span.contains(&rel)
+        })
+        .map(|tok| expr_text.get(tok.span).map(str::to_string))??;
+
+    let owning_table = enclosing_table_name(expr_pair, source)?;
+    Some(ReferenceSymbol::Column {
+        table: owning_table,
+        column,
+    })
 }
 
 fn enclosing_string(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {

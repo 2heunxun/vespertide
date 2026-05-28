@@ -341,4 +341,3 @@ fn fk_in_removed_set(
     );
     removed.contains(&key)
 }
-

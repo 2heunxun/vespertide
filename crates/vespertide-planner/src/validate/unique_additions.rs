@@ -97,12 +97,7 @@ pub fn find_unique_additions(
     for (idx, action) in plan.actions.iter().enumerate() {
         let MigrationAction::AddConstraint {
             table,
-            constraint:
-                TableConstraint::Unique {
-                    name,
-                    columns,
-                    ..
-                },
+            constraint: TableConstraint::Unique { name, columns, .. },
         } = action
         else {
             continue;
@@ -196,8 +191,7 @@ fn collect_fk_references(
                 if ref_table.as_str() != target_table {
                     continue;
                 }
-                let ref_set: HashSet<&str> =
-                    ref_columns.iter().map(ColumnName::as_str).collect();
+                let ref_set: HashSet<&str> = ref_columns.iter().map(ColumnName::as_str).collect();
                 if ref_set != target_set {
                     continue;
                 }
@@ -364,10 +358,7 @@ mod tests {
     #[test]
     fn case_06_no_pk_defensive() {
         let baseline = vec![table("user", vec![col_nn("email")], vec![])];
-        let p = plan(vec![add_unique(
-            "user",
-            unique(Some("uq"), vec!["email"]),
-        )]);
+        let p = plan(vec![add_unique("user", unique(Some("uq"), vec!["email"]))]);
 
         let w = find_unique_additions(&p, &baseline);
         assert_eq!(w.len(), 1);

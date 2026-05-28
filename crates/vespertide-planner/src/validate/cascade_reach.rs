@@ -194,10 +194,7 @@ fn build_cascade_graph(
 /// node and `max_fanout` is the largest single-node out-degree
 /// observed along the walk. `start` itself is excluded from
 /// `reached_tables`.
-fn dfs_cascade(
-    graph: &BTreeMap<String, Vec<String>>,
-    start: &str,
-) -> (usize, Vec<String>, usize) {
+fn dfs_cascade(graph: &BTreeMap<String, Vec<String>>, start: &str) -> (usize, Vec<String>, usize) {
     let mut visited: HashSet<String> = HashSet::new();
     let mut max_depth = 0;
     let mut max_fanout = 0;
@@ -289,11 +286,7 @@ mod tests {
         }
     }
 
-    fn add_cascade_fk(
-        table: &str,
-        col: &str,
-        parent: &str,
-    ) -> MigrationAction {
+    fn add_cascade_fk(table: &str, col: &str, parent: &str) -> MigrationAction {
         MigrationAction::AddConstraint {
             table: TableName::from(table),
             constraint: TableConstraint::ForeignKey {
@@ -308,11 +301,7 @@ mod tests {
         }
     }
 
-    fn add_restrict_fk(
-        table: &str,
-        col: &str,
-        parent: &str,
-    ) -> MigrationAction {
+    fn add_restrict_fk(table: &str, col: &str, parent: &str) -> MigrationAction {
         MigrationAction::AddConstraint {
             table: TableName::from(table),
             constraint: TableConstraint::ForeignKey {
@@ -380,21 +369,9 @@ mod tests {
         let baseline = vec![
             table_with_cascade_fks("users", vec!["id"], vec![]),
             table_with_cascade_fks("posts", vec!["id"], vec![]),
-            table_with_cascade_fks(
-                "tags",
-                vec!["id", "post_id"],
-                vec![("post_id", "posts")],
-            ),
-            table_with_cascade_fks(
-                "votes",
-                vec!["id", "post_id"],
-                vec![("post_id", "posts")],
-            ),
-            table_with_cascade_fks(
-                "views",
-                vec!["id", "post_id"],
-                vec![("post_id", "posts")],
-            ),
+            table_with_cascade_fks("tags", vec!["id", "post_id"], vec![("post_id", "posts")]),
+            table_with_cascade_fks("votes", vec!["id", "post_id"], vec![("post_id", "posts")]),
+            table_with_cascade_fks("views", vec!["id", "post_id"], vec![("post_id", "posts")]),
         ];
         let p = plan(vec![add_cascade_fk("posts", "user_id", "users")]);
         let ws = find_cascade_reach_violations(&p, &baseline);
@@ -414,16 +391,8 @@ mod tests {
                 vec!["id", "post_id"],
                 vec![("post_id", "posts")],
             ),
-            table_with_cascade_fks(
-                "tags",
-                vec!["id", "post_id"],
-                vec![("post_id", "posts")],
-            ),
-            table_with_cascade_fks(
-                "votes",
-                vec!["id", "post_id"],
-                vec![("post_id", "posts")],
-            ),
+            table_with_cascade_fks("tags", vec!["id", "post_id"], vec![("post_id", "posts")]),
+            table_with_cascade_fks("votes", vec!["id", "post_id"], vec![("post_id", "posts")]),
             table_with_cascade_fks(
                 "reactions",
                 vec!["id", "comment_id"],
@@ -447,9 +416,16 @@ mod tests {
         // detection prevents infinite loop and the depth from a
         // self-referential CASCADE FK is bounded by the visited set
         // (single hop).
-        let baseline =
-            vec![table_with_cascade_fks("categories", vec!["id", "parent_id"], vec![])];
-        let p = plan(vec![add_cascade_fk("categories", "parent_id", "categories")]);
+        let baseline = vec![table_with_cascade_fks(
+            "categories",
+            vec!["id", "parent_id"],
+            vec![],
+        )];
+        let p = plan(vec![add_cascade_fk(
+            "categories",
+            "parent_id",
+            "categories",
+        )]);
         let ws = find_cascade_reach_violations(&p, &baseline);
         // self-referential cascade is naturally depth-1 only (the
         // visited set blocks re-entry), so no warning.

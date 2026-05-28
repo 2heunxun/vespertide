@@ -412,10 +412,12 @@ fn test_recreate_indexes_after_rebuild_skips_pending() {
         columns: vec!["b".into()],
     };
     let uq1 = TableConstraint::Unique {
-                name: Some("uq_c".into()),
-                columns: vec!["c".into()],
-                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
-            };
+        name: Some("uq_c".into()),
+        columns: vec!["c".into()],
+        strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+            keep: vespertide_core::KeepPolicy::First,
+        },
+    };
 
     // All three in table constraints, but idx1 and uq1 are pending
     let constraints = vec![idx1.clone(), idx2.clone(), uq1.clone()];
@@ -436,10 +438,12 @@ fn test_recreate_indexes_after_rebuild_no_pending() {
         columns: vec!["a".into()],
     };
     let uq = TableConstraint::Unique {
-                name: Some("uq_b".into()),
-                columns: vec!["b".into()],
-                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
-            };
+        name: Some("uq_b".into()),
+        columns: vec!["b".into()],
+        strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+            keep: vespertide_core::KeepPolicy::First,
+        },
+    };
 
     let queries = recreate_indexes_after_rebuild("t", &[idx, uq], &[]);
     assert_eq!(queries.len(), 2);

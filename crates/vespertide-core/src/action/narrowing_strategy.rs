@@ -119,10 +119,7 @@ mod tests {
         assert_eq!(NarrowingStrategy::Truncate.kind_label(), "truncate");
         assert_eq!(NarrowingStrategy::Delete.kind_label(), "delete");
         assert_eq!(
-            NarrowingStrategy::SetToValue {
-                value: "0".into()
-            }
-            .kind_label(),
+            NarrowingStrategy::SetToValue { value: "0".into() }.kind_label(),
             "set_to_value"
         );
     }

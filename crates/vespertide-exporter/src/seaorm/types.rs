@@ -28,7 +28,7 @@ pub(super) fn format_default_value(value: &StringOrBool, column_type: &ColumnTyp
     // Format based on column type
     match column_type {
         // Numeric types: no quotes
-            ColumnType::Simple(simple) if is_numeric_simple_type(*simple) => {
+        ColumnType::Simple(simple) if is_numeric_simple_type(*simple) => {
             format!("default_value = {cleaned}")
         }
         // Boolean type: no quotes

@@ -18,9 +18,9 @@ pub use column::{
 };
 pub use constraint::{ConstraintKind, TableConstraint};
 pub use fk_orphan_strategy::ForeignKeyOrphanStrategy;
-pub use pk_addition_strategy::PrimaryKeyAdditionStrategy;
 pub use index::IndexDef;
 pub use names::{ColumnName, IndexName, TableName};
+pub use pk_addition_strategy::PrimaryKeyAdditionStrategy;
 pub use primary_key::PrimaryKeyDef;
 pub use reference::ReferenceAction;
 pub use str_or_bool::{DefaultValue, StrOrBoolOrArray, StringOrBool};

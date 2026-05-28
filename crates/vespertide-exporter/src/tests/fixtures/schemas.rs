@@ -220,10 +220,12 @@ fn reverse_user_schema(name: &str, fk_cols: &[&str], unique: bool) -> (TableDef,
         table
             .constraints
             .extend(fk_cols.iter().map(|col| TableConstraint::Unique {
-                        name: None,
-                        columns: vec![(*col).into()],
-                        strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
-                    }));
+                name: None,
+                columns: vec![(*col).into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                    keep: vespertide_core::KeepPolicy::First,
+                },
+            }));
     }
     (user.clone(), vec![user, table])
 }

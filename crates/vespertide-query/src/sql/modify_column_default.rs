@@ -257,8 +257,15 @@ mod tests {
             return;
         }
 
-        let result =
-            build_modify_column_default(backend, "users", "email", Some("'default'"), None, &[], &[]);
+        let result = build_modify_column_default(
+            backend,
+            "users",
+            "email",
+            Some("'default'"),
+            None,
+            &[],
+            &[],
+        );
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("Table 'users' not found"));
@@ -286,8 +293,15 @@ mod tests {
             vec![],
         )];
 
-        let result =
-            build_modify_column_default(backend, "users", "email", Some("'default'"), None, &schema, &[]);
+        let result = build_modify_column_default(
+            backend,
+            "users",
+            "email",
+            Some("'default'"),
+            None,
+            &schema,
+            &[],
+        );
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("Column 'email' not found"));
@@ -453,8 +467,15 @@ mod tests {
             vec![],
         )];
 
-        let result =
-            build_modify_column_default(backend, "products", "quantity", Some("0"), None, &schema, &[]);
+        let result = build_modify_column_default(
+            backend,
+            "products",
+            "quantity",
+            Some("0"),
+            None,
+            &schema,
+            &[],
+        );
         assert!(result.is_ok());
         let queries = result.unwrap();
         let sql = queries
@@ -496,8 +517,15 @@ mod tests {
             vec![],
         )];
 
-        let result =
-            build_modify_column_default(backend, "users", "is_active", Some("true"), None, &schema, &[]);
+        let result = build_modify_column_default(
+            backend,
+            "users",
+            "is_active",
+            Some("true"),
+            None,
+            &schema,
+            &[],
+        );
         assert!(result.is_ok());
         let queries = result.unwrap();
         let sql = queries

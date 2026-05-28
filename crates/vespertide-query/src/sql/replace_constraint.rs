@@ -468,21 +468,27 @@ mod tests {
                     TableConstraint::Unique {
                         name: Some("uq_email".into()),
                         columns: vec!["email".into()],
-                        strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+                        strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                            keep: vespertide_core::KeepPolicy::First,
+                        },
                     },
                 ],
             },
         ];
         let from = TableConstraint::Unique {
-                    name: Some("uq_email".into()),
-                    columns: vec!["email".into()],
-                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
-                };
+            name: Some("uq_email".into()),
+            columns: vec!["email".into()],
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
+        };
         let to = TableConstraint::Unique {
-                    name: Some("uq_email_new".into()),
-                    columns: vec!["email".into()],
-                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
-                };
+            name: Some("uq_email_new".into()),
+            columns: vec!["email".into()],
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
+        };
 
         let queries = build_replace_constraint(backend, "users", &from, &to, &schema, &[])
             .expect("should succeed");
@@ -501,15 +507,19 @@ mod tests {
     #[test]
     fn replace_constraint_table_not_found_sqlite() {
         let from = TableConstraint::Unique {
-                    name: Some("uq_old".into()),
-                    columns: vec!["col".into()],
-                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
-                };
+            name: Some("uq_old".into()),
+            columns: vec!["col".into()],
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
+        };
         let to = TableConstraint::Unique {
-                    name: Some("uq_new".into()),
-                    columns: vec!["col".into()],
-                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
-                };
+            name: Some("uq_new".into()),
+            columns: vec!["col".into()],
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
+        };
         let err =
             build_replace_constraint(DatabaseBackend::Sqlite, "missing", &from, &to, &[], &[])
                 .unwrap_err();

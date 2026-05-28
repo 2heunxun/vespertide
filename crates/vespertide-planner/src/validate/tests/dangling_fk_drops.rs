@@ -69,7 +69,12 @@ fn two_table_baseline() -> Vec<TableDef> {
             vec![int_col("id"), int_col("parent_id")],
             vec![
                 pk(vec!["id"]),
-                fk(Some("fk_child_parent"), vec!["parent_id"], "parent", vec!["id"]),
+                fk(
+                    Some("fk_child_parent"),
+                    vec!["parent_id"],
+                    "parent",
+                    vec!["id"],
+                ),
             ],
         ),
     ]
@@ -92,7 +97,10 @@ fn case_01_drop_column_no_referencing_fk() {
         column: "legacy".into(),
     }]);
 
-    assert_eq!(find_dangling_fk_drops(&plan, &baseline), Vec::<DanglingFkDrop>::new());
+    assert_eq!(
+        find_dangling_fk_drops(&plan, &baseline),
+        Vec::<DanglingFkDrop>::new()
+    );
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -107,7 +115,12 @@ fn case_02_drop_column_with_referencing_fk() {
 
     assert_eq!(
         find_dangling_fk_drops(&plan, &two_table_baseline()),
-        vec![dangling("parent", Some("id"), "child", Some("fk_child_parent"))]
+        vec![dangling(
+            "parent",
+            Some("id"),
+            "child",
+            Some("fk_child_parent")
+        )]
     );
 }
 
@@ -119,7 +132,12 @@ fn case_03_drop_column_and_fk_in_same_plan() {
     let plan = plan_with(vec![
         MigrationAction::RemoveConstraint {
             table: "child".into(),
-            constraint: fk(Some("fk_child_parent"), vec!["parent_id"], "parent", vec!["id"]),
+            constraint: fk(
+                Some("fk_child_parent"),
+                vec!["parent_id"],
+                "parent",
+                vec!["id"],
+            ),
         },
         MigrationAction::DeleteColumn {
             table: "parent".into(),
@@ -139,7 +157,9 @@ fn case_03_drop_column_and_fk_in_same_plan() {
 #[test]
 fn case_04_drop_column_and_referencing_table() {
     let plan = plan_with(vec![
-        MigrationAction::DeleteTable { table: "child".into() },
+        MigrationAction::DeleteTable {
+            table: "child".into(),
+        },
         MigrationAction::DeleteColumn {
             table: "parent".into(),
             column: "id".into(),
@@ -190,7 +210,10 @@ fn case_06_drop_table_no_referencing_fk() {
         table: "orphan".into(),
     }]);
 
-    assert_eq!(find_dangling_fk_drops(&plan, &baseline), Vec::<DanglingFkDrop>::new());
+    assert_eq!(
+        find_dangling_fk_drops(&plan, &baseline),
+        Vec::<DanglingFkDrop>::new()
+    );
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -216,9 +239,16 @@ fn case_08_drop_table_and_fk_in_same_plan() {
     let plan = plan_with(vec![
         MigrationAction::RemoveConstraint {
             table: "child".into(),
-            constraint: fk(Some("fk_child_parent"), vec!["parent_id"], "parent", vec!["id"]),
+            constraint: fk(
+                Some("fk_child_parent"),
+                vec!["parent_id"],
+                "parent",
+                vec!["id"],
+            ),
         },
-        MigrationAction::DeleteTable { table: "parent".into() },
+        MigrationAction::DeleteTable {
+            table: "parent".into(),
+        },
     ]);
 
     assert_eq!(
@@ -233,8 +263,12 @@ fn case_08_drop_table_and_fk_in_same_plan() {
 #[test]
 fn case_09_drop_table_and_referencing_table() {
     let plan = plan_with(vec![
-        MigrationAction::DeleteTable { table: "child".into() },
-        MigrationAction::DeleteTable { table: "parent".into() },
+        MigrationAction::DeleteTable {
+            table: "child".into(),
+        },
+        MigrationAction::DeleteTable {
+            table: "parent".into(),
+        },
     ]);
 
     assert_eq!(
@@ -254,14 +288,24 @@ fn case_10_self_ref_fk_column_drop_with_fk_removed() {
         vec![int_col("id"), int_col("parent_id")],
         vec![
             pk(vec!["id"]),
-            fk(Some("fk_node_parent"), vec!["parent_id"], "node", vec!["id"]),
+            fk(
+                Some("fk_node_parent"),
+                vec!["parent_id"],
+                "node",
+                vec!["id"],
+            ),
         ],
     )];
 
     let plan = plan_with(vec![
         MigrationAction::RemoveConstraint {
             table: "node".into(),
-            constraint: fk(Some("fk_node_parent"), vec!["parent_id"], "node", vec!["id"]),
+            constraint: fk(
+                Some("fk_node_parent"),
+                vec!["parent_id"],
+                "node",
+                vec!["id"],
+            ),
         },
         MigrationAction::DeleteColumn {
             table: "node".into(),
@@ -269,7 +313,10 @@ fn case_10_self_ref_fk_column_drop_with_fk_removed() {
         },
     ]);
 
-    assert_eq!(find_dangling_fk_drops(&plan, &baseline), Vec::<DanglingFkDrop>::new());
+    assert_eq!(
+        find_dangling_fk_drops(&plan, &baseline),
+        Vec::<DanglingFkDrop>::new()
+    );
 }
 
 // ───────────────────────────────────────────────────────────────────────────

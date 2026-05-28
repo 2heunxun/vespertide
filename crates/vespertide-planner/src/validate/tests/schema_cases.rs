@@ -410,10 +410,7 @@ fn validate_schema_cases(
         None => assert!(result.is_ok()),
         Some(pred) => {
             let err = result.unwrap_err();
-            assert!(
-                matches_in_error(&err, pred),
-                "unexpected error: {err:?}"
-            );
+            assert!(matches_in_error(&err, pred), "unexpected error: {err:?}");
         }
     }
 }
@@ -457,10 +454,7 @@ fn validate_schema_batches_multiple_violations() {
             "posts",
             vec![
                 col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-                col(
-                    "author_id",
-                    ColumnType::Simple(SimpleColumnType::Integer),
-                ),
+                col("author_id", ColumnType::Simple(SimpleColumnType::Integer)),
             ],
             vec![
                 pk(vec!["id"]),

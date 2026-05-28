@@ -201,7 +201,135 @@ fn inspect_pair(
                 byte_range: scalar_range(value),
             });
         }
+        // Column reference inside a table-level CHECK `expr` string. Each
+        // bare identifier in the expression that names this column (scoped
+        // to the CHECK's owning table) is a reference.
+        (ReferenceSymbol::Column { table, column }, "expr")
+            if is_check_constraint_pair(source, pair)
+                && check_owning_table_matches(source, pair, table) =>
+        {
+            push_check_expr_matches(value, source, column, uri, out);
+        }
         _ => {}
+    }
+}
+
+/// True when this `expr` pair sits next to a sibling `type: "check"` pair
+/// inside a constraint object.
+fn is_check_constraint_pair(source: &[u8], expr_pair: tree_sitter::Node<'_>) -> bool {
+    sibling_value(source, expr_pair, "type").is_some_and(|v| v == "check")
+}
+
+/// True when the CHECK constraint's owning table (the document's outermost
+/// `name`) equals `expected_table`.
+fn check_owning_table_matches(
+    source: &[u8],
+    expr_pair: tree_sitter::Node<'_>,
+    expected_table: &str,
+) -> bool {
+    outer_table_name(source, expr_pair).is_some_and(|name| name == expected_table)
+}
+
+/// Look up a sibling pair's scalar value within the same constraint object.
+fn sibling_value(source: &[u8], pair: tree_sitter::Node<'_>, target_key: &str) -> Option<String> {
+    let object_raw = pair.parent()?;
+    let object = match object_raw.kind() {
+        "flow_node" | "block_node" => object_raw.named_child(0)?,
+        _ => object_raw,
+    };
+    let mut cursor = object.walk();
+    for child in object.children(&mut cursor) {
+        if !matches!(child.kind(), "pair" | "block_mapping_pair") {
+            continue;
+        }
+        let Some(key) = child.named_child(0) else {
+            continue;
+        };
+        let Some(key_text) = std::str::from_utf8(&source[key.byte_range()]).ok() else {
+            continue;
+        };
+        if strip_quotes(key_text) != target_key {
+            continue;
+        }
+        let value = child.named_child(1)?;
+        let actual = match value.kind() {
+            "flow_node" | "block_node" => value.named_child(0).unwrap_or(value),
+            _ => value,
+        };
+        let text = std::str::from_utf8(&source[actual.byte_range()]).ok()?;
+        return Some(strip_quotes(text).to_string());
+    }
+    None
+}
+
+/// Walk up to the document's outermost mapping and return its `name` value.
+fn outer_table_name(source: &[u8], node: tree_sitter::Node<'_>) -> Option<String> {
+    let mut current = node.parent();
+    let mut outer = None;
+    while let Some(candidate) = current {
+        if matches!(
+            candidate.kind(),
+            "object" | "block_mapping" | "flow_mapping"
+        ) {
+            outer = Some(candidate);
+        }
+        current = candidate.parent();
+    }
+    let outer = outer?;
+    let mut cursor = outer.walk();
+    for child in outer.children(&mut cursor) {
+        if !matches!(child.kind(), "pair" | "block_mapping_pair") {
+            continue;
+        }
+        let Some(key) = child.named_child(0) else {
+            continue;
+        };
+        let Some(key_text) = std::str::from_utf8(&source[key.byte_range()]).ok() else {
+            continue;
+        };
+        if strip_quotes(key_text) != "name" {
+            continue;
+        }
+        let value = child.named_child(1)?;
+        let actual = match value.kind() {
+            "flow_node" | "block_node" => value.named_child(0).unwrap_or(value),
+            _ => value,
+        };
+        let text = std::str::from_utf8(&source[actual.byte_range()]).ok()?;
+        return Some(strip_quotes(text).to_string());
+    }
+    None
+}
+
+/// Lex the CHECK expression in `value` and push a reference for every bare
+/// identifier matching `column`, with byte ranges absolute to the document.
+fn push_check_expr_matches(
+    value: tree_sitter::Node<'_>,
+    source: &[u8],
+    column: &str,
+    uri: &Uri,
+    out: &mut Vec<DomainReference>,
+) {
+    let Some(inner) = crate::check_expr_range::expr_inner_range(value) else {
+        return;
+    };
+    let Some(expr_text) = std::str::from_utf8(&source[inner.clone()]).ok() else {
+        return;
+    };
+    for token in vespertide_planner::lex_check_expr(expr_text) {
+        if token.kind != vespertide_planner::CheckTokenKind::Column {
+            continue;
+        }
+        let Some(ident) = expr_text.get(token.span.clone()) else {
+            continue;
+        };
+        if ident != column {
+            continue;
+        }
+        out.push(DomainReference {
+            uri: uri.clone(),
+            byte_range: (inner.start + token.span.start)..(inner.start + token.span.end),
+        });
     }
 }
 

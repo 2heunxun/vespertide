@@ -29,9 +29,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use vespertide_core::{
-    ColumnName, MigrationAction, MigrationPlan, TableConstraint, TableDef,
-};
+use vespertide_core::{ColumnName, MigrationAction, MigrationPlan, TableConstraint, TableDef};
 
 use crate::error::PlannerError;
 
@@ -223,9 +221,16 @@ fn render_fk_hint(baseline: &[TableDef], target_table: &str, target_columns: &[S
                 if ref_set != target_set {
                     continue;
                 }
-                let label = name
-                    .clone()
-                    .unwrap_or_else(|| format!("({})", columns.iter().map(ColumnName::as_str).collect::<Vec<_>>().join(", ")));
+                let label = name.clone().unwrap_or_else(|| {
+                    format!(
+                        "({})",
+                        columns
+                            .iter()
+                            .map(ColumnName::as_str)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                });
                 hits.push(format!("{}.{}", table.name.as_str(), label));
             }
         }
@@ -268,10 +273,12 @@ mod tests {
 
     fn uq(name: Option<&str>, columns: Vec<&str>) -> TableConstraint {
         TableConstraint::Unique {
-                    name: name.map(ToString::to_string),
-                    columns: columns.into_iter().map(Into::into).collect(),
-                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
-                }
+            name: name.map(ToString::to_string),
+            columns: columns.into_iter().map(Into::into).collect(),
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
+        }
     }
 
     fn fk(
@@ -310,9 +317,9 @@ mod tests {
 
     fn add(table: &str, c: TableConstraint) -> MigrationAction {
         MigrationAction::AddConstraint {
-                    table: TableName::from(table),
-                    constraint: c,
-                }
+            table: TableName::from(table),
+            constraint: c,
+        }
     }
 
     // ── A: PK → UQ ──────────────────────────────────────────────────────
@@ -385,7 +392,12 @@ mod tests {
                 vec![col("id"), col("author_id")],
                 vec![
                     pk(vec!["id"]),
-                    fk(Some("fk_post_author"), vec!["author_id"], "user", vec!["id"]),
+                    fk(
+                        Some("fk_post_author"),
+                        vec!["author_id"],
+                        "user",
+                        vec!["id"],
+                    ),
                 ],
             ),
         ];

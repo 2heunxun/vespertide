@@ -27,12 +27,12 @@
 //! based on the user-chosen `CheckViolationStrategy`.
 //!
 //! [`check_default`]: super::check_default
-//! [`parse_simple_check`]: super::check_default::parse_simple_check
+//! [`parse_simple_check`]: super::check_expr_parser::parse
 //! [`CheckViolationStrategy`]: vespertide_core::CheckViolationStrategy
 
 use vespertide_core::{MigrationAction, MigrationPlan, TableConstraint, TableDef};
 
-use super::check_default::matches_simple_check;
+use super::check_expr_parser::matches_for_column;
 
 /// One risky CHECK addition needing user resolution.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,12 +72,7 @@ pub fn find_check_additions(
     for (idx, action) in plan.actions.iter().enumerate() {
         let MigrationAction::AddConstraint {
             table,
-            constraint:
-                TableConstraint::Check {
-                    name,
-                    expr,
-                    ..
-                },
+            constraint: TableConstraint::Check { name, expr, .. },
         } = action
         else {
             continue;
@@ -117,10 +112,10 @@ pub fn find_check_additions(
 }
 
 /// Walk every column in `table` and return the first column for which
-/// `matches_simple_check` succeeds. Returns `(column_name, nullable)`.
+/// `matches_for_column` succeeds. Returns `(column_name, nullable)`.
 fn find_check_target_column(expr: &str, table: &TableDef) -> Option<(String, bool)> {
     for col in &table.columns {
-        if matches_simple_check(expr, col.name.as_str()) {
+        if matches_for_column(expr, col.name.as_str()) {
             return Some((col.name.to_string(), col.nullable));
         }
     }
@@ -209,10 +204,7 @@ mod tests {
 
     #[rstest]
     fn case_03_in_clause_flagged() {
-        let baseline = vec![table(
-            "orders",
-            vec![col("id", false), col("status", true)],
-        )];
+        let baseline = vec![table("orders", vec![col("id", false), col("status", true)])];
         let p = plan(vec![add_check(
             "orders",
             "chk_status",
@@ -239,10 +231,7 @@ mod tests {
 
     #[rstest]
     fn case_05_function_call_skipped() {
-        let baseline = vec![table(
-            "users",
-            vec![col("id", false), col("name", true)],
-        )];
+        let baseline = vec![table("users", vec![col("id", false), col("name", true)])];
         let p = plan(vec![add_check("users", "chk_name", "length(name) > 0")]);
         let ws = find_check_additions(&p, &baseline);
         assert!(ws.is_empty());
@@ -273,11 +262,7 @@ mod tests {
     fn case_08_multiple_checks_each_flagged_separately() {
         let baseline = vec![table(
             "products",
-            vec![
-                col("id", false),
-                col("price", true),
-                col("stock", true),
-            ],
+            vec![col("id", false), col("price", true), col("stock", true)],
         )];
         let p = plan(vec![
             add_check("products", "chk_price", "price > 0"),

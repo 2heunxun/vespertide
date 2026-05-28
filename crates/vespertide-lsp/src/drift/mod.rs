@@ -239,10 +239,14 @@ mod tests {
     #[test]
     fn action_to_drift_modify_column_type() {
         let baseline = vec![table("user", vec![integer_column("id")])];
-        let action = MigrationAction::ModifyColumnType { table: "user".into(),
-        column: "id".into(),
-        new_type: ColumnType::Simple(SimpleColumnType::BigInt), fill_with: None, narrowing_strategy: None,
-            timezone: None, };
+        let action = MigrationAction::ModifyColumnType {
+            table: "user".into(),
+            column: "id".into(),
+            new_type: ColumnType::Simple(SimpleColumnType::BigInt),
+            fill_with: None,
+            narrowing_strategy: None,
+            timezone: None,
+        };
         let source =
             r#"{"name":"user","columns":[{"name":"id","type":"big_int","nullable":false}]}"#;
         let tree = parse_json(source);
@@ -277,11 +281,11 @@ mod tests {
     fn action_to_drift_modify_column_default_none_to_some() {
         let baseline = vec![table("user", vec![integer_column("id")])];
         let action = MigrationAction::ModifyColumnDefault {
-                    table: "user".into(),
-                    column: "id".into(),
-                    new_default: Some("0".into()),
-                    backfill: None,
-                };
+            table: "user".into(),
+            column: "id".into(),
+            new_default: Some("0".into()),
+            backfill: None,
+        };
         let source = r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"default":"0"}]}"#;
         let tree = parse_json(source);
 

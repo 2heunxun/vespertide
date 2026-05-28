@@ -229,7 +229,9 @@ fn normalize_unique_name_mismatch_creates_both_constraints() {
             TableConstraint::Unique {
                 name: None,
                 columns: vec!["email".into()],
-                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
+                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates {
+                    keep: crate::schema::KeepPolicy::First,
+                },
             },
         ],
     };
@@ -702,7 +704,9 @@ fn normalize_inline_unique_str_already_exists() {
         constraints: vec![TableConstraint::Unique {
             name: Some("uq_email".into()),
             columns: vec!["email".into()],
-            strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
+            strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: crate::schema::KeepPolicy::First,
+            },
         }],
     };
 
@@ -732,7 +736,9 @@ fn normalize_inline_unique_bool_already_exists() {
         constraints: vec![TableConstraint::Unique {
             name: None,
             columns: vec!["email".into()],
-            strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
+            strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: crate::schema::KeepPolicy::First,
+            },
         }],
     };
 

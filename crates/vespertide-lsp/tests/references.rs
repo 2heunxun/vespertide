@@ -351,3 +351,138 @@ fn references_yaml_cross_file_table() {
         "YAML cross-file ref should appear, got: {uris:?}"
     );
 }
+
+// -- CHECK-expression column references (FR-S1/S2/S3) ----------------------
+//
+// A table-level CHECK constraint references columns by bare identifier in
+// its `expr` string (e.g. `"age > 0 AND age < 150"`). Find-references and
+// rename must treat those identifiers as references to the owning table's
+// column, scoped so that `user.age` inside a CHECK does not collide with a
+// same-named `age` column on a different table.
+
+#[test]
+fn fr_s1_resolve_cursor_on_check_expr_column_returns_column_symbol() {
+    let pool = ParserPool::new();
+    let src = r#"{"name":"user","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk_age","expr":"age > 0"}]}"#;
+    let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+    // Cursor on the `age` identifier *inside* the CHECK expression string.
+    let pos = src.find(r#""expr":"age > 0""#).unwrap() + 8; // inside "age"
+    let symbol = resolve_reference_symbol(src, Some(&tree), &uri("user.json"), pos)
+        .expect("CHECK expr column symbol");
+    assert_eq!(
+        symbol,
+        ReferenceSymbol::Column {
+            table: "user".to_string(),
+            column: "age".to_string()
+        }
+    );
+}
+
+#[test]
+fn fr_s2_references_of_column_include_check_expr_occurrence() {
+    let pool = ParserPool::new();
+    let idx = WorkspaceIndex::new();
+    let docs = DocumentStore::new();
+
+    let user_src = r#"{"name":"user","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk_age","expr":"age > 0 AND age < 150"}]}"#;
+    let user_uri = uri("user.json");
+    let user_tree = pool.parse(user_src, DocumentFormat::Json).unwrap();
+    idx.upsert(&user_uri, user_src, &user_tree);
+    docs.open(
+        user_uri.clone(),
+        "json".to_string(),
+        1,
+        user_src.to_string(),
+    );
+
+    // Cursor on the `age` column declaration.
+    let pos = user_src.find(r#""name":"age""#).unwrap() + 8;
+    let refs = compute_references(
+        user_src,
+        DocumentFormat::Json,
+        Some(&user_tree),
+        &user_uri,
+        &idx,
+        &docs,
+        None,
+        pos,
+        true,
+    );
+
+    // The two `age` occurrences inside the CHECK expr must be reported, each
+    // as its own byte range pointing exactly at the identifier text.
+    let expr_field_start = user_src.find(r#""expr":""#).unwrap() + r#""expr":""#.len();
+    let check_refs: Vec<_> = refs
+        .iter()
+        .filter(|r| r.byte_range.start >= expr_field_start)
+        .collect();
+    assert_eq!(
+        check_refs.len(),
+        2,
+        "both CHECK-expr `age` occurrences should be reported, got: {refs:?}"
+    );
+    for r in &check_refs {
+        assert_eq!(
+            &user_src[r.byte_range.clone()],
+            "age",
+            "CHECK-expr reference range must cover exactly the column identifier"
+        );
+    }
+}
+
+#[test]
+fn fr_s3_check_expr_column_scoped_to_owning_table() {
+    let pool = ParserPool::new();
+    let idx = WorkspaceIndex::new();
+    let docs = DocumentStore::new();
+
+    // user.age has a CHECK referencing `age`.
+    let user_src = r#"{"name":"user","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk_age","expr":"age > 0"}]}"#;
+    let user_uri = uri("user.json");
+    let user_tree = pool.parse(user_src, DocumentFormat::Json).unwrap();
+    idx.upsert(&user_uri, user_src, &user_tree);
+    docs.open(
+        user_uri.clone(),
+        "json".to_string(),
+        1,
+        user_src.to_string(),
+    );
+
+    // other.age also has a CHECK referencing `age` — a DIFFERENT table's
+    // column that happens to share the name. It must NOT be reported when
+    // resolving references of user.age.
+    let other_src = r#"{"name":"other","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk_age","expr":"age > 0"}]}"#;
+    let other_uri = uri("other.json");
+    let other_tree = pool.parse(other_src, DocumentFormat::Json).unwrap();
+    idx.upsert(&other_uri, other_src, &other_tree);
+    docs.open(
+        other_uri.clone(),
+        "json".to_string(),
+        1,
+        other_src.to_string(),
+    );
+
+    let pos = user_src.find(r#""name":"age""#).unwrap() + 8;
+    let refs = compute_references(
+        user_src,
+        DocumentFormat::Json,
+        Some(&user_tree),
+        &user_uri,
+        &idx,
+        &docs,
+        None,
+        pos,
+        true,
+    );
+
+    let by_uri: Vec<_> = refs.iter().map(|r| r.uri.as_str().to_string()).collect();
+    assert!(
+        by_uri.iter().any(|u| u.ends_with("/user.json")),
+        "user.json CHECK ref should appear, got: {by_uri:?}"
+    );
+    let other_count = by_uri.iter().filter(|u| u.ends_with("/other.json")).count();
+    assert_eq!(
+        other_count, 0,
+        "unrelated `other.age` CHECK column must not be reported, got: {by_uri:?}"
+    );
+}

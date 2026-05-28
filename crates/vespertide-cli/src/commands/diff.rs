@@ -93,10 +93,12 @@ fn emit_timezone_conversion_warnings(plan: &MigrationPlan, baseline: &[TableDef]
 /// Format a single `TimezoneConversionWarning` as a multi-line indented block.
 fn format_timezone_conversion_warning(w: &TimezoneConversionWarning) -> String {
     let direction_explainer = match w.direction {
-        vespertide_planner::TimezoneConversionDirection::NaiveToAware =>
-            "existing naive values will be read AS IF they are in <tz>",
-        vespertide_planner::TimezoneConversionDirection::AwareToNaive =>
-            "existing aware values will be projected INTO <tz>, then dropped",
+        vespertide_planner::TimezoneConversionDirection::NaiveToAware => {
+            "existing naive values will be read AS IF they are in <tz>"
+        }
+        vespertide_planner::TimezoneConversionDirection::AwareToNaive => {
+            "existing aware values will be projected INTO <tz>, then dropped"
+        }
     };
     let mut out = format!(
         "  {} {}\n  {} {}\n  {} {}",
@@ -549,7 +551,9 @@ fn format_action(action: &MigrationAction) -> String {
                 table.expect("ReplaceConstraint has a table")
             )
         }
-        MigrationAction::RemapEnumValues { column, mapping, .. } => {
+        MigrationAction::RemapEnumValues {
+            column, mapping, ..
+        } => {
             let summary = mapping
                 .iter()
                 .map(|(old, new)| format!("{old}->{new}"))
@@ -1053,7 +1057,11 @@ mod tests {
         };
         let out = format_missing_fk_warning(&m);
 
-        assert_eq!(out.lines().count(), 4, "4 indented lines: fk / ref / why / fix");
+        assert_eq!(
+            out.lines().count(),
+            4,
+            "4 indented lines: fk / ref / why / fix"
+        );
         // The four labels must each appear exactly once.
         for label in ["fk:", "ref:", "why:", "fix:"] {
             assert_eq!(
@@ -1115,7 +1123,7 @@ mod tests {
             table: table.to_string(),
             kind,
             label: label.to_string(),
-            columns: columns.into_iter().map(ToString::to_string).collect()
+            columns: columns.into_iter().map(ToString::to_string).collect(),
         }
     }
 
@@ -1203,15 +1211,24 @@ mod tests {
             columns: vec!["user_id".to_string()],
             ref_table: "users".to_string(),
             ref_columns: vec!["id".to_string()],
-            on_delete_change: on_delete.map(|(b, a)| PolicyDelta { before: b, after: a }),
-            on_update_change: on_update.map(|(b, a)| PolicyDelta { before: b, after: a }),
+            on_delete_change: on_delete.map(|(b, a)| PolicyDelta {
+                before: b,
+                after: a,
+            }),
+            on_update_change: on_update.map(|(b, a)| PolicyDelta {
+                before: b,
+                after: a,
+            }),
         }
     }
 
     #[test]
     fn format_fk_policy_warning_on_delete_only_renders_single_delta_line() {
         let w = policy_warning(
-            Some((Some(ReferenceAction::Cascade), Some(ReferenceAction::Restrict))),
+            Some((
+                Some(ReferenceAction::Cascade),
+                Some(ReferenceAction::Restrict),
+            )),
             None,
         );
         let out = format_fk_policy_change_warning(&w);
@@ -1230,10 +1247,7 @@ mod tests {
 
     #[test]
     fn format_fk_policy_warning_on_update_only_renders_single_delta_line() {
-        let w = policy_warning(
-            None,
-            Some((None, Some(ReferenceAction::Cascade))),
-        );
+        let w = policy_warning(None, Some((None, Some(ReferenceAction::Cascade))));
         let out = format_fk_policy_change_warning(&w);
 
         assert!(!out.contains("ON DELETE:"));
@@ -1246,8 +1260,14 @@ mod tests {
     #[test]
     fn format_fk_policy_warning_both_changes_render_two_delta_lines() {
         let w = policy_warning(
-            Some((Some(ReferenceAction::Cascade), Some(ReferenceAction::SetNull))),
-            Some((Some(ReferenceAction::Cascade), Some(ReferenceAction::Restrict))),
+            Some((
+                Some(ReferenceAction::Cascade),
+                Some(ReferenceAction::SetNull),
+            )),
+            Some((
+                Some(ReferenceAction::Cascade),
+                Some(ReferenceAction::Restrict),
+            )),
         );
         let out = format_fk_policy_change_warning(&w);
 
@@ -1263,7 +1283,10 @@ mod tests {
     #[test]
     fn format_fk_policy_warning_unnamed_fk_falls_back_to_placeholder() {
         let mut w = policy_warning(
-            Some((Some(ReferenceAction::Cascade), Some(ReferenceAction::Restrict))),
+            Some((
+                Some(ReferenceAction::Cascade),
+                Some(ReferenceAction::Restrict),
+            )),
             None,
         );
         w.constraint_name = None;

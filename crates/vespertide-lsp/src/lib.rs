@@ -14,6 +14,7 @@
 
 mod backend;
 pub(crate) mod cache;
+mod check_expr_range;
 mod code_actions;
 mod completion;
 mod definition;

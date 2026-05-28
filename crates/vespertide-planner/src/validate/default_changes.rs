@@ -432,10 +432,7 @@ mod tests {
             MigrationAction::RemapEnumValues {
                 table: TableName::from("user"),
                 column: ColumnName::from("priority"),
-                mapping: std::collections::BTreeMap::from([
-                    (0_i64, 100_i64),
-                    (100_i64, 101_i64),
-                ]),
+                mapping: std::collections::BTreeMap::from([(0_i64, 100_i64), (100_i64, 101_i64)]),
             },
             modify_default("user", "priority", Some("100")),
         ]);
@@ -506,11 +503,7 @@ mod tests {
         // No baseline column → lookup_old_default returns None → treated
         // as AddedDefault even though the plan says "modify".
         let baseline: Vec<TableDef> = vec![];
-        let plan = plan_with(vec![modify_default(
-            "unknown",
-            "col",
-            Some("'fresh'"),
-        )]);
+        let plan = plan_with(vec![modify_default("unknown", "col", Some("'fresh'"))]);
 
         let warnings = find_default_changes(&plan, &baseline);
         assert_eq!(warnings.len(), 1);

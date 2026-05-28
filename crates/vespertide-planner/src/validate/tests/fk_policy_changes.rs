@@ -143,7 +143,10 @@ fn on_update_only_change_is_warned_separately() {
 
     let warnings = find_fk_policy_changes(&plan);
     assert_eq!(warnings.len(), 1);
-    assert!(warnings[0].on_delete_change.is_none(), "on_delete unchanged");
+    assert!(
+        warnings[0].on_delete_change.is_none(),
+        "on_delete unchanged"
+    );
     let upd = warnings[0]
         .on_update_change
         .as_ref()
@@ -224,14 +227,7 @@ fn none_vs_some_no_action_is_treated_as_unchanged() {
     // level. Flipping between them must not trigger a false positive.
     let plan = plan_with(vec![replace(
         "orders",
-        fk(
-            Some("fk"),
-            vec!["uid"],
-            "users",
-            vec!["id"],
-            None,
-            None,
-        ),
+        fk(Some("fk"), vec!["uid"], "users", vec!["id"], None, None),
         fk(
             Some("fk"),
             vec!["uid"],
@@ -255,12 +251,16 @@ fn replace_non_fk_constraint_is_ignored() {
         TableConstraint::Unique {
             name: Some("uq".into()),
             columns: vec!["email".into()],
-            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
         },
         TableConstraint::Unique {
             name: Some("uq".into()),
             columns: vec!["email".into(), "tenant_id".into()],
-            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
         },
     )]);
 
@@ -296,7 +296,10 @@ fn add_constraint_and_remove_constraint_are_ignored() {
     ]);
 
     let warnings = find_fk_policy_changes(&plan);
-    assert!(warnings.is_empty(), "F30 must only inspect ReplaceConstraint");
+    assert!(
+        warnings.is_empty(),
+        "F30 must only inspect ReplaceConstraint"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -317,20 +320,62 @@ fn mixed_plan_returns_only_policy_changes_with_correct_indices() {
         // 1  FK→FK with same policy (no warn)
         replace(
             "orders",
-            fk(Some("fk_a"), vec!["uid"], "users", vec!["id"], Some(ReferenceAction::Cascade), None),
-            fk(Some("fk_a"), vec!["uid"], "users", vec!["id"], Some(ReferenceAction::Cascade), None),
+            fk(
+                Some("fk_a"),
+                vec!["uid"],
+                "users",
+                vec!["id"],
+                Some(ReferenceAction::Cascade),
+                None,
+            ),
+            fk(
+                Some("fk_a"),
+                vec!["uid"],
+                "users",
+                vec!["id"],
+                Some(ReferenceAction::Cascade),
+                None,
+            ),
         ),
         // 2  FK→FK with on_delete change (WARN)
         replace(
             "audit",
-            fk(Some("fk_b"), vec!["aid"], "actions", vec!["id"], Some(ReferenceAction::Cascade), None),
-            fk(Some("fk_b"), vec!["aid"], "actions", vec!["id"], Some(ReferenceAction::Restrict), None),
+            fk(
+                Some("fk_b"),
+                vec!["aid"],
+                "actions",
+                vec!["id"],
+                Some(ReferenceAction::Cascade),
+                None,
+            ),
+            fk(
+                Some("fk_b"),
+                vec!["aid"],
+                "actions",
+                vec!["id"],
+                Some(ReferenceAction::Restrict),
+                None,
+            ),
         ),
         // 3  FK→FK with on_update change (WARN)
         replace(
             "audit",
-            fk(Some("fk_c"), vec!["uid"], "users", vec!["id"], None, Some(ReferenceAction::Cascade)),
-            fk(Some("fk_c"), vec!["uid"], "users", vec!["id"], None, Some(ReferenceAction::SetNull)),
+            fk(
+                Some("fk_c"),
+                vec!["uid"],
+                "users",
+                vec!["id"],
+                None,
+                Some(ReferenceAction::Cascade),
+            ),
+            fk(
+                Some("fk_c"),
+                vec!["uid"],
+                "users",
+                vec!["id"],
+                None,
+                Some(ReferenceAction::SetNull),
+            ),
         ),
     ]);
 
@@ -353,10 +398,25 @@ fn empty_plan_returns_empty_warnings() {
 
 #[test]
 fn render_reference_action_covers_all_known_variants() {
-    assert_eq!(render_reference_action(Some(&ReferenceAction::Cascade)), "CASCADE");
-    assert_eq!(render_reference_action(Some(&ReferenceAction::Restrict)), "RESTRICT");
-    assert_eq!(render_reference_action(Some(&ReferenceAction::SetNull)), "SET NULL");
-    assert_eq!(render_reference_action(Some(&ReferenceAction::SetDefault)), "SET DEFAULT");
-    assert_eq!(render_reference_action(Some(&ReferenceAction::NoAction)), "NO ACTION");
+    assert_eq!(
+        render_reference_action(Some(&ReferenceAction::Cascade)),
+        "CASCADE"
+    );
+    assert_eq!(
+        render_reference_action(Some(&ReferenceAction::Restrict)),
+        "RESTRICT"
+    );
+    assert_eq!(
+        render_reference_action(Some(&ReferenceAction::SetNull)),
+        "SET NULL"
+    );
+    assert_eq!(
+        render_reference_action(Some(&ReferenceAction::SetDefault)),
+        "SET DEFAULT"
+    );
+    assert_eq!(
+        render_reference_action(Some(&ReferenceAction::NoAction)),
+        "NO ACTION"
+    );
     assert_eq!(render_reference_action(None), "NO ACTION");
 }

@@ -116,6 +116,19 @@ fn compute_inner(
             &enum_values,
             string_byte_range.as_ref(),
         ),
+        context::Context::CheckExpr {
+            table_columns,
+            position,
+            replace_range_bytes,
+        } => match position {
+            context::CheckExprPos::Operand => values::check_expr_operands(&table_columns),
+            context::CheckExprPos::Operator => values::check_expr_operators(),
+            context::CheckExprPos::PartialColumn { prefix } => values::check_expr_partial_columns(
+                &table_columns,
+                &prefix,
+                replace_range_bytes.as_ref(),
+            ),
+        },
         context::Context::TableTopLevelKey => values::table_top_level_keys(),
         context::Context::ColumnObjectKey => values::column_object_keys(),
         context::Context::ForeignKeyObjectKey => values::foreign_key_object_keys(),
@@ -128,6 +141,111 @@ fn compute_inner(
 mod tests {
     use super::*;
     use crate::parser::ParserPool;
+
+    #[test]
+    fn cmp_s1_check_expr_start_suggests_columns() {
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let docs = DocumentStore::new();
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"integer","nullable":false},{"name":"age","type":"integer","nullable":false},{"name":"name","type":"text","nullable":false}],"constraints":[{"type":"check","name":"chk","expr":""}]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json);
+        let cursor_pos = src.find(r#""expr":"""#).unwrap() + 8;
+        let items = compute(
+            src,
+            DocumentFormat::Json,
+            tree.as_ref(),
+            &idx,
+            &docs,
+            cursor_pos,
+        );
+
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        for expected in ["id", "age", "name"] {
+            assert!(
+                labels.contains(&expected),
+                "CHECK expr start should suggest column `{expected}`, got: {labels:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn cmp_s2_after_column_suggests_operators_keywords() {
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let docs = DocumentStore::new();
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"integer","nullable":false},{"name":"age","type":"integer","nullable":false},{"name":"name","type":"text","nullable":false}],"constraints":[{"type":"check","name":"chk","expr":"age "}]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json);
+        let literal_start = src.find(r#""age ""#).unwrap();
+        let cursor_pos = literal_start + 1 + "age ".len();
+        let items = compute(
+            src,
+            DocumentFormat::Json,
+            tree.as_ref(),
+            &idx,
+            &docs,
+            cursor_pos,
+        );
+
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        for expected in [">", "<", "=", "AND", "BETWEEN", "IS NULL", "IN"] {
+            assert!(
+                labels.contains(&expected),
+                "after CHECK column should suggest `{expected}`, got: {labels:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn cmp_s3_partial_column_replace_range() {
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let docs = DocumentStore::new();
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"integer","nullable":false},{"name":"age","type":"integer","nullable":false},{"name":"name","type":"text","nullable":false}],"constraints":[{"type":"check","name":"chk","expr":"ag"}]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json);
+        let literal_start = src.find(r#""ag""#).unwrap();
+        let cursor_pos = literal_start + 1 + "ag".len();
+        let expected_range = (literal_start + 1)..(literal_start + 1 + "ag".len());
+        let items = compute(
+            src,
+            DocumentFormat::Json,
+            tree.as_ref(),
+            &idx,
+            &docs,
+            cursor_pos,
+        );
+
+        let age = items
+            .iter()
+            .find(|i| i.label == "age")
+            .expect("partial `ag` should suggest age");
+        assert_eq!(age.insert_text.as_deref(), Some("age"));
+        assert_eq!(age.replace_range_bytes, Some(expected_range.clone()));
+        assert_eq!(
+            &src[expected_range], "ag",
+            "cmp_s3 replace range must cover only the partial SQL token"
+        );
+    }
+
+    #[test]
+    fn cmp_s4_regression_other_contexts() {
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let docs = DocumentStore::new();
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"i","nullable":false}],"constraints":[{"type":"check","name":"chk","expr":"id > 0"}]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json);
+        let cursor_pos = src.find(r#""type":"i""#).unwrap() + 9;
+        let items = compute(
+            src,
+            DocumentFormat::Json,
+            tree.as_ref(),
+            &idx,
+            &docs,
+            cursor_pos,
+        );
+
+        assert!(items.iter().any(|item| item.label == "integer"));
+        assert!(items.iter().any(|item| item.label == "varchar(N)"));
+    }
 
     #[test]
     fn completion_in_column_type_string_offers_simple_and_replacing_object_snippets() {

@@ -731,7 +731,10 @@ fn sort_create_before_add_constraint_all_branches() {
 
 /// Test that two `AddConstraint` FKs both referencing created tables maintain stable order
 /// Covers line 225: both ref created tables
-#[expect(clippy::too_many_lines, reason = "F3 wire-format change added one line per ForeignKey literal; fixture is otherwise atomic")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "F3 wire-format change added one line per ForeignKey literal; fixture is otherwise atomic"
+)]
 #[test]
 fn sort_multiple_fks_to_created_tables() {
     use super::*;

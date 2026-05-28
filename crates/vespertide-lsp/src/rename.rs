@@ -64,7 +64,105 @@ fn locate_symbol_inner_range(
 ) -> Option<Range<usize>> {
     let node = node_at_byte(tree, byte_offset)?;
     let string_node = enclosing_string(node)?;
+    // Inside a table-level CHECK `expr`, the renameable symbol is the single
+    // column identifier the cursor sits on — not the whole predicate string.
+    // Narrow to that token so prepare's select-on-rename UI highlights only
+    // the identifier (and matches the edit the references engine produces).
+    if let Some(token_range) = check_expr_column_token_range(string_node, source, byte_offset) {
+        return Some(token_range);
+    }
     Some(inner_content_range(string_node, source))
+}
+
+/// If `string_node` is a CHECK `expr` string and `byte_offset` lands on a
+/// column identifier within it, return that identifier's absolute byte
+/// range. Returns `None` for non-CHECK strings or non-identifier offsets.
+fn check_expr_column_token_range(
+    string_node: tree_sitter::Node<'_>,
+    source: &str,
+    byte_offset: usize,
+) -> Option<Range<usize>> {
+    if !is_check_expr_string(string_node, source) {
+        return None;
+    }
+    let inner = crate::check_expr_range::expr_inner_range(string_node)?;
+    let expr_text = source.get(inner.clone())?;
+    let rel = byte_offset.checked_sub(inner.start)?;
+    let token = vespertide_planner::lex_check_expr(expr_text)
+        .into_iter()
+        .find(|tok| {
+            tok.kind == vespertide_planner::CheckTokenKind::Column && tok.span.contains(&rel)
+        })?;
+    Some((inner.start + token.span.start)..(inner.start + token.span.end))
+}
+
+/// True when `string_node` is the value of an `expr` pair whose constraint
+/// object carries `type: "check"`.
+fn is_check_expr_string(string_node: tree_sitter::Node<'_>, source: &str) -> bool {
+    let Some(expr_pair) = enclosing_pair(string_node) else {
+        return false;
+    };
+    let Some(key) = expr_pair.named_child(0) else {
+        return false;
+    };
+    let Some(key_text) = source.get(key.byte_range()) else {
+        return false;
+    };
+    if strip_quotes(key_text) != "expr" {
+        return false;
+    }
+    let Some(constraint_object) = expr_pair.parent().and_then(skip_yaml_wrappers) else {
+        return false;
+    };
+    constraint_child_value(constraint_object, source, "type")
+        .is_some_and(|raw| strip_quotes(raw) == "check")
+}
+
+fn enclosing_pair(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    let mut current = node.parent();
+    while let Some(candidate) = current {
+        if matches!(candidate.kind(), "pair" | "block_mapping_pair") {
+            return Some(candidate);
+        }
+        current = candidate.parent();
+    }
+    None
+}
+
+fn skip_yaml_wrappers(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    let mut current = node;
+    while matches!(current.kind(), "flow_node" | "block_node") {
+        current = current.parent()?;
+    }
+    Some(current)
+}
+
+fn constraint_child_value<'a>(
+    object: tree_sitter::Node<'_>,
+    source: &'a str,
+    target_key: &str,
+) -> Option<&'a str> {
+    let mut cursor = object.walk();
+    for child in object.children(&mut cursor) {
+        if matches!(child.kind(), "pair" | "block_mapping_pair")
+            && let Some(key) = child.named_child(0)
+            && let Some(key_text) = source.get(key.byte_range())
+            && strip_quotes(key_text) == target_key
+            && let Some(value) = child.named_child(1)
+            && let Some(text) = source.get(value.byte_range())
+        {
+            return Some(text);
+        }
+    }
+    None
+}
+
+fn strip_quotes(s: &str) -> &str {
+    s.trim()
+        .trim_start_matches('"')
+        .trim_end_matches('"')
+        .trim_start_matches('\'')
+        .trim_end_matches('\'')
 }
 
 fn enclosing_string(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
@@ -487,6 +585,201 @@ mod tests {
         assert!(
             !plan.edits.contains_key(&other_uri),
             "unrelated `other.email` column must not be in the rename plan"
+        );
+    }
+
+    // -- CHECK-expression rename (RN-S1/S2/S3) ----------------------------
+    //
+    // Rename delegates to the references engine, so renaming a column must
+    // also rewrite every bare identifier inside table-level CHECK `expr`
+    // strings that names that column on the owning table. Without this,
+    // renaming `age` → `years` would leave a stale `age > 0` CHECK that no
+    // longer matches any column — a silent schema bug.
+
+    #[test]
+    fn rn_s1_rename_column_rewrites_check_expr_occurrence() {
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let docs = DocumentStore::new();
+
+        let src = r#"{"name":"user","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk_age","expr":"age > 0"}]}"#;
+        let user_uri = uri("user.json");
+        let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+        idx.upsert(&user_uri, src, &tree);
+        docs.open(user_uri.clone(), "json".to_string(), 1, src.to_string());
+
+        // Rename from the column declaration.
+        let pos = src.find(r#""name":"age""#).unwrap() + 8;
+        let plan = compute(
+            src,
+            DocumentFormat::Json,
+            Some(&tree),
+            &user_uri,
+            &idx,
+            &docs,
+            None,
+            pos,
+            "years",
+        )
+        .expect("rename should succeed");
+
+        let file_edits = plan.edits.get(&user_uri).expect("edits for user.json");
+        // Declaration edit + the `age` inside the CHECK expr.
+        let expr_field_start = src.find(r#""expr":""#).unwrap() + r#""expr":""#.len();
+        let check_edits: Vec<_> = file_edits
+            .iter()
+            .filter(|e| e.byte_range.start >= expr_field_start)
+            .collect();
+        assert_eq!(
+            check_edits.len(),
+            1,
+            "the `age` inside the CHECK expr must be rewritten, got: {file_edits:?}"
+        );
+        assert_eq!(&src[check_edits[0].byte_range.clone()], "age");
+        assert_eq!(check_edits[0].new_text, "years");
+
+        // Apply all edits front-to-back and confirm the CHECK now reads
+        // `years > 0` and the document still parses as JSON.
+        let mut sorted = file_edits.clone();
+        sorted.sort_by_key(|e| std::cmp::Reverse(e.byte_range.start));
+        let mut after = src.to_string();
+        for edit in &sorted {
+            after.replace_range(edit.byte_range.clone(), &edit.new_text);
+        }
+        assert!(
+            after.contains(r#""expr":"years > 0""#),
+            "CHECK expr must be rewritten to `years > 0`, got: {after}"
+        );
+        serde_json::from_str::<serde_json::Value>(&after)
+            .expect("rename output must still parse as JSON");
+    }
+
+    #[test]
+    fn rn_s2_rename_initiated_from_inside_check_expr() {
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let docs = DocumentStore::new();
+
+        let src = r#"{"name":"user","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk_age","expr":"age > 0 AND age < 150"}]}"#;
+        let user_uri = uri("user.json");
+        let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+        idx.upsert(&user_uri, src, &tree);
+        docs.open(user_uri.clone(), "json".to_string(), 1, src.to_string());
+
+        // Cursor placed ON the first `age` inside the CHECK expr.
+        let pos = src.find(r#""expr":"age"#).unwrap() + 8;
+        let plan = compute(
+            src,
+            DocumentFormat::Json,
+            Some(&tree),
+            &user_uri,
+            &idx,
+            &docs,
+            None,
+            pos,
+            "years",
+        )
+        .expect("rename from inside CHECK should succeed");
+
+        let file_edits = plan.edits.get(&user_uri).expect("edits for user.json");
+        // Declaration + two CHECK occurrences = 3 edits, all replacing `age`.
+        assert_eq!(
+            file_edits.len(),
+            3,
+            "declaration + both CHECK occurrences must be rewritten, got: {file_edits:?}"
+        );
+        for edit in file_edits {
+            assert_eq!(&src[edit.byte_range.clone()], "age");
+            assert_eq!(edit.new_text, "years");
+        }
+
+        let mut sorted = file_edits.clone();
+        sorted.sort_by_key(|e| std::cmp::Reverse(e.byte_range.start));
+        let mut after = src.to_string();
+        for edit in &sorted {
+            after.replace_range(edit.byte_range.clone(), &edit.new_text);
+        }
+        assert!(
+            after.contains(r#""expr":"years > 0 AND years < 150""#),
+            "both CHECK occurrences must be rewritten, got: {after}"
+        );
+    }
+
+    #[test]
+    fn rn_s3_rename_check_column_scoped_to_owning_table() {
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let docs = DocumentStore::new();
+
+        let user_src = r#"{"name":"user","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk_age","expr":"age > 0"}]}"#;
+        let user_uri = uri("user.json");
+        let user_tree = pool.parse(user_src, DocumentFormat::Json).unwrap();
+        idx.upsert(&user_uri, user_src, &user_tree);
+        docs.open(
+            user_uri.clone(),
+            "json".to_string(),
+            1,
+            user_src.to_string(),
+        );
+
+        // A different table with a same-named `age` column AND its own CHECK
+        // referencing `age` — must NOT be touched by renaming user.age.
+        let other_src = r#"{"name":"other","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk_age","expr":"age > 0"}]}"#;
+        let other_uri = uri("other.json");
+        let other_tree = pool.parse(other_src, DocumentFormat::Json).unwrap();
+        idx.upsert(&other_uri, other_src, &other_tree);
+        docs.open(
+            other_uri.clone(),
+            "json".to_string(),
+            1,
+            other_src.to_string(),
+        );
+
+        let pos = user_src.find(r#""name":"age""#).unwrap() + 8;
+        let plan = compute(
+            user_src,
+            DocumentFormat::Json,
+            Some(&user_tree),
+            &user_uri,
+            &idx,
+            &docs,
+            None,
+            pos,
+            "years",
+        )
+        .expect("rename should succeed");
+
+        assert!(plan.edits.contains_key(&user_uri));
+        assert!(
+            !plan.edits.contains_key(&other_uri),
+            "unrelated `other.age` CHECK column must not be in the rename plan"
+        );
+    }
+
+    /// `prepare` (select-on-rename UI) must select EXACTLY the column
+    /// identifier under the cursor inside a CHECK expr — not the whole
+    /// expression string. Otherwise F2 on `age` inside `"age > 0 AND age <
+    /// 150"` would pre-select the entire predicate.
+    #[test]
+    fn rn_prepare_inside_check_expr_selects_only_identifier() {
+        let pool = ParserPool::new();
+        let src = r#"{"name":"user","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk_age","expr":"age > 0 AND age < 150"}]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+        // Cursor on the SECOND `age` inside the CHECK expr.
+        let second_age = src.find("AND age").unwrap() + 4;
+        let result = prepare(
+            src,
+            DocumentFormat::Json,
+            Some(&tree),
+            &uri("user.json"),
+            second_age,
+        )
+        .expect("CHECK-expr column should be renameable");
+        assert_eq!(result.placeholder, "age");
+        assert_eq!(
+            &src[result.byte_range.clone()],
+            "age",
+            "prepare must select only the column identifier, not the whole expr"
         );
     }
 }

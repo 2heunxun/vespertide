@@ -16,13 +16,20 @@ fn pk_id() -> TableConstraint {
 
 fn unique(name: &str, columns: Vec<&str>) -> TableConstraint {
     TableConstraint::Unique {
-                name: Some(name.to_string()),
-                columns: columns.into_iter().map(Into::into).collect(),
-                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
-            }
+        name: Some(name.to_string()),
+        columns: columns.into_iter().map(Into::into).collect(),
+        strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+            keep: vespertide_core::KeepPolicy::First,
+        },
+    }
 }
 
-fn fk(name: Option<&str>, columns: Vec<&str>, ref_table: &str, ref_columns: Vec<&str>) -> TableConstraint {
+fn fk(
+    name: Option<&str>,
+    columns: Vec<&str>,
+    ref_table: &str,
+    ref_columns: Vec<&str>,
+) -> TableConstraint {
     TableConstraint::ForeignKey {
         name: name.map(ToString::to_string),
         columns: columns.into_iter().map(Into::into).collect(),
@@ -49,7 +56,12 @@ fn fk_without_supporting_index_is_detected() {
         vec![int_col("id"), int_col("parent_id")],
         vec![
             pk_id(),
-            fk(Some("fk_child_parent"), vec!["parent_id"], "parent", vec!["id"]),
+            fk(
+                Some("fk_child_parent"),
+                vec!["parent_id"],
+                "parent",
+                vec!["id"],
+            ),
         ],
     );
     let schema = vec![parent(), child];
@@ -71,10 +83,7 @@ fn unnamed_fk_without_supporting_index_is_detected_with_none_name() {
     let child = table(
         "child",
         vec![int_col("id"), int_col("parent_id")],
-        vec![
-            pk_id(),
-            fk(None, vec!["parent_id"], "parent", vec!["id"]),
-        ],
+        vec![pk_id(), fk(None, vec!["parent_id"], "parent", vec!["id"])],
     );
     let schema = vec![parent(), child];
 
@@ -110,11 +119,7 @@ fn fk_covered_by_leading_prefix_index_is_not_detected() {
     // FK on [parent_id]; existing composite index on [parent_id, created_at]
     let child = table(
         "child",
-        vec![
-            int_col("id"),
-            int_col("parent_id"),
-            int_col("created_at"),
-        ],
+        vec![int_col("id"), int_col("parent_id"), int_col("created_at")],
         vec![
             pk_id(),
             idx(
@@ -178,7 +183,12 @@ fn composite_fk_covered_when_pk_matches_even_with_other_unhelpful_indexes() {
         vec![
             pk(vec!["a", "b"]),
             idx("ix_child__b_a", vec!["b", "a"]),
-            fk(Some("fk_child__a_b"), vec!["a", "b"], "parent", vec!["id", "id"]),
+            fk(
+                Some("fk_child__a_b"),
+                vec!["a", "b"],
+                "parent",
+                vec!["id", "id"],
+            ),
         ],
     );
     let schema = vec![parent(), child];
@@ -198,7 +208,12 @@ fn wrong_order_index_alone_does_not_cover_composite_fk() {
         columns: vec![int_col("a"), int_col("b")],
         constraints: vec![
             idx("ix_child__b_a", vec!["b", "a"]),
-            fk(Some("fk_child__a_b"), vec!["a", "b"], "parent", vec!["id", "id"]),
+            fk(
+                Some("fk_child__a_b"),
+                vec!["a", "b"],
+                "parent",
+                vec!["id", "id"],
+            ),
         ],
     };
     let schema = vec![parent(), child];
@@ -216,17 +231,10 @@ fn fk_columns_must_be_leading_prefix_not_anywhere_in_index() {
     // (parent_id appears, but not as the leading column).
     let child = table(
         "child",
-        vec![
-            int_col("id"),
-            int_col("parent_id"),
-            int_col("other_col"),
-        ],
+        vec![int_col("id"), int_col("parent_id"), int_col("other_col")],
         vec![
             pk_id(),
-            idx(
-                "ix_child__other_parent",
-                vec!["other_col", "parent_id"],
-            ),
+            idx("ix_child__other_parent", vec!["other_col", "parent_id"]),
             fk(None, vec!["parent_id"], "parent", vec!["id"]),
         ],
     );
@@ -248,7 +256,12 @@ fn composite_fk_partially_covered_is_still_detected() {
         vec![
             pk_id(),
             idx("ix_child__a", vec!["a"]),
-            fk(Some("fk_child__ab"), vec!["a", "b"], "parent", vec!["id", "id"]),
+            fk(
+                Some("fk_child__ab"),
+                vec!["a", "b"],
+                "parent",
+                vec!["id", "id"],
+            ),
         ],
     );
     let schema = vec![parent(), child];
@@ -353,7 +366,12 @@ fn self_referential_fk_without_index_is_detected() {
         vec![int_col("id"), int_col("parent_id")],
         vec![
             pk_id(),
-            fk(Some("fk_users__parent"), vec!["parent_id"], "users", vec!["id"]),
+            fk(
+                Some("fk_users__parent"),
+                vec!["parent_id"],
+                "users",
+                vec!["id"],
+            ),
         ],
     );
     let schema = vec![users];
