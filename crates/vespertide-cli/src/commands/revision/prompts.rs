@@ -10,6 +10,7 @@ use vespertide_planner::{
     CascadeReachWarning, CascadeRiskLevel, CheckAdditionWarning, DefaultChangeWarning, DropChoice,
     DropResolution, DropTarget, EnumFillWithRequired, FillWithRequired, FkOrphanAdditionWarning,
     FkPolicyChangeWarning, Match, NarrowingKind, PkKind, PrimaryKeyAdditionWarning, RiskLevel,
+    SequenceExhaustionKind, SequenceExhaustionWarning, SequenceRiskLevel,
     TimezoneConversionWarning, TypeNarrowingWarning, UniqueAdditionWarning,
     find_missing_enum_fill_with, render_reference_action,
 };
@@ -1589,6 +1590,166 @@ pub(super) fn prompt_cascade_reach(
         .interact()
         .context("failed to read cascade-reach choice")?;
     Ok(outcomes[selection])
+}
+
+/// F76 (sequence/identity exhaustion) - user resolution for a new
+/// risky single-column auto-increment PK, PK type narrowing, or
+/// FK-mismatch.
+///
+/// `ChangeToBigInt` is offered for `CreateTable` and
+/// `ModifyColumnType` cases where vespertide can directly mutate the
+/// plan action to widen the column. `AddConstraint(PrimaryKey)` and
+/// `AddConstraint(ForeignKey)` cases offer only `Proceed` since
+/// widening the baseline column requires the user to add a separate
+/// `ModifyColumnType` action explicitly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SequenceExhaustionChoice {
+    /// Mutate the matching plan action so the risky column becomes
+    /// `BigInt`. Only valid when the warning's action is a
+    /// `CreateTable` or a `ModifyColumnType` (vespertide can rewrite
+    /// those in place).
+    ChangeToBigInt,
+    /// Acknowledge the risk and keep the original type.
+    Proceed,
+}
+
+/// Per-warning interactive prompt for F76. Returns `None` when the
+/// user cancels.
+pub(super) fn prompt_sequence_exhaustion(
+    warning: &SequenceExhaustionWarning,
+) -> Result<Option<SequenceExhaustionChoice>> {
+    println!();
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+    println!("{}", format_sequence_exhaustion_header(warning));
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+
+    let mutable = warning_is_mutable(warning);
+    let mut labels: Vec<String> = Vec::new();
+    let mut outcomes: Vec<Option<SequenceExhaustionChoice>> = Vec::new();
+
+    if mutable {
+        labels.push(
+            "Rewrite the column to big_int (recommended)".to_string(),
+        );
+        outcomes.push(Some(SequenceExhaustionChoice::ChangeToBigInt));
+    }
+    labels.push("Proceed (overflow is intentional / known-small table)".to_string());
+    outcomes.push(Some(SequenceExhaustionChoice::Proceed));
+    labels.push("Cancel (edit model to big_int)".to_string());
+    outcomes.push(None);
+
+    let selection = Select::new()
+        .with_prompt("  How should this overflow risk be handled?")
+        .items(&labels)
+        .default(0)
+        .interact()
+        .context("failed to read sequence-exhaustion choice")?;
+    Ok(outcomes[selection])
+}
+
+/// True when [`apply_sequence_exhaustion_choice`] can directly rewrite
+/// the matching plan action. `CreateTable` and `ModifyColumnType`
+/// carry the column type inline, so vespertide can widen them in
+/// place; constraint-add actions reference an existing baseline
+/// column that the user must widen via a separate plan edit.
+fn warning_is_mutable(warning: &SequenceExhaustionWarning) -> bool {
+    matches!(
+        warning.kind,
+        SequenceExhaustionKind::Primary | SequenceExhaustionKind::PkTypeNarrowing { .. }
+    )
+}
+
+fn format_sequence_exhaustion_header(warning: &SequenceExhaustionWarning) -> String {
+    let target = format!(
+        "{}.{}",
+        warning.table.bright_white().bold(),
+        warning.column.bright_green()
+    );
+    let current = simple_int_label(warning.current_type);
+    let risk_label = match warning.risk_level {
+        SequenceRiskLevel::Medium => "Medium".bright_yellow(),
+        SequenceRiskLevel::High => "High".bright_red().bold(),
+    };
+    let scenario = match &warning.kind {
+        SequenceExhaustionKind::Primary => {
+            "single-column auto-increment PRIMARY KEY".to_string()
+        }
+        SequenceExhaustionKind::PkTypeNarrowing { from } => format!(
+            "PRIMARY KEY type narrowing from {} to {}",
+            simple_int_label(*from).bright_red(),
+            current.bright_yellow(),
+        ),
+        SequenceExhaustionKind::ForeignKeyMismatch {
+            parent_table,
+            parent_type,
+        } => format!(
+            "FOREIGN KEY mismatch: child {} vs parent {}.id ({})",
+            current.bright_yellow(),
+            parent_table.bright_white(),
+            simple_int_label(*parent_type).bright_cyan(),
+        ),
+    };
+    let estimate = match warning.current_type {
+        vespertide_core::SimpleColumnType::SmallInt => {
+            "At realistic write rates: overflow in hours to days.".to_string()
+        }
+        vespertide_core::SimpleColumnType::Integer => {
+            "At 1M new rows/day: overflow in ~5.9 years. At 10M/day: ~7 months.".to_string()
+        }
+        _ => String::new(),
+    };
+    format!(
+        "  {} INT identity overflow risk\n  Target: {target} ({current})\n  Scenario: {scenario}\n  Risk: {risk_label}\n  {estimate}\n  Recommended: rewrite to big_int.",
+        "\u{26a0}".bright_yellow(),
+    )
+}
+
+fn simple_int_label(ty: vespertide_core::SimpleColumnType) -> &'static str {
+    match ty {
+        vespertide_core::SimpleColumnType::SmallInt => "small_int",
+        vespertide_core::SimpleColumnType::Integer => "integer",
+        vespertide_core::SimpleColumnType::BigInt => "big_int",
+        _ => "?",
+    }
+}
+
+/// Stamp the user's choice onto the matching plan action. Mutation
+/// happens in place for `CreateTable` (rewrite the column type inline)
+/// and `ModifyColumnType` (replace `new_type`). Non-mutable cases
+/// (`AddConstraint(...)`) are no-ops; the user is expected to have
+/// declined the prompt or to be choosing `Proceed`.
+pub(super) fn apply_sequence_exhaustion_choice(
+    plan: &mut vespertide_core::MigrationPlan,
+    warning: &SequenceExhaustionWarning,
+    choice: SequenceExhaustionChoice,
+) {
+    if !matches!(choice, SequenceExhaustionChoice::ChangeToBigInt) {
+        return;
+    }
+    let Some(action) = plan.actions.get_mut(warning.action_index) else {
+        return;
+    };
+    match action {
+        vespertide_core::MigrationAction::CreateTable { columns, .. } => {
+            for col in columns.iter_mut() {
+                if col.name.as_str() == warning.column {
+                    col.r#type = vespertide_core::ColumnType::Simple(
+                        vespertide_core::SimpleColumnType::BigInt,
+                    );
+                    break;
+                }
+            }
+        }
+        vespertide_core::MigrationAction::ModifyColumnType { new_type, .. } => {
+            *new_type =
+                vespertide_core::ColumnType::Simple(vespertide_core::SimpleColumnType::BigInt);
+        }
+        _ => {
+            // AddConstraint(...) - vespertide does not rewrite the
+            // baseline column from here; the prompt has already
+            // hidden the `ChangeToBigInt` option for these cases.
+        }
+    }
 }
 
 fn format_cascade_reach_header(warning: &CascadeReachWarning) -> String {

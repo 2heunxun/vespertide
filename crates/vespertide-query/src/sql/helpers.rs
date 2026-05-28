@@ -57,14 +57,14 @@ pub fn apply_column_type_with_table(
     backend: DatabaseBackend,
 ) {
     match ty {
-        ColumnType::Simple(simple) => apply_simple_column_type(col, simple, backend),
+        ColumnType::Simple(simple) => apply_simple_column_type(col, *simple, backend),
         ColumnType::Complex(complex) => apply_complex_column_type(col, complex, table, backend),
     }
 }
 
 fn apply_simple_column_type(
     col: &mut SeaColumnDef,
-    simple: &SimpleColumnType,
+    simple: SimpleColumnType,
     backend: DatabaseBackend,
 ) {
     match simple {

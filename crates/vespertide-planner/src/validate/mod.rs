@@ -14,11 +14,16 @@ mod foreign_keys;
 mod pk_additions;
 mod plan;
 mod schema;
+mod sequence_exhaustion;
 mod timezone_conversion;
 mod type_narrowing;
 
 pub use cascade_reach::{CascadeReachWarning, CascadeRiskLevel, find_cascade_reach_violations};
 pub use check_additions::{CheckAdditionWarning, find_check_additions};
+pub use sequence_exhaustion::{
+    SequenceExhaustionKind, SequenceExhaustionWarning, SequenceRiskLevel,
+    find_sequence_exhaustion_risks,
+};
 pub use constraint_drops::{ConstraintDropWarning, find_constraint_drops_without_replacement};
 pub use constraint_type_changes::{find_constraint_type_changes, find_primary_key_removals};
 pub use dangling_fk_drops::{DanglingFkDrop, find_dangling_fk_drops};

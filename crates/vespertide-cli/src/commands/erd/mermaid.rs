@@ -67,12 +67,12 @@ fn mermaid_relationship(relation: &ForeignKeyRelation) -> (&str, &'static str, &
 
 fn column_type_to_mermaid(column_type: &ColumnType) -> &'static str {
     match column_type {
-        ColumnType::Simple(simple) => simple_column_type_to_mermaid(simple),
+        ColumnType::Simple(simple) => simple_column_type_to_mermaid(*simple),
         ColumnType::Complex(complex) => complex_column_type_to_mermaid(complex),
     }
 }
 
-fn simple_column_type_to_mermaid(column_type: &SimpleColumnType) -> &'static str {
+fn simple_column_type_to_mermaid(column_type: SimpleColumnType) -> &'static str {
     match column_type {
         SimpleColumnType::SmallInt | SimpleColumnType::Integer | SimpleColumnType::BigInt => "int",
         SimpleColumnType::Real | SimpleColumnType::DoublePrecision => "float",

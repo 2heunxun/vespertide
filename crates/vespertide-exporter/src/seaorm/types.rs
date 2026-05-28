@@ -28,7 +28,7 @@ pub(super) fn format_default_value(value: &StringOrBool, column_type: &ColumnTyp
     // Format based on column type
     match column_type {
         // Numeric types: no quotes
-        ColumnType::Simple(simple) if is_numeric_simple_type(simple) => {
+            ColumnType::Simple(simple) if is_numeric_simple_type(*simple) => {
             format!("default_value = {cleaned}")
         }
         // Boolean type: no quotes
@@ -69,7 +69,7 @@ pub(super) fn format_default_value(value: &StringOrBool, column_type: &ColumnTyp
 }
 
 /// Check if the simple column type is numeric.
-pub(super) fn is_numeric_simple_type(simple: &vespertide_core::SimpleColumnType) -> bool {
+pub(super) fn is_numeric_simple_type(simple: vespertide_core::SimpleColumnType) -> bool {
     matches!(
         simple,
         SimpleColumnType::SmallInt

@@ -107,6 +107,7 @@ fn compute_uncached(
         validation::validate_table(&table, tree, text, &mut diagnostics);
         // Tier 3.5: static safety analyses (warnings).
         validation::validate_fk_supporting_indexes(&table, tree, text, &mut diagnostics);
+        validation::validate_sequence_exhaustion(&table, tree, text, &mut diagnostics);
     }
 
     diagnostics
@@ -178,6 +179,7 @@ pub fn compute_workspace(
         // Workspace-scoped diagnostics also include the per-file FK warnings,
         // so a freshly opened file picks them up before any did_change.
         validation::validate_fk_supporting_indexes(table, tree, text, &mut diagnostics);
+        validation::validate_sequence_exhaustion(table, tree, text, &mut diagnostics);
     }
 
     diagnostics
@@ -755,6 +757,105 @@ mod tests {
             fk_diag
                 .message
                 .contains("ix_categories_f51_selfref__parent_id")
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // F76: sequence/identity exhaustion warning (LSP file-local scope)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn integer_auto_increment_pk_emits_sequence_exhaustion_warning() {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let src = r#"{
+            "name": "events_f76_int",
+            "columns": [
+                {"name": "id", "type": "integer", "nullable": false,
+                 "primary_key": {"auto_increment": true}},
+                {"name": "payload", "type": "text", "nullable": false}
+            ]
+        }"#;
+        let tree = pool.parse(src, DocumentFormat::Json);
+        let diags = compute(src, DocumentFormat::Json, tree.as_ref(), &idx);
+
+        let warn = diags
+            .iter()
+            .find(|d| d.code == "sequence-exhaustion")
+            .expect("expected sequence-exhaustion warning for integer PK");
+        assert_eq!(warn.severity, Severity::Warning);
+        assert!(
+            warn.message.contains("`id`"),
+            "message should mention column `id`, got: {}",
+            warn.message
+        );
+        assert!(
+            warn.message.contains("integer") && warn.message.contains("big_int"),
+            "message should mention current `integer` and recommended `big_int`, got: {}",
+            warn.message
+        );
+        assert!(
+            warn.message.contains("Medium"),
+            "integer PK should be Medium risk, got: {}",
+            warn.message
+        );
+        assert_ne!(
+            warn.byte_range,
+            0..1,
+            "diagnostic should be located, not fallback 0..1"
+        );
+    }
+
+    #[test]
+    fn small_int_auto_increment_pk_emits_high_severity_message() {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let src = r#"{
+            "name": "tiny_seq_f76",
+            "columns": [
+                {"name": "id", "type": "small_int", "nullable": false,
+                 "primary_key": {"auto_increment": true}}
+            ]
+        }"#;
+        let tree = pool.parse(src, DocumentFormat::Json);
+        let diags = compute(src, DocumentFormat::Json, tree.as_ref(), &idx);
+
+        let warn = diags
+            .iter()
+            .find(|d| d.code == "sequence-exhaustion")
+            .expect("expected sequence-exhaustion warning for small_int PK");
+        assert!(
+            warn.message.contains("High"),
+            "small_int PK should be High risk, got: {}",
+            warn.message
+        );
+        assert!(
+            warn.message.contains("small_int"),
+            "message should mention current `small_int`, got: {}",
+            warn.message
+        );
+    }
+
+    #[test]
+    fn big_int_auto_increment_pk_emits_no_warning() {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let src = r#"{
+            "name": "safe_seq_f76",
+            "columns": [
+                {"name": "id", "type": "big_int", "nullable": false,
+                 "primary_key": {"auto_increment": true}}
+            ]
+        }"#;
+        let tree = pool.parse(src, DocumentFormat::Json);
+        let diags = compute(src, DocumentFormat::Json, tree.as_ref(), &idx);
+
+        assert!(
+            diags.iter().all(|d| d.code != "sequence-exhaustion"),
+            "big_int PK should be safe, got: {diags:?}"
         );
     }
 }

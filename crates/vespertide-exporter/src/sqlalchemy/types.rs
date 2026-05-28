@@ -30,12 +30,12 @@ impl UsedTypes<'_> {
         }
 
         match col_type {
-            ColumnType::Simple(ty) => self.add_simple_type(ty),
+            ColumnType::Simple(ty) => self.add_simple_type(*ty),
             ColumnType::Complex(ty) => self.add_complex_type(ty),
         }
     }
 
-    fn add_simple_type(&mut self, ty: &SimpleColumnType) {
+    fn add_simple_type(&mut self, ty: SimpleColumnType) {
         match ty {
             SimpleColumnType::SmallInt => {
                 self.sa_types.insert("SmallInteger");

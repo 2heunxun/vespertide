@@ -248,7 +248,7 @@ impl ColumnDef {
 ///
 /// This enum is `#[non_exhaustive]`: new variants may be added in future releases.
 /// Downstream `match` expressions should include a wildcard arm.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]

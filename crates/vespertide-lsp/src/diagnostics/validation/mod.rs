@@ -6,7 +6,7 @@ mod types;
 mod visitors;
 
 use tower_lsp_server::ls_types::Uri;
-use vespertide_core::TableDef;
+use vespertide_core::{MigrationAction, MigrationPlan, SimpleColumnType, TableDef};
 
 use super::{DomainDiagnostic, Severity};
 
@@ -123,6 +123,93 @@ pub(super) fn validate_fk_supporting_indexes(
             ),
             code: "fk-supporting-index".to_string(),
         });
+    }
+}
+
+/// Fault **F76**: file-local sequence/identity exhaustion risk on
+/// single-column auto-increment primary keys typed `INTEGER` (32-bit)
+/// or `SMALLINT` (16-bit).
+///
+/// Emits one `Warning`-severity `DomainDiagnostic` per risky PK
+/// column, anchored to the column's `type` field. The squiggle is
+/// purely advisory — vespertide cannot rewrite the column to
+/// `BigInt` from the editor; the user runs `vespertide revision`
+/// which surfaces the same risk with an interactive
+/// `ChangeToBigInt` choice.
+///
+/// **LSP scope**: only the `Primary` kind fires here. The planner
+/// also detects `PkTypeNarrowing` (requires baseline migration
+/// history) and `ForeignKeyMismatch` (requires the parent table's
+/// `TableDef` from another file) — both are intentionally out of
+/// scope for this single-file warning. They surface during
+/// `vespertide revision`.
+pub(super) fn validate_sequence_exhaustion(
+    table: &TableDef,
+    tree: Option<&tree_sitter::Tree>,
+    source: &str,
+    out: &mut Vec<DomainDiagnostic>,
+) {
+    // Synthesise a single-action `CreateTable` plan against an empty
+    // baseline. The planner's `Primary` arm fires for every new
+    // single-column auto-increment INT4/SmallInt PK in `table`,
+    // which is exactly the file-local risk we want to surface in
+    // the editor. `PkTypeNarrowing` and `ForeignKeyMismatch` arms
+    // are naturally suppressed: the former needs a non-empty
+    // baseline; the latter needs the parent PK column type, which
+    // an empty `baseline` does not provide.
+    let plan = MigrationPlan {
+        id: String::new(),
+        comment: None,
+        created_at: None,
+        version: 0,
+        actions: vec![MigrationAction::CreateTable {
+            table: table.name.clone(),
+            columns: table.columns.clone(),
+            constraints: table.constraints.clone(),
+        }],
+    };
+    for warning in vespertide_planner::find_sequence_exhaustion_risks(&plan, &[]) {
+        let byte_range = super::locator::locate_column_field(
+            tree,
+            source,
+            &warning.column,
+            super::locator::ErrorField::Type,
+        );
+        let byte_range = if byte_range == (0..1) {
+            super::locator::locate_column(tree, source, &warning.column)
+        } else {
+            byte_range
+        };
+        let risk_label = match warning.risk_level {
+            vespertide_planner::SequenceRiskLevel::High => {
+                "High — `small_int` exhausts at ~32K rows"
+            }
+            vespertide_planner::SequenceRiskLevel::Medium => {
+                "Medium — `integer` exhausts at ~2.1B rows"
+            }
+        };
+        out.push(DomainDiagnostic {
+            byte_range,
+            severity: Severity::Warning,
+            message: format!(
+                "Auto-increment primary key `{}` uses `{}` — sequence exhaustion risk. \
+                 {}. Consider rewriting to `big_int` (run `vespertide revision` for an \
+                 interactive prompt).",
+                warning.column,
+                simple_type_label(warning.current_type),
+                risk_label,
+            ),
+            code: "sequence-exhaustion".to_string(),
+        });
+    }
+}
+
+fn simple_type_label(ty: SimpleColumnType) -> &'static str {
+    match ty {
+        SimpleColumnType::SmallInt => "small_int",
+        SimpleColumnType::Integer => "integer",
+        SimpleColumnType::BigInt => "big_int",
+        _ => "<other>",
     }
 }
 

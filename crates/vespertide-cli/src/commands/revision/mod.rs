@@ -5,18 +5,19 @@ use vespertide_core::{MigrationAction, MigrationPlan, NarrowingStrategy};
 use vespertide_planner::{
     CascadeReachWarning, CheckAdditionWarning, DanglingFkDrop, DefaultChangeWarning, DropChoice,
     DropResolution, FkOrphanAdditionWarning, FkPolicyChangeWarning, MultipleErrors, PlannerError,
-    PrimaryKeyAdditionWarning, TimezoneConversionWarning, TypeNarrowingWarning,
-    UniqueAdditionWarning, apply_drop_resolution, find_addcolumn_fk_nullable_violations,
-    find_cascade_reach_violations, find_check_additions, find_constraint_type_changes,
-    find_dangling_fk_drops, find_default_changes, find_drop_resolutions, find_fk_orphan_additions,
-    find_fk_policy_changes, find_missing_fill_with, find_primary_key_additions,
-    find_primary_key_removals, find_timezone_conversions, find_type_narrowings,
+    PrimaryKeyAdditionWarning, SequenceExhaustionWarning, TimezoneConversionWarning,
+    TypeNarrowingWarning, UniqueAdditionWarning, apply_drop_resolution,
+    find_addcolumn_fk_nullable_violations, find_cascade_reach_violations, find_check_additions,
+    find_constraint_type_changes, find_dangling_fk_drops, find_default_changes,
+    find_drop_resolutions, find_fk_orphan_additions, find_fk_policy_changes,
+    find_missing_fill_with, find_primary_key_additions, find_primary_key_removals,
+    find_sequence_exhaustion_risks, find_timezone_conversions, find_type_narrowings,
     find_unique_additions, plan_next_migration, schema_from_plans,
 };
 
 use prompts::{
     CascadeReachChoice, CheckViolationChoice, DefaultChoice, FkOrphanChoice,
-    PrimaryKeyAdditionChoice, UniqueAdditionChoice,
+    PrimaryKeyAdditionChoice, SequenceExhaustionChoice, UniqueAdditionChoice,
 };
 
 use crate::utils::{load_config, load_migrations, load_models};
@@ -91,12 +92,13 @@ pub async fn cmd_revision(
             check_addition: prompts::prompt_check_additions,
             pk_addition: prompts::prompt_pk_additions,
             cascade_reach: prompts::prompt_cascade_reach,
+            sequence_exhaustion: prompts::prompt_sequence_exhaustion,
         },
     )
     .await
 }
 
-struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK, CR> {
+struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK, CR, SE> {
     recreate: R,
     delete_null_rows: D,
     fill_with: F,
@@ -113,6 +115,7 @@ struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK, C
     check_addition: CK,
     pk_addition: PK,
     cascade_reach: CR,
+    sequence_exhaustion: SE,
 }
 
 #[expect(
@@ -123,11 +126,11 @@ struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK, C
     clippy::type_complexity,
     reason = "RevisionPromptFns gathers 13 closure types parameterised by the warning struct each prompt receives; extracting them to type aliases would scatter the signature across the file without aiding readability"
 )]
-async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK, CR>(
+async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK, CR, SE>(
     message: String,
     fill_with_args: Vec<String>,
     delete_null_rows_args: Vec<String>,
-    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK, CR>,
+    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK, CR, SE>,
 ) -> Result<()>
 where
     R: Fn(&[RecreateTableRequired]) -> Result<bool>,
@@ -146,6 +149,7 @@ where
     CK: Fn(&CheckAdditionWarning) -> Result<Option<CheckViolationChoice>>,
     PK: Fn(&PrimaryKeyAdditionWarning) -> Result<Option<PrimaryKeyAdditionChoice>>,
     CR: Fn(&CascadeReachWarning) -> Result<Option<CascadeReachChoice>>,
+    SE: Fn(&SequenceExhaustionWarning) -> Result<Option<SequenceExhaustionChoice>>,
 {
     let RevisionPromptFns {
         recreate: recreate_prompt_fn,
@@ -164,6 +168,7 @@ where
         check_addition: check_addition_prompt_fn,
         pk_addition: pk_addition_prompt_fn,
         cascade_reach: cascade_reach_prompt_fn,
+        sequence_exhaustion: sequence_exhaustion_prompt_fn,
     } = prompt_fns;
 
     let config = load_config()?;
@@ -353,6 +358,26 @@ where
             );
             return Ok(());
         }
+    }
+
+    // F76 — Sequence / identity overflow risk on PK columns and FK
+    // mismatches against safe parent types. For mutable cases
+    // (`CreateTable`, `ModifyColumnType`) the prompt offers a
+    // single-click "rewrite to big_int" that stamps a wider type
+    // back onto the matching plan action; `AddConstraint(...)` cases
+    // surface as warnings only. Run AFTER F5 (which may have already
+    // rewritten the PK shape) so the analysis sees the final plan.
+    let sequence_warnings = find_sequence_exhaustion_risks(&plan, &baseline_schema);
+    for warning in &sequence_warnings {
+        let Some(choice) = sequence_exhaustion_prompt_fn(warning)? else {
+            println!(
+                "{} {}",
+                "Cancelled.".bright_yellow().bold(),
+                "INT overflow resolution declined; no migration written.".bright_white()
+            );
+            return Ok(());
+        };
+        prompts::apply_sequence_exhaustion_choice(&mut plan, warning, choice);
     }
 
     // Parse CLI fill_with arguments

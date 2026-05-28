@@ -242,6 +242,12 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
             > {
                 panic!("cascade_reach prompt should not be called")
             },
+            // F76 sequence-exhaustion: same scope guarantee.
+            sequence_exhaustion: |_: &vespertide_planner::SequenceExhaustionWarning| -> Result<
+                Option<crate::commands::revision::prompts::SequenceExhaustionChoice>,
+            > {
+                panic!("sequence_exhaustion prompt should not be called")
+            },
         },
     )
     .await;
@@ -456,6 +462,12 @@ async fn cmd_revision_core_handles_fill_with_for_non_fk_column() {
                 Option<crate::commands::revision::prompts::CascadeReachChoice>,
             > {
                 panic!("cascade_reach prompt should not be called")
+            },
+            // F76 sequence-exhaustion: same scope guarantee.
+            sequence_exhaustion: |_: &vespertide_planner::SequenceExhaustionWarning| -> Result<
+                Option<crate::commands::revision::prompts::SequenceExhaustionChoice>,
+            > {
+                panic!("sequence_exhaustion prompt should not be called")
             },
         },
     )

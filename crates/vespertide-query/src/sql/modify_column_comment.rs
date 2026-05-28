@@ -488,7 +488,7 @@ mod tests {
     ) {
         let schema = vec![table_def(
             "data",
-            vec![col("field", ColumnType::Simple(column_type.clone()), false)],
+            vec![col("field", ColumnType::Simple(column_type), false)],
             vec![],
         )];
 
