@@ -23,12 +23,13 @@ pub use error::{MultipleErrors, PlannerError};
 pub use plan::{plan_next_migration, plan_next_migration_with_baseline};
 pub use schema::schema_from_plans;
 pub use validate::{
-    CheckAdditionWarning, ConstraintDropWarning, DanglingFkDrop, DefaultChangeKind,
-    DefaultChangeWarning, EnumFillWithRequired, FillWithRequired, FkOrphanAdditionWarning,
-    FkPolicyChangeWarning, MissingFkSupportingIndex, NarrowingKind, PkAdditionKind, PkKind,
-    PolicyDelta, PrimaryKeyAdditionWarning, RiskLevel, TimezoneConversionDirection,
-    TimezoneConversionWarning, TypeNarrowingWarning, UniqueAdditionFkReference,
-    UniqueAdditionWarning, find_addcolumn_fk_nullable_violations, find_check_additions,
+    CascadeReachWarning, CascadeRiskLevel, CheckAdditionWarning, ConstraintDropWarning,
+    DanglingFkDrop, DefaultChangeKind, DefaultChangeWarning, EnumFillWithRequired,
+    FillWithRequired, FkOrphanAdditionWarning, FkPolicyChangeWarning, MissingFkSupportingIndex,
+    NarrowingKind, PkAdditionKind, PkKind, PolicyDelta, PrimaryKeyAdditionWarning, RiskLevel,
+    TimezoneConversionDirection, TimezoneConversionWarning, TypeNarrowingWarning,
+    UniqueAdditionFkReference, UniqueAdditionWarning, find_addcolumn_fk_nullable_violations,
+    find_cascade_reach_violations, find_check_additions,
     find_constraint_drops_without_replacement, find_constraint_type_changes,
     find_dangling_fk_drops, find_default_changes, find_fk_orphan_additions, find_fk_policy_changes,
     find_missing_enum_fill_with, find_missing_fill_with, find_missing_fk_supporting_indexes,

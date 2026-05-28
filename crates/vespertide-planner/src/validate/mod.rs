@@ -1,3 +1,4 @@
+mod cascade_reach;
 mod check_additions;
 mod check_default;
 mod constraint_drops;
@@ -16,6 +17,7 @@ mod schema;
 mod timezone_conversion;
 mod type_narrowing;
 
+pub use cascade_reach::{CascadeReachWarning, CascadeRiskLevel, find_cascade_reach_violations};
 pub use check_additions::{CheckAdditionWarning, find_check_additions};
 pub use constraint_drops::{ConstraintDropWarning, find_constraint_drops_without_replacement};
 pub use constraint_type_changes::{find_constraint_type_changes, find_primary_key_removals};

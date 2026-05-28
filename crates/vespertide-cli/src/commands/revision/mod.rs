@@ -3,20 +3,20 @@ use chrono::Utc;
 use colored::Colorize;
 use vespertide_core::{MigrationAction, MigrationPlan, NarrowingStrategy};
 use vespertide_planner::{
-    CheckAdditionWarning, DanglingFkDrop, DefaultChangeWarning, DropChoice, DropResolution,
-    FkOrphanAdditionWarning, FkPolicyChangeWarning, MultipleErrors, PlannerError,
+    CascadeReachWarning, CheckAdditionWarning, DanglingFkDrop, DefaultChangeWarning, DropChoice,
+    DropResolution, FkOrphanAdditionWarning, FkPolicyChangeWarning, MultipleErrors, PlannerError,
     PrimaryKeyAdditionWarning, TimezoneConversionWarning, TypeNarrowingWarning,
     UniqueAdditionWarning, apply_drop_resolution, find_addcolumn_fk_nullable_violations,
-    find_check_additions, find_constraint_type_changes, find_dangling_fk_drops,
-    find_default_changes, find_drop_resolutions, find_fk_orphan_additions, find_fk_policy_changes,
-    find_missing_fill_with, find_primary_key_additions, find_primary_key_removals,
-    find_timezone_conversions, find_type_narrowings, find_unique_additions, plan_next_migration,
-    schema_from_plans,
+    find_cascade_reach_violations, find_check_additions, find_constraint_type_changes,
+    find_dangling_fk_drops, find_default_changes, find_drop_resolutions, find_fk_orphan_additions,
+    find_fk_policy_changes, find_missing_fill_with, find_primary_key_additions,
+    find_primary_key_removals, find_timezone_conversions, find_type_narrowings,
+    find_unique_additions, plan_next_migration, schema_from_plans,
 };
 
 use prompts::{
-    CheckViolationChoice, DefaultChoice, FkOrphanChoice, PrimaryKeyAdditionChoice,
-    UniqueAdditionChoice,
+    CascadeReachChoice, CheckViolationChoice, DefaultChoice, FkOrphanChoice,
+    PrimaryKeyAdditionChoice, UniqueAdditionChoice,
 };
 
 use crate::utils::{load_config, load_migrations, load_models};
@@ -90,12 +90,13 @@ pub async fn cmd_revision(
             fk_orphan_addition: prompts::prompt_fk_orphan_additions,
             check_addition: prompts::prompt_check_additions,
             pk_addition: prompts::prompt_pk_additions,
+            cascade_reach: prompts::prompt_cascade_reach,
         },
     )
     .await
 }
 
-struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK> {
+struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK, CR> {
     recreate: R,
     delete_null_rows: D,
     fill_with: F,
@@ -111,6 +112,7 @@ struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK> {
     fk_orphan_addition: FO,
     check_addition: CK,
     pk_addition: PK,
+    cascade_reach: CR,
 }
 
 #[expect(
@@ -121,11 +123,11 @@ struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK> {
     clippy::type_complexity,
     reason = "RevisionPromptFns gathers 13 closure types parameterised by the warning struct each prompt receives; extracting them to type aliases would scatter the signature across the file without aiding readability"
 )]
-async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK>(
+async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK, CR>(
     message: String,
     fill_with_args: Vec<String>,
     delete_null_rows_args: Vec<String>,
-    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK>,
+    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK, CR>,
 ) -> Result<()>
 where
     R: Fn(&[RecreateTableRequired]) -> Result<bool>,
@@ -143,6 +145,7 @@ where
     FO: Fn(&FkOrphanAdditionWarning) -> Result<Option<FkOrphanChoice>>,
     CK: Fn(&CheckAdditionWarning) -> Result<Option<CheckViolationChoice>>,
     PK: Fn(&PrimaryKeyAdditionWarning) -> Result<Option<PrimaryKeyAdditionChoice>>,
+    CR: Fn(&CascadeReachWarning) -> Result<Option<CascadeReachChoice>>,
 {
     let RevisionPromptFns {
         recreate: recreate_prompt_fn,
@@ -160,6 +163,7 @@ where
         fk_orphan_addition: fk_orphan_addition_prompt_fn,
         check_addition: check_addition_prompt_fn,
         pk_addition: pk_addition_prompt_fn,
+        cascade_reach: cascade_reach_prompt_fn,
     } = prompt_fns;
 
     let config = load_config()?;
@@ -332,6 +336,23 @@ where
             return Ok(());
         };
         prompts::apply_pk_addition_choice(&mut plan, warning, choice);
+    }
+
+    // F96 — Adding ON DELETE CASCADE foreign keys that extend a deep
+    // or high-fanout cascade chain. Pure static analysis; no plan
+    // mutation. The user either acknowledges (`Proceed`) or cancels
+    // to re-examine the model — vespertide cannot auto-shrink a
+    // user-declared cascade chain.
+    let cascade_warnings = find_cascade_reach_violations(&plan, &baseline_schema);
+    for warning in &cascade_warnings {
+        if cascade_reach_prompt_fn(warning)?.is_none() {
+            println!(
+                "{} {}",
+                "Cancelled.".bright_yellow().bold(),
+                "Cascade chain declined; no migration written.".bright_white()
+            );
+            return Ok(());
+        }
     }
 
     // Parse CLI fill_with arguments

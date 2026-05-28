@@ -7,11 +7,11 @@ use vespertide_core::{MigrationAction, MigrationPlan, NarrowingStrategy, TableDe
 #[cfg(test)]
 use vespertide_planner::find_missing_fill_with;
 use vespertide_planner::{
-    CheckAdditionWarning, DefaultChangeWarning, DropChoice, DropResolution, DropTarget,
-    EnumFillWithRequired, FillWithRequired, FkOrphanAdditionWarning, FkPolicyChangeWarning, Match,
-    NarrowingKind, PkKind, PrimaryKeyAdditionWarning, RiskLevel, TimezoneConversionWarning,
-    TypeNarrowingWarning, UniqueAdditionWarning, find_missing_enum_fill_with,
-    render_reference_action,
+    CascadeReachWarning, CascadeRiskLevel, CheckAdditionWarning, DefaultChangeWarning, DropChoice,
+    DropResolution, DropTarget, EnumFillWithRequired, FillWithRequired, FkOrphanAdditionWarning,
+    FkPolicyChangeWarning, Match, NarrowingKind, PkKind, PrimaryKeyAdditionWarning, RiskLevel,
+    TimezoneConversionWarning, TypeNarrowingWarning, UniqueAdditionWarning,
+    find_missing_enum_fill_with, render_reference_action,
 };
 use vespertide_core::{
     CheckViolationStrategy, ForeignKeyOrphanStrategy, KeepPolicy, PrimaryKeyAdditionStrategy,
@@ -1551,6 +1551,75 @@ pub(super) fn apply_pk_addition_choice(
             // to no-op cleanup when the baseline shape isn't usable.
         }
     }
+}
+
+/// F96 (cascade reach analysis) - per-warning user confirmation for a
+/// newly added `ON DELETE CASCADE` foreign key that extends a deep or
+/// high-fanout cascade chain. No SQL is emitted from the choice;
+/// vespertide cannot auto-shrink a user-declared cascade chain. The
+/// user either acknowledges the chain (`Proceed`) or cancels the
+/// migration to re-examine the model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CascadeReachChoice {
+    /// User confirmed the chain is intentional - proceed with the
+    /// migration unchanged.
+    Proceed,
+}
+
+/// Per-warning interactive prompt for F96. Returns `None` when the
+/// user cancels.
+pub(super) fn prompt_cascade_reach(
+    warning: &CascadeReachWarning,
+) -> Result<Option<CascadeReachChoice>> {
+    println!();
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+    println!("{}", format_cascade_reach_header(warning));
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+
+    let labels = [
+        "Proceed (cascade chain is intentional)".to_string(),
+        "Cancel (review schema first)".to_string(),
+    ];
+    let outcomes = [Some(CascadeReachChoice::Proceed), None];
+
+    let selection = Select::new()
+        .with_prompt("  Confirm the cascade chain")
+        .items(&labels)
+        .default(0)
+        .interact()
+        .context("failed to read cascade-reach choice")?;
+    Ok(outcomes[selection])
+}
+
+fn format_cascade_reach_header(warning: &CascadeReachWarning) -> String {
+    let arrow = "\u{2192}".bright_black();
+    let origin = format!(
+        "{}.({})",
+        warning.origin_child_table.bright_white().bold(),
+        warning.origin_columns.join(", ").bright_green()
+    );
+    let parent = warning.parent_table.bright_white().bold();
+    let chain = std::iter::once(warning.parent_table.clone())
+        .chain(warning.reached_tables.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(" \u{2192} ");
+    let risk_label = match warning.risk_level {
+        CascadeRiskLevel::Deep => "Deep".bright_yellow(),
+        CascadeRiskLevel::HighFanout => "HighFanout".bright_yellow(),
+        CascadeRiskLevel::Critical => "Critical".bright_red().bold(),
+    };
+    format!(
+        "  {} ON DELETE CASCADE chain warning\n  \
+         {origin} {arrow} {parent} (ON DELETE CASCADE)\n  \
+         Cascade reach: {} hops\n    {chain}\n  \
+         Risk: {risk_label} (depth={}, max fanout={})\n  \
+         Deleting from {parent} may cascade to many downstream rows. \
+         Verify this is intentional.",
+        "\u{26a0}".bright_yellow(),
+        warning.depth,
+        warning.depth,
+        warning.max_fanout,
+    )
 }
 
 fn confirm_permanent_drop(target: &DropTarget) -> Result<Option<DropChoice>> {
