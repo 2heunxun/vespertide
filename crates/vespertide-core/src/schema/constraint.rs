@@ -5,6 +5,7 @@ use crate::schema::{
     check_violation_strategy::CheckViolationStrategy,
     fk_orphan_strategy::ForeignKeyOrphanStrategy,
     names::{ColumnName, TableName},
+    pk_addition_strategy::PrimaryKeyAdditionStrategy,
     unique_strategy::{KeepPolicy, UniqueConstraintStrategy},
 };
 
@@ -38,6 +39,18 @@ fn is_default_check_violation_strategy(s: &CheckViolationStrategy) -> bool {
     matches!(s, CheckViolationStrategy::DeleteViolatingRows)
 }
 
+/// `serde(skip_serializing_if)` helper ? true when PK `strategy` is
+/// the canonical default (`DeleteDuplicates { keep: First }`). Lets
+/// the common case omit the field from the JSON wire format.
+fn is_default_pk_addition_strategy(s: &PrimaryKeyAdditionStrategy) -> bool {
+    matches!(
+        s,
+        PrimaryKeyAdditionStrategy::DeleteDuplicates {
+            keep: KeepPolicy::First
+        }
+    )
+}
+
 /// A table-level constraint produced by [`TableDef::normalize`].
 ///
 /// Inline column constraints (`primary_key`, `unique`, `index`, `foreign_key`) declared in model
@@ -54,10 +67,24 @@ fn is_default_check_violation_strategy(s: &CheckViolationStrategy) -> bool {
 #[non_exhaustive]
 pub enum TableConstraint {
     /// Primary key constraint, optionally with auto-increment (serial / identity) semantics.
+    ///
+    /// `strategy` controls how pre-existing duplicate rows in the
+    /// chosen column set are handled when this constraint is added to
+    /// an already-populated table. The canonical default is
+    /// [`PrimaryKeyAdditionStrategy::DeleteDuplicates { keep: KeepPolicy::First }`]
+    /// (omitted from the JSON wire format). NULL violations on PK
+    /// columns are handled separately by the F1 `fill_with` mechanism;
+    /// the revision CLI prompts for fill values on every nullable PK
+    /// column.
+    ///
+    /// `strategy` is **stripped from `model.schema.json`** but
+    /// **preserved in `migration.schema.json`**.
     PrimaryKey {
         #[serde(default)]
         auto_increment: bool,
         columns: Vec<ColumnName>,
+        #[serde(default, skip_serializing_if = "is_default_pk_addition_strategy")]
+        strategy: PrimaryKeyAdditionStrategy,
     },
     /// Unique constraint ensuring no two rows share the same value(s) in the listed columns.
     ///
@@ -68,6 +95,11 @@ pub enum TableConstraint {
     /// format. Other strategies (e.g. `DeleteDuplicates`) emit a pre-cleanup
     /// step ahead of `ADD CONSTRAINT` so the migration succeeds even when
     /// production data has duplicates.
+    ///
+    /// `strategy` is **stripped from `model.schema.json`** by the
+    /// schema generator (`vespertide-schema-gen`), but **preserved in
+    /// `migration.schema.json`** since migration files carry the
+    /// revision CLI's stamped choice.
     Unique {
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<String>,
@@ -84,6 +116,9 @@ pub enum TableConstraint {
     /// JSON wire format). The revision CLI re-prompts the user for an
     /// explicit choice; the default exists only so v0.1.x model files
     /// continue to deserialize.
+    ///
+    /// `orphan_strategy` is **stripped from `model.schema.json`** by
+    /// the schema generator but **preserved in `migration.schema.json`**.
     ForeignKey {
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<String>,
@@ -108,6 +143,9 @@ pub enum TableConstraint {
     /// recognisable shape (`<col> <op> <literal>` or `<col> IN (...)`);
     /// more complex expressions skip pre-cleanup and rely on the database
     /// to validate at apply time.
+    ///
+    /// `strategy` is **stripped from `model.schema.json`** but
+    /// **preserved in `migration.schema.json`**.
     Check {
         name: String,
         expr: String,
@@ -210,6 +248,7 @@ mod tests {
         let pk = TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into(), "tenant_id".into()],
+            strategy: PrimaryKeyAdditionStrategy::default(),
         };
         assert_eq!(pk.columns().len(), 2);
         assert_eq!(pk.columns()[0], "id");
@@ -269,6 +308,7 @@ mod tests {
                 TableConstraint::PrimaryKey {
                     auto_increment: false,
                     columns: vec!["id".into()],
+                    strategy: PrimaryKeyAdditionStrategy::default(),
                 },
                 ConstraintKind::PrimaryKey,
             ),
@@ -338,6 +378,7 @@ mod tests {
         let pk = TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: PrimaryKeyAdditionStrategy::default(),
         };
         let prefixed = pk.clone().with_prefix("myapp_");
         assert_eq!(pk, prefixed);

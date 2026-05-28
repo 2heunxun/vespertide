@@ -22,6 +22,7 @@ fn test_reverse_relations_has_many() {
         constraints: vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }],
     };
 
@@ -57,6 +58,7 @@ fn test_reverse_relations_has_many() {
             TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             },
             TableConstraint::ForeignKey {
                 name: None,
@@ -104,6 +106,7 @@ fn test_reverse_relations_has_one() {
         constraints: vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }],
     };
 
@@ -139,6 +142,7 @@ fn test_reverse_relations_has_one() {
             TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["user_id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             },
             TableConstraint::ForeignKey {
                 name: None,
@@ -186,6 +190,7 @@ fn test_reverse_relations_unique_fk() {
         constraints: vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }],
     };
 
@@ -221,6 +226,7 @@ fn test_reverse_relations_unique_fk() {
             TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             },
             TableConstraint::ForeignKey {
                 name: None,

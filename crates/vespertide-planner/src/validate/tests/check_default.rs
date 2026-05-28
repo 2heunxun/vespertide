@@ -46,6 +46,7 @@ fn table_with(
     constraints.push(TableConstraint::PrimaryKey {
         auto_increment: false,
         columns: vec!["id".into()],
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     });
     table("the_table", vec![pk_col("id"), payload_col], constraints)
         .with_name_for_test(name)

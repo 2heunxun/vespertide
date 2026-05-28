@@ -550,6 +550,7 @@ fn test_replace_fk_constraint(#[case] backend: DatabaseBackend) {
             TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             },
             TableConstraint::ForeignKey {
                 name: Some("fk_user".into()),

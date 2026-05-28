@@ -107,6 +107,7 @@ fn table_for_index(index: usize) -> TableDef {
             TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             },
             TableConstraint::Index {
                 name: Some(format!("ix_{table_name}__code")),

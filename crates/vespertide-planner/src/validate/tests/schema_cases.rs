@@ -164,7 +164,7 @@ fn validate_schema_rejects_integer_enum_values_outside_i32_range() {
         vec![table(
             "users",
             vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
-            vec![TableConstraint::PrimaryKey{ auto_increment: false, columns: vec!["id".into()] }],
+            vec![TableConstraint::PrimaryKey { auto_increment: false, columns: vec!["id".into()], strategy: vespertide_core::PrimaryKeyAdditionStrategy::default() }],
         )],
         None
     )]
@@ -264,7 +264,7 @@ fn validate_schema_rejects_integer_enum_values_outside_i32_range() {
         vec![table(
             "users",
             vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
-            vec![TableConstraint::PrimaryKey{ auto_increment: false, columns: vec!["nonexistent".into()] }],
+            vec![TableConstraint::PrimaryKey { auto_increment: false, columns: vec!["nonexistent".into()], strategy: vespertide_core::PrimaryKeyAdditionStrategy::default() }],
         )],
         Some(is_constraint_column as fn(&PlannerError) -> bool)
     )]
@@ -296,7 +296,7 @@ fn validate_schema_rejects_integer_enum_values_outside_i32_range() {
         vec![table(
             "users",
             vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
-            vec![TableConstraint::PrimaryKey{ auto_increment: false, columns: vec![] }],
+            vec![TableConstraint::PrimaryKey { auto_increment: false, columns: vec![], strategy: vespertide_core::PrimaryKeyAdditionStrategy::default() }],
         )],
         Some(is_empty_columns as fn(&PlannerError) -> bool)
     )]

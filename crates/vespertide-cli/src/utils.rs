@@ -183,6 +183,7 @@ mod tests {
             constraints: vec![TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             }],
         };
         fs::write("models/users.yaml", serde_yaml::to_string(&table).unwrap()).unwrap();
@@ -219,6 +220,7 @@ mod tests {
             constraints: vec![TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             }],
         };
         let content = serde_json::to_string_pretty(&table).unwrap();

@@ -9,11 +9,13 @@ use vespertide_planner::find_missing_fill_with;
 use vespertide_planner::{
     CheckAdditionWarning, DefaultChangeWarning, DropChoice, DropResolution, DropTarget,
     EnumFillWithRequired, FillWithRequired, FkOrphanAdditionWarning, FkPolicyChangeWarning, Match,
-    NarrowingKind, PkKind, RiskLevel, TimezoneConversionWarning, TypeNarrowingWarning,
-    UniqueAdditionWarning, find_missing_enum_fill_with, render_reference_action,
+    NarrowingKind, PkKind, PrimaryKeyAdditionWarning, RiskLevel, TimezoneConversionWarning,
+    TypeNarrowingWarning, UniqueAdditionWarning, find_missing_enum_fill_with,
+    render_reference_action,
 };
 use vespertide_core::{
-    CheckViolationStrategy, ForeignKeyOrphanStrategy, KeepPolicy, UniqueConstraintStrategy,
+    CheckViolationStrategy, ForeignKeyOrphanStrategy, KeepPolicy, PrimaryKeyAdditionStrategy,
+    UniqueConstraintStrategy,
 };
 
 use super::timezones::{KNOWN_IANA, validate_timezone};
@@ -1425,6 +1427,130 @@ pub(super) fn apply_check_addition_choice(
         }
         CheckViolationChoice::Delete => CheckViolationStrategy::DeleteViolatingRows,
     };
+}
+
+/// F5 (PK addition with duplicate / NULL violations) - user resolution
+/// for an `AddConstraint(PrimaryKey)` on a baseline-existing table.
+///
+/// `DeleteDuplicates { keep }` maps to
+/// [`PrimaryKeyAdditionStrategy::DeleteDuplicates`]. The duplicate
+/// cleanup is offered only when the warning reports
+/// `auto_cleanup_capable = true` (single-column PK with a usable
+/// baseline single-column PK to drive the `DELETE ... NOT IN
+/// (SELECT MIN(pk) ...)` query).
+///
+/// NULL violations are *not* handled by this enum — they are surfaced
+/// via the standard F1 `fill_with` mechanism for each entry in
+/// `warning.nullable_columns`, which fires later in the revision flow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PrimaryKeyAdditionChoice {
+    /// Map to [`PrimaryKeyAdditionStrategy::DeleteDuplicates { keep }`].
+    DeleteDuplicates(KeepPolicy),
+    /// Acknowledge the warning without auto-cleanup. Used when
+    /// duplicates are already prevented (baseline UNIQUE) or the
+    /// baseline shape can't drive auto-cleanup (composite / no PK).
+    ContinueWithoutCleanup,
+}
+
+/// Per-warning interactive prompt for F5. Returns `None` when the user
+/// cancels (no migration written).
+pub(super) fn prompt_pk_additions(
+    warning: &PrimaryKeyAdditionWarning,
+) -> Result<Option<PrimaryKeyAdditionChoice>> {
+    println!();
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+    println!("{}", format_pk_addition_header(warning));
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+
+    let mut labels: Vec<String> = Vec::new();
+    let mut outcomes: Vec<Option<PrimaryKeyAdditionChoice>> = Vec::new();
+
+    if warning.auto_cleanup_capable {
+        labels.push(
+            "Delete duplicates, keep FIRST (smallest baseline PK, recommended default)"
+                .to_string(),
+        );
+        outcomes.push(Some(PrimaryKeyAdditionChoice::DeleteDuplicates(
+            KeepPolicy::First,
+        )));
+        labels.push("Delete duplicates, keep LAST (largest baseline PK)".to_string());
+        outcomes.push(Some(PrimaryKeyAdditionChoice::DeleteDuplicates(
+            KeepPolicy::Last,
+        )));
+    }
+    labels.push(
+        "Continue without auto-cleanup (NULL fill-with prompts will follow if needed)"
+            .to_string(),
+    );
+    outcomes.push(Some(PrimaryKeyAdditionChoice::ContinueWithoutCleanup));
+    labels.push("Cancel migration".to_string());
+    outcomes.push(None);
+
+    let selection = Select::new()
+        .with_prompt("  How should the PRIMARY KEY addition handle existing data?")
+        .items(&labels)
+        .default(0)
+        .interact()
+        .context("failed to read pk-addition choice")?;
+    Ok(outcomes[selection])
+}
+
+fn format_pk_addition_header(warning: &PrimaryKeyAdditionWarning) -> String {
+    let target = format!(
+        "{}.({})",
+        warning.table.bright_white().bold(),
+        warning.columns.join(", ").bright_green()
+    );
+    let nullable_hint = if warning.nullable_columns.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n  Nullable PK columns: {} ? fill_with prompt(s) will follow.",
+            warning.nullable_columns.join(", ").bright_yellow()
+        )
+    };
+    let dedup_hint = if warning.duplicate_possible {
+        if warning.auto_cleanup_capable {
+            "Auto-cleanup available (single-column PK).".to_string()
+        } else {
+            "Composite PK / no baseline PK ? user must pre-clean duplicates manually."
+                .to_string()
+        }
+    } else {
+        "Baseline UNIQUE already prevents duplicates.".to_string()
+    };
+    format!(
+        "  {} Adding PRIMARY KEY on {target}\n  {dedup_hint}{nullable_hint}",
+        "\u{26a0}".bright_yellow()
+    )
+}
+
+/// Stamp the user's choice onto the matching `AddConstraint(PrimaryKey)`
+/// action's `strategy` field.
+pub(super) fn apply_pk_addition_choice(
+    plan: &mut vespertide_core::MigrationPlan,
+    warning: &PrimaryKeyAdditionWarning,
+    choice: PrimaryKeyAdditionChoice,
+) {
+    let Some(action) = plan.actions.get_mut(warning.action_index) else {
+        return;
+    };
+    let vespertide_core::MigrationAction::AddConstraint {
+        constraint: vespertide_core::TableConstraint::PrimaryKey { strategy, .. },
+        ..
+    } = action
+    else {
+        return;
+    };
+    match choice {
+        PrimaryKeyAdditionChoice::DeleteDuplicates(keep) => {
+            *strategy = PrimaryKeyAdditionStrategy::DeleteDuplicates { keep };
+        }
+        PrimaryKeyAdditionChoice::ContinueWithoutCleanup => {
+            // Strategy stays at default; the SQL emit will fall back
+            // to no-op cleanup when the baseline shape isn't usable.
+        }
+    }
 }
 
 fn confirm_permanent_drop(target: &DropTarget) -> Result<Option<DropChoice>> {

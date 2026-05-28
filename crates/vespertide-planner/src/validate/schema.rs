@@ -168,6 +168,7 @@ pub(super) fn validate_table(
         if let TableConstraint::PrimaryKey {
             auto_increment: true,
             columns,
+            ..
         } = constraint
         {
             for col_name in columns {

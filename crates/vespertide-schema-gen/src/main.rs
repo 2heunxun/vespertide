@@ -37,9 +37,22 @@ fn run(out: &Path) -> Result<()> {
     let migration_path = out.join("migration.schema.json");
     let config_path = out.join("config.schema.json");
 
+    // **Model-only strip**: migration-time concern fields (`strategy`,
+    // `orphan_strategy`) are valid in `migration.schema.json` (vespertide
+    // stamps them via the revision CLI) but must never appear in
+    // `model.schema.json` — user-facing model files should never carry
+    // them and IDE autocompletion would otherwise wrongly suggest them.
+    //
+    // Done as a post-process JSON walk because the same Rust
+    // `TableConstraint` type backs both schemas and a single
+    // `#[schemars(skip)]` attribute would hide the fields in both.
+    let mut model_value: serde_json::Value =
+        serde_json::to_value(&model_schema).context("serialize model schema to value")?;
+    strip_migration_fields(&mut model_value);
+
     fs::write(
         &model_path,
-        serde_json::to_string_pretty(&model_schema).context("serialize model schema")?,
+        serde_json::to_string_pretty(&model_value).context("serialize stripped model schema")?,
     )
     .with_context(|| format!("write {}", model_path.display()))?;
 
@@ -60,6 +73,46 @@ fn run(out: &Path) -> Result<()> {
     println!("  {}", migration_path.display());
     println!("  {}", config_path.display());
     Ok(())
+}
+
+/// Field names that vespertide treats as **migration-time concerns**
+/// stamped by the revision CLI. They are valid in migration JSON
+/// (vespertide writes them) but must never appear in user-facing
+/// model JSON.
+const MIGRATION_ONLY_FIELDS: &[&str] = &["strategy", "orphan_strategy"];
+
+/// Recursively walk a JSON Schema document and remove every occurrence
+/// of `MIGRATION_ONLY_FIELDS` from `properties`, `required`, and
+/// `default` blocks. Operates on the schemars output as plain
+/// `serde_json::Value` so it survives schemars major-version changes.
+fn strip_migration_fields(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            // 1) Remove from any `"properties": { "<field>": ... }` map.
+            if let Some(serde_json::Value::Object(props)) = map.get_mut("properties") {
+                for field in MIGRATION_ONLY_FIELDS {
+                    props.remove(*field);
+                }
+            }
+            // 2) Remove from any `"required": ["<field>", ...]` array.
+            if let Some(serde_json::Value::Array(req)) = map.get_mut("required") {
+                req.retain(|v| {
+                    let s = v.as_str().unwrap_or("");
+                    !MIGRATION_ONLY_FIELDS.contains(&s)
+                });
+            }
+            // 3) Recurse into every child value.
+            for (_, v) in map.iter_mut() {
+                strip_migration_fields(v);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                strip_migration_fields(v);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]

@@ -41,6 +41,7 @@ pub(super) fn pk(columns: &[&str]) -> TableConstraint {
     TableConstraint::PrimaryKey {
         auto_increment: false,
         columns: columns.iter().copied().map(Into::into).collect(),
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     }
 }
 
@@ -48,6 +49,7 @@ fn auto_pk(columns: &[&str]) -> TableConstraint {
     TableConstraint::PrimaryKey {
         auto_increment: true,
         columns: columns.iter().copied().map(Into::into).collect(),
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     }
 }
 

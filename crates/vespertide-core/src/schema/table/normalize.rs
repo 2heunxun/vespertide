@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::schema::{
-    ColumnName, StrOrBoolOrArray, TableName, constraint::TableConstraint,
-    foreign_key::ForeignKeySyntax, primary_key::PrimaryKeySyntax,
+    ColumnName, PrimaryKeyAdditionStrategy, StrOrBoolOrArray, TableName,
+    constraint::TableConstraint, foreign_key::ForeignKeySyntax, primary_key::PrimaryKeySyntax,
 };
 
 use super::{TableDef, TableValidationError};
@@ -41,6 +41,7 @@ fn add_primary_key_constraint(table: &TableDef, constraints: &mut Vec<TableConst
     constraints.push(TableConstraint::PrimaryKey {
         auto_increment: pk_auto_increment,
         columns: pk_columns,
+        strategy: PrimaryKeyAdditionStrategy::default(),
     });
 }
 

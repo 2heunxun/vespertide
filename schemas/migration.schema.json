@@ -347,7 +347,7 @@
           ]
         },
         "orphan_strategy": {
-          "description": "Pre-cleanup strategy for orphan child rows when the FK is added to\na populated table. See [`ForeignKeyOrphanStrategy`] for semantics;\nthe canonical default ([`ForeignKeyOrphanStrategy::NullifyOrphans`])\nis omitted from the JSON wire format.",
+          "description": "Pre-cleanup strategy for orphan child rows when the FK is added to\na populated table. See [`ForeignKeyOrphanStrategy`] for semantics;\nthe canonical default ([`ForeignKeyOrphanStrategy::NullifyOrphans`])\nis omitted from the JSON wire format.\n\n**Stripped from `model.schema.json`** by the schema generator but\n**preserved in `migration.schema.json`**.",
           "$ref": "#/$defs/ForeignKeyOrphanStrategy"
         },
         "ref_columns": {
@@ -914,6 +914,29 @@
         "value"
       ]
     },
+    "PrimaryKeyAdditionStrategy": {
+      "description": "How `AddConstraint(PrimaryKey)` should handle pre-existing\nduplicate rows in the chosen column set.\n\n`KeepPolicy` is reused from `UniqueConstraintStrategy` (F2) -\n\"First\" / \"Last\" are defined by the table's surviving primary-key\nor row identity ordering. The cleanup SQL is emitted by\n`vespertide-query::sql::add_constraint::primary_key`.",
+      "oneOf": [
+        {
+          "description": "Emit a `DELETE` statement ahead of `ADD CONSTRAINT PRIMARY KEY`\nso only one row per group of new-PK duplicates survives.",
+          "type": "object",
+          "properties": {
+            "keep": {
+              "description": "Which row of each duplicate group is preserved.",
+              "$ref": "#/$defs/KeepPolicy"
+            },
+            "kind": {
+              "type": "string",
+              "const": "delete_duplicates"
+            }
+          },
+          "required": [
+            "kind",
+            "keep"
+          ]
+        }
+      ]
+    },
     "PrimaryKeyDef": {
       "description": "Configuration for a primary key declared with the object syntax.\n\nWhen `auto_increment` is `true` the column is generated as a serial / identity column\n(`PostgreSQL` `SERIAL`, `MySQL` `AUTO_INCREMENT`, `SQLite` `AUTOINCREMENT`).\nUse [`PrimaryKeySyntax::Object`] to pass this to a [`ColumnDef`].\n\n[`ColumnDef`]: crate::schema::ColumnDef",
       "type": "object",
@@ -1125,7 +1148,7 @@
       "description": "A table-level constraint produced by [`TableDef::normalize`].\n\nInline column constraints (`primary_key`, `unique`, `index`, `foreign_key`) declared in model\nJSON files are converted into `TableConstraint` variants during normalization. You rarely\nconstruct these directly; the planner and SQL generator consume them.\n\nThis enum is `#[non_exhaustive]`: new variants may be added in future releases.\nDownstream `match` expressions should include a wildcard arm.\n\n[`TableDef::normalize`]: crate::schema::TableDef::normalize",
       "oneOf": [
         {
-          "description": "Primary key constraint, optionally with auto-increment (serial / identity) semantics.",
+          "description": "Primary key constraint, optionally with auto-increment (serial / identity) semantics.\n\n`strategy` controls how pre-existing duplicate rows in the\nchosen column set are handled when this constraint is added to\nan already-populated table. The canonical default is\n[`PrimaryKeyAdditionStrategy::DeleteDuplicates { keep: KeepPolicy::First }`]\n(omitted from the JSON wire format). NULL violations on PK\ncolumns are handled separately by the F1 `fill_with` mechanism;\nthe revision CLI prompts for fill values on every nullable PK\ncolumn.\n\n`strategy` is **stripped from `model.schema.json`** but\n**preserved in `migration.schema.json`**.",
           "type": "object",
           "properties": {
             "auto_increment": {
@@ -1138,6 +1161,9 @@
                 "$ref": "#/$defs/ColumnName"
               }
             },
+            "strategy": {
+              "$ref": "#/$defs/PrimaryKeyAdditionStrategy"
+            },
             "type": {
               "type": "string",
               "const": "primary_key"
@@ -1149,7 +1175,7 @@
           ]
         },
         {
-          "description": "Unique constraint ensuring no two rows share the same value(s) in the listed columns.\n\n`strategy` controls how pre-existing duplicate rows are handled when\nthis constraint is added to an already-populated table. The\ncanonical default is [`UniqueConstraintStrategy::DeleteDuplicates { keep: KeepPolicy::First }`],\nwhich matches v0.1.x behaviour and is omitted from the JSON wire\nformat. Other strategies (e.g. `DeleteDuplicates`) emit a pre-cleanup\nstep ahead of `ADD CONSTRAINT` so the migration succeeds even when\nproduction data has duplicates.",
+          "description": "Unique constraint ensuring no two rows share the same value(s) in the listed columns.\n\n`strategy` controls how pre-existing duplicate rows are handled when\nthis constraint is added to an already-populated table. The\ncanonical default is [`UniqueConstraintStrategy::DeleteDuplicates { keep: KeepPolicy::First }`],\nwhich matches v0.1.x behaviour and is omitted from the JSON wire\nformat. Other strategies (e.g. `DeleteDuplicates`) emit a pre-cleanup\nstep ahead of `ADD CONSTRAINT` so the migration succeeds even when\nproduction data has duplicates.\n\n`strategy` is **stripped from `model.schema.json`** by the\nschema generator (`vespertide-schema-gen`), but **preserved in\n`migration.schema.json`** since migration files carry the\nrevision CLI's stamped choice.",
           "type": "object",
           "properties": {
             "columns": {
@@ -1178,7 +1204,7 @@
           ]
         },
         {
-          "description": "Foreign key constraint linking columns in this table to columns in another table.\n\n`orphan_strategy` controls how pre-existing orphan rows are\nhandled when this constraint is added to an already-populated\ntable. The canonical default is\n[`ForeignKeyOrphanStrategy::NullifyOrphans`] (omitted from the\nJSON wire format). The revision CLI re-prompts the user for an\nexplicit choice; the default exists only so v0.1.x model files\ncontinue to deserialize.",
+          "description": "Foreign key constraint linking columns in this table to columns in another table.\n\n`orphan_strategy` controls how pre-existing orphan rows are\nhandled when this constraint is added to an already-populated\ntable. The canonical default is\n[`ForeignKeyOrphanStrategy::NullifyOrphans`] (omitted from the\nJSON wire format). The revision CLI re-prompts the user for an\nexplicit choice; the default exists only so v0.1.x model files\ncontinue to deserialize.\n\n`orphan_strategy` is **stripped from `model.schema.json`** by\nthe schema generator but **preserved in `migration.schema.json`**.",
           "type": "object",
           "properties": {
             "columns": {
@@ -1238,7 +1264,7 @@
           ]
         },
         {
-          "description": "Arbitrary SQL CHECK expression enforced by the database on every write.\n\n`strategy` controls how pre-existing violating rows are handled when\nthis constraint is added to an already-populated table. The\ncanonical default is [`CheckViolationStrategy::NullifyViolatingColumn`]\n(omitted from the JSON wire format). The revision CLI re-prompts\nthe user for an explicit choice; the default exists only so v0.1.x\nmodel files continue to deserialize.\n\nCleanup SQL is emitted only when the expression matches a narrow\nrecognisable shape (`<col> <op> <literal>` or `<col> IN (...)`);\nmore complex expressions skip pre-cleanup and rely on the database\nto validate at apply time.",
+          "description": "Arbitrary SQL CHECK expression enforced by the database on every write.\n\n`strategy` controls how pre-existing violating rows are handled when\nthis constraint is added to an already-populated table. The\ncanonical default is [`CheckViolationStrategy::NullifyViolatingColumn`]\n(omitted from the JSON wire format). The revision CLI re-prompts\nthe user for an explicit choice; the default exists only so v0.1.x\nmodel files continue to deserialize.\n\nCleanup SQL is emitted only when the expression matches a narrow\nrecognisable shape (`<col> <op> <literal>` or `<col> IN (...)`);\nmore complex expressions skip pre-cleanup and rely on the database\nto validate at apply time.\n\n`strategy` is **stripped from `model.schema.json`** but\n**preserved in `migration.schema.json`**.",
           "type": "object",
           "properties": {
             "expr": {

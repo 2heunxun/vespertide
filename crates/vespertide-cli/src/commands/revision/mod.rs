@@ -5,15 +5,19 @@ use vespertide_core::{MigrationAction, MigrationPlan, NarrowingStrategy};
 use vespertide_planner::{
     CheckAdditionWarning, DanglingFkDrop, DefaultChangeWarning, DropChoice, DropResolution,
     FkOrphanAdditionWarning, FkPolicyChangeWarning, MultipleErrors, PlannerError,
-    TimezoneConversionWarning, TypeNarrowingWarning, UniqueAdditionWarning, apply_drop_resolution,
-    find_addcolumn_fk_nullable_violations, find_check_additions, find_constraint_type_changes,
-    find_dangling_fk_drops, find_default_changes, find_drop_resolutions, find_fk_orphan_additions,
-    find_fk_policy_changes, find_missing_fill_with, find_primary_key_removals,
+    PrimaryKeyAdditionWarning, TimezoneConversionWarning, TypeNarrowingWarning,
+    UniqueAdditionWarning, apply_drop_resolution, find_addcolumn_fk_nullable_violations,
+    find_check_additions, find_constraint_type_changes, find_dangling_fk_drops,
+    find_default_changes, find_drop_resolutions, find_fk_orphan_additions, find_fk_policy_changes,
+    find_missing_fill_with, find_primary_key_additions, find_primary_key_removals,
     find_timezone_conversions, find_type_narrowings, find_unique_additions, plan_next_migration,
     schema_from_plans,
 };
 
-use prompts::{CheckViolationChoice, DefaultChoice, FkOrphanChoice, UniqueAdditionChoice};
+use prompts::{
+    CheckViolationChoice, DefaultChoice, FkOrphanChoice, PrimaryKeyAdditionChoice,
+    UniqueAdditionChoice,
+};
 
 use crate::utils::{load_config, load_migrations, load_models};
 
@@ -85,12 +89,13 @@ pub async fn cmd_revision(
             unique_addition: prompts::prompt_unique_additions,
             fk_orphan_addition: prompts::prompt_fk_orphan_additions,
             check_addition: prompts::prompt_check_additions,
+            pk_addition: prompts::prompt_pk_additions,
         },
     )
     .await
 }
 
-struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK> {
+struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK> {
     recreate: R,
     delete_null_rows: D,
     fill_with: F,
@@ -105,6 +110,7 @@ struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK> {
     unique_addition: UN,
     fk_orphan_addition: FO,
     check_addition: CK,
+    pk_addition: PK,
 }
 
 #[expect(
@@ -115,11 +121,11 @@ struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK> {
     clippy::type_complexity,
     reason = "RevisionPromptFns gathers 13 closure types parameterised by the warning struct each prompt receives; extracting them to type aliases would scatter the signature across the file without aiding readability"
 )]
-async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK>(
+async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK>(
     message: String,
     fill_with_args: Vec<String>,
     delete_null_rows_args: Vec<String>,
-    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK>,
+    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK, PK>,
 ) -> Result<()>
 where
     R: Fn(&[RecreateTableRequired]) -> Result<bool>,
@@ -136,6 +142,7 @@ where
     UN: Fn(&UniqueAdditionWarning) -> Result<Option<UniqueAdditionChoice>>,
     FO: Fn(&FkOrphanAdditionWarning) -> Result<Option<FkOrphanChoice>>,
     CK: Fn(&CheckAdditionWarning) -> Result<Option<CheckViolationChoice>>,
+    PK: Fn(&PrimaryKeyAdditionWarning) -> Result<Option<PrimaryKeyAdditionChoice>>,
 {
     let RevisionPromptFns {
         recreate: recreate_prompt_fn,
@@ -152,6 +159,7 @@ where
         unique_addition: unique_addition_prompt_fn,
         fk_orphan_addition: fk_orphan_addition_prompt_fn,
         check_addition: check_addition_prompt_fn,
+        pk_addition: pk_addition_prompt_fn,
     } = prompt_fns;
 
     let config = load_config()?;
@@ -305,6 +313,25 @@ where
             return Ok(());
         };
         prompts::apply_check_addition_choice(&mut plan, warning, choice);
+    }
+
+    // F5 — Adding PRIMARY KEY on a baseline-existing table with
+    // potential duplicate / NULL violations. Prompt for a per-warning
+    // duplicate strategy (DeleteDuplicates / ContinueWithoutCleanup /
+    // Cancel); NULL handling is delegated to the F1 fill_with prompt
+    // that fires later in the flow. The choice is stamped back onto
+    // `TableConstraint::PrimaryKey.strategy`.
+    let pk_additions = find_primary_key_additions(&plan, &baseline_schema);
+    for warning in &pk_additions {
+        let Some(choice) = pk_addition_prompt_fn(warning)? else {
+            println!(
+                "{} {}",
+                "Cancelled.".bright_yellow().bold(),
+                "PRIMARY KEY resolution declined; no migration written.".bright_white()
+            );
+            return Ok(());
+        };
+        prompts::apply_pk_addition_choice(&mut plan, warning, choice);
     }
 
     // Parse CLI fill_with arguments

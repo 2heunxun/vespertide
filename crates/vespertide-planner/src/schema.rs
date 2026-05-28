@@ -45,13 +45,13 @@ mod tests {
             actions: vec![MigrationAction::CreateTable {
                 table: "users".into(),
                 columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
-                constraints: vec![TableConstraint::PrimaryKey{ auto_increment: false, columns: vec!["id".into()] }],
+                constraints: vec![TableConstraint::PrimaryKey { auto_increment: false, columns: vec!["id".into()], strategy: vespertide_core::PrimaryKeyAdditionStrategy::default() }],
             }],
         }],
         table(
             "users",
             vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
-            vec![TableConstraint::PrimaryKey{ auto_increment: false, columns: vec!["id".into()] }],
+            vec![TableConstraint::PrimaryKey { auto_increment: false, columns: vec!["id".into()], strategy: vespertide_core::PrimaryKeyAdditionStrategy::default() }],
         )
     )]
     #[case::create_and_add_column(
@@ -64,7 +64,7 @@ mod tests {
                 actions: vec![MigrationAction::CreateTable {
                     table: "users".into(),
                     columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
-                    constraints: vec![TableConstraint::PrimaryKey{ auto_increment: false, columns: vec!["id".into()] }],
+                    constraints: vec![TableConstraint::PrimaryKey { auto_increment: false, columns: vec!["id".into()], strategy: vespertide_core::PrimaryKeyAdditionStrategy::default() }],
                 }],
             },
             MigrationPlan {
@@ -85,7 +85,7 @@ mod tests {
                 col("id", ColumnType::Simple(SimpleColumnType::Integer)),
                 col("name", ColumnType::Simple(SimpleColumnType::Text)),
             ],
-            vec![TableConstraint::PrimaryKey{ auto_increment: false, columns: vec!["id".into()] }],
+            vec![TableConstraint::PrimaryKey { auto_increment: false, columns: vec!["id".into()], strategy: vespertide_core::PrimaryKeyAdditionStrategy::default() }],
         )
     )]
     #[case::create_add_column_and_index(
@@ -98,7 +98,7 @@ mod tests {
                 actions: vec![MigrationAction::CreateTable {
                     table: "users".into(),
                     columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
-                    constraints: vec![TableConstraint::PrimaryKey{ auto_increment: false, columns: vec!["id".into()] }],
+                    constraints: vec![TableConstraint::PrimaryKey { auto_increment: false, columns: vec!["id".into()], strategy: vespertide_core::PrimaryKeyAdditionStrategy::default() }],
                 }],
             },
             MigrationPlan {
@@ -133,7 +133,7 @@ mod tests {
                 col("name", ColumnType::Simple(SimpleColumnType::Text)),
             ],
             vec![
-                TableConstraint::PrimaryKey{ auto_increment: false, columns: vec!["id".into()] },
+                TableConstraint::PrimaryKey { auto_increment: false, columns: vec!["id".into()], strategy: vespertide_core::PrimaryKeyAdditionStrategy::default() },
                 TableConstraint::Index {
                     name: Some("ix_users__name".into()),
                     columns: vec!["name".into()],

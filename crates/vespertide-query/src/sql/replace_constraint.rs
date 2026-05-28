@@ -278,6 +278,7 @@ mod tests {
                 constraints: vec![TableConstraint::PrimaryKey {
                     auto_increment: false,
                     columns: vec!["id".into()],
+                    strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
                 }],
                 description: None,
             },
@@ -311,6 +312,7 @@ mod tests {
                     TableConstraint::PrimaryKey {
                         auto_increment: false,
                         columns: vec!["id".into()],
+                        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
                     },
                     TableConstraint::ForeignKey {
                         name: Some("fk_user".into()),
@@ -461,6 +463,7 @@ mod tests {
                     TableConstraint::PrimaryKey {
                         auto_increment: false,
                         columns: vec!["id".into()],
+                        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
                     },
                     TableConstraint::Unique {
                         name: Some("uq_email".into()),

@@ -60,6 +60,7 @@ fn fk_table(idx: usize, refs: &[usize; 3]) -> TableDef {
     let mut constraints = vec![TableConstraint::PrimaryKey {
         auto_increment: false,
         columns: vec!["id".into()],
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     }];
 
     for (fk_idx, target) in refs.iter().enumerate() {

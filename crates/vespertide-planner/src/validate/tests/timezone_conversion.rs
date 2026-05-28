@@ -18,6 +18,7 @@ fn baseline_with(old: ColumnType) -> Vec<TableDef> {
         vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["at".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }],
     )]
 }
@@ -155,6 +156,7 @@ fn missing_baseline_column_yields_no_warning() {
         vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }],
     )];
     let plan = plan_with(vec![modify_at_type(tstz(), None)]);

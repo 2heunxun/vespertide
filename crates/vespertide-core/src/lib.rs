@@ -15,6 +15,6 @@ pub use migration::{MigrationError, MigrationOptions};
 pub use schema::{
     CheckViolationStrategy, ColumnDef, ColumnName, ColumnType, ComplexColumnType, ConstraintKind,
     DefaultValue, EnumValues, ForeignKeyOrphanStrategy, IndexDef, IndexName, KeepPolicy, NumValue,
-    ReferenceAction, SimpleColumnType, StrOrBoolOrArray, StringOrBool, TableConstraint, TableDef,
-    TableName, TableValidationError, UniqueConstraintStrategy,
+    PrimaryKeyAdditionStrategy, ReferenceAction, SimpleColumnType, StrOrBoolOrArray, StringOrBool,
+    TableConstraint, TableDef, TableName, TableValidationError, UniqueConstraintStrategy,
 };

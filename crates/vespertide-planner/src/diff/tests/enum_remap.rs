@@ -52,6 +52,7 @@ fn table(name: &str, payload: ColumnDef) -> TableDef {
         constraints: vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }],
     }
 }

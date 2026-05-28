@@ -39,6 +39,9 @@ pub struct ForeignKeyDef {
     /// a populated table. See [`ForeignKeyOrphanStrategy`] for semantics;
     /// the canonical default ([`ForeignKeyOrphanStrategy::NullifyOrphans`])
     /// is omitted from the JSON wire format.
+    ///
+    /// **Stripped from `model.schema.json`** by the schema generator but
+    /// **preserved in `migration.schema.json`**.
     #[serde(default, skip_serializing_if = "is_default_fk_orphan_strategy")]
     pub orphan_strategy: ForeignKeyOrphanStrategy,
 }

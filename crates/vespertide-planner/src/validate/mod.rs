@@ -10,6 +10,7 @@ mod fk_addcolumn_nullable;
 mod fk_orphan_additions;
 mod fk_policy_changes;
 mod foreign_keys;
+mod pk_additions;
 mod plan;
 mod schema;
 mod timezone_conversion;
@@ -24,6 +25,7 @@ pub use default_changes::{
 };
 pub use fk_addcolumn_nullable::find_addcolumn_fk_nullable_violations;
 pub use fk_orphan_additions::{FkOrphanAdditionWarning, find_fk_orphan_additions};
+pub use pk_additions::{PkAdditionKind, PrimaryKeyAdditionWarning, find_primary_key_additions};
 pub use unique_additions::{
     FkReference as UniqueAdditionFkReference, PkKind, UniqueAdditionWarning, find_unique_additions,
 };

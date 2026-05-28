@@ -5,6 +5,7 @@ pub mod fk_orphan_strategy;
 pub mod foreign_key;
 pub mod index;
 pub mod names;
+pub mod pk_addition_strategy;
 pub mod primary_key;
 pub mod reference;
 pub mod str_or_bool;
@@ -17,6 +18,7 @@ pub use column::{
 };
 pub use constraint::{ConstraintKind, TableConstraint};
 pub use fk_orphan_strategy::ForeignKeyOrphanStrategy;
+pub use pk_addition_strategy::PrimaryKeyAdditionStrategy;
 pub use index::IndexDef;
 pub use names::{ColumnName, IndexName, TableName};
 pub use primary_key::PrimaryKeyDef;

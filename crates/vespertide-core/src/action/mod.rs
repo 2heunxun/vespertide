@@ -424,6 +424,7 @@ mod tests {
             constraint: TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: crate::PrimaryKeyAdditionStrategy::default(),
             },
         },
         "AddConstraint: users.PRIMARY KEY"
@@ -502,6 +503,7 @@ mod tests {
             constraint: TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: crate::PrimaryKeyAdditionStrategy::default(),
             },
         },
         "RemoveConstraint: users.PRIMARY KEY"
@@ -1029,10 +1031,12 @@ mod tests {
             from: TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: crate::PrimaryKeyAdditionStrategy::default(),
             },
             to: TableConstraint::PrimaryKey {
                 auto_increment: true,
                 columns: vec!["id".into()],
+                strategy: crate::PrimaryKeyAdditionStrategy::default(),
             },
         },
         "ReplaceConstraint: users.PRIMARY KEY"

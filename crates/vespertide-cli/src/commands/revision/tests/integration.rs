@@ -49,6 +49,7 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
                 TableConstraint::PrimaryKey {
                     auto_increment: false,
                     columns: vec!["id".into()],
+                    strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
                 },
                 TableConstraint::ForeignKey {
                     name: Some("fk_orders__user_id".into()),
@@ -85,6 +86,7 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
         constraints: vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }],
     };
     std_fs::write(
@@ -129,6 +131,7 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
         constraints: vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }],
     };
     std_fs::write(
@@ -225,6 +228,12 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
             > {
                 panic!("check_addition prompt should not be called")
             },
+            // F5 pk-addition resolution: same scope guarantee.
+            pk_addition: |_: &vespertide_planner::PrimaryKeyAdditionWarning| -> Result<
+                Option<crate::commands::revision::prompts::PrimaryKeyAdditionChoice>,
+            > {
+                panic!("pk_addition prompt should not be called")
+            },
         },
     )
     .await;
@@ -291,6 +300,7 @@ async fn cmd_revision_core_handles_fill_with_for_non_fk_column() {
             constraints: vec![TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             }],
         }],
     };
@@ -330,6 +340,7 @@ async fn cmd_revision_core_handles_fill_with_for_non_fk_column() {
         constraints: vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }],
     };
     std_fs::write(
@@ -423,6 +434,12 @@ async fn cmd_revision_core_handles_fill_with_for_non_fk_column() {
                 Option<crate::commands::revision::prompts::CheckViolationChoice>,
             > {
                 panic!("check_addition prompt should not be called")
+            },
+            // F5 pk-addition resolution: same scope guarantee.
+            pk_addition: |_: &vespertide_planner::PrimaryKeyAdditionWarning| -> Result<
+                Option<crate::commands::revision::prompts::PrimaryKeyAdditionChoice>,
+            > {
+                panic!("pk_addition prompt should not be called")
             },
         },
     )

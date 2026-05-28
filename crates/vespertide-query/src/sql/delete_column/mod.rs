@@ -577,6 +577,7 @@ mod tests {
             constraints: vec![TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["order_id".into(), "product_id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             }],
         }];
 
@@ -875,6 +876,7 @@ mod tests {
             constraints: vec![TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["order_id".into(), "product_id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             }],
         }];
 

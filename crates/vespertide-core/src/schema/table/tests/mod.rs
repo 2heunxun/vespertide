@@ -104,6 +104,7 @@ fn normalize_does_not_duplicate_existing_pk() {
         constraints: vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: crate::PrimaryKeyAdditionStrategy::default(),
         }],
     };
 
@@ -917,6 +918,7 @@ fn normalize_inline_unique_str_with_different_constraint_type() {
             TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: crate::PrimaryKeyAdditionStrategy::default(),
             },
         ],
     };
@@ -944,6 +946,7 @@ fn normalize_inline_unique_array_with_different_constraint_type() {
             TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: crate::PrimaryKeyAdditionStrategy::default(),
             },
         ],
     };

@@ -146,7 +146,7 @@ struct SuccessCase {
                 col("ref_id", ColumnType::Simple(SimpleColumnType::Integer))
             ],
             vec![
-                TableConstraint::PrimaryKey{ auto_increment: false, columns: vec!["id".into()] },
+                TableConstraint::PrimaryKey { auto_increment: false, columns: vec!["id".into()], strategy: vespertide_core::PrimaryKeyAdditionStrategy::default() },
                 TableConstraint::Unique {
                     name: Some("u_old".into()),
                     columns: vec!["old".into()],
@@ -191,7 +191,7 @@ struct SuccessCase {
                 col("new_col", ColumnType::Simple(SimpleColumnType::Boolean))
             ],
             vec![
-                TableConstraint::PrimaryKey{ auto_increment: false, columns: vec!["id".into()] },
+                TableConstraint::PrimaryKey { auto_increment: false, columns: vec!["id".into()], strategy: vespertide_core::PrimaryKeyAdditionStrategy::default() },
                 TableConstraint::Unique {
                     name: Some("u_old".into()),
                     columns: vec!["old".into()],
@@ -221,7 +221,7 @@ struct SuccessCase {
             "users",
             vec![col("id", ColumnType::Simple(SimpleColumnType::Integer)), col("old", ColumnType::Simple(SimpleColumnType::Text))],
             vec![
-                TableConstraint::PrimaryKey{ auto_increment: false, columns: vec!["id".into()] },
+                TableConstraint::PrimaryKey { auto_increment: false, columns: vec!["id".into()], strategy: vespertide_core::PrimaryKeyAdditionStrategy::default() },
                 TableConstraint::Unique {
                     name: Some("u_old".into()),
                     columns: vec!["old".into()],
@@ -252,7 +252,7 @@ struct SuccessCase {
             "users",
             vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
             vec![
-                TableConstraint::PrimaryKey{ auto_increment: false, columns: vec!["id".into()] },
+                TableConstraint::PrimaryKey { auto_increment: false, columns: vec!["id".into()], strategy: vespertide_core::PrimaryKeyAdditionStrategy::default() },
                 TableConstraint::Check {
                     name: "ck_old".into(),
                     expr: "old IS NOT NULL".into(),
@@ -314,6 +314,7 @@ struct SuccessCase {
             constraint: TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             },
         }],
         expected: vec![table(
@@ -322,6 +323,7 @@ struct SuccessCase {
             vec![TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             }],
         )],
     })]
@@ -332,6 +334,7 @@ struct SuccessCase {
             vec![TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             }],
         )],
         actions: vec![MigrationAction::RemoveConstraint {
@@ -339,6 +342,7 @@ struct SuccessCase {
             constraint: TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             },
         }],
         expected: vec![table("users", vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))], vec![])],
@@ -439,7 +443,7 @@ fn apply_delete_column_preserves_foreign_key_ref_columns() {
 #[rstest]
 #[case(
         vec![
-            TableConstraint::PrimaryKey{ auto_increment: false, columns: vec!["id".into(), "old".into()] },
+            TableConstraint::PrimaryKey { auto_increment: false, columns: vec!["id".into(), "old".into()], strategy: vespertide_core::PrimaryKeyAdditionStrategy::default() },
             TableConstraint::Unique {
                 name: None,
                 columns: vec!["old".into(), "keep".into()],
@@ -464,7 +468,7 @@ fn apply_delete_column_preserves_foreign_key_ref_columns() {
         "old",
         "new",
         vec![
-            TableConstraint::PrimaryKey{ auto_increment: false, columns: vec!["id".into(), "new".into()] },
+            TableConstraint::PrimaryKey { auto_increment: false, columns: vec!["id".into(), "new".into()], strategy: vespertide_core::PrimaryKeyAdditionStrategy::default() },
             TableConstraint::Unique {
                 name: None,
                 columns: vec!["new".into(), "keep".into()],
@@ -489,7 +493,7 @@ fn apply_delete_column_preserves_foreign_key_ref_columns() {
     )]
 #[case(
         vec![
-            TableConstraint::PrimaryKey{ auto_increment: false, columns: vec!["id".into()] },
+            TableConstraint::PrimaryKey { auto_increment: false, columns: vec!["id".into()], strategy: vespertide_core::PrimaryKeyAdditionStrategy::default() },
             TableConstraint::Check {
                 name: "ck_id".into(),
                 expr: "id > 0".into(),
@@ -500,7 +504,7 @@ fn apply_delete_column_preserves_foreign_key_ref_columns() {
         "missing",
         "new",
         vec![
-            TableConstraint::PrimaryKey{ auto_increment: false, columns: vec!["id".into()] },
+            TableConstraint::PrimaryKey { auto_increment: false, columns: vec!["id".into()], strategy: vespertide_core::PrimaryKeyAdditionStrategy::default() },
             TableConstraint::Check {
                 name: "ck_id".into(),
                 expr: "id > 0".into(),

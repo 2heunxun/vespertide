@@ -451,6 +451,7 @@ fn test_recreate_indexes_after_rebuild_skips_non_index_constraints() {
     let pk = TableConstraint::PrimaryKey {
         columns: vec!["id".into()],
         auto_increment: false,
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     };
     let fk = TableConstraint::ForeignKey {
         name: None,

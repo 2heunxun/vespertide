@@ -269,6 +269,7 @@ mod tests {
             constraints: vec![TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec![ColumnName::from("id")],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             }],
         }
     }

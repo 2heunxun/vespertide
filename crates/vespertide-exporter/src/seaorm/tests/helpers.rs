@@ -421,6 +421,7 @@ fn test_resolve_fk_target_no_chain() {
         constraints: vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }],
     };
 
@@ -451,6 +452,7 @@ fn test_resolve_fk_target_with_chain() {
         constraints: vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }],
     };
 
@@ -486,6 +488,7 @@ fn test_resolve_fk_target_with_chain() {
             TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["media_id".into(), "id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             },
             TableConstraint::ForeignKey {
                 name: None,
@@ -567,6 +570,7 @@ fn test_render_entity_with_schema_fk_chain() {
         constraints: vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }],
     };
 
@@ -602,6 +606,7 @@ fn test_render_entity_with_schema_fk_chain() {
             TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["media_id".into(), "id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             },
             TableConstraint::ForeignKey {
                 name: None,
@@ -647,6 +652,7 @@ fn test_render_entity_with_schema_fk_chain() {
             TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["article_media_id".into(), "user_id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             },
             TableConstraint::ForeignKey {
                 name: None,
@@ -708,6 +714,7 @@ fn test_resolve_fk_target_deep_chain() {
         constraints: vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }],
     };
 
@@ -730,6 +737,7 @@ fn test_resolve_fk_target_deep_chain() {
             TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["a_id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             },
             TableConstraint::ForeignKey {
                 name: None,
@@ -762,6 +770,7 @@ fn test_resolve_fk_target_deep_chain() {
             TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["b_id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             },
             TableConstraint::ForeignKey {
                 name: None,
@@ -818,6 +827,7 @@ fn test_render_entity_with_schema_cyclic_fk_chain_returns_current_target() {
             TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             },
             TableConstraint::ForeignKey {
                 name: None,
@@ -862,6 +872,7 @@ fn test_render_entity_with_schema_cyclic_fk_chain_returns_current_target() {
             TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             },
             TableConstraint::ForeignKey {
                 name: None,

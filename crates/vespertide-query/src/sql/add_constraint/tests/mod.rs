@@ -75,6 +75,7 @@ fn test_add_constraint(
         TableConstraint::PrimaryKey {
             columns: vec!["id".into()],
             auto_increment: false,
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }
     } else if title.contains("unique") {
         TableConstraint::Unique {
@@ -183,6 +184,7 @@ fn test_add_constraint_primary_key_sqlite_table_not_found() {
     let constraint = TableConstraint::PrimaryKey {
         columns: vec!["id".into()],
         auto_increment: false,
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     };
     let current_schema = vec![]; // Empty schema - table not found
     let result = build_add_constraint(
@@ -279,6 +281,7 @@ fn test_add_constraint_primary_key_sqlite_with_check_constraints() {
     let constraint = TableConstraint::PrimaryKey {
         columns: vec!["id".into()],
         auto_increment: false,
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     };
     let current_schema = vec![TableDef {
         name: "users".into(),
@@ -321,6 +324,7 @@ fn test_add_constraint_primary_key_sqlite_with_indexes() {
     let constraint = TableConstraint::PrimaryKey {
         columns: vec!["id".into()],
         auto_increment: false,
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     };
     let current_schema = vec![TableDef {
         name: "users".into(),
@@ -363,6 +367,7 @@ fn test_add_constraint_primary_key_sqlite_with_unique_constraint() {
     let constraint = TableConstraint::PrimaryKey {
         columns: vec!["id".into()],
         auto_increment: false,
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     };
     let current_schema = vec![TableDef {
         name: "users".into(),
@@ -465,6 +470,7 @@ fn test_add_constraint_primary_key_sqlite_without_existing_check() {
     let constraint = TableConstraint::PrimaryKey {
         columns: vec!["id".into()],
         auto_increment: false,
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     };
     let current_schema = vec![TableDef {
         name: "users".into(),
@@ -591,6 +597,7 @@ fn test_add_constraint_composite_primary_key_postgres() {
     let constraint = TableConstraint::PrimaryKey {
         columns: vec!["user_id".into(), "role_id".into()],
         auto_increment: false,
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     };
     let current_schema = vec![TableDef {
         name: "user_roles".into(),
@@ -639,6 +646,7 @@ fn test_add_constraint_composite_primary_key_mysql() {
     let constraint = TableConstraint::PrimaryKey {
         columns: vec!["user_id".into(), "role_id".into()],
         auto_increment: false,
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     };
     let current_schema = vec![TableDef {
         name: "user_roles".into(),
@@ -687,10 +695,12 @@ fn test_constraints_overlap_primary_key_same_columns() {
     let a = TableConstraint::PrimaryKey {
         columns: vec!["id".into()],
         auto_increment: false,
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     };
     let b = TableConstraint::PrimaryKey {
         columns: vec!["id".into()],
         auto_increment: true,
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     };
     assert!(constraints_overlap(&a, &b));
 }
@@ -699,10 +709,12 @@ fn test_constraints_overlap_primary_key_different_columns() {
     let a = TableConstraint::PrimaryKey {
         columns: vec!["id".into()],
         auto_increment: false,
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     };
     let b = TableConstraint::PrimaryKey {
         columns: vec!["uid".into()],
         auto_increment: false,
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     };
     assert!(!constraints_overlap(&a, &b));
 }
@@ -753,6 +765,7 @@ fn test_constraints_overlap_different_variants() {
     let a = TableConstraint::PrimaryKey {
         columns: vec!["id".into()],
         auto_increment: false,
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     };
     let b = TableConstraint::Check {
         name: "chk".into(),
@@ -789,6 +802,7 @@ fn test_merge_constraint_replaces_overlapping() {
         TableConstraint::PrimaryKey {
             columns: vec!["id".into()],
             auto_increment: false,
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         },
         TableConstraint::Index {
             name: None,
@@ -798,6 +812,7 @@ fn test_merge_constraint_replaces_overlapping() {
     let new_pk = TableConstraint::PrimaryKey {
         columns: vec!["id".into()],
         auto_increment: true,
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     };
     let result = merge_constraint(&existing, &new_pk);
     assert_eq!(result.len(), 2); // replaced, not added
@@ -811,6 +826,7 @@ fn test_merge_constraint_appends_non_overlapping() {
     let new_pk = TableConstraint::PrimaryKey {
         columns: vec!["id".into()],
         auto_increment: false,
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     };
     let result = merge_constraint(&existing, &new_pk);
     assert_eq!(result.len(), 2); // appended
@@ -826,6 +842,7 @@ fn test_extract_check_clauses_with_mixed_constraints() {
         TableConstraint::PrimaryKey {
             columns: vec!["id".into()],
             auto_increment: false,
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         },
         TableConstraint::Check {
             name: "chk2".into(),
@@ -849,6 +866,7 @@ fn test_extract_check_clauses_with_no_check_constraints() {
         TableConstraint::PrimaryKey {
             columns: vec!["id".into()],
             auto_increment: false,
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         },
         TableConstraint::Unique {
             name: None,

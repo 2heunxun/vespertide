@@ -181,6 +181,7 @@ pub fn arb_table_constraint() -> impl Strategy<Value = TableConstraint> {
             TableConstraint::PrimaryKey {
                 auto_increment,
                 columns: columns.into_iter().map(Into::into).collect(),
+                strategy: crate::PrimaryKeyAdditionStrategy::default(),
             }
         }),
         (prop::option::of(arb_safe_ident()), unique_idents(1..=4)).prop_map(|(name, columns)| {

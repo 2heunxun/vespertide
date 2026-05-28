@@ -190,7 +190,7 @@ fn normalize_inline_primary_key_with_auto_increment() {
     assert_eq!(normalized.constraints.len(), 1);
     assert!(matches!(
         &normalized.constraints[0],
-        TableConstraint::PrimaryKey { auto_increment: true, columns } if columns == &["id".to_string()]
+        TableConstraint::PrimaryKey { auto_increment: true, columns, .. } if columns == &["id".to_string()]
     ));
 }
 

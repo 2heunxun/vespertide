@@ -4,6 +4,7 @@ fn pk(columns: Vec<&str>) -> TableConstraint {
     TableConstraint::PrimaryKey {
         auto_increment: false,
         columns: columns.into_iter().map(Into::into).collect(),
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
     }
 }
 

@@ -663,6 +663,7 @@ mod tests {
             constraints: vec![TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             }],
         };
         let path = models_dir.join(format!("{name}.json"));
@@ -753,6 +754,7 @@ mod tests {
             constraint: vespertide_core::TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             },
         },
         format!("{} {} {} {}", "Add constraint:".bright_green(), "PRIMARY KEY (id)".bright_cyan().bold(), "on".bright_white(), "users".bright_cyan())
@@ -800,6 +802,7 @@ mod tests {
             constraint: vespertide_core::TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             },
         },
         format!("{} {} {} {}", "Remove constraint:".bright_red(), "PRIMARY KEY (id)".bright_cyan().bold(), "from".bright_white(), "users".bright_cyan())
@@ -1112,7 +1115,7 @@ mod tests {
             table: table.to_string(),
             kind,
             label: label.to_string(),
-            columns: columns.into_iter().map(ToString::to_string).collect(),
+            columns: columns.into_iter().map(ToString::to_string).collect()
         }
     }
 

@@ -59,6 +59,7 @@ fn collect_auto_increment_columns(
             if let TableConstraint::PrimaryKey {
                 columns: pk_cols,
                 auto_increment: true,
+                ..
             } = c
             {
                 Some(pk_cols.iter().map(AsRef::as_ref).collect::<Vec<_>>())
@@ -82,6 +83,7 @@ fn add_create_table_constraints(
             TableConstraint::PrimaryKey {
                 columns: pk_cols,
                 auto_increment,
+                ..
             } => add_primary_key_constraint(stmt, backend, columns, pk_cols, *auto_increment),
             TableConstraint::Unique {
                 name,
@@ -553,6 +555,7 @@ mod tests {
         let constraints = vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }];
 
         let result = build_create_table(backend, "users", &columns, &constraints);
@@ -585,6 +588,7 @@ mod tests {
         let constraints = vec![TableConstraint::PrimaryKey {
             auto_increment: true,
             columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }];
 
         let result = build_create_table(backend, "users", &columns, &constraints);

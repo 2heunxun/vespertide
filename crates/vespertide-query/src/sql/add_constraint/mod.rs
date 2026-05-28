@@ -22,10 +22,13 @@ pub fn build_add_constraint(
     pending_constraints: &[TableConstraint],
 ) -> Result<Vec<BuiltQuery>, QueryError> {
     match constraint {
-        TableConstraint::PrimaryKey { columns, .. } => primary_key::build_primary_key(
+        TableConstraint::PrimaryKey {
+            columns, strategy, ..
+        } => primary_key::build_primary_key(
             backend,
             table,
             columns,
+            strategy,
             constraint,
             current_schema,
             pending_constraints,

@@ -183,6 +183,7 @@ fn validate_string_enum_duplicate_variant_name() {
         vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }],
     )];
 
@@ -229,6 +230,7 @@ fn validate_integer_enum_duplicate_variant_name() {
         vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }],
     )];
 
@@ -275,6 +277,7 @@ fn validate_integer_enum_duplicate_value() {
         vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }],
     )];
 
@@ -332,6 +335,7 @@ fn validate_enum_valid() {
         vec![TableConstraint::PrimaryKey {
             auto_increment: false,
             columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         }],
     )];
 
