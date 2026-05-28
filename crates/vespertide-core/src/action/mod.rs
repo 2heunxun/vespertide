@@ -486,6 +486,7 @@ mod tests {
             constraint: TableConstraint::Check {
                 name: "chk_age".into(),
                 expr: "age > 0".into(),
+                strategy: crate::CheckViolationStrategy::default(),
             },
         },
         "AddConstraint: users.chk_age (CHECK)"
@@ -563,6 +564,7 @@ mod tests {
             constraint: TableConstraint::Check {
                 name: "chk_age".into(),
                 expr: "age > 0".into(),
+                strategy: crate::CheckViolationStrategy::default(),
             },
         },
         "RemoveConstraint: users.chk_age (CHECK)"
@@ -1121,10 +1123,12 @@ mod tests {
             from: TableConstraint::Check {
                 name: "chk_age".into(),
                 expr: "age > 0".into(),
+                strategy: crate::CheckViolationStrategy::default(),
             },
             to: TableConstraint::Check {
                 name: "chk_age".into(),
                 expr: "age >= 0".into(),
+                strategy: crate::CheckViolationStrategy::default(),
             },
         },
         "ReplaceConstraint: users.chk_age (CHECK)"

@@ -30,6 +30,42 @@
     "columns"
   ],
   "$defs": {
+    "CheckViolationStrategy": {
+      "description": "How `AddConstraint(Check)` should handle pre-existing rows that\nviolate the CHECK predicate.\n\n\"Violation\" is computed statically by the narrow-shape parser in\n`vespertide-planner::validate::check_default` and the cleanup SQL is\nemitted by `vespertide-query::sql::add_constraint::check`. CHECK\nexpressions that exceed the narrow shape (function calls, AND/OR\ncomposition, subqueries) are *not* covered by either side ? the\ndetector skips them and no pre-cleanup is emitted.",
+      "oneOf": [
+        {
+          "description": "Set the named column of every violating row to `NULL` ahead of\nthe `ADD CONSTRAINT`. The row is preserved; only the failing\nvalue is cleared.\n\nOnly applicable when `column` is nullable in the baseline; the\nSQL generator emits a runtime SQL error otherwise (UPDATE ...\nSET col = NULL violates the existing NOT NULL). The revision\nCLI's narrow-shape parser identifies the target column\nautomatically; the user rarely sets this directly in the model\nJSON.",
+          "type": "object",
+          "properties": {
+            "column": {
+              "description": "Which column receives `SET = NULL`. Narrow-shape CHECKs\nalways reduce to a single column, so this is the only\ncolumn the cleanup affects.",
+              "$ref": "#/$defs/ColumnName"
+            },
+            "kind": {
+              "type": "string",
+              "const": "nullify_violating_column"
+            }
+          },
+          "required": [
+            "kind",
+            "column"
+          ]
+        },
+        {
+          "description": "Delete the violating rows outright ahead of the\n`ADD CONSTRAINT`. Use when the violating rows are themselves\ninvalid (logically dangling records).\n\nThis is also the canonical default for the wire format: v0.1.x\nmodels carry no `strategy` field and so deserialize to\n`DeleteViolatingRows`. The revision CLI re-prompts for an\nexplicit choice, and the prompt offers\n`NullifyViolatingColumn { column }` when the narrow-shape\nparser can identify a nullable target column.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "delete_violating_rows"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
     "ColumnDef": {
       "description": "Definition of a single table column, including its type, nullability, and inline constraints.\n\nInline constraints (`primary_key`, `unique`, `index`, `foreign_key`) are the preferred way to\ndeclare constraints in model JSON files. Call [`TableDef::normalize`] to convert them into\ntable-level [`TableConstraint`] entries before diffing or SQL generation.\n\nUse [`ColumnDef::new`] to construct a column programmatically, then chain the setter methods\n(`.primary_key()`, `.unique()`, `.index()`, `.foreign_key()`, `.default()`, `.comment()`) to\nattach optional fields.\n\n[`TableDef::normalize`]: crate::schema::TableDef::normalize\n[`TableConstraint`]: crate::schema::TableConstraint",
       "type": "object",
@@ -724,7 +760,7 @@
           ]
         },
         {
-          "description": "Arbitrary SQL CHECK expression enforced by the database on every write.",
+          "description": "Arbitrary SQL CHECK expression enforced by the database on every write.\n\n`strategy` controls how pre-existing violating rows are handled when\nthis constraint is added to an already-populated table. The\ncanonical default is [`CheckViolationStrategy::NullifyViolatingColumn`]\n(omitted from the JSON wire format). The revision CLI re-prompts\nthe user for an explicit choice; the default exists only so v0.1.x\nmodel files continue to deserialize.\n\nCleanup SQL is emitted only when the expression matches a narrow\nrecognisable shape (`<col> <op> <literal>` or `<col> IN (...)`);\nmore complex expressions skip pre-cleanup and rely on the database\nto validate at apply time.",
           "type": "object",
           "properties": {
             "expr": {
@@ -732,6 +768,9 @@
             },
             "name": {
               "type": "string"
+            },
+            "strategy": {
+              "$ref": "#/$defs/CheckViolationStrategy"
             },
             "type": {
               "type": "string",

@@ -591,7 +591,7 @@ fn format_constraint_type(constraint: &vespertide_core::TableConstraint) -> Stri
                 format!("FK ({}) -> {}", columns.join(", "), ref_table)
             }
         }
-        vespertide_core::TableConstraint::Check { name, expr } => {
+        vespertide_core::TableConstraint::Check { name, expr, .. } => {
             format!("{name} CHECK ({expr})")
         }
         vespertide_core::TableConstraint::Index { name, columns } => {
@@ -789,6 +789,7 @@ mod tests {
             constraint: vespertide_core::TableConstraint::Check {
                 name: "check_age".into(),
                 expr: "age > 0".into(),
+                strategy: vespertide_core::CheckViolationStrategy::default(),
             },
         },
         format!("{} {} {} {}", "Add constraint:".bright_green(), "check_age CHECK (age > 0)".bright_cyan().bold(), "on".bright_white(), "users".bright_cyan())
@@ -835,6 +836,7 @@ mod tests {
             constraint: vespertide_core::TableConstraint::Check {
                 name: "check_age".into(),
                 expr: "age > 0".into(),
+                strategy: vespertide_core::CheckViolationStrategy::default(),
             },
         },
         format!(

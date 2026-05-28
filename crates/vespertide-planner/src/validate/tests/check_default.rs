@@ -24,6 +24,7 @@ fn check_constraint(name: &str, expr: &str) -> TableConstraint {
     TableConstraint::Check {
         name: name.to_string(),
         expr: expr.to_string(),
+        strategy: vespertide_core::CheckViolationStrategy::default(),
     }
 }
 

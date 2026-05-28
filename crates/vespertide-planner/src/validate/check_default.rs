@@ -38,7 +38,7 @@ pub(super) fn validate_default_vs_check(table: &TableDef) -> Result<(), PlannerE
         let column_name = column.name.as_str();
 
         for constraint in &table.constraints {
-            let TableConstraint::Check { name, expr } = constraint else {
+            let TableConstraint::Check { name, expr, .. } = constraint else {
                 continue;
             };
             let Some(parsed) = parse_simple_check(expr, column_name) else {
@@ -94,6 +94,15 @@ enum Literal {
     String(String),
     Bool(bool),
     Null,
+}
+
+/// Boolean shim so callers outside `check_default` can ask "is this
+/// CHECK in the narrow recognisable shape against this column?" without
+/// touching the private [`SimpleCheck`] / [`Literal`] / [`Op`] types.
+/// Used by [`super::check_additions`] (F4) to identify the target
+/// column of an added CHECK.
+pub(super) fn matches_simple_check(expr: &str, column: &str) -> bool {
+    parse_simple_check(expr, column).is_some()
 }
 
 fn parse_simple_check(expr: &str, column: &str) -> Option<SimpleCheck> {

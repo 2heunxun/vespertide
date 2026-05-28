@@ -54,6 +54,7 @@ fn test_add_constraint_foreign_key_sqlite_with_check_constraints() {
         constraints: vec![TableConstraint::Check {
             name: "chk_user_id".into(),
             expr: "user_id > 0".into(),
+            strategy: vespertide_core::CheckViolationStrategy::default(),
         }],
     }];
     let result = build_add_constraint(

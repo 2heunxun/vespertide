@@ -203,7 +203,13 @@ pub fn arb_table_constraint() -> impl Strategy<Value = TableConstraint> {
                 },
             ),
         (arb_safe_ident(), arb_check_expr())
-            .prop_map(|(name, expr)| { TableConstraint::Check { name, expr } }),
+            .prop_map(|(name, expr)| {
+                TableConstraint::Check {
+                    name,
+                    expr,
+                    strategy: crate::schema::CheckViolationStrategy::default(),
+                }
+            }),
         (prop::option::of(arb_safe_ident()), unique_idents(1..=4)).prop_map(|(name, columns)| {
             TableConstraint::Index {
                 name,

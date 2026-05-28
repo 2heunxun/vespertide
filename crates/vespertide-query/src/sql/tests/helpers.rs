@@ -464,6 +464,7 @@ fn test_recreate_indexes_after_rebuild_skips_non_index_constraints() {
     let chk = TableConstraint::Check {
         name: "chk".into(),
         expr: "id > 0".into(),
+        strategy: vespertide_core::CheckViolationStrategy::default(),
     };
 
     let queries = recreate_indexes_after_rebuild("t", &[pk, fk, chk], &[]);

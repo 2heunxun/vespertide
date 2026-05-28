@@ -1027,6 +1027,7 @@ mod tests {
             constraints: vec![TableConstraint::Check {
                 name: "check_positive".into(),
                 expr: "amount > 0".into(),
+                strategy: vespertide_core::CheckViolationStrategy::default(),
             }],
         }];
 
@@ -1074,6 +1075,7 @@ mod tests {
             constraints: vec![TableConstraint::Check {
                 name: "check_positive".into(),
                 expr: "amount > 0".into(),
+                strategy: vespertide_core::CheckViolationStrategy::default(),
             }],
         }];
 

@@ -164,6 +164,7 @@ struct SuccessCase {
                 TableConstraint::Check {
                     name: "ck_old".into(),
                     expr: "old IS NOT NULL".into(),
+                    strategy: vespertide_core::CheckViolationStrategy::default(),
                 },
                 idx("idx_old", vec!["old"]),
                 idx("idx_ref", vec!["ref_id"]),
@@ -208,6 +209,7 @@ struct SuccessCase {
                 TableConstraint::Check {
                     name: "ck_old".into(),
                     expr: "old IS NOT NULL".into(),
+                    strategy: vespertide_core::CheckViolationStrategy::default(),
                 },
                 idx("idx_old", vec!["old"]),
                 idx("idx_ref", vec!["renamed"]),
@@ -237,6 +239,7 @@ struct SuccessCase {
                 TableConstraint::Check {
                     name: "ck_old".into(),
                     expr: "old IS NOT NULL".into(),
+                    strategy: vespertide_core::CheckViolationStrategy::default(),
                 },
                 idx("idx_old", vec!["old"]),
             ],
@@ -253,6 +256,7 @@ struct SuccessCase {
                 TableConstraint::Check {
                     name: "ck_old".into(),
                     expr: "old IS NOT NULL".into(),
+                    strategy: vespertide_core::CheckViolationStrategy::default(),
                 },
             ],
         )],
@@ -453,6 +457,7 @@ fn apply_delete_column_preserves_foreign_key_ref_columns() {
             TableConstraint::Check {
                 name: "ck_old".into(),
                 expr: "old > 0".into(),
+                strategy: vespertide_core::CheckViolationStrategy::default(),
             },
             idx("idx_old", vec!["old", "keep"]),
         ],
@@ -477,6 +482,7 @@ fn apply_delete_column_preserves_foreign_key_ref_columns() {
             TableConstraint::Check {
                 name: "ck_old".into(),
                 expr: "old > 0".into(),
+                strategy: vespertide_core::CheckViolationStrategy::default(),
             },
             idx("idx_old", vec!["new", "keep"]),
         ]
@@ -487,6 +493,7 @@ fn apply_delete_column_preserves_foreign_key_ref_columns() {
             TableConstraint::Check {
                 name: "ck_id".into(),
                 expr: "id > 0".into(),
+                strategy: vespertide_core::CheckViolationStrategy::default(),
             },
             idx("idx_id", vec!["id"]),
         ],
@@ -497,6 +504,7 @@ fn apply_delete_column_preserves_foreign_key_ref_columns() {
             TableConstraint::Check {
                 name: "ck_id".into(),
                 expr: "id > 0".into(),
+                strategy: vespertide_core::CheckViolationStrategy::default(),
             },
             idx("idx_id", vec!["id"]),
         ]
@@ -834,6 +842,7 @@ fn remove_check_constraint() {
         vec![TableConstraint::Check {
             name: "check_age".into(),
             expr: "age >= 18".into(),
+            strategy: vespertide_core::CheckViolationStrategy::default(),
         }],
     )];
 
@@ -844,6 +853,7 @@ fn remove_check_constraint() {
             constraint: TableConstraint::Check {
                 name: "check_age".into(),
                 expr: "age >= 18".into(),
+                strategy: vespertide_core::CheckViolationStrategy::default(),
             },
         },
     )

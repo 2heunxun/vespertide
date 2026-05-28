@@ -388,6 +388,7 @@ fn validate_schema_rejects_integer_enum_values_outside_i32_range() {
             vec![pk(vec!["id"]), TableConstraint::Check {
                 name: "ck".into(),
                 expr: "id > 0".into(),
+                strategy: vespertide_core::CheckViolationStrategy::default(),
             }],
         )],
         None

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::schema::{
     ReferenceAction,
+    check_violation_strategy::CheckViolationStrategy,
     fk_orphan_strategy::ForeignKeyOrphanStrategy,
     names::{ColumnName, TableName},
     unique_strategy::{KeepPolicy, UniqueConstraintStrategy},
@@ -28,6 +29,13 @@ fn is_default_unique_strategy(s: &UniqueConstraintStrategy) -> bool {
 )]
 fn is_default_fk_orphan_strategy(s: &ForeignKeyOrphanStrategy) -> bool {
     matches!(s, ForeignKeyOrphanStrategy::NullifyOrphans)
+}
+
+/// `serde(skip_serializing_if)` helper ? true when CHECK `strategy` is the
+/// canonical default (`DeleteViolatingRows`). Lets the common case
+/// omit the field from the JSON wire format.
+fn is_default_check_violation_strategy(s: &CheckViolationStrategy) -> bool {
+    matches!(s, CheckViolationStrategy::DeleteViolatingRows)
 }
 
 /// A table-level constraint produced by [`TableDef::normalize`].
@@ -88,7 +96,24 @@ pub enum TableConstraint {
         orphan_strategy: ForeignKeyOrphanStrategy,
     },
     /// Arbitrary SQL CHECK expression enforced by the database on every write.
-    Check { name: String, expr: String },
+    ///
+    /// `strategy` controls how pre-existing violating rows are handled when
+    /// this constraint is added to an already-populated table. The
+    /// canonical default is [`CheckViolationStrategy::NullifyViolatingColumn`]
+    /// (omitted from the JSON wire format). The revision CLI re-prompts
+    /// the user for an explicit choice; the default exists only so v0.1.x
+    /// model files continue to deserialize.
+    ///
+    /// Cleanup SQL is emitted only when the expression matches a narrow
+    /// recognisable shape (`<col> <op> <literal>` or `<col> IN (...)`);
+    /// more complex expressions skip pre-cleanup and rely on the database
+    /// to validate at apply time.
+    Check {
+        name: String,
+        expr: String,
+        #[serde(default, skip_serializing_if = "is_default_check_violation_strategy")]
+        strategy: CheckViolationStrategy,
+    },
     /// Non-unique index to speed up queries on the listed columns.
     Index {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -232,6 +257,7 @@ mod tests {
         let check = TableConstraint::Check {
             name: "check_positive".into(),
             expr: "amount > 0".into(),
+            strategy: crate::CheckViolationStrategy::default(),
         };
         assert!(check.columns().is_empty());
     }
@@ -270,6 +296,7 @@ mod tests {
                 TableConstraint::Check {
                     name: "check_positive".into(),
                     expr: "amount > 0".into(),
+                    strategy: crate::CheckViolationStrategy::default(),
                 },
                 ConstraintKind::Check,
             ),
@@ -333,6 +360,7 @@ mod tests {
         let check = TableConstraint::Check {
             name: "check_positive".into(),
             expr: "amount > 0".into(),
+            strategy: crate::CheckViolationStrategy::default(),
         };
         let prefixed = check.clone().with_prefix("myapp_");
         assert_eq!(check, prefixed);

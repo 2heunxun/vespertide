@@ -115,6 +115,7 @@ fn table_for_index(index: usize) -> TableDef {
             TableConstraint::Check {
                 name: format!("check_{table_name}_label"),
                 expr: "label IS NULL OR label <> ''".to_string(),
+                strategy: vespertide_core::CheckViolationStrategy::default(),
             },
         ],
     }
@@ -155,6 +156,7 @@ fn mutate_table(table: &mut TableDef, index: usize, mutation: u8) {
         _ => table.constraints.push(TableConstraint::Check {
             name: format!("check_{}_code", table.name),
             expr: "code <> ''".to_string(),
+            strategy: vespertide_core::CheckViolationStrategy::default(),
         }),
     }
 }

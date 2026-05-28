@@ -3,16 +3,17 @@ use chrono::Utc;
 use colored::Colorize;
 use vespertide_core::{MigrationAction, MigrationPlan, NarrowingStrategy};
 use vespertide_planner::{
-    DanglingFkDrop, DefaultChangeWarning, DropChoice, DropResolution, FkOrphanAdditionWarning,
-    FkPolicyChangeWarning, MultipleErrors, PlannerError, TimezoneConversionWarning,
-    TypeNarrowingWarning, UniqueAdditionWarning, apply_drop_resolution,
-    find_addcolumn_fk_nullable_violations, find_constraint_type_changes, find_dangling_fk_drops,
-    find_default_changes, find_drop_resolutions, find_fk_orphan_additions, find_fk_policy_changes,
-    find_missing_fill_with, find_primary_key_removals, find_timezone_conversions,
-    find_type_narrowings, find_unique_additions, plan_next_migration, schema_from_plans,
+    CheckAdditionWarning, DanglingFkDrop, DefaultChangeWarning, DropChoice, DropResolution,
+    FkOrphanAdditionWarning, FkPolicyChangeWarning, MultipleErrors, PlannerError,
+    TimezoneConversionWarning, TypeNarrowingWarning, UniqueAdditionWarning, apply_drop_resolution,
+    find_addcolumn_fk_nullable_violations, find_check_additions, find_constraint_type_changes,
+    find_dangling_fk_drops, find_default_changes, find_drop_resolutions, find_fk_orphan_additions,
+    find_fk_policy_changes, find_missing_fill_with, find_primary_key_removals,
+    find_timezone_conversions, find_type_narrowings, find_unique_additions, plan_next_migration,
+    schema_from_plans,
 };
 
-use prompts::{DefaultChoice, FkOrphanChoice, UniqueAdditionChoice};
+use prompts::{CheckViolationChoice, DefaultChoice, FkOrphanChoice, UniqueAdditionChoice};
 
 use crate::utils::{load_config, load_migrations, load_models};
 
@@ -83,12 +84,13 @@ pub async fn cmd_revision(
             default_change: prompts::prompt_default_change_resolution,
             unique_addition: prompts::prompt_unique_additions,
             fk_orphan_addition: prompts::prompt_fk_orphan_additions,
+            check_addition: prompts::prompt_check_additions,
         },
     )
     .await
 }
 
-struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO> {
+struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK> {
     recreate: R,
     delete_null_rows: D,
     fill_with: F,
@@ -102,6 +104,7 @@ struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO> {
     default_change: DC,
     unique_addition: UN,
     fk_orphan_addition: FO,
+    check_addition: CK,
 }
 
 #[expect(
@@ -112,11 +115,11 @@ struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO> {
     clippy::type_complexity,
     reason = "RevisionPromptFns gathers 13 closure types parameterised by the warning struct each prompt receives; extracting them to type aliases would scatter the signature across the file without aiding readability"
 )]
-async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO>(
+async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK>(
     message: String,
     fill_with_args: Vec<String>,
     delete_null_rows_args: Vec<String>,
-    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO>,
+    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO, CK>,
 ) -> Result<()>
 where
     R: Fn(&[RecreateTableRequired]) -> Result<bool>,
@@ -132,6 +135,7 @@ where
     DC: Fn(&DefaultChangeWarning) -> Result<Option<DefaultChoice>>,
     UN: Fn(&UniqueAdditionWarning) -> Result<Option<UniqueAdditionChoice>>,
     FO: Fn(&FkOrphanAdditionWarning) -> Result<Option<FkOrphanChoice>>,
+    CK: Fn(&CheckAdditionWarning) -> Result<Option<CheckViolationChoice>>,
 {
     let RevisionPromptFns {
         recreate: recreate_prompt_fn,
@@ -147,6 +151,7 @@ where
         default_change: default_change_prompt_fn,
         unique_addition: unique_addition_prompt_fn,
         fk_orphan_addition: fk_orphan_addition_prompt_fn,
+        check_addition: check_addition_prompt_fn,
     } = prompt_fns;
 
     let config = load_config()?;
@@ -281,6 +286,25 @@ where
             return Ok(());
         };
         prompts::apply_fk_orphan_addition_choice(&mut plan, warning, choice);
+    }
+
+    // F4 — Adding CHECK on a baseline-existing table whose narrow-shape
+    // expression flags violating rows. Prompt for a per-warning
+    // violation strategy (Nullify / Delete / Cancel); the choice is
+    // stamped back onto the matching `TableConstraint::Check.strategy`
+    // so the SQL generator emits the correct pre-cleanup statement
+    // ahead of the ADD CONSTRAINT.
+    let check_additions = find_check_additions(&plan, &baseline_schema);
+    for warning in &check_additions {
+        let Some(choice) = check_addition_prompt_fn(warning)? else {
+            println!(
+                "{} {}",
+                "Cancelled.".bright_yellow().bold(),
+                "CHECK violation resolution declined; no migration written.".bright_white()
+            );
+            return Ok(());
+        };
+        prompts::apply_check_addition_choice(&mut plan, warning, choice);
     }
 
     // Parse CLI fill_with arguments

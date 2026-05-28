@@ -540,7 +540,7 @@ pub fn extract_check_clauses(constraints: &[TableConstraint]) -> Vec<String> {
     constraints
         .iter()
         .filter_map(|c| {
-            if let TableConstraint::Check { name, expr } = c {
+            if let TableConstraint::Check { name, expr, .. } = c {
                 let name = quote_ident(name, DatabaseBackend::Sqlite);
                 Some(format!("CONSTRAINT {name} CHECK ({expr})"))
             } else {

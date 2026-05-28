@@ -1,3 +1,4 @@
+pub mod check_violation_strategy;
 pub mod column;
 pub mod constraint;
 pub mod fk_orphan_strategy;
@@ -10,6 +11,7 @@ pub mod str_or_bool;
 pub mod table;
 pub mod unique_strategy;
 
+pub use check_violation_strategy::CheckViolationStrategy;
 pub use column::{
     ColumnDef, ColumnType, ComplexColumnType, EnumValues, NumValue, SimpleColumnType,
 };

@@ -137,6 +137,7 @@ mod tests {
         TableConstraint::Check {
             name: name.into(),
             expr: "age > 0".into(),
+            strategy: vespertide_core::CheckViolationStrategy::default(),
         }
     }
 
@@ -367,7 +368,7 @@ mod tests {
         "users",
         unique(Some("uq_email"), &["email"]),
         vec![int_col("id"), text_col("email")],
-        vec![pk(), unique(Some("uq_email"), &["email"]), TableConstraint::Check { name: "chk_email".into(), expr: "email IS NOT NULL".into() }],
+        vec![pk(), unique(Some("uq_email"), &["email"]), TableConstraint::Check { name: "chk_email".into(), expr: "email IS NOT NULL".into(), strategy: vespertide_core::CheckViolationStrategy::default() }],
         None
     )]
     #[case::remove_foreign_key_with_other_constraints(
@@ -375,7 +376,7 @@ mod tests {
         "posts",
         fk(Some("fk_user")),
         vec![int_col("id"), int_col("user_id")],
-        vec![pk(), fk(Some("fk_user")), unique(Some("uq_user_id"), &["user_id"]), TableConstraint::Check { name: "chk_user_id".into(), expr: "user_id > 0".into() }],
+        vec![pk(), fk(Some("fk_user")), unique(Some("uq_user_id"), &["user_id"]), TableConstraint::Check { name: "chk_user_id".into(), expr: "user_id > 0".into(), strategy: vespertide_core::CheckViolationStrategy::default() }],
         None
     )]
     #[case::remove_check_with_other_constraints(

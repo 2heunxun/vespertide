@@ -91,7 +91,7 @@ fn add_create_table_constraints(
             TableConstraint::ForeignKey { .. } => {
                 add_foreign_key_constraint(stmt, table, constraint);
             }
-            TableConstraint::Check { name, expr } => {
+            TableConstraint::Check { name, expr, .. } => {
                 let _ = (name, expr);
             }
             TableConstraint::Index { .. } => {}

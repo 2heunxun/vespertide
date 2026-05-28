@@ -7,12 +7,14 @@ use vespertide_core::{MigrationAction, MigrationPlan, NarrowingStrategy, TableDe
 #[cfg(test)]
 use vespertide_planner::find_missing_fill_with;
 use vespertide_planner::{
-    DefaultChangeWarning, DropChoice, DropResolution, DropTarget, EnumFillWithRequired,
-    FillWithRequired, FkOrphanAdditionWarning, FkPolicyChangeWarning, Match, NarrowingKind, PkKind,
-    RiskLevel, TimezoneConversionWarning, TypeNarrowingWarning, UniqueAdditionWarning,
-    find_missing_enum_fill_with, render_reference_action,
+    CheckAdditionWarning, DefaultChangeWarning, DropChoice, DropResolution, DropTarget,
+    EnumFillWithRequired, FillWithRequired, FkOrphanAdditionWarning, FkPolicyChangeWarning, Match,
+    NarrowingKind, PkKind, RiskLevel, TimezoneConversionWarning, TypeNarrowingWarning,
+    UniqueAdditionWarning, find_missing_enum_fill_with, render_reference_action,
 };
-use vespertide_core::{ForeignKeyOrphanStrategy, KeepPolicy, UniqueConstraintStrategy};
+use vespertide_core::{
+    CheckViolationStrategy, ForeignKeyOrphanStrategy, KeepPolicy, UniqueConstraintStrategy,
+};
 
 use super::timezones::{KNOWN_IANA, validate_timezone};
 
@@ -1313,6 +1315,115 @@ pub(super) fn apply_fk_orphan_addition_choice(
     *orphan_strategy = match choice {
         FkOrphanChoice::Nullify => ForeignKeyOrphanStrategy::NullifyOrphans,
         FkOrphanChoice::Delete => ForeignKeyOrphanStrategy::DeleteOrphans,
+    };
+}
+
+/// F4 (CHECK with violating rows) - user resolution for an
+/// `AddConstraint(Check)` whose expression matches the narrow shape
+/// against a baseline-existing table.
+///
+/// `Nullify` and `Delete` map 1-to-1 to [`CheckViolationStrategy`]
+/// variants. `Nullify` is only offered when the target column is
+/// nullable in the baseline.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum CheckViolationChoice {
+    /// Map to [`CheckViolationStrategy::NullifyViolatingColumn { column }`].
+    Nullify {
+        /// Target column carried from the warning so the SQL emitter
+        /// knows which column to `SET = NULL`.
+        column: String,
+    },
+    /// Map to [`CheckViolationStrategy::DeleteViolatingRows`].
+    Delete,
+}
+
+/// Per-warning interactive prompt for F4. Returns `None` when the user
+/// cancels (no migration written).
+///
+/// The user is always required to choose explicitly; the recommended
+/// option is highlighted but Enter on the default still counts as an
+/// explicit selection.
+pub(super) fn prompt_check_additions(
+    warning: &CheckAdditionWarning,
+) -> Result<Option<CheckViolationChoice>> {
+    println!();
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+    println!("{}", format_check_addition_header(warning));
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+
+    let mut labels: Vec<String> = Vec::new();
+    let mut outcomes: Vec<Option<CheckViolationChoice>> = Vec::new();
+
+    if warning.target_column_nullable {
+        labels.push(
+            "Nullify the violating column (less destructive, recommended default)".to_string(),
+        );
+        outcomes.push(Some(CheckViolationChoice::Nullify {
+            column: warning.target_column.clone(),
+        }));
+        labels.push("Delete violating rows".to_string());
+        outcomes.push(Some(CheckViolationChoice::Delete));
+    } else {
+        labels.push(
+            "Delete violating rows (Nullify unavailable: target column is NOT NULL)".to_string(),
+        );
+        outcomes.push(Some(CheckViolationChoice::Delete));
+    }
+    labels.push("Cancel migration".to_string());
+    outcomes.push(None);
+
+    let selection = Select::new()
+        .with_prompt("  How should pre-existing violating rows be handled?")
+        .items(&labels)
+        .default(0)
+        .interact()
+        .context("failed to read check-addition choice")?;
+    Ok(outcomes[selection].clone())
+}
+
+fn format_check_addition_header(warning: &CheckAdditionWarning) -> String {
+    let target = format!(
+        "{}.{}",
+        warning.table.bright_white().bold(),
+        warning.target_column.bright_green()
+    );
+    let nullable_hint = if warning.target_column_nullable {
+        "Column is nullable - Nullify is available.".to_string()
+    } else {
+        "Column is NOT NULL - only Delete is available.".to_string()
+    };
+    format!(
+        "  {} Adding CHECK `{}` ({}) on existing rows\n  Target: {target}\n  {nullable_hint}",
+        "\u{26a0}".bright_yellow(),
+        warning.constraint_name.bright_cyan(),
+        warning.check_expr.bright_white(),
+    )
+}
+
+/// Stamp the user's choice onto the matching `AddConstraint(Check)`
+/// action's `strategy` field.
+pub(super) fn apply_check_addition_choice(
+    plan: &mut vespertide_core::MigrationPlan,
+    warning: &CheckAdditionWarning,
+    choice: CheckViolationChoice,
+) {
+    let Some(action) = plan.actions.get_mut(warning.action_index) else {
+        return;
+    };
+    let vespertide_core::MigrationAction::AddConstraint {
+        constraint: vespertide_core::TableConstraint::Check { strategy, .. },
+        ..
+    } = action
+    else {
+        return;
+    };
+    *strategy = match choice {
+        CheckViolationChoice::Nullify { column } => {
+            CheckViolationStrategy::NullifyViolatingColumn {
+                column: column.into(),
+            }
+        }
+        CheckViolationChoice::Delete => CheckViolationStrategy::DeleteViolatingRows,
     };
 }
 

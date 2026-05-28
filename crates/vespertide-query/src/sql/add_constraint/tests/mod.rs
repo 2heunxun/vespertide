@@ -96,6 +96,7 @@ fn test_add_constraint(
         TableConstraint::Check {
             name: "chk_age".into(),
             expr: "age > 0".into(),
+            strategy: vespertide_core::CheckViolationStrategy::default(),
         }
     };
     let current_schema = vec![TableDef {
@@ -201,6 +202,7 @@ fn add_check_constraint_escapes_adversarial_identifiers() {
     let constraint = TableConstraint::Check {
         name: "chk_age\"quote".into(),
         expr: "age > 0".into(),
+        strategy: vespertide_core::CheckViolationStrategy::default(),
     };
     let current_schema = vec![TableDef {
         name: "users\"archive".into(),
@@ -219,14 +221,19 @@ fn add_check_constraint_escapes_adversarial_identifiers() {
         constraints: vec![],
     }];
 
-    let pg_sql = build_add_constraint(
+    let pg_results = build_add_constraint(
         DatabaseBackend::Postgres,
         "users\"archive",
         &constraint,
         &current_schema,
         &[],
     )
-    .unwrap()[0]
+    .unwrap();
+    // F4 introduced a pre-cleanup statement ahead of the ADD CONSTRAINT;
+    // the actual CHECK SQL is the last entry.
+    let pg_sql = pg_results
+        .last()
+        .expect("at least one query emitted")
         .build(DatabaseBackend::Postgres);
     assert_eq!(
         pg_sql,
@@ -236,15 +243,19 @@ fn add_check_constraint_escapes_adversarial_identifiers() {
     let mysql_constraint = TableConstraint::Check {
         name: "chk_age`quote".into(),
         expr: "age > 0".into(),
+        strategy: vespertide_core::CheckViolationStrategy::default(),
     };
-    let mysql_sql = build_add_constraint(
+    let mysql_results = build_add_constraint(
         DatabaseBackend::MySql,
         "users`archive",
         &mysql_constraint,
         &current_schema,
         &[],
     )
-    .unwrap()[0]
+    .unwrap();
+    let mysql_sql = mysql_results
+        .last()
+        .expect("at least one query emitted")
         .build(DatabaseBackend::MySql);
     assert_eq!(
         mysql_sql,
@@ -275,6 +286,7 @@ fn test_add_constraint_primary_key_sqlite_with_check_constraints() {
         constraints: vec![TableConstraint::Check {
             name: "chk_id".into(),
             expr: "id > 0".into(),
+            strategy: vespertide_core::CheckViolationStrategy::default(),
         }],
     }];
     let result = build_add_constraint(
@@ -383,6 +395,7 @@ fn test_add_constraint_check_sqlite_table_not_found() {
     let constraint = TableConstraint::Check {
         name: "chk_age".into(),
         expr: "age > 0".into(),
+        strategy: vespertide_core::CheckViolationStrategy::default(),
     };
     let current_schema = vec![]; // Empty schema - table not found
     let result = build_add_constraint(
@@ -401,6 +414,7 @@ fn test_add_constraint_check_sqlite_without_existing_check() {
     let constraint = TableConstraint::Check {
         name: "chk_age".into(),
         expr: "age > 0".into(),
+        strategy: vespertide_core::CheckViolationStrategy::default(),
     };
     let current_schema = vec![TableDef {
         name: "users".into(),
@@ -480,6 +494,7 @@ fn test_add_constraint_check_sqlite_with_indexes() {
     let constraint = TableConstraint::Check {
         name: "chk_age".into(),
         expr: "age > 0".into(),
+        strategy: vespertide_core::CheckViolationStrategy::default(),
     };
     let current_schema = vec![TableDef {
         name: "users".into(),
@@ -522,6 +537,7 @@ fn test_add_constraint_check_sqlite_with_unique_constraint() {
     let constraint = TableConstraint::Check {
         name: "chk_age".into(),
         expr: "age > 0".into(),
+        strategy: vespertide_core::CheckViolationStrategy::default(),
     };
     let current_schema = vec![TableDef {
         name: "users".into(),
@@ -684,10 +700,12 @@ fn test_constraints_overlap_check_same() {
     let a = TableConstraint::Check {
         name: "chk_age".into(),
         expr: "age > 0".into(),
+        strategy: vespertide_core::CheckViolationStrategy::default(),
     };
     let b = TableConstraint::Check {
         name: "chk_age".into(),
         expr: "age > 0".into(),
+        strategy: vespertide_core::CheckViolationStrategy::default(),
     };
     assert!(constraints_overlap(&a, &b));
 }
@@ -696,10 +714,12 @@ fn test_constraints_overlap_check_different_name() {
     let a = TableConstraint::Check {
         name: "chk_age".into(),
         expr: "age > 0".into(),
+        strategy: vespertide_core::CheckViolationStrategy::default(),
     };
     let b = TableConstraint::Check {
         name: "chk_age2".into(),
         expr: "age > 0".into(),
+        strategy: vespertide_core::CheckViolationStrategy::default(),
     };
     assert!(!constraints_overlap(&a, &b));
 }
@@ -708,10 +728,12 @@ fn test_constraints_overlap_check_different_expr() {
     let a = TableConstraint::Check {
         name: "chk_age".into(),
         expr: "age > 0".into(),
+        strategy: vespertide_core::CheckViolationStrategy::default(),
     };
     let b = TableConstraint::Check {
         name: "chk_age".into(),
         expr: "age > 10".into(),
+        strategy: vespertide_core::CheckViolationStrategy::default(),
     };
     assert!(!constraints_overlap(&a, &b));
 }
@@ -724,6 +746,7 @@ fn test_constraints_overlap_different_variants() {
     let b = TableConstraint::Check {
         name: "chk".into(),
         expr: "id > 0".into(),
+        strategy: vespertide_core::CheckViolationStrategy::default(),
     };
     assert!(!constraints_overlap(&a, &b));
 }
@@ -787,6 +810,7 @@ fn test_extract_check_clauses_with_mixed_constraints() {
         TableConstraint::Check {
             name: "chk1".into(),
             expr: "a > 0".into(),
+            strategy: vespertide_core::CheckViolationStrategy::default(),
         },
         TableConstraint::PrimaryKey {
             columns: vec!["id".into()],
@@ -795,6 +819,7 @@ fn test_extract_check_clauses_with_mixed_constraints() {
         TableConstraint::Check {
             name: "chk2".into(),
             expr: "b < 100".into(),
+            strategy: vespertide_core::CheckViolationStrategy::default(),
         },
         TableConstraint::Unique {
             name: Some("uq".into()),

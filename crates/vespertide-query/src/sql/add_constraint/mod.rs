@@ -67,11 +67,16 @@ pub fn build_add_constraint(
         TableConstraint::Index { name, columns } => {
             Ok(index::build_index(table, name.as_deref(), columns))
         }
-        TableConstraint::Check { name, expr } => check::build_check(
+        TableConstraint::Check {
+            name,
+            expr,
+            strategy,
+        } => check::build_check(
             backend,
             table,
             name,
             expr,
+            strategy,
             constraint,
             current_schema,
             pending_constraints,
@@ -124,10 +129,12 @@ pub(super) fn constraints_overlap(a: &TableConstraint, b: &TableConstraint) -> b
             TableConstraint::Check {
                 name: a_name,
                 expr: a_expr,
+                ..
             },
             TableConstraint::Check {
                 name: b_name,
                 expr: b_expr,
+                ..
             },
         ) => a_name == b_name && a_expr == b_expr,
         _ => false,

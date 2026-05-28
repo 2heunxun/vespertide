@@ -273,6 +273,7 @@ fn diff_detects_replace_check_constraint() {
         vec![TableConstraint::Check {
             name: "chk_age".into(),
             expr: "age > 0".into(),
+            strategy: vespertide_core::CheckViolationStrategy::default(),
         }],
     )];
     let to = vec![table(
@@ -281,6 +282,7 @@ fn diff_detects_replace_check_constraint() {
         vec![TableConstraint::Check {
             name: "chk_age".into(),
             expr: "age > 18".into(),
+            strategy: vespertide_core::CheckViolationStrategy::default(),
         }],
     )];
     let plan = diff_schemas(&from, &to).unwrap();

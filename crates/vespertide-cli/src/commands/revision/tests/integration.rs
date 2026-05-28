@@ -216,6 +216,15 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
             > {
                 panic!("fk_orphan_addition prompt should not be called")
             },
+            // F4 check-addition resolution: these scenarios add columns or
+            // create tables only, never `AddConstraint(Check)` on an
+            // existing column, so the prompt should never fire. Panic
+            // guards against silent flow drift.
+            check_addition: |_: &vespertide_planner::CheckAdditionWarning| -> Result<
+                Option<crate::commands::revision::prompts::CheckViolationChoice>,
+            > {
+                panic!("check_addition prompt should not be called")
+            },
         },
     )
     .await;
@@ -405,6 +414,15 @@ async fn cmd_revision_core_handles_fill_with_for_non_fk_column() {
                 Option<crate::commands::revision::prompts::FkOrphanChoice>,
             > {
                 panic!("fk_orphan_addition prompt should not be called")
+            },
+            // F4 check-addition resolution: these scenarios add columns or
+            // create tables only, never `AddConstraint(Check)` on an
+            // existing column, so the prompt should never fire. Panic
+            // guards against silent flow drift.
+            check_addition: |_: &vespertide_planner::CheckAdditionWarning| -> Result<
+                Option<crate::commands::revision::prompts::CheckViolationChoice>,
+            > {
+                panic!("check_addition prompt should not be called")
             },
         },
     )

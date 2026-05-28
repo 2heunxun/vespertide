@@ -106,7 +106,7 @@ fn constraint_label(constraint: &TableConstraint) -> String {
             Some(n) => format!("{n} FK ({}) -> {ref_table}", join_columns(columns)),
             None => format!("FK ({}) -> {ref_table}", join_columns(columns)),
         },
-        TableConstraint::Check { name, expr } => format!("{name} CHECK ({expr})"),
+        TableConstraint::Check { name, expr, .. } => format!("{name} CHECK ({expr})"),
         TableConstraint::Index { name, columns } => match name {
             Some(n) => format!("{n} INDEX ({})", join_columns(columns)),
             None => format!("INDEX ({})", join_columns(columns)),
