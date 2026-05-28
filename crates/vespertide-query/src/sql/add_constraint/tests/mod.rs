@@ -90,6 +90,7 @@ fn test_add_constraint(
             ref_columns: vec!["id".into()],
             on_delete: Some(ReferenceAction::Cascade),
             on_update: Some(ReferenceAction::Restrict),
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }
     } else {
         TableConstraint::Check {
@@ -158,7 +159,14 @@ fn test_add_constraint(
         constraints: vec![],
     }];
     let result = build_add_constraint(backend, "users", &constraint, &current_schema, &[]).unwrap();
-    let sql = result[0].build(backend);
+    // F3 introduced multi-statement output for FK additions (pre-cleanup +
+    // ADD CONSTRAINT). Search across every emitted statement so the
+    // assertion still locates the constraint SQL regardless of position.
+    let sql = result
+        .iter()
+        .map(|q| q.build(backend))
+        .collect::<Vec<_>>()
+        .join("\n");
     for exp in expected {
         assert!(
             sql.contains(exp),
@@ -728,6 +736,7 @@ fn test_constraints_overlap_fk_same_columns() {
         ref_columns: vec!["id".into()],
         on_delete: None,
         on_update: None,
+        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
     };
     let b = TableConstraint::ForeignKey {
         name: Some("fk".into()),
@@ -736,6 +745,7 @@ fn test_constraints_overlap_fk_same_columns() {
         ref_columns: vec!["oid".into()],
         on_delete: Some(ReferenceAction::Cascade),
         on_update: None,
+        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
     };
     assert!(constraints_overlap(&a, &b));
 }

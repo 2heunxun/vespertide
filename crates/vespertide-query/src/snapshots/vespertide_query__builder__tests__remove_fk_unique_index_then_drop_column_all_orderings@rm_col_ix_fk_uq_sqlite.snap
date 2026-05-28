@@ -5,7 +5,7 @@ expression: sql
 -- Action 0: RemoveConstraint { table: "product", constraint: Index { name: None, columns: ["category_id"] } }
 DROP INDEX "ix_product__category_id"
 
--- Action 1: RemoveConstraint { table: "product", constraint: ForeignKey { name: None, columns: ["category_id"], ref_table: "category", ref_columns: ["id"], on_delete: Some(Cascade), on_update: None } }
+-- Action 1: RemoveConstraint { table: "product", constraint: ForeignKey { name: None, columns: ["category_id"], ref_table: "category", ref_columns: ["id"], on_delete: Some(Cascade), on_update: None, orphan_strategy: NullifyOrphans } }
 CREATE TABLE "product_temp" ( "id" integer, "category_id" bigint );
 INSERT INTO "product_temp" ("id", "category_id") SELECT "id", "category_id" FROM "product";
 DROP TABLE "product";

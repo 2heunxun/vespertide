@@ -8,11 +8,11 @@ use vespertide_core::{MigrationAction, MigrationPlan, NarrowingStrategy, TableDe
 use vespertide_planner::find_missing_fill_with;
 use vespertide_planner::{
     DefaultChangeWarning, DropChoice, DropResolution, DropTarget, EnumFillWithRequired,
-    FillWithRequired, FkPolicyChangeWarning, Match, NarrowingKind, PkKind, RiskLevel,
-    TimezoneConversionWarning, TypeNarrowingWarning, UniqueAdditionWarning,
+    FillWithRequired, FkOrphanAdditionWarning, FkPolicyChangeWarning, Match, NarrowingKind, PkKind,
+    RiskLevel, TimezoneConversionWarning, TypeNarrowingWarning, UniqueAdditionWarning,
     find_missing_enum_fill_with, render_reference_action,
 };
-use vespertide_core::{KeepPolicy, UniqueConstraintStrategy};
+use vespertide_core::{ForeignKeyOrphanStrategy, KeepPolicy, UniqueConstraintStrategy};
 
 use super::timezones::{KNOWN_IANA, validate_timezone};
 
@@ -1201,6 +1201,119 @@ pub(super) fn apply_unique_addition_choice(
             // changing SQL output.
         }
     }
+}
+
+/// F3 (FK with orphan rows) - user resolution for an
+/// `AddConstraint(ForeignKey)` on a baseline-existing column.
+///
+/// `Nullify` and `Delete` map 1-to-1 to
+/// [`ForeignKeyOrphanStrategy`] variants. `Nullify` is only offered
+/// when [`FkOrphanAdditionWarning::all_columns_nullable`] is `true` -
+/// the SQL `UPDATE child SET col = NULL` would otherwise violate the
+/// NOT NULL constraint on the column being NULL-ed out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FkOrphanChoice {
+    /// Map to [`ForeignKeyOrphanStrategy::NullifyOrphans`].
+    Nullify,
+    /// Map to [`ForeignKeyOrphanStrategy::DeleteOrphans`].
+    Delete,
+}
+
+/// Per-warning interactive prompt for F3. Returns `None` when the user
+/// cancels (no migration written).
+///
+/// The user is **always required to choose explicitly** - there is no
+/// silent default-apply path. The recommended option is highlighted
+/// (`(recommended)` suffix) but the user must press Enter on it.
+pub(super) fn prompt_fk_orphan_additions(
+    warning: &FkOrphanAdditionWarning,
+) -> Result<Option<FkOrphanChoice>> {
+    println!();
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+    println!("{}", format_fk_orphan_addition_header(warning));
+    println!("{}", "\u{2500}".repeat(60).bright_black());
+
+    let mut labels: Vec<String> = Vec::new();
+    let mut outcomes: Vec<Option<FkOrphanChoice>> = Vec::new();
+
+    if warning.all_columns_nullable {
+        labels.push(
+            "Nullify orphan references (less destructive, recommended default)".to_string(),
+        );
+        outcomes.push(Some(FkOrphanChoice::Nullify));
+        labels.push("Delete orphan rows".to_string());
+        outcomes.push(Some(FkOrphanChoice::Delete));
+    } else {
+        labels.push(
+            "Delete orphan rows (Nullify unavailable: FK columns are NOT NULL)".to_string(),
+        );
+        outcomes.push(Some(FkOrphanChoice::Delete));
+    }
+    labels.push("Cancel migration".to_string());
+    outcomes.push(None);
+
+    let selection = Select::new()
+        .with_prompt("  How should pre-existing orphan rows be handled?")
+        .items(&labels)
+        .default(0)
+        .interact()
+        .context("failed to read fk-orphan-addition choice")?;
+    Ok(outcomes[selection])
+}
+
+fn format_fk_orphan_addition_header(warning: &FkOrphanAdditionWarning) -> String {
+    let child = format!(
+        "{}.({})",
+        warning.table.bright_white().bold(),
+        warning.columns.join(", ").bright_green()
+    );
+    let parent = format!(
+        "{}.({})",
+        warning.ref_table.bright_white().bold(),
+        warning.ref_columns.join(", ").bright_cyan()
+    );
+    let nullable_hint = if warning.all_columns_nullable {
+        "FK columns are nullable - Nullify is available.".to_string()
+    } else {
+        "FK columns are NOT NULL - only Delete is available.".to_string()
+    };
+    let constraint_label = warning
+        .constraint_name
+        .as_deref()
+        .map_or_else(String::new, |n| format!(" (constraint `{n}`)"));
+    format!(
+        "  {} Adding FOREIGN KEY{constraint_label} on existing column(s)\n  \
+         {child} {arrow} {parent}\n  {nullable_hint}",
+        "\u{26a0}".bright_yellow(),
+        arrow = "\u{2192}".bright_black()
+    )
+}
+
+/// Stamp the user's choice onto the matching `AddConstraint(ForeignKey)`
+/// action's `orphan_strategy` field. Idempotent if the matching action
+/// has already been mutated.
+pub(super) fn apply_fk_orphan_addition_choice(
+    plan: &mut vespertide_core::MigrationPlan,
+    warning: &FkOrphanAdditionWarning,
+    choice: FkOrphanChoice,
+) {
+    let Some(action) = plan.actions.get_mut(warning.action_index) else {
+        return;
+    };
+    let vespertide_core::MigrationAction::AddConstraint {
+        constraint:
+            vespertide_core::TableConstraint::ForeignKey {
+                orphan_strategy, ..
+            },
+        ..
+    } = action
+    else {
+        return;
+    };
+    *orphan_strategy = match choice {
+        FkOrphanChoice::Nullify => ForeignKeyOrphanStrategy::NullifyOrphans,
+        FkOrphanChoice::Delete => ForeignKeyOrphanStrategy::DeleteOrphans,
+    };
 }
 
 fn confirm_permanent_drop(target: &DropTarget) -> Result<Option<DropChoice>> {

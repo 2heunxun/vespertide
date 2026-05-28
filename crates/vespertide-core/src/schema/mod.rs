@@ -1,5 +1,6 @@
 pub mod column;
 pub mod constraint;
+pub mod fk_orphan_strategy;
 pub mod foreign_key;
 pub mod index;
 pub mod names;
@@ -13,6 +14,7 @@ pub use column::{
     ColumnDef, ColumnType, ComplexColumnType, EnumValues, NumValue, SimpleColumnType,
 };
 pub use constraint::{ConstraintKind, TableConstraint};
+pub use fk_orphan_strategy::ForeignKeyOrphanStrategy;
 pub use index::IndexDef;
 pub use names::{ColumnName, IndexName, TableName};
 pub use primary_key::PrimaryKeyDef;

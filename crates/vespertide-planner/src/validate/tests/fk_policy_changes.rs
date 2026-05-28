@@ -30,6 +30,7 @@ fn fk(
         ref_columns: ref_columns.into_iter().map(Into::into).collect(),
         on_delete,
         on_update,
+        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
     }
 }
 

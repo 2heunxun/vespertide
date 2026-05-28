@@ -196,6 +196,7 @@ fn add_foreign_key_constraints(
                     ref_columns,
                     on_delete,
                     on_update,
+                    orphan_strategy: crate::schema::ForeignKeyOrphanStrategy::default(),
                 });
             }
         }

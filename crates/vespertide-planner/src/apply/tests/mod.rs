@@ -159,6 +159,7 @@ struct SuccessCase {
                     ref_columns: vec!["ref_id".into()],
                     on_delete: None,
                     on_update: None,
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                 },
                 TableConstraint::Check {
                     name: "ck_old".into(),
@@ -202,6 +203,7 @@ struct SuccessCase {
                     ref_columns: vec!["renamed".into()],
                     on_delete: None,
                     on_update: None,
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                 },
                 TableConstraint::Check {
                     name: "ck_old".into(),
@@ -230,6 +232,7 @@ struct SuccessCase {
                     ref_columns: vec!["old".into()],
                     on_delete: None,
                     on_update: None,
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                 },
                 TableConstraint::Check {
                     name: "ck_old".into(),
@@ -372,6 +375,7 @@ fn apply_rename_table_rewrites_foreign_key_ref_table() {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             }],
         ),
     ];
@@ -407,6 +411,7 @@ fn apply_delete_column_preserves_foreign_key_ref_columns() {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }],
     )];
 
@@ -443,6 +448,7 @@ fn apply_delete_column_preserves_foreign_key_ref_columns() {
                 ref_columns: vec!["old".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             },
             TableConstraint::Check {
                 name: "ck_old".into(),
@@ -466,6 +472,7 @@ fn apply_delete_column_preserves_foreign_key_ref_columns() {
                 ref_columns: vec!["new".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             },
             TableConstraint::Check {
                 name: "ck_old".into(),
@@ -779,6 +786,7 @@ fn remove_foreign_key_constraint_clears_inline_fk() {
         ref_columns: vec!["id".into()],
         on_delete: None,
         on_update: None,
+        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
     }));
 
     let mut schema = vec![table(
@@ -791,6 +799,7 @@ fn remove_foreign_key_constraint_clears_inline_fk() {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }],
     )];
 
@@ -805,6 +814,7 @@ fn remove_foreign_key_constraint_clears_inline_fk() {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             },
         },
     )

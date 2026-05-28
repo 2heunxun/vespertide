@@ -63,6 +63,7 @@ fn col_with_fk(name: &str, ty: ColumnType, ref_table: &str, ref_col: &str) -> Co
             ref_columns: vec![ref_col.into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         })),
     }
 }
@@ -264,6 +265,7 @@ fn create_table_with_all_inline_constraints() {
         ref_columns: vec!["id".into()],
         on_delete: None,
         on_update: None,
+        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
     }));
 
     let plan = diff_schemas(

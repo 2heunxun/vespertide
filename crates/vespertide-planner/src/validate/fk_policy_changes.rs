@@ -85,6 +85,7 @@ fn warning_for_action(idx: usize, action: &MigrationAction) -> Option<FkPolicyCh
             ref_columns: from_ref_cols,
             on_delete: from_on_delete,
             on_update: from_on_update,
+            ..
         },
         TableConstraint::ForeignKey {
             name: to_name,
@@ -93,6 +94,7 @@ fn warning_for_action(idx: usize, action: &MigrationAction) -> Option<FkPolicyCh
             ref_columns: to_ref_cols,
             on_delete: to_on_delete,
             on_update: to_on_update,
+            ..
         },
     ) = (from, to)
     else {

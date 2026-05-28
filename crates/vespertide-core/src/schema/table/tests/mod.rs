@@ -328,6 +328,7 @@ fn normalize_inline_foreign_key() {
         ref_columns: vec!["id".into()],
         on_delete: Some(ReferenceAction::Cascade),
         on_update: None,
+        orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
     }));
 
     let table = TableDef {
@@ -351,6 +352,7 @@ fn normalize_inline_foreign_key() {
             ref_columns,
             on_delete: Some(ReferenceAction::Cascade),
             on_update: None,
+            ..
         } if columns == &["user_id".to_string()]
             && ref_table == "users"
             && ref_columns == &["id".to_string()]
@@ -374,6 +376,7 @@ fn normalize_all_inline_constraints() {
         ref_columns: vec!["id".into()],
         on_delete: None,
         on_update: None,
+        orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
     }));
 
     let table = TableDef {
@@ -751,6 +754,7 @@ fn normalize_inline_foreign_key_already_exists() {
         ref_columns: vec!["id".into()],
         on_delete: None,
         on_update: None,
+        orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
     }));
 
     let table = TableDef {
@@ -767,6 +771,7 @@ fn normalize_inline_foreign_key_already_exists() {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
         }],
     };
 

@@ -52,6 +52,7 @@ fn build_table(n_columns: usize, with_fk: bool, with_enum: bool) -> TableDef {
                     ref_columns: vec!["id".into()],
                     on_delete: Some(ReferenceAction::Cascade),
                     on_update: None,
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                 }),
             ),
         );
@@ -87,6 +88,7 @@ fn foreign_key_to(ref_table: impl Into<TableName>) -> ForeignKeySyntax {
         ref_columns: vec!["id".into()],
         on_delete: None,
         on_update: None,
+        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
     })
 }
 

@@ -410,6 +410,7 @@ fn test_junction_relation_enum_without_via_when_entity_appears_multiple_times() 
             ref_columns: vec!["user_id".into(), "tag_id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }],
     };
 
@@ -448,6 +449,7 @@ fn test_junction_relation_enum_without_via_when_entity_appears_multiple_times() 
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             },
             TableConstraint::ForeignKey {
                 name: None,
@@ -456,6 +458,7 @@ fn test_junction_relation_enum_without_via_when_entity_appears_multiple_times() 
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             },
         ],
     };

@@ -9,7 +9,7 @@ DROP TABLE "product";
 ALTER TABLE "product_temp" RENAME TO "product";
 CREATE INDEX "ix_product__category_id" ON "product" ("category_id")
 
--- Action 1: RemoveConstraint { table: "product", constraint: ForeignKey { name: None, columns: ["category_id"], ref_table: "category", ref_columns: ["id"], on_delete: Some(Cascade), on_update: None } }
+-- Action 1: RemoveConstraint { table: "product", constraint: ForeignKey { name: None, columns: ["category_id"], ref_table: "category", ref_columns: ["id"], on_delete: Some(Cascade), on_update: None, orphan_strategy: NullifyOrphans } }
 CREATE TABLE "product_temp" ( "id" integer, "category_id" bigint );
 INSERT INTO "product_temp" ("id", "category_id") SELECT "id", "category_id" FROM "product";
 DROP TABLE "product";

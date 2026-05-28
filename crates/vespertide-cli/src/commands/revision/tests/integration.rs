@@ -57,6 +57,7 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
                     ref_columns: vec!["id".into()],
                     on_delete: None,
                     on_update: None,
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                 },
             ],
         }],
@@ -121,6 +122,7 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
                     ref_columns: vec!["id".into()],
                     on_delete: None,
                     on_update: None,
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                 })),
             },
         ],
@@ -204,6 +206,15 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
                 Option<crate::commands::revision::prompts::UniqueAdditionChoice>,
             > {
                 panic!("unique_addition prompt should not be called")
+            },
+            // F3 fk-orphan resolution: these scenarios add columns or
+            // create tables only, never `AddConstraint(ForeignKey)` on an
+            // existing column, so the prompt should never fire. Panic
+            // guards against silent flow drift.
+            fk_orphan_addition: |_: &vespertide_planner::FkOrphanAdditionWarning| -> Result<
+                Option<crate::commands::revision::prompts::FkOrphanChoice>,
+            > {
+                panic!("fk_orphan_addition prompt should not be called")
             },
         },
     )
@@ -385,6 +396,15 @@ async fn cmd_revision_core_handles_fill_with_for_non_fk_column() {
                 Option<crate::commands::revision::prompts::UniqueAdditionChoice>,
             > {
                 panic!("unique_addition prompt should not be called")
+            },
+            // F3 fk-orphan resolution: these scenarios add columns or
+            // create tables only, never `AddConstraint(ForeignKey)` on an
+            // existing column, so the prompt should never fire. Panic
+            // guards against silent flow drift.
+            fk_orphan_addition: |_: &vespertide_planner::FkOrphanAdditionWarning| -> Result<
+                Option<crate::commands::revision::prompts::FkOrphanChoice>,
+            > {
+                panic!("fk_orphan_addition prompt should not be called")
             },
         },
     )

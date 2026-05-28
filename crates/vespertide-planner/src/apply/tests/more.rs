@@ -404,6 +404,7 @@ fn apply_replace_constraint_fk() {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }],
     )];
 
@@ -414,6 +415,7 @@ fn apply_replace_constraint_fk() {
         ref_columns: vec!["id".into()],
         on_delete: None,
         on_update: None,
+        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
     };
     let to = TableConstraint::ForeignKey {
         name: Some("fk_user".into()),
@@ -422,6 +424,7 @@ fn apply_replace_constraint_fk() {
         ref_columns: vec!["id".into()],
         on_delete: Some(vespertide_core::ReferenceAction::Cascade),
         on_update: None,
+        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
     };
 
     apply_action(

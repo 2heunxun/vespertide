@@ -350,6 +350,7 @@ mod tests {
             ref_columns: vec!["id".into()],
             on_delete: Some(ReferenceAction::Cascade),
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }
     }
 
@@ -703,6 +704,7 @@ mod tests {
                         ref_columns: vec!["id".into()],
                         on_delete: Some(ReferenceAction::Cascade),
                         on_update: None,
+                        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                     },
                     TableConstraint::Unique {
                         name: Some("invite_code".into()),
@@ -751,6 +753,7 @@ mod tests {
                         ref_columns: vec!["id".into()],
                         on_delete: Some(ReferenceAction::Cascade),
                         on_update: None,
+                        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                     },
                 },
                 MigrationAction::AddConstraint {

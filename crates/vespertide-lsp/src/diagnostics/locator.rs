@@ -42,10 +42,10 @@ impl ErrorLocation {
             ColumnExists, ColumnNotFound, ConstraintColumnNotFound, ConstraintTypeChanged,
             DanglingForeignKeyAfterDrop, DefaultViolatesCheck, DuplicateEnumValue,
             DuplicateEnumVariantName, DuplicateTableName, EmptyConstraintColumns,
-            ForeignKeyColumnNotFound, ForeignKeyTableNotFound, IndexColumnNotFound, IndexNotFound,
-            InvalidAutoIncrement, InvalidEnumDefault, MissingFillWith, MissingPrimaryKey, Multiple,
-            PrimaryKeyColumnNullable, PrimaryKeyRemovedWithoutReplacement, TableExists,
-            TableNotFound, TableValidation,
+            AddColumnWithFkRequiresNullable, ForeignKeyColumnNotFound, ForeignKeyTableNotFound,
+            IndexColumnNotFound, IndexNotFound, InvalidAutoIncrement, InvalidEnumDefault,
+            MissingFillWith, MissingPrimaryKey, Multiple, PrimaryKeyColumnNullable,
+            PrimaryKeyRemovedWithoutReplacement, TableExists, TableNotFound, TableValidation,
         };
 
         match err {
@@ -91,11 +91,15 @@ impl ErrorLocation {
             | MissingFillWith(table, column)
             | DuplicateEnumVariantName(_, table, column, _)
             | DuplicateEnumValue(_, table, column, _) => Some(Self::column(table, column)),
-            #[expect(
-                clippy::match_same_arms,
-                reason = "struct variant cannot share an arm with the tuple-variant column-anchor group above"
-            )]
-            PrimaryKeyColumnNullable { table, column } => Some(Self::column(table, column)),
+            // Struct-variant column-anchor group. Both
+            // `PrimaryKeyColumnNullable` (F12 Scenario C) and
+            // `AddColumnWithFkRequiresNullable` (F3 Edge #1) resolve to a
+            // column location identically; merged so the arm is shared
+            // (clippy's `match_same_arms` would otherwise fire).
+            PrimaryKeyColumnNullable { table, column }
+            | AddColumnWithFkRequiresNullable { table, column } => {
+                Some(Self::column(table, column))
+            }
             InvalidAutoIncrement(table, column, _) => {
                 Some(Self::column_field(table, column, ErrorField::Type))
             }

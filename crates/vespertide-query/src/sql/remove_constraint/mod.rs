@@ -129,6 +129,7 @@ mod tests {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }
     }
 

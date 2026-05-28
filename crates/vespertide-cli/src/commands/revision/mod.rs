@@ -3,16 +3,16 @@ use chrono::Utc;
 use colored::Colorize;
 use vespertide_core::{MigrationAction, MigrationPlan, NarrowingStrategy};
 use vespertide_planner::{
-    DanglingFkDrop, DefaultChangeWarning, DropChoice, DropResolution, FkPolicyChangeWarning,
-    MultipleErrors, PlannerError, TimezoneConversionWarning, TypeNarrowingWarning,
-    UniqueAdditionWarning, apply_drop_resolution, find_constraint_type_changes,
-    find_dangling_fk_drops, find_default_changes, find_drop_resolutions,
-    find_fk_policy_changes, find_missing_fill_with, find_primary_key_removals,
-    find_timezone_conversions, find_type_narrowings, find_unique_additions,
-    plan_next_migration, schema_from_plans,
+    DanglingFkDrop, DefaultChangeWarning, DropChoice, DropResolution, FkOrphanAdditionWarning,
+    FkPolicyChangeWarning, MultipleErrors, PlannerError, TimezoneConversionWarning,
+    TypeNarrowingWarning, UniqueAdditionWarning, apply_drop_resolution,
+    find_addcolumn_fk_nullable_violations, find_constraint_type_changes, find_dangling_fk_drops,
+    find_default_changes, find_drop_resolutions, find_fk_orphan_additions, find_fk_policy_changes,
+    find_missing_fill_with, find_primary_key_removals, find_timezone_conversions,
+    find_type_narrowings, find_unique_additions, plan_next_migration, schema_from_plans,
 };
 
-use prompts::{DefaultChoice, UniqueAdditionChoice};
+use prompts::{DefaultChoice, FkOrphanChoice, UniqueAdditionChoice};
 
 use crate::utils::{load_config, load_migrations, load_models};
 
@@ -82,12 +82,13 @@ pub async fn cmd_revision(
             drop_resolution: prompts::prompt_drop_resolution,
             default_change: prompts::prompt_default_change_resolution,
             unique_addition: prompts::prompt_unique_additions,
+            fk_orphan_addition: prompts::prompt_fk_orphan_additions,
         },
     )
     .await
 }
 
-struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN> {
+struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO> {
     recreate: R,
     delete_null_rows: D,
     fill_with: F,
@@ -100,17 +101,22 @@ struct RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN> {
     drop_resolution: DR,
     default_change: DC,
     unique_addition: UN,
+    fk_orphan_addition: FO,
 }
 
 #[expect(
     clippy::too_many_lines,
-    reason = "linear revision flow: load → plan → recreate → drop resolution → dangling FK → fill_with → enum fill_with → fk policy → narrowing → timezone → remap → write. Extracting helpers scatters the ordering"
+    reason = "linear revision flow: load → plan → recreate → drop resolution → dangling FK → F12 → F3 Edge#1 → unique → fk_orphan → fill_with → enum fill_with → fk policy → narrowing → timezone → remap → write. Extracting helpers scatters the ordering"
 )]
-async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN>(
+#[expect(
+    clippy::type_complexity,
+    reason = "RevisionPromptFns gathers 13 closure types parameterised by the warning struct each prompt receives; extracting them to type aliases would scatter the signature across the file without aiding readability"
+)]
+async fn cmd_revision_core<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO>(
     message: String,
     fill_with_args: Vec<String>,
     delete_null_rows_args: Vec<String>,
-    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN>,
+    prompt_fns: RevisionPromptFns<R, D, F, E, EB, P, N, TZ, RM, DR, DC, UN, FO>,
 ) -> Result<()>
 where
     R: Fn(&[RecreateTableRequired]) -> Result<bool>,
@@ -125,6 +131,7 @@ where
     DR: Fn(&DropResolution) -> Result<Option<DropChoice>>,
     DC: Fn(&DefaultChangeWarning) -> Result<Option<DefaultChoice>>,
     UN: Fn(&UniqueAdditionWarning) -> Result<Option<UniqueAdditionChoice>>,
+    FO: Fn(&FkOrphanAdditionWarning) -> Result<Option<FkOrphanChoice>>,
 {
     let RevisionPromptFns {
         recreate: recreate_prompt_fn,
@@ -139,6 +146,7 @@ where
         drop_resolution: drop_resolution_prompt_fn,
         default_change: default_change_prompt_fn,
         unique_addition: unique_addition_prompt_fn,
+        fk_orphan_addition: fk_orphan_addition_prompt_fn,
     } = prompt_fns;
 
     let config = load_config()?;
@@ -241,6 +249,38 @@ where
             return Ok(());
         };
         prompts::apply_unique_addition_choice(&mut plan, warning, choice);
+    }
+
+    // F3 Edge #1 — `AddColumn` participating in a FK with `nullable: false`
+    // plus `fill_with`/`default` is rejected up-front as a hard error.
+    // The F3 emit pipeline (fill → nullify orphans → add FK) requires the
+    // column to be nullable; vespertide never lifts `nullable` silently.
+    let edge1_errors = find_addcolumn_fk_nullable_violations(&plan);
+    if let Some(err) = match edge1_errors.len() {
+        0 => None,
+        1 => Some(edge1_errors.into_iter().next().expect("len == 1")),
+        _ => Some(PlannerError::Multiple(Box::new(MultipleErrors(edge1_errors)))),
+    } {
+        return Err(anyhow::anyhow!("{err}"));
+    }
+
+    // F3 — Adding FOREIGN KEY on an existing column may reference parent
+    // rows that no longer exist. Prompt for a per-warning orphan strategy
+    // (Nullify / Delete / Cancel); the choice is stamped back onto the
+    // matching `TableConstraint::ForeignKey.orphan_strategy` so the SQL
+    // generator emits the correct pre-cleanup statement ahead of the
+    // ADD CONSTRAINT.
+    let fk_orphan_additions = find_fk_orphan_additions(&plan, &baseline_schema);
+    for warning in &fk_orphan_additions {
+        let Some(choice) = fk_orphan_addition_prompt_fn(warning)? else {
+            println!(
+                "{} {}",
+                "Cancelled.".bright_yellow().bold(),
+                "FK orphan resolution declined; no migration written.".bright_white()
+            );
+            return Ok(());
+        };
+        prompts::apply_fk_orphan_addition_choice(&mut plan, warning, choice);
     }
 
     // Parse CLI fill_with arguments

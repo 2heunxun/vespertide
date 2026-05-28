@@ -49,6 +49,7 @@ pub fn build_add_constraint(
             ref_columns,
             on_delete,
             on_update,
+            orphan_strategy,
         } => foreign_key::build_foreign_key(
             backend,
             table,
@@ -58,6 +59,7 @@ pub fn build_add_constraint(
             ref_columns,
             on_delete.as_ref(),
             on_update.as_ref(),
+            *orphan_strategy,
             constraint,
             current_schema,
             pending_constraints,

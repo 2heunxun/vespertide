@@ -460,6 +460,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: Some(ReferenceAction::Cascade),
                 on_update: None,
+                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
             },
         },
         "AddConstraint: posts.fk_user (FOREIGN KEY)"
@@ -474,6 +475,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
             },
         },
         "AddConstraint: posts.FOREIGN KEY"
@@ -535,6 +537,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
             },
         },
         "RemoveConstraint: posts.fk_user (FOREIGN KEY)"
@@ -549,6 +552,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
             },
         },
         "RemoveConstraint: posts.FOREIGN KEY"
@@ -693,6 +697,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
             }],
         };
         let prefixed = action.with_prefix("myapp_");
@@ -802,6 +807,7 @@ mod tests {
                         ref_columns: vec!["id".into()],
                         on_delete: None,
                         on_update: None,
+                        orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
                     }],
                 },
             ],
@@ -971,6 +977,7 @@ mod tests {
                         ref_columns: vec!["id".into()],
                         on_delete: None,
                         on_update: None,
+                        orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
                     },
                 };
         let prefixed = action.with_prefix("myapp_");
@@ -997,6 +1004,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
             },
         };
         let prefixed = action.with_prefix("myapp_");
@@ -1069,6 +1077,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
             },
             to: TableConstraint::ForeignKey {
                 name: Some("fk_user".into()),
@@ -1077,6 +1086,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
             },
         },
         "ReplaceConstraint: posts.fk_user (FOREIGN KEY)"
@@ -1091,6 +1101,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
             },
             to: TableConstraint::ForeignKey {
                 name: None,
@@ -1099,6 +1110,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
             },
         },
         "ReplaceConstraint: posts.FOREIGN KEY"
@@ -1160,6 +1172,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: Some(ReferenceAction::Cascade),
                 on_update: None,
+                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
             },
             to: TableConstraint::ForeignKey {
                 name: Some("fk_user".into()),
@@ -1168,6 +1181,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: Some(ReferenceAction::SetNull),
                 on_update: None,
+                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
             },
         };
         let prefixed = action.with_prefix("myapp_");

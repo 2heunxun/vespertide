@@ -176,6 +176,7 @@ fn self_ref_link_helpers_use_crate_path_for_cross_directory_junctions() {
                 ref_columns: vec!["username".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             },
             TableConstraint::ForeignKey {
                 name: None,
@@ -184,6 +185,7 @@ fn self_ref_link_helpers_use_crate_path_for_cross_directory_junctions() {
                 ref_columns: vec!["username".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             },
         ],
     };

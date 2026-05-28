@@ -145,6 +145,26 @@ pub enum PlannerError {
         /// orders.user_id, posts.author_id."` or `""` when no FK targets it.
         fk_hint: String,
     },
+    /// Fault **F3 Edge #1**: an `AddColumn` action that participates in a
+    /// foreign key (inline `column.foreign_key` *or* a paired
+    /// `AddConstraint(ForeignKey)` in the same plan) declares
+    /// `nullable: false` while also carrying `fill_with` or a `default`.
+    ///
+    /// The F3 emit pipeline (1) inserts the column with the fill value,
+    /// (2) NULL-ifies rows whose value does not exist in the referenced
+    /// parent, then (3) adds the FK. Step (2) requires the column to be
+    /// nullable. Vespertide refuses to silently lift `nullable` ? the
+    /// user must declare it explicitly in the model.
+    #[error(
+        "AddColumn '{table}.{column}' participates in a foreign key but \
+         declares `nullable: false` together with `fill_with`/`default`. \
+         The migration emits the fill value first, then nullifies rows \
+         whose value doesn't exist in the parent table ? this requires \
+         `nullable: true`. Set `nullable: true` on {column}, or drop the \
+         foreign key / fill_with."
+    )]
+    AddColumnWithFkRequiresNullable { table: String, column: String },
+
     /// Fault **F9**: a column or table is being dropped while a foreign key on
     /// another table still references it, with no matching cleanup in the
     /// same plan.

@@ -5,6 +5,8 @@ mod dangling_fk_drops;
 mod default_changes;
 mod unique_additions;
 mod enums;
+mod fk_addcolumn_nullable;
+mod fk_orphan_additions;
 mod fk_policy_changes;
 mod foreign_keys;
 mod plan;
@@ -18,6 +20,8 @@ pub use dangling_fk_drops::{DanglingFkDrop, find_dangling_fk_drops};
 pub use default_changes::{
     DefaultChangeKind, DefaultChangeWarning, RiskLevel, find_default_changes,
 };
+pub use fk_addcolumn_nullable::find_addcolumn_fk_nullable_violations;
+pub use fk_orphan_additions::{FkOrphanAdditionWarning, find_fk_orphan_additions};
 pub use unique_additions::{
     FkReference as UniqueAdditionFkReference, PkKind, UniqueAdditionWarning, find_unique_additions,
 };

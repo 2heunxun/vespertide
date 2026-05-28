@@ -167,6 +167,7 @@ fn add_foreign_key_constraint(
         ref_columns,
         on_delete,
         on_update,
+        ..
     } = constraint
     {
         let fk_name = super::helpers::build_foreign_key_name(table, fk_cols, name.as_deref());

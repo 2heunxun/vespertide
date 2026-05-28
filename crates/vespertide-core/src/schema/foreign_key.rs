@@ -1,6 +1,20 @@
 use serde::{Deserialize, Serialize};
 
-use crate::schema::{names::ColumnName, names::TableName, reference::ReferenceAction};
+use crate::schema::{
+    fk_orphan_strategy::ForeignKeyOrphanStrategy, names::ColumnName, names::TableName,
+    reference::ReferenceAction,
+};
+
+/// `serde(skip_serializing_if)` helper - true when `orphan_strategy` is
+/// the canonical default. Mirror of the matching helper in
+/// `schema::constraint`.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde `skip_serializing_if` callbacks must have signature `fn(&T) -> bool`"
+)]
+fn is_default_fk_orphan_strategy(s: &ForeignKeyOrphanStrategy) -> bool {
+    matches!(s, ForeignKeyOrphanStrategy::NullifyOrphans)
+}
 
 /// Full foreign key definition used in the normalized table representation.
 ///
@@ -21,6 +35,12 @@ pub struct ForeignKeyDef {
     pub on_delete: Option<ReferenceAction>,
     /// Action to take on child rows when the referenced column(s) in the parent row are updated.
     pub on_update: Option<ReferenceAction>,
+    /// Pre-cleanup strategy for orphan child rows when the FK is added to
+    /// a populated table. See [`ForeignKeyOrphanStrategy`] for semantics;
+    /// the canonical default ([`ForeignKeyOrphanStrategy::NullifyOrphans`])
+    /// is omitted from the JSON wire format.
+    #[serde(default, skip_serializing_if = "is_default_fk_orphan_strategy")]
+    pub orphan_strategy: ForeignKeyOrphanStrategy,
 }
 
 /// Compact foreign key syntax using a `"references"` string in `"table.column"` format.

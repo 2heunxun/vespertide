@@ -778,6 +778,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             },
         },
         format!("{} {} {} {}", "Add constraint:".bright_green(), "fk_user FK (user_id) -> users".bright_cyan().bold(), "on".bright_white(), "posts".bright_cyan())
@@ -823,6 +824,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             },
         },
         format!("{} {} {} {}", "Remove constraint:".bright_red(), "FK (user_id) -> users".bright_cyan().bold(), "from".bright_white(), "posts".bright_cyan())
@@ -964,6 +966,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             },
             to: vespertide_core::TableConstraint::ForeignKey {
                 name: Some("fk_user".into()),
@@ -972,6 +975,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: Some(ReferenceAction::Cascade),
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             },
         },
         format!("{} {} {} {} {} {}", "Replace constraint:".bright_yellow(), "fk_user FK (user_id) -> users".bright_cyan().bold(), "->".bright_white(), "fk_user FK (user_id) -> users".bright_cyan().bold(), "on".bright_white(), "posts".bright_cyan())

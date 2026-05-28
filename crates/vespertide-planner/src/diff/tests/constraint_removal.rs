@@ -11,6 +11,7 @@ mod constraint_removal_on_deleted_columns {
             ref_columns: ref_columns.into_iter().map(Into::into).collect(),
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }
     }
 
@@ -203,6 +204,7 @@ fn diff_detects_replace_fk_on_delete() {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }],
     )];
     let to = vec![table(
@@ -218,6 +220,7 @@ fn diff_detects_replace_fk_on_delete() {
             ref_columns: vec!["id".into()],
             on_delete: Some(vespertide_core::ReferenceAction::Cascade),
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }],
     )];
     let plan = diff_schemas(&from, &to).unwrap();

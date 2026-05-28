@@ -28,6 +28,7 @@ fn normalize_inline_foreign_key_string_syntax() {
             ref_columns,
             on_delete: None,
             on_update: None,
+            ..
         } if columns == &["user_id".to_string()]
             && ref_table == "users"
             && ref_columns == &["id".to_string()]
@@ -275,6 +276,7 @@ fn normalize_inline_foreign_key_reference_syntax() {
             ref_columns,
             on_delete: Some(ReferenceAction::Cascade),
             on_update: None,
+            ..
         } if columns == &["user_id".to_string()]
             && ref_table == "users"
             && ref_columns == &["id".to_string()]

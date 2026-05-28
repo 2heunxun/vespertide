@@ -11,6 +11,7 @@ fn test_add_constraint_foreign_key_sqlite_table_not_found() {
         ref_columns: vec!["id".into()],
         on_delete: None,
         on_update: None,
+        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
     };
     let current_schema = vec![]; // Empty schema - table not found
     let result = build_add_constraint(
@@ -34,6 +35,7 @@ fn test_add_constraint_foreign_key_sqlite_with_check_constraints() {
         ref_columns: vec!["id".into()],
         on_delete: None,
         on_update: None,
+        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
     };
     let current_schema = vec![TableDef {
         name: "posts".into(),
@@ -80,6 +82,7 @@ fn test_add_constraint_foreign_key_sqlite_with_indexes() {
         ref_columns: vec!["id".into()],
         on_delete: None,
         on_update: None,
+        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
     };
     let current_schema = vec![TableDef {
         name: "posts".into(),
@@ -127,6 +130,7 @@ fn test_add_constraint_foreign_key_sqlite_with_unique_constraint() {
         ref_columns: vec!["id".into()],
         on_delete: None,
         on_update: None,
+        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
     };
     let current_schema = vec![TableDef {
         name: "posts".into(),
@@ -174,6 +178,7 @@ fn test_add_constraint_foreign_key_sqlite_without_existing_check() {
         ref_columns: vec!["id".into()],
         on_delete: None,
         on_update: None,
+        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
     };
     let current_schema = vec![TableDef {
         name: "posts".into(),

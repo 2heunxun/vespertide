@@ -391,6 +391,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             }],
         }];
 
@@ -471,6 +472,7 @@ mod tests {
                     ref_columns: vec!["id".into()],
                     on_delete: None,
                     on_update: None,
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                 },
                 TableConstraint::Index {
                     name: None,
@@ -529,6 +531,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             }],
         }];
 
@@ -682,6 +685,7 @@ mod tests {
                     ref_columns: vec!["id".into()],
                     on_delete: None,
                     on_update: None,
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                 },
                 // Index on created_at (different column) - should be preserved and recreated
                 TableConstraint::Index {
@@ -696,6 +700,7 @@ mod tests {
                     ref_columns: vec!["code".into()],
                     on_delete: None,
                     on_update: None,
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                 },
             ],
         }];
@@ -839,6 +844,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             }],
         }];
 
@@ -909,6 +915,7 @@ mod tests {
                     ref_columns: vec!["id".into()],
                     on_delete: None,
                     on_update: None,
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                 },
                 TableConstraint::Index {
                     name: None,
@@ -955,6 +962,7 @@ mod tests {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             }],
         }];
 

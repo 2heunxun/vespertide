@@ -42,6 +42,7 @@ fn build_table(n_columns: usize, with_inline_constraints: bool) -> TableDef {
                     ref_columns: vec!["id".into()],
                     on_delete: Some(ReferenceAction::Cascade),
                     on_update: None,
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                 }));
             }
         }

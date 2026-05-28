@@ -18,6 +18,7 @@ fn table_with_fk(name: &str, ref_table: &str, fk_column: &str, ref_column: &str)
             ref_columns: vec![ref_column.into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }],
     }
 }
@@ -163,6 +164,7 @@ fn fk_constraint(column: &str, ref_table: &str) -> TableConstraint {
         ref_columns: vec!["id".into()],
         on_delete: None,
         on_update: None,
+        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
     }
 }
 
@@ -351,6 +353,7 @@ fn circular_fk_dependency_returns_error() {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }],
     };
 
@@ -368,6 +371,7 @@ fn circular_fk_dependency_returns_error() {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }],
     };
 
@@ -399,6 +403,7 @@ fn diff_schemas_detects_circular_fk_cycle() {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }],
     };
     let b = TableDef {
@@ -415,6 +420,7 @@ fn diff_schemas_detects_circular_fk_cycle() {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }],
     };
 
@@ -617,6 +623,7 @@ fn add_constraint_fk_to_new_table_comes_after_create_table() {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }],
     );
 
@@ -724,6 +731,7 @@ fn sort_create_before_add_constraint_all_branches() {
 
 /// Test that two `AddConstraint` FKs both referencing created tables maintain stable order
 /// Covers line 225: both ref created tables
+#[expect(clippy::too_many_lines, reason = "F3 wire-format change added one line per ForeignKey literal; fixture is otherwise atomic")]
 #[test]
 fn sort_multiple_fks_to_created_tables() {
     use super::*;
@@ -772,6 +780,7 @@ fn sort_multiple_fks_to_created_tables() {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }],
     );
 
@@ -788,6 +797,7 @@ fn sort_multiple_fks_to_created_tables() {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }],
     );
 

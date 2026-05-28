@@ -59,6 +59,7 @@ pub(super) fn fk(columns: &[&str], ref_table: &str, ref_columns: &[&str]) -> Tab
         ref_columns: ref_columns.iter().copied().map(Into::into).collect(),
         on_delete: None,
         on_update: None,
+        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
     }
 }
 
@@ -157,6 +158,7 @@ pub(crate) fn pk_and_fk_together() -> TableDef {
                     ref_columns: vec!["id".into()],
                     on_delete: Some(ReferenceAction::Cascade),
                     on_update: None,
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                 })),
             simple("user_id", SimpleColumnType::Uuid)
                 .primary_key(PrimaryKeySyntax::Bool(true))
@@ -166,6 +168,7 @@ pub(crate) fn pk_and_fk_together() -> TableDef {
                     ref_columns: vec!["id".into()],
                     on_delete: Some(ReferenceAction::Cascade),
                     on_update: None,
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                 })),
             simple("author_order", SimpleColumnType::Integer).default("1".into()),
             col(
@@ -741,6 +744,7 @@ pub(crate) fn self_referencing_fk() -> TableDef {
                     ref_columns: vec!["id".into()],
                     on_delete: Some(ReferenceAction::SetNull),
                     on_update: None,
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                 }),
             ),
         ],

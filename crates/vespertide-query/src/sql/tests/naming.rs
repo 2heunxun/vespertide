@@ -558,6 +558,7 @@ fn test_replace_fk_constraint(#[case] backend: DatabaseBackend) {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             },
         ],
     }];
@@ -570,6 +571,7 @@ fn test_replace_fk_constraint(#[case] backend: DatabaseBackend) {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         },
         to: TableConstraint::ForeignKey {
             name: Some("fk_user".into()),
@@ -578,6 +580,7 @@ fn test_replace_fk_constraint(#[case] backend: DatabaseBackend) {
             ref_columns: vec!["id".into()],
             on_delete: Some(ReferenceAction::Cascade),
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         },
     };
     let result = build_action_queries(backend, &action, &schema).unwrap();

@@ -198,6 +198,7 @@ pub fn arb_table_constraint() -> impl Strategy<Value = TableConstraint> {
                         ref_columns: ref_columns.into_iter().map(Into::into).collect(),
                         on_delete,
                         on_update,
+                        orphan_strategy: crate::schema::ForeignKeyOrphanStrategy::default(),
                     }
                 },
             ),
@@ -420,6 +421,7 @@ fn arb_foreign_key_syntax() -> impl Strategy<Value = ForeignKeySyntax> {
                     ref_columns: ref_columns.into_iter().map(Into::into).collect(),
                     on_delete,
                     on_update,
+                    orphan_strategy: crate::schema::ForeignKeyOrphanStrategy::default(),
                 })
             }),
     ]

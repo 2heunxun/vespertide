@@ -2,11 +2,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::schema::{
     ReferenceAction,
+    fk_orphan_strategy::ForeignKeyOrphanStrategy,
     names::{ColumnName, TableName},
     unique_strategy::{KeepPolicy, UniqueConstraintStrategy},
 };
 
-/// `serde(skip_serializing_if)` helper — true when `strategy` is the
+/// `serde(skip_serializing_if)` helper ? true when `strategy` is the
 /// canonical default (`DeleteDuplicates { keep: First }`). Lets the
 /// common case omit the field from the JSON wire format.
 fn is_default_unique_strategy(s: &UniqueConstraintStrategy) -> bool {
@@ -16,6 +17,17 @@ fn is_default_unique_strategy(s: &UniqueConstraintStrategy) -> bool {
             keep: KeepPolicy::First
         }
     )
+}
+
+/// `serde(skip_serializing_if)` helper ? true when `orphan_strategy` is
+/// the canonical default (`NullifyOrphans`). Lets the common case omit
+/// the field from the JSON wire format.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde `skip_serializing_if` callbacks must have signature `fn(&T) -> bool`"
+)]
+fn is_default_fk_orphan_strategy(s: &ForeignKeyOrphanStrategy) -> bool {
+    matches!(s, ForeignKeyOrphanStrategy::NullifyOrphans)
 }
 
 /// A table-level constraint produced by [`TableDef::normalize`].
@@ -56,6 +68,14 @@ pub enum TableConstraint {
         strategy: UniqueConstraintStrategy,
     },
     /// Foreign key constraint linking columns in this table to columns in another table.
+    ///
+    /// `orphan_strategy` controls how pre-existing orphan rows are
+    /// handled when this constraint is added to an already-populated
+    /// table. The canonical default is
+    /// [`ForeignKeyOrphanStrategy::NullifyOrphans`] (omitted from the
+    /// JSON wire format). The revision CLI re-prompts the user for an
+    /// explicit choice; the default exists only so v0.1.x model files
+    /// continue to deserialize.
     ForeignKey {
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<String>,
@@ -64,6 +84,8 @@ pub enum TableConstraint {
         ref_columns: Vec<ColumnName>,
         on_delete: Option<ReferenceAction>,
         on_update: Option<ReferenceAction>,
+        #[serde(default, skip_serializing_if = "is_default_fk_orphan_strategy")]
+        orphan_strategy: ForeignKeyOrphanStrategy,
     },
     /// Arbitrary SQL CHECK expression enforced by the database on every write.
     Check { name: String, expr: String },
@@ -138,6 +160,7 @@ impl TableConstraint {
                 ref_columns,
                 on_delete,
                 on_update,
+                orphan_strategy,
             } => TableConstraint::ForeignKey {
                 name,
                 columns,
@@ -145,6 +168,7 @@ impl TableConstraint {
                 ref_columns,
                 on_delete,
                 on_update,
+                orphan_strategy,
             },
             // Other constraints don't reference external tables
             other => other,
@@ -187,6 +211,7 @@ mod tests {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
         };
         assert_eq!(fk.columns().len(), 1);
         assert_eq!(fk.columns()[0], "user_id");
@@ -229,6 +254,7 @@ mod tests {
                     ref_columns: vec!["id".into()],
                     on_delete: None,
                     on_update: None,
+                    orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
                 },
                 ConstraintKind::ForeignKey,
             ),
@@ -270,6 +296,7 @@ mod tests {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
         };
         let prefixed = fk.with_prefix("myapp_");
         if let TableConstraint::ForeignKey { ref_table, .. } = prefixed {
@@ -320,6 +347,7 @@ mod tests {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
         };
         let prefixed = fk.clone().with_prefix("");
         assert_eq!(fk, prefixed);

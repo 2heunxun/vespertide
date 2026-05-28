@@ -297,6 +297,10 @@
             }
           ]
         },
+        "orphan_strategy": {
+          "description": "Pre-cleanup strategy for orphan child rows when the FK is added to\na populated table. See [`ForeignKeyOrphanStrategy`] for semantics;\nthe canonical default ([`ForeignKeyOrphanStrategy::NullifyOrphans`])\nis omitted from the JSON wire format.",
+          "$ref": "#/$defs/ForeignKeyOrphanStrategy"
+        },
         "ref_columns": {
           "description": "The column(s) in the referenced table that this foreign key points to.",
           "type": "array",
@@ -312,6 +316,37 @@
       "required": [
         "ref_table",
         "ref_columns"
+      ]
+    },
+    "ForeignKeyOrphanStrategy": {
+      "description": "How `AddConstraint(ForeignKey)` should handle pre-existing orphan\nrows ? child rows whose FK column(s) reference a value that does\nnot exist in the parent table.\n\n\"Orphan\" is computed via the standard SQL `NOT EXISTS` correlated\nsubquery against the parent table; see\n`vespertide-query::sql::add_constraint::foreign_key` for the emitted\nSQL pattern.",
+      "oneOf": [
+        {
+          "description": "Set the FK column(s) of orphan child rows to `NULL` ahead of the\n`ADD CONSTRAINT`. The row is preserved; only the dangling\nreference is cleared.\n\nOnly applicable when **every** column of the FK is nullable; the\nSQL generator falls back to a runtime error if the user picks\nthis strategy on a NOT NULL column set.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "nullify_orphans"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "Delete the orphan child rows outright ahead of the\n`ADD CONSTRAINT`. Use when the orphan rows are themselves\ninvalid (logically dangling records).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "delete_orphans"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
       ]
     },
     "ForeignKeySyntax": {
@@ -629,7 +664,7 @@
           ]
         },
         {
-          "description": "Foreign key constraint linking columns in this table to columns in another table.",
+          "description": "Foreign key constraint linking columns in this table to columns in another table.\n\n`orphan_strategy` controls how pre-existing orphan rows are\nhandled when this constraint is added to an already-populated\ntable. The canonical default is\n[`ForeignKeyOrphanStrategy::NullifyOrphans`] (omitted from the\nJSON wire format). The revision CLI re-prompts the user for an\nexplicit choice; the default exists only so v0.1.x model files\ncontinue to deserialize.",
           "type": "object",
           "properties": {
             "columns": {
@@ -663,6 +698,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "orphan_strategy": {
+              "$ref": "#/$defs/ForeignKeyOrphanStrategy"
             },
             "ref_columns": {
               "type": "array",

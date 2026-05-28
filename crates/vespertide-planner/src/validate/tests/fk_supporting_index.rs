@@ -30,6 +30,7 @@ fn fk(name: Option<&str>, columns: Vec<&str>, ref_table: &str, ref_columns: Vec<
         ref_columns: ref_columns.into_iter().map(Into::into).collect(),
         on_delete: None,
         on_update: None,
+        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
     }
 }
 

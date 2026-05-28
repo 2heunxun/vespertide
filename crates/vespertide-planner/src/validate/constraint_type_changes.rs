@@ -286,6 +286,7 @@ mod tests {
             ref_columns: ref_columns.into_iter().map(Into::into).collect(),
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         }
     }
 

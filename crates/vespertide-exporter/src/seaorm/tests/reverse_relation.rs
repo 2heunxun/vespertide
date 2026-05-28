@@ -65,6 +65,7 @@ fn test_reverse_relations_has_many() {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             },
         ],
     };
@@ -146,6 +147,7 @@ fn test_reverse_relations_has_one() {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             },
         ],
     };
@@ -227,6 +229,7 @@ fn test_reverse_relations_unique_fk() {
                 ref_columns: vec!["id".into()],
                 on_delete: None,
                 on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             },
             TableConstraint::Unique {
                 name: None,

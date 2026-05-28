@@ -38,6 +38,7 @@ pub fn build_replace_constraint(
                 ref_columns,
                 on_delete,
                 on_update,
+                ..
             },
         ) => {
             if backend == DatabaseBackend::Sqlite {
@@ -318,6 +319,7 @@ mod tests {
                         ref_columns: vec!["id".into()],
                         on_delete: None,
                         on_update: None,
+                        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                     },
                 ],
                 description: None,
@@ -338,6 +340,7 @@ mod tests {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         };
         let to = TableConstraint::ForeignKey {
             name: Some("fk_user".into()),
@@ -346,6 +349,7 @@ mod tests {
             ref_columns: vec!["id".into()],
             on_delete: Some(ReferenceAction::Cascade),
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         };
 
         let queries = build_replace_constraint(backend, "posts", &from, &to, &schema, &[])
@@ -376,6 +380,7 @@ mod tests {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         };
         let to = TableConstraint::ForeignKey {
             name: Some("fk_user".into()),
@@ -384,6 +389,7 @@ mod tests {
             ref_columns: vec!["id".into()],
             on_delete: None,
             on_update: Some(ReferenceAction::Cascade),
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         };
 
         let queries = build_replace_constraint(backend, "posts", &from, &to, &schema, &[])
