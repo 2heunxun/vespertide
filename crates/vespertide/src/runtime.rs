@@ -71,15 +71,131 @@ pub fn split_sql_blob(blob: &str) -> impl Iterator<Item = &str> {
     blob.split_terminator('\0').filter(|sql| !sql.is_empty())
 }
 
-#[expect(
-    clippy::print_stderr,
-    reason = "verbose runtime migrations stream progress diagnostics to stderr while leaving host stdout application-owned"
-)]
+/// Runtime knobs for [`run_embedded_migrations_with_options`] (fault F94).
+///
+/// Both timeouts are optional and expressed in **milliseconds**. `None`
+/// leaves the backend default untouched. The values are rendered to a
+/// backend-appropriate statement injected at the start of the migration
+/// session so a migration that blocks on a lock (or runs away) fails fast
+/// instead of hanging the database.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct MigrationRuntimeOptions {
+    /// Max time (ms) to wait acquiring a lock before failing.
+    /// `PostgreSQL` `lock_timeout`, `MySQL` `innodb_lock_wait_timeout`
+    /// (rounded up to whole seconds), `SQLite` `PRAGMA busy_timeout`.
+    pub lock_timeout_ms: Option<u64>,
+    /// Max time (ms) a single statement may run. `PostgreSQL`
+    /// `statement_timeout`, `MySQL` `max_execution_time`. `SQLite` has no
+    /// statement timeout, so this is skipped on `SQLite`.
+    pub statement_timeout_ms: Option<u64>,
+}
+
+impl MigrationRuntimeOptions {
+    /// Construct from optional millisecond timeouts.
+    ///
+    /// This is the stable constructor used by `vespertide_migration!`
+    /// macro-generated code: the struct is `#[non_exhaustive]`, so user
+    /// crates cannot build it with a struct literal and must call this.
+    #[must_use]
+    pub const fn from_millis(
+        lock_timeout_ms: Option<u64>,
+        statement_timeout_ms: Option<u64>,
+    ) -> Self {
+        Self {
+            lock_timeout_ms,
+            statement_timeout_ms,
+        }
+    }
+
+    /// True when neither timeout is configured (no SET statements emitted).
+    fn is_noop(self) -> bool {
+        self.lock_timeout_ms.is_none() && self.statement_timeout_ms.is_none()
+    }
+}
+
+/// Render the connection-level (pre-transaction) timeout statements for a
+/// backend. Only `SQLite` needs this (`PRAGMA busy_timeout` is connection
+/// scoped and cannot run inside a transaction).
+fn pre_txn_timeout_sql(backend: DatabaseBackend, options: MigrationRuntimeOptions) -> Vec<String> {
+    let mut out = Vec::new();
+    if matches!(backend, DatabaseBackend::Sqlite)
+        && let Some(ms) = options.lock_timeout_ms
+    {
+        out.push(format!("PRAGMA busy_timeout = {ms}"));
+    }
+    out
+}
+
+/// Render the transaction-level timeout statements for a backend
+/// (`PostgreSQL` `SET LOCAL`, `MySQL` `SET SESSION`). `SQLite`'s lock timeout
+/// is handled pre-transaction; `SQLite` has no statement timeout.
+fn in_txn_timeout_sql(backend: DatabaseBackend, options: MigrationRuntimeOptions) -> Vec<String> {
+    let mut out = Vec::new();
+    match backend {
+        DatabaseBackend::Postgres => {
+            if let Some(ms) = options.lock_timeout_ms {
+                out.push(format!("SET LOCAL lock_timeout = {ms}"));
+            }
+            if let Some(ms) = options.statement_timeout_ms {
+                out.push(format!("SET LOCAL statement_timeout = {ms}"));
+            }
+        }
+        DatabaseBackend::MySql => {
+            if let Some(ms) = options.lock_timeout_ms {
+                // MySQL innodb_lock_wait_timeout is in SECONDS; round up so a
+                // sub-second config never collapses to 0 (= "no wait").
+                let secs = ms.div_ceil(1000).max(1);
+                out.push(format!("SET SESSION innodb_lock_wait_timeout = {secs}"));
+            }
+            if let Some(ms) = options.statement_timeout_ms {
+                out.push(format!("SET SESSION max_execution_time = {ms}"));
+            }
+        }
+        // SQLite lock timeout handled pre-transaction; no statement timeout.
+        // sea_orm::DatabaseBackend is #[non_exhaustive] → catch-all required.
+        _ => {}
+    }
+    out
+}
+
 pub async fn run_embedded_migrations(
     pool: &DatabaseConnection,
     version_table: &str,
     verbose: bool,
     migrations: &[EmbeddedMigration],
+) -> Result<(), MigrationError> {
+    run_embedded_migrations_with_options(
+        pool,
+        version_table,
+        verbose,
+        migrations,
+        MigrationRuntimeOptions::default(),
+    )
+    .await
+}
+
+/// Like [`run_embedded_migrations`] but applies the timeout knobs in
+/// [`MigrationRuntimeOptions`] (fault F94) at the start of the migration
+/// session. Backend-appropriate SET / PRAGMA statements are emitted so a
+/// migration cannot hang indefinitely on a lock or a runaway statement.
+///
+/// [`run_embedded_migrations`] delegates here with default (no-timeout)
+/// options, so existing callers are unaffected.
+#[expect(
+    clippy::print_stderr,
+    reason = "verbose runtime migrations stream progress diagnostics to stderr while leaving host stdout application-owned"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "linear runtime migration flow: version-table setup -> pre/in-txn timeouts -> version read -> apply loop -> commit; splitting fragments the transaction lifecycle"
+)]
+pub async fn run_embedded_migrations_with_options(
+    pool: &DatabaseConnection,
+    version_table: &str,
+    verbose: bool,
+    migrations: &[EmbeddedMigration],
+    options: MigrationRuntimeOptions,
 ) -> Result<(), MigrationError> {
     let backend = pool.get_database_backend();
     let q = if matches!(backend, DatabaseBackend::MySql) {
@@ -100,10 +216,39 @@ pub async fn run_embedded_migrations(
     let stmt = Statement::from_string(backend, alter_sql);
     let _ = pool.execute_raw(stmt).await;
 
+    // F94: connection-level timeouts that cannot run inside a transaction
+    // (SQLite `PRAGMA busy_timeout`) are applied here, before `begin()`.
+    if !options.is_noop() {
+        for sql in pre_txn_timeout_sql(backend, options) {
+            if verbose {
+                eprintln!("[vespertide] {sql}");
+            }
+            let stmt = Statement::from_string(backend, sql.clone());
+            pool.execute_raw(stmt)
+                .await
+                .map_err(|e| database_error(format!("Failed to apply timeout '{sql}': {e}"), e))?;
+        }
+    }
+
     let txn = pool
         .begin()
         .await
         .map_err(|e| database_error(format!("Failed to begin transaction: {e}"), e))?;
+
+    // F94: transaction-scoped timeouts (PostgreSQL `SET LOCAL`, MySQL
+    // `SET SESSION`) are applied right after BEGIN, before any lock-taking
+    // statement, so they cover the whole migration.
+    if !options.is_noop() {
+        for sql in in_txn_timeout_sql(backend, options) {
+            if verbose {
+                eprintln!("[vespertide] {sql}");
+            }
+            let stmt = Statement::from_string(backend, sql.clone());
+            txn.execute_raw(stmt)
+                .await
+                .map_err(|e| database_error(format!("Failed to apply timeout '{sql}': {e}"), e))?;
+        }
+    }
 
     let select_sql = format!("SELECT MAX(version) as version FROM {q}{version_table}{q}");
     let stmt = Statement::from_string(backend, select_sql);

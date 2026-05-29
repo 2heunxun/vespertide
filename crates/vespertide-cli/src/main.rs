@@ -47,6 +47,11 @@ enum Commands {
         /// Database backend for SQL generation.
         #[arg(short = 'b', long = "backend", value_enum, default_value = "postgres")]
         backend: BackendArg,
+        /// Wrap the emitted statements in a plan-level `BEGIN;` / `COMMIT;`
+        /// transaction (opt-in; for pasting into a manual SQL runner).
+        /// Note: `MySQL` DDL implicitly commits, so this is advisory there.
+        #[arg(long = "transaction")]
+        transaction: bool,
     },
     /// Show SQL per applied migration (chronological log).
     Log {
@@ -114,7 +119,10 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Some(Commands::Diff) => cmd_diff().await,
-        Some(Commands::Sql { backend }) => cmd_sql(backend.into()).await,
+        Some(Commands::Sql {
+            backend,
+            transaction,
+        }) => cmd_sql(backend.into(), transaction).await,
         Some(Commands::Log { backend }) => cmd_log(backend.into()).await,
         Some(Commands::New { name, format }) => cmd_new(name, format).await,
         Some(Commands::Status) => cmd_status().await,

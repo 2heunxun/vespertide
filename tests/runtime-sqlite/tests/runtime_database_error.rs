@@ -12,7 +12,10 @@ use std::error::Error;
 use sea_orm::{ConnectionTrait, Database, DatabaseBackend, DatabaseConnection, Statement};
 use vespertide::{
     MigrationError,
-    runtime::{EmbeddedMigration, run_embedded_migrations},
+    runtime::{
+        EmbeddedMigration, MigrationRuntimeOptions, run_embedded_migrations,
+        run_embedded_migrations_with_options,
+    },
 };
 
 async fn sqlite_memory_db() -> DatabaseConnection {
@@ -77,6 +80,80 @@ async fn run_embedded_migrations_applies_pending_versions_and_records_ids() {
         .map(|row| row.try_get::<String>("", "name").unwrap())
         .collect();
     assert_eq!(names, vec!["id".to_string(), "name".to_string()]);
+}
+
+async fn read_busy_timeout(db: &DatabaseConnection) -> i64 {
+    let stmt = Statement::from_string(DatabaseBackend::Sqlite, "PRAGMA busy_timeout".to_owned());
+    let row = db.query_one_raw(stmt).await.unwrap().expect("busy_timeout row");
+    row.try_get::<i32>("", "timeout")
+        .map(i64::from)
+        .or_else(|_| row.try_get::<i64>("", "timeout"))
+        .expect("busy_timeout value")
+}
+
+/// F94: a configured `lock_timeout_ms` must apply `PRAGMA busy_timeout` on
+/// SQLite at the start of the migration session, and the migration must
+/// still apply successfully.
+#[tokio::test]
+async fn with_options_applies_sqlite_busy_timeout() {
+    let db = sqlite_memory_db().await;
+
+    let migrations = [EmbeddedMigration::new(
+        1,
+        "init",
+        "create users",
+        "CREATE TABLE users (id INTEGER PRIMARY KEY);\0",
+        "CREATE TABLE users (id INTEGER PRIMARY KEY);\0",
+        "CREATE TABLE users (id INTEGER PRIMARY KEY);\0",
+    )];
+
+    run_embedded_migrations_with_options(
+        &db,
+        "vespertide_migrations",
+        true,
+        &migrations,
+        MigrationRuntimeOptions::from_millis(Some(5000), Some(30000)),
+    )
+    .await
+    .unwrap();
+
+    // The migration applied.
+    assert_eq!(read_versions(&db).await, vec![(1, "init".to_string())]);
+
+    // busy_timeout was set to the configured lock timeout. (statement_timeout
+    // is silently ignored on SQLite, which must not error.)
+    assert_eq!(
+        read_busy_timeout(&db).await,
+        5000,
+        "lock_timeout_ms must set SQLite PRAGMA busy_timeout"
+    );
+}
+
+/// F94: the default (no-timeout) `run_embedded_migrations` must NOT touch
+/// busy_timeout — proving the feature is opt-in and the delegation path is
+/// behaviour-preserving.
+#[tokio::test]
+async fn default_run_does_not_set_busy_timeout() {
+    let db = sqlite_memory_db().await;
+    let migrations = [EmbeddedMigration::new(
+        1,
+        "init",
+        "create users",
+        "CREATE TABLE users (id INTEGER PRIMARY KEY);\0",
+        "CREATE TABLE users (id INTEGER PRIMARY KEY);\0",
+        "CREATE TABLE users (id INTEGER PRIMARY KEY);\0",
+    )];
+
+    let baseline = read_busy_timeout(&db).await;
+    run_embedded_migrations(&db, "vespertide_migrations", false, &migrations)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        read_busy_timeout(&db).await,
+        baseline,
+        "default run must leave busy_timeout untouched"
+    );
 }
 
 #[tokio::test]

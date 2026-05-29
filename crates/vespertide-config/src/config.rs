@@ -104,6 +104,22 @@ pub struct VespertideConfig {
     /// Default: "" (no prefix)
     #[serde(default)]
     pub prefix: String,
+    /// Maximum time (milliseconds) to wait acquiring a lock during a runtime
+    /// migration before failing. When set, the `vespertide_migration!` macro
+    /// emits a backend-appropriate session/connection timeout at the start of
+    /// the migration (`PostgreSQL` `lock_timeout`, `MySQL`
+    /// `innodb_lock_wait_timeout`, `SQLite` `PRAGMA busy_timeout`). `None`
+    /// (default) leaves backend defaults untouched. Absent from serialized
+    /// JSON when `None` (wire-compatible).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lock_timeout_ms: Option<u64>,
+    /// Maximum time (milliseconds) a single migration statement may run before
+    /// the backend aborts it. When set, the macro emits `PostgreSQL`
+    /// `statement_timeout` / `MySQL` `max_execution_time`. `SQLite` has no
+    /// statement timeout, so this is skipped there. `None` (default) leaves
+    /// backend defaults untouched. Absent from serialized JSON when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub statement_timeout_ms: Option<u64>,
 }
 
 fn default_model_export_dir() -> PathBuf {
@@ -123,6 +139,8 @@ impl Default for VespertideConfig {
             model_export_dir: default_model_export_dir(),
             seaorm: SeaOrmConfig::default(),
             prefix: String::new(),
+            lock_timeout_ms: None,
+            statement_timeout_ms: None,
         }
     }
 }
@@ -178,6 +196,16 @@ impl VespertideConfig {
         &self.prefix
     }
 
+    /// Lock-acquisition timeout (ms) for runtime migrations, if configured.
+    pub fn lock_timeout_ms(&self) -> Option<u64> {
+        self.lock_timeout_ms
+    }
+
+    /// Per-statement timeout (ms) for runtime migrations, if configured.
+    pub fn statement_timeout_ms(&self) -> Option<u64> {
+        self.statement_timeout_ms
+    }
+
     /// Apply prefix to a table name.
     pub fn apply_prefix(&self, table_name: &str) -> String {
         if self.prefix.is_empty() {
@@ -211,6 +239,37 @@ mod tests {
         assert!(config.seaorm.extra_model_derives.is_empty());
         assert!(config.seaorm.vespera_schema_type);
         assert_eq!(config.prefix, "");
+        assert_eq!(config.lock_timeout_ms, None);
+        assert_eq!(config.statement_timeout_ms, None);
+    }
+
+    #[test]
+    fn timeout_fields_absent_from_json_when_none() {
+        let config = VespertideConfig::default();
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(
+            !json.contains("lockTimeoutMs"),
+            "None lock_timeout_ms must not serialize (wire-compat): {json}"
+        );
+        assert!(
+            !json.contains("statementTimeoutMs"),
+            "None statement_timeout_ms must not serialize (wire-compat): {json}"
+        );
+    }
+
+    #[test]
+    fn timeout_fields_roundtrip_when_set() {
+        let config = VespertideConfig {
+            lock_timeout_ms: Some(5000),
+            statement_timeout_ms: Some(30000),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains("\"lockTimeoutMs\":5000"));
+        assert!(json.contains("\"statementTimeoutMs\":30000"));
+        let back: VespertideConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.lock_timeout_ms(), Some(5000));
+        assert_eq!(back.statement_timeout_ms(), Some(30000));
     }
 
     #[test]

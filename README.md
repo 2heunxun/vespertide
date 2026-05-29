@@ -316,6 +316,27 @@ fn report(err: QueryError) {
 }
 ```
 
+### Migration timeouts (optional)
+
+Protect runtime migrations (the `vespertide_migration!` macro) from hanging on
+a lock or a runaway statement. Both are optional, in **milliseconds**, and
+omitted by default (no timeout applied):
+
+```json
+{
+  "lockTimeoutMs": 5000,
+  "statementTimeoutMs": 30000
+}
+```
+
+When set, the macro emits a backend-appropriate timeout at the start of the
+migration session:
+
+| Config | PostgreSQL | MySQL | SQLite |
+|---|---|---|---|
+| `lockTimeoutMs` | `SET LOCAL lock_timeout` | `SET SESSION innodb_lock_wait_timeout` (rounded up to seconds) | `PRAGMA busy_timeout` |
+| `statementTimeoutMs` | `SET LOCAL statement_timeout` | `SET SESSION max_execution_time` | — (no statement timeout) |
+
 ## Development
 
 ```bash
