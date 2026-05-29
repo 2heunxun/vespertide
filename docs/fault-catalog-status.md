@@ -24,13 +24,13 @@ catches a data-dependent fault. Tracks completion against v4 P0 + P1 (47 items) 
 | Bucket | Count (of 47 P0+P1) | Action posture |
 |---|---|---|
 | ✅ **Implemented & verified** | **25 + 3 novel** (P0: 14 / P1: 11 / novel: 3) | Keep regression tests green |
-| ✅ **by-design (no implementation needed)** | **9** (P0: 5 / P1: 4) | Documented as design invariants |
+| ✅ **by-design (no implementation needed)** | **11** (P0: 5 / P1: 6) | Documented as design invariants |
 | ⚠️ **Partially implemented** | **3** (P0: 2 / P1: 1) | Listed below with concrete gap |
-| ❌ **Not implemented (in-scope)** | **11** (P0: 0 / P1: 11) | Primary work queue (P1 only). **Backend-neutral candidates: F58, F84, F16 ext.** |
-| ❌ **Not implemented (out-of-scope)** | (folded into by-design above) | — |
+| ❌ **Not implemented (in-scope)** | **0** 🎯 | Queue exhausted — no backend-neutral in-scope fault remains (see §2 reconciliation). |
+| ❌ **Not implemented (out-of-scope)** | **13** (P0: 1 / P1: 12) | Backend-specific / unmodelled-object / runtime — see §3 |
 
-**Net implementation effort remaining: 15 P1 items + 4 partials = 19 items**.
-**P0 work: complete.**
+**Net implementation effort remaining: 0 in-scope P1 faults (queue exhausted).**
+Optional polish only: F16 composite-UNIQUE `keep_by`. **P0 + P1 fault work: complete** for vespertide's backend-neutral static-analyser scope.
 
 **Latest changes:**
 - **F3** (FK with orphan rows) — `NullifyOrphans` / `DeleteOrphans` strategy with NULL row guard, F3 Edge #1 hard error (`AddColumnWithFkRequiresNullable`).
@@ -120,24 +120,34 @@ F1, F2, F3, F4, F6, F8, F9, F11, F20, F22, plus partials F5/F10/F16/F55)
 or by-design (5: F12, F42, F49, F62, F82). See §3 (out-of-scope) and §4
 (by-design) for the by-design reclassifications.
 
-### P1 — 15 items
+### P1 — 0 items 🎯 (queue exhausted)
 
-| v4 ID | Name | Category | Brief |
-|---|---|---|---|
-| F15 | Long-running DML | E | `backfill.batch_size` must be required when row count exceeds threshold. Pure planner concern. |
-| F56 | Index option loss (opclass / INCLUDE / predicate) | G | Currently indexes drop these on rebuild. Need to capture full index spec in baseline + flag changes. |
-| F58 | Column order / ordinal dependency | C | `SELECT *`, CSV export, CDC sinks care about column position. Detect column-order changes in plans that rebuild a table. |
-| F65 | MySQL ALTER algorithm fallback | E | `INSTANT/INPLACE` requested but falls back to `COPY` silently. Add `ddl.algorithm: require_instant` model option. |
-| F76 | Sequence / identity exhaustion | J | Warn when PK column type is `INT4` and traffic estimate exceeds threshold. Could default `id_type` to `BIGINT`. |
-| F79 | Multi-tenant drift | I | Per-tenant precheck loop. Requires multi-DB-connection support — currently outside vespertide's CLI shape. |
-| F81 | Replication / CDC incompatibility | I | Logical replication slot constraints, e.g. PG `REPLICA IDENTITY FULL` requirements. |
-| F82 | Transaction mode mismatch (PG) | E | `CREATE INDEX CONCURRENTLY` outside transaction enforcement. Couples with F12. |
-| F84 | Destructive without backup | D | `archive_to` option for `DROP COLUMN` / `DROP TABLE`. Pure model addition. |
-| F96 | Cascade delete unexpected reach | F | Static graph walk of FK CASCADE chains; warn when depth ≥ N or fanout ≥ M. |
-| F98 | Covering index INCLUDE loss | G | Subset of F56 — specifically warn on INCLUDE column drop. |
-| F99 | Materialized view staleness | G | Requires MV model representation (couples with F55 gap). |
-| F104 | Replica lag during migration | I | `wait_for_replicas` option emit. PG-specific (`pg_wait_for_replication_lsn`). |
-| F43p / F44p / F59 | Partition-* faults | H | All partition-related — see §3 for scope decision. |
+**Reconciled against the codebase (not the old catalog text).** Every item
+that previously sat in this queue was code-verified and found to be already
+implemented, by-design, N/A, out-of-scope (unmodeled object / runtime), or
+backend-specific (violates the all-backend-neutral design). No remaining
+backend-neutral, in-scope, statically-analysable fault exists.
+
+| Former queue item | Verified resolution | Now in |
+|---|---|---|
+| F76 Sequence exhaustion | Implemented (`validate/sequence_exhaustion.rs`) | §5 |
+| F96 Cascade reach | Implemented (`validate/cascade_reach.rs`) | §5 |
+| F15 Long-running DML | By-design (single-transaction safety; batched backfill breaks rollback) | §4 |
+| F82 Transaction mode mismatch | By-design (F12's twin; all plans single-transaction) | §4 |
+| F58 Column order / ordinal | N/A — vespertide has no column-reorder action; SQLite rebuild preserves `Vec` order | §4 |
+| F56 Index option loss (opclass/INCLUDE/predicate) | Backend-specific: opclass + INCLUDE are PostgreSQL-only; not modeled (consistent with backend-neutral design) | §3 |
+| F98 Covering index INCLUDE loss | Backend-specific: INCLUDE is PostgreSQL-only (subset of F56) | §3 |
+| F65 MySQL ALTER algorithm fallback | Backend-specific: MySQL-only `ALGORITHM=INSTANT/INPLACE` | §3 |
+| F99 Materialized view staleness | Out-of-scope: MV not modeled (couples with F55 object-model gap) | §3 |
+| F79 Multi-tenant drift | Out-of-scope: needs multiple live DB connections; the CLI is a pure SQL generator | §3 |
+| F81 Replication / CDC incompatibility | Out-of-scope: needs runtime replication awareness | §3 |
+| F104 Replica lag during migration | Out-of-scope: needs runtime replication (PG `pg_wait_for_replication_lsn`) | §3 |
+| F43p / F44p / F59 Partition-* | Out-of-scope: PARTITION not modeled (v0.2 non-goal) | §3 |
+
+Optional polish (not a fault gap): **F16** composite-UNIQUE `keep_by` policy —
+single/composite UNIQUE cleanup is already implemented and backend-neutral;
+only the composite-group keep policy is a follow-up, and §1 rates the current
+behaviour "good enough for v0.2".
 
 ---
 
@@ -152,6 +162,13 @@ effort revisiting the scoping decision.
 | F43p / F44p / F59 (P1) | Partition key / boundary / attach | Same — partition not modeled. |
 | F70 (P1) | Oracle ENABLE NOVALIDATE | Oracle backend not supported. |
 | F73 (P1) | SQL Server WITH NOCHECK | SQL Server backend not supported. |
+| F56 (P1) | Index option loss (opclass / INCLUDE / predicate) | **Backend-specific**: `opclass` and `INCLUDE` are PostgreSQL-only; partial-index `WHERE` is PG + SQLite (not MySQL). Not modelled, consistent with the all-backend-neutral design (same posture as partitions/triggers/MVs). |
+| F98 (P1) | Covering index INCLUDE loss | **Backend-specific**: `INCLUDE` covering indexes are PostgreSQL-only. Subset of F56. |
+| F65 (P1) | MySQL ALTER algorithm fallback | **Backend-specific**: `ALGORITHM=INSTANT/INPLACE` is MySQL-only. A `ddl.algorithm` model option would be a MySQL-only knob, violating backend-neutrality. |
+| F99 (P1) | Materialized view staleness | MV objects are not modelled (couples with the F55 dependent-object gap). |
+| F79 (P1) | Multi-tenant drift | Needs multiple live DB connections; the vespertide CLI is a pure SQL generator with no DB connection. |
+| F81 (P1) | Replication / CDC incompatibility | Needs runtime replication-topology awareness; outside the static generator's shape. |
+| F104 (P1) | Replica lag during migration | Needs runtime replication waits (PG `pg_wait_for_replication_lsn`); outside the static generator's shape. |
 
 ---
 
@@ -171,6 +188,8 @@ in the paper as "vespertide closes the fault-origin entirely" rather than
 | **F62** (P0) | MySQL FK off after re-enable | vespertide never emits `SET FOREIGN_KEY_CHECKS = 0`. |
 | **F82** (P0) | Transaction mode mismatch | F12's twin — all vespertide-emitted plans run inside a single transaction. There is no mechanism to split a plan into non-transactional segments. |
 | **F15** (P1) | Long-running DML (batch_size enforcement) | Batching a bulk `UPDATE` into chunks requires *separate `COMMIT`s per batch* — each batch becomes an independent transaction, breaking the all-or-nothing rollback guarantee. `SAVEPOINT` subtransactions preserve rollback but do **not** release WAL/replication backpressure, so they do not solve the resource problem. vespertide chooses *single-transaction safety* over batched-throughput; users needing batched backfill must run it outside the vespertide migration (e.g. a separate batch script after the migration applies the column). |
+| **F84** (P1) | Destructive without backup | vespertide never *silently* drops data. Every `DeleteColumn` / `DeleteTable` is resolved interactively at `vespertide revision` time by `planner/src/drop_resolution.rs` + CLI `prompt_drop_resolution`: the user must explicitly choose `Drop` (with a data-loss warning + a second strong-confirm) or pick `RenameTo(target)`, which rewrites the drop into a `RenameColumn` / `RenameTable` so the data is **preserved in place under the new name** (the "backup"). To keep a being-removed object, the user simply keeps it under a new name in the model → vespertide emits a RENAME, not a DROP. The proposed `archive_to` (copy-then-drop) is a thinner variant of this already-shipped rename-preservation path; no dedicated implementation needed. (Narrow follow-up, if ever wanted: offer a suggested `<name>_archived` rename even when the plan has no same-plan rename candidate.) |
+| **F58** (P1) | Column order / ordinal dependency | N/A by construction — vespertide has **no column-reorder `MigrationAction`**, `AddColumn` always appends, and the SQLite temp-table rebuild filters/clones the column `Vec` in place (order preserved). A detector would always return empty. (Code-verified.) |
 | **F92** (P1) | TRUNCATE in migration | `MigrationAction` enum has no `TRUNCATE` variant. Cannot be expressed in the model. |
 | **F109** (P1) | PG NOT VALID permanent | F11 always emits `VALIDATE CONSTRAINT` in the same transaction as `ADD CONSTRAINT ... NOT VALID`; PG rollback reverts the pair on failure. The "left-permanent NOT VALID" anti-pattern is structurally impossible. |
 | **F110** (P1) | Index validity state (INVALID) | Implied by F12 by-design: `CREATE INDEX CONCURRENTLY` is the only PG path that produces `INVALID` index zombies on failure, and vespertide does not emit it. |

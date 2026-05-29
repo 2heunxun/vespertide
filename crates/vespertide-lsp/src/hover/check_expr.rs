@@ -5,6 +5,7 @@
 //! that happens to sit inside a CHECK expression is interpreted as
 //! check-expr context, not as a column-declaration object hover.
 
+use crate::text_util::strip_quotes;
 use std::fmt::Write as _;
 use vespertide_planner::{CheckExprAst, CheckExprLiteral, CheckExprOp, parse_check_expr};
 
@@ -250,14 +251,6 @@ fn is_inside_constraints(node: tree_sitter::Node<'_>, source: &str) -> bool {
 
 fn is_pair(node: tree_sitter::Node<'_>) -> bool {
     matches!(node.kind(), "pair" | "block_mapping_pair")
-}
-
-fn strip_quotes(s: &str) -> &str {
-    s.trim()
-        .trim_start_matches('"')
-        .trim_end_matches('"')
-        .trim_start_matches('\'')
-        .trim_end_matches('\'')
 }
 
 #[cfg(test)]

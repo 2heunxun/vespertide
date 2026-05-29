@@ -5,6 +5,7 @@ use std::ops::Range;
 use vespertide_planner::{CheckToken, CheckTokenKind, lex_check_expr};
 
 use crate::check_expr_range::expr_inner_range;
+use crate::text_util::strip_quotes;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Context {
@@ -701,12 +702,4 @@ fn node_at_byte(tree: &tree_sitter::Tree, byte_offset: usize) -> Option<tree_sit
 
 fn is_pair(node: tree_sitter::Node<'_>) -> bool {
     matches!(node.kind(), "pair" | "block_mapping_pair")
-}
-
-fn strip_quotes(text: &str) -> &str {
-    text.trim()
-        .trim_start_matches('"')
-        .trim_end_matches('"')
-        .trim_start_matches('\'')
-        .trim_end_matches('\'')
 }

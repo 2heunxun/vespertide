@@ -14,6 +14,7 @@
 
 mod backend;
 pub(crate) mod cache;
+mod check_expr_locate;
 mod check_expr_range;
 mod code_actions;
 mod completion;
@@ -33,6 +34,7 @@ mod rename;
 pub mod semantic_tokens;
 mod store;
 mod symbols;
+mod text_util;
 pub mod watched_files;
 mod workspace_index;
 pub mod workspace_tables;

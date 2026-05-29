@@ -73,16 +73,13 @@ fn check_expr_actions(
     source: &[u8],
     byte_offset: usize,
 ) -> Vec<DomainCodeAction> {
-    let Some(expr_value) = enclosing_check_expr_value(tree.root_node(), source, byte_offset) else {
+    let Some(ctx) = crate::check_expr_locate::find_check_expr_at(tree, source, byte_offset) else {
         return Vec::new();
     };
-    let Some(inner) = crate::check_expr_range::expr_inner_range(expr_value) else {
+    let Some(expr_text) = std::str::from_utf8(&source[ctx.inner.clone()]).ok() else {
         return Vec::new();
     };
-    let Some(expr_text) = std::str::from_utf8(&source[inner.clone()]).ok() else {
-        return Vec::new();
-    };
-    swap_reversed_between(expr_text, inner.start)
+    swap_reversed_between(expr_text, ctx.inner.start)
 }
 
 /// Scan the CHECK expression's token stream for `BETWEEN low AND high`
@@ -203,71 +200,6 @@ fn literal_greater(a: &str, b: &str) -> bool {
 /// the intended comparison, not an `i64` that merely overflowed).
 fn is_float_literal(s: &str) -> bool {
     s.bytes().any(|b| b == b'.' || b == b'e' || b == b'E') && s.parse::<f64>().is_ok()
-}
-
-/// Walk down to the deepest node containing `byte_offset`, then back up to
-/// the JSON `string` value of an `expr` pair whose constraint object
-/// carries `type: "check"`. Returns that string value node, or `None`.
-fn enclosing_check_expr_value<'tree>(
-    root: tree_sitter::Node<'tree>,
-    source: &[u8],
-    byte_offset: usize,
-) -> Option<tree_sitter::Node<'tree>> {
-    let mut current = root;
-    'outer: loop {
-        let mut cursor = current.walk();
-        for child in current.children(&mut cursor) {
-            if child.byte_range().contains(&byte_offset) {
-                current = child;
-                continue 'outer;
-            }
-        }
-        break;
-    }
-    let mut node = Some(current);
-    while let Some(candidate) = node {
-        if candidate.kind() == "string" && is_check_expr_value(candidate, source) {
-            return Some(candidate);
-        }
-        node = candidate.parent();
-    }
-    None
-}
-
-/// True when `string_node` is the value side of an `expr` pair whose
-/// enclosing constraint object has a sibling `type: "check"`.
-fn is_check_expr_value(string_node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
-    let mut current = string_node.parent();
-    let pair = loop {
-        match current {
-            Some(n) if n.kind() == "pair" => break n,
-            Some(n) => current = n.parent(),
-            None => return false,
-        }
-    };
-    // The cursor's string must be the value, not the key.
-    let Some(value) = pair.named_child(1) else {
-        return false;
-    };
-    if !value.byte_range().contains(&string_node.start_byte()) {
-        return false;
-    }
-    let key_is_expr = pair
-        .named_child(0)
-        .and_then(|key| std::str::from_utf8(&source[key.byte_range()]).ok())
-        .map(strip_quotes)
-        == Some("expr");
-    if !key_is_expr {
-        return false;
-    }
-    let Some(constraint_object) = pair.parent() else {
-        return false;
-    };
-    find_pair(constraint_object, source, "type")
-        .and_then(|p| p.named_child(1))
-        .and_then(|v| std::str::from_utf8(&source[v.byte_range()]).ok())
-        .map(strip_quotes)
-        == Some("check")
 }
 
 fn flag_toggles(column: tree_sitter::Node<'_>, source: &[u8]) -> Vec<DomainCodeAction> {

@@ -1,5 +1,6 @@
 //! Column hover: markdown showing name, type, nullable, default, constraints.
 
+use crate::text_util::strip_quotes;
 use std::fmt::Write as _;
 use std::ops::Range;
 
@@ -108,12 +109,4 @@ fn constraint_is_enabled(value: &str) -> bool {
 
 fn display_value(value: &str) -> &str {
     strip_quotes(value.trim())
-}
-
-fn strip_quotes(s: &str) -> &str {
-    s.trim()
-        .trim_start_matches('"')
-        .trim_end_matches('"')
-        .trim_start_matches('\'')
-        .trim_end_matches('\'')
 }

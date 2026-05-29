@@ -11,6 +11,7 @@
 //! set tight enough to stay responsive in workspaces with hundreds of
 //! columns.
 
+use crate::text_util::strip_quotes;
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
@@ -365,14 +366,6 @@ fn unwrap_yaml_node(node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
         current = inner;
     }
     current
-}
-
-fn strip_quotes(s: &str) -> &str {
-    s.trim()
-        .trim_start_matches('"')
-        .trim_end_matches('"')
-        .trim_start_matches('\'')
-        .trim_end_matches('\'')
 }
 
 fn trim_one_byte(range: &Range<usize>) -> Range<usize> {

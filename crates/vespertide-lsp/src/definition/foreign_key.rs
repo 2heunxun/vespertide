@@ -18,6 +18,7 @@ use std::str::FromStr;
 use tower_lsp_server::ls_types::Uri;
 
 use crate::store::DocumentStore;
+use crate::text_util::strip_quotes;
 use crate::workspace_index::WorkspaceIndex;
 use crate::workspace_tables::WorkspaceTables;
 
@@ -336,12 +337,4 @@ fn is_mapping(node: tree_sitter::Node<'_>) -> bool {
 
 fn is_pair(node: tree_sitter::Node<'_>) -> bool {
     matches!(node.kind(), "pair" | "block_mapping_pair")
-}
-
-fn strip_quotes(s: &str) -> &str {
-    s.trim()
-        .trim_start_matches('"')
-        .trim_end_matches('"')
-        .trim_start_matches('\'')
-        .trim_end_matches('\'')
 }

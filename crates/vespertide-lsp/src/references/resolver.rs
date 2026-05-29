@@ -1,5 +1,6 @@
 //! Resolve "what symbol is the cursor on?" for the references provider.
 
+use crate::text_util::strip_quotes;
 use tower_lsp_server::ls_types::Uri;
 
 use super::ReferenceSymbol;
@@ -236,12 +237,4 @@ fn node_at_byte(tree: &tree_sitter::Tree, byte_offset: usize) -> Option<tree_sit
         }
         return Some(current);
     }
-}
-
-fn strip_quotes(s: &str) -> &str {
-    s.trim()
-        .trim_start_matches('"')
-        .trim_end_matches('"')
-        .trim_start_matches('\'')
-        .trim_end_matches('\'')
 }

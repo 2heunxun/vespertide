@@ -1,5 +1,6 @@
 //! Scan open documents (and on-disk models) for references to a symbol.
 
+use crate::text_util::strip_quotes;
 use std::path::PathBuf;
 
 use tower_lsp_server::ls_types::Uri;
@@ -527,12 +528,4 @@ fn is_column_pair(name_pair: tree_sitter::Node<'_>, source: &[u8], expected_tabl
         return value_matches(source, value, expected_table);
     }
     false
-}
-
-fn strip_quotes(s: &str) -> &str {
-    s.trim()
-        .trim_start_matches('"')
-        .trim_end_matches('"')
-        .trim_start_matches('\'')
-        .trim_end_matches('\'')
 }

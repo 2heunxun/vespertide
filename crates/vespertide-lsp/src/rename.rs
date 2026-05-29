@@ -62,107 +62,35 @@ fn locate_symbol_inner_range(
     source: &str,
     byte_offset: usize,
 ) -> Option<Range<usize>> {
-    let node = node_at_byte(tree, byte_offset)?;
-    let string_node = enclosing_string(node)?;
     // Inside a table-level CHECK `expr`, the renameable symbol is the single
     // column identifier the cursor sits on — not the whole predicate string.
     // Narrow to that token so prepare's select-on-rename UI highlights only
     // the identifier (and matches the edit the references engine produces).
-    if let Some(token_range) = check_expr_column_token_range(string_node, source, byte_offset) {
+    if let Some(token_range) = check_expr_column_token_range(tree, source, byte_offset) {
         return Some(token_range);
     }
+    let node = node_at_byte(tree, byte_offset)?;
+    let string_node = enclosing_string(node)?;
     Some(inner_content_range(string_node, source))
 }
 
-/// If `string_node` is a CHECK `expr` string and `byte_offset` lands on a
-/// column identifier within it, return that identifier's absolute byte
-/// range. Returns `None` for non-CHECK strings or non-identifier offsets.
+/// If the cursor sits on a column identifier inside a CHECK `expr` string,
+/// return that identifier's absolute byte range. Returns `None` for
+/// non-CHECK positions or offsets that do not land on a Column token.
 fn check_expr_column_token_range(
-    string_node: tree_sitter::Node<'_>,
+    tree: &tree_sitter::Tree,
     source: &str,
     byte_offset: usize,
 ) -> Option<Range<usize>> {
-    if !is_check_expr_string(string_node, source) {
-        return None;
-    }
-    let inner = crate::check_expr_range::expr_inner_range(string_node)?;
-    let expr_text = source.get(inner.clone())?;
-    let rel = byte_offset.checked_sub(inner.start)?;
+    let ctx = crate::check_expr_locate::find_check_expr_at(tree, source.as_bytes(), byte_offset)?;
+    let expr_text = source.get(ctx.inner.clone())?;
+    let rel = byte_offset.checked_sub(ctx.inner.start)?;
     let token = vespertide_planner::lex_check_expr(expr_text)
         .into_iter()
         .find(|tok| {
             tok.kind == vespertide_planner::CheckTokenKind::Column && tok.span.contains(&rel)
         })?;
-    Some((inner.start + token.span.start)..(inner.start + token.span.end))
-}
-
-/// True when `string_node` is the value of an `expr` pair whose constraint
-/// object carries `type: "check"`.
-fn is_check_expr_string(string_node: tree_sitter::Node<'_>, source: &str) -> bool {
-    let Some(expr_pair) = enclosing_pair(string_node) else {
-        return false;
-    };
-    let Some(key) = expr_pair.named_child(0) else {
-        return false;
-    };
-    let Some(key_text) = source.get(key.byte_range()) else {
-        return false;
-    };
-    if strip_quotes(key_text) != "expr" {
-        return false;
-    }
-    let Some(constraint_object) = expr_pair.parent().and_then(skip_yaml_wrappers) else {
-        return false;
-    };
-    constraint_child_value(constraint_object, source, "type")
-        .is_some_and(|raw| strip_quotes(raw) == "check")
-}
-
-fn enclosing_pair(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
-    let mut current = node.parent();
-    while let Some(candidate) = current {
-        if matches!(candidate.kind(), "pair" | "block_mapping_pair") {
-            return Some(candidate);
-        }
-        current = candidate.parent();
-    }
-    None
-}
-
-fn skip_yaml_wrappers(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
-    let mut current = node;
-    while matches!(current.kind(), "flow_node" | "block_node") {
-        current = current.parent()?;
-    }
-    Some(current)
-}
-
-fn constraint_child_value<'a>(
-    object: tree_sitter::Node<'_>,
-    source: &'a str,
-    target_key: &str,
-) -> Option<&'a str> {
-    let mut cursor = object.walk();
-    for child in object.children(&mut cursor) {
-        if matches!(child.kind(), "pair" | "block_mapping_pair")
-            && let Some(key) = child.named_child(0)
-            && let Some(key_text) = source.get(key.byte_range())
-            && strip_quotes(key_text) == target_key
-            && let Some(value) = child.named_child(1)
-            && let Some(text) = source.get(value.byte_range())
-        {
-            return Some(text);
-        }
-    }
-    None
-}
-
-fn strip_quotes(s: &str) -> &str {
-    s.trim()
-        .trim_start_matches('"')
-        .trim_end_matches('"')
-        .trim_start_matches('\'')
-        .trim_end_matches('\'')
+    Some((ctx.inner.start + token.span.start)..(ctx.inner.start + token.span.end))
 }
 
 fn enclosing_string(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {

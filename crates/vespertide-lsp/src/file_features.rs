@@ -4,6 +4,7 @@
 //! here because they share the same tree-sitter walk patterns and
 //! none has enough surface area to deserve its own directory.
 
+use crate::text_util::strip_quotes;
 use std::ops::Range;
 
 // =====================================================================
@@ -404,14 +405,6 @@ fn trim_one_byte(range: &Range<usize>) -> Range<usize> {
     } else {
         range.clone()
     }
-}
-
-fn strip_quotes(s: &str) -> &str {
-    s.trim()
-        .trim_start_matches('"')
-        .trim_end_matches('"')
-        .trim_start_matches('\'')
-        .trim_end_matches('\'')
 }
 
 // =====================================================================

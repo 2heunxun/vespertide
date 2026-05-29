@@ -6,11 +6,14 @@
 #   * apps/zed-extension      — third-party extension scaffold (unrelated)
 #   * examples/app            — sea-orm with sqlx-sqlite (libsqlite3-sys 0.30)
 #   * tests/runtime-sqlite    — vespertide runtime tests that need sqlx-sqlite
+#   * tools/lsp-profile       — out-of-workspace profiler with its own Cargo.lock
+#                               (cargo-flamegraph profile churns the workspace indexer)
 # Build / test the excluded crates standalone:
 #   cargo test --manifest-path tests/runtime-sqlite/Cargo.toml
 #   cargo build --manifest-path examples/app/Cargo.toml
+#   cargo run --release --manifest-path tools/lsp-profile/Cargo.toml -- --workload synthetic
 members = ["crates/*", "fuzz"]
-exclude = ["apps/zed-extension", "examples/app", "tests/runtime-sqlite"]
+exclude = ["apps/zed-extension", "examples/app", "tests/runtime-sqlite", "tools/lsp-profile"]
 default-members = [
     "crates/vespertide",
     "crates/vespertide-cli",

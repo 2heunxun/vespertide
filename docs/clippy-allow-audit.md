@@ -1,10 +1,27 @@
 # Clippy `allow` Audit Report
 
-**Generated:** 2026-05-24 (commit-time snapshot)
+**Generated:** 2026-05-24 (commit-time snapshot — original audit)
 **Scope:** Every `#![allow(...)]` / `#[allow(...)]` / `#[expect(...)]` in `crates/`, `tools/`, `fuzz/`
 **Trigger:** Owner questioning whether suppressions like `#![allow(dead_code)]` are truly necessary.
 
-## TL;DR
+## ✅ STATUS UPDATE — migration complete
+
+The audit's primary recommendation has been **fully executed**. Current verified state:
+
+| Metric | Then (2026-05-24) | Now |
+|---|---|---|
+| `#[allow(...)]` / `#![allow(...)]` | 36 | **0** |
+| `#[expect(...)]` (with mandatory `reason`) | 9 | **49** |
+
+- **Every `allow` was migrated to `#[expect(...)]` or eliminated.** The workspace lint `allow_attributes` / `allow_attributes_without_reason` (warn) now keeps any new bare `allow` out.
+- **No stale suppressions can survive.** `#[expect(lint)]` emits `unfulfilled_lint_expectations` if the lint stops firing; since `cargo clippy --workspace --all-targets --all-features -- -D warnings` is green, **all 49 expectations are currently fulfilled** (genuinely needed) by construction.
+- The original 🔴/🟡/🟠 suspects were resolved, not masked: the `visitors.rs` "dead-code" oracle functions are now `#[cfg(test)]`-gated (the canonical pattern documented in AGENTS.md), the `cmd_erd` item was addressed, and `cache.rs`'s broad suppression was narrowed.
+
+The sections below are retained as the **original pre-migration snapshot** for historical context; the specific `#[allow]` file:line entries no longer exist as `#[allow]` (they are now `#[expect]` or removed).
+
+---
+
+## TL;DR (original audit, 2026-05-24)
 
 Of **36 active `allow` attributes**, audit reveals:
 

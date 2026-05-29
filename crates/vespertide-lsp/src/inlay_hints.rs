@@ -15,6 +15,7 @@
 //! The hint is intentionally terse — inlay hints share screen space with
 //! the actual code, and noisy annotations are worse than none.
 
+use crate::text_util::strip_quotes;
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -416,14 +417,6 @@ fn unwrap_yaml_node(node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
         current = inner;
     }
     current
-}
-
-fn strip_quotes(s: &str) -> &str {
-    s.trim()
-        .trim_start_matches('"')
-        .trim_end_matches('"')
-        .trim_start_matches('\'')
-        .trim_end_matches('\'')
 }
 
 fn ranges_overlap(a: &Range<usize>, b: &Range<usize>) -> bool {
