@@ -209,32 +209,45 @@ cargo clippy --workspace --all-targets --all-features 2>&1 | grep -c allow_attri
 # Expected: 0
 ```
 
-## COMPLEXITY HOTSPOTS (≤ 1000-line policy enforced)
+## COMPLEXITY HOTSPOTS (two-tier line policy enforced)
 
-**Policy**: Every `.rs` file must stay ≤ 1000 lines. CI enforces; current state: ✅ zero violations.
+**Policy** (CI-enforced by `scripts/check-line-budget.sh`, run in the
+`line-budget` job): two tiers —
+- **Production-only `.rs`** files: **≤ 1000 lines**.
+- Files carrying **test code** (anything under a `tests/` directory, OR a
+  production file with an inline `#[cfg(test)] mod tests { ... }` block):
+  **≤ 1200 lines** (the +200 is the test budget; it must not be used to grow
+  production logic).
 
-Largest production files (margin 임박 = next split candidates):
+The script greps each tracked `.rs` for a `tests/` path segment or a top-level
+`mod tests {` block to pick the tier. Current state: ✅ zero violations.
 
-| File | Lines | What |
-|------|-------|------|
-| `cli/src/commands/export.rs` | 991 | CLI export command for 4 ORMs |
-| `query/src/sql/create_table.rs` | 750 | CREATE TABLE statement generation |
-| `query/src/sql/add_column.rs` | 732 | ADD COLUMN with SQLite temp-table for non-nullable/enum |
-| `query/src/sql/helpers.rs` | 706 | Column type mapping, FK actions, enum/naming helpers |
-| `cli/src/commands/diff.rs` | 659 | Diff CLI command |
-| `loader/src/models.rs` | 641 | Model file loading with rayon parallelization |
-| `naming/src/lib.rs` | 630 | Naming convention utilities |
-| `query/src/sql/modify_column_default.rs` | 604 | ALTER COLUMN SET/DROP DEFAULT |
+Files near the ceiling (next split candidates — line counts as of the F94 /
+line-budget two-tier wave):
 
-Largest test files (snapshot-locked; split costs snapshot rename):
+| File | Lines | Tier | What |
+|------|-------|------|------|
+| `planner/src/validate/check_expr_parser.rs` | 1199 | prod+inline-tests (≤1200) | Shared CHECK boolean-expression parser/lexer |
+| `cli/src/commands/diff.rs` | 1196 | prod+inline-tests (≤1200) | Diff CLI command (colored action formatting) |
+| `planner/src/drop_resolution.rs` | 1186 | prod+inline-tests (≤1200) | Drop resolution (DeleteColumn/Table strategy) |
+| `query/src/sql/delete_column/mod.rs` | 1117 | prod+inline-tests (≤1200) | DROP COLUMN with SQLite rebuild |
+| `planner/src/validate/tests/plan_validation.rs` | 1105 | test-file (≤1200) | Plan validation tests |
+| `query/src/sql/modify_column_type/mod.rs` | 1100 | prod+inline-tests (≤1200) | ALTER COLUMN TYPE |
+| `cli/src/commands/erd/mod.rs` | 1065 | prod+inline-tests (≤1200) | ERD command orchestrator |
+| `lsp/src/diagnostics/mod.rs` | 1025 | prod+inline-tests (≤1200) | LSP diagnostics (incl. CHECK faults) |
+| `core/src/schema/table/tests/mod.rs` | 1003 | test-file (≤1200) | Table normalization tests |
+| `cli/src/commands/export.rs` | 992 | prod+inline-tests | CLI export command for 4 ORMs |
+| `lsp/src/code_actions.rs` | 985 | prod+inline-tests | LSP code actions (incl. CHECK BETWEEN-swap) |
+| `core/src/action/mod.rs` | 981 | prod+inline-tests | MigrationAction (tests in `action/tests/`) |
+| `cli/src/commands/revision/prompts/choices_and_apply.rs` | 933 | production | Revision Choice enums + prompts + apply |
 
-| File | Lines | What |
-|------|-------|------|
-| `core/src/schema/table/tests/mod.rs` | 986 | Table normalization tests |
-| `query/src/sql/delete_column/tests/mod.rs` | 847 | DROP COLUMN tests |
-| `planner/src/validate/tests/plan_validation.rs` | 954 | Plan validation tests |
-| `core/src/action/tests/mod.rs` | 894 | MigrationAction unit tests |
-| `planner/src/apply/tests/mod.rs` | 806 | apply_action unit tests |
+Several `prod+inline-tests` files sit within ~15 lines of the 1200 ceiling
+(`check_expr_parser.rs`, `diff.rs`, `drop_resolution.rs`). When they next
+grow, extract the inline `#[cfg(test)] mod tests` to `<module>/tests/mod.rs`
+(the sanctioned pattern — keeps production logic under the 1000-line cap while
+the test code keeps the +200 budget). `cli/commands/diff.rs` and
+`core/action/mod.rs` were compacted in-place (verbose `ColumnDef {...}` → 
+`ColumnDef::new(...)` + constraint-builder helpers) rather than extracted.
 
 **Historical splits** (Waves 1-9 of optimization work):
 - `planner/src/diff.rs` (4739) → `diff/{mod,columns,constraints,ordering,tables}.rs`
@@ -258,7 +271,9 @@ Largest test files (snapshot-locked; split costs snapshot rename):
 - `exporter/src/seaorm/relations.rs` (1000 production-only, at workspace cap) → `seaorm/relations/{mod,fk_resolve,naming,self_ref,reverse}.rs`. Carved by responsibility: `fk_resolve.rs` (118) holds `as_fk` (private) + the `resolve_fk_target` / `resolve_fk_target_inner` chain walker + the `ForwardRelationResolution` struct emitted by `resolve_table_fks_pure` (sequential/parallel split on `SEAORM_RELATION_PAR_FK_THRESHOLD`); `naming.rs` (134) holds the pure naming helpers `generate_relation_enum_name` / `unique_relation_enum_name` / `infer_field_name_from_fk_column` / `pluralize` / `fk_attr_value`; `self_ref.rs` (233) holds `SelfRefJunction` + `collect_self_ref_junction` / `self_ref_link_name` / `resolve_self_ref_link_module_path` / `render_self_ref_link_helpers` / `render_self_ref_query_helpers`; `reverse.rs` (467) holds the private `ReverseRelation` struct + `collect_reverse_relation_targets` / `collect_many_to_many_targets` / `reverse_relation_field_defs` (+ private `ReverseRelationFieldCtx` and `collect_many_to_many_relations`); `mod.rs` (140) owns the forward (`belongs_to`) `relation_field_defs_with_schema` entry point and the `pub(in crate::seaorm) use` re-exports that satisfy the existing `use super::relations::{...}` import in `seaorm/render.rs` and the `#[cfg(test)] use relations::*;` glob in `seaorm/mod.rs`. Visibility envelope unchanged: items previously `pub(super)` of `seaorm::relations` (i.e. visible throughout `seaorm`) are now `pub(in crate::seaorm)` on items hosted in submodules — same scope, just spelled differently to survive the extra module hop. SeaORM codegen output is byte-identical (0 `.snap.new` files across the 232 cross-ORM snapshots + per-ORM seaorm snapshots). Largest sub-file (`reverse.rs`, 467) is well under the 1000-line policy; aggregate relations-tree = 1092 lines.
 - `cli/src/commands/erd/svg.rs` (995 production-only, preventive) → `erd/svg/{mod,style,model,layout,edges,render,util}.rs`. Carved by responsibility: `style.rs` (55) holds every palette / sizing / typography constant as `pub(super)`; `model.rs` (189) holds `TableBox` / `RowSpec` / `EdgeSpec` plus `build_boxes` / `build_edges` / `measure_table_width` / `badge_block_width`; `layout.rs` (116) holds `compute_ranks` / `layout_grid` / `rebalance_groups` / `view_size`; `edges.rs` (247) holds the private `Side` enum, `edge_geometry`, `render_edge_path` / `render_edge_label`, `pick_anchors`, `bezier_path` / `bezier_at` / `control_point`, and the `parallel_curvature_offset` / `label_t_for_parallel` helpers; `render.rs` (297) holds `render_doc` + `render_defs` + `render_table` / `render_row` / `render_badge` + the `rounded_top_path` / `rounded_bottom_path` SVG-path emitters; `util.rs` (32) holds `render_empty` and `escape_xml`; `mod.rs` (49) keeps the single public entry `pub fn render_svg(...)` orchestrating the pipeline. Public API surface unchanged — `erd::svg::render_svg` resolves identically. The original 9-lint file-level `#![expect(clippy::...)]` block was distributed per-file to exactly the lints each module triggers: `cast_precision_loss` (every coord-math file), `cast_lossless` (model only, for `u32`→`f64` badge counts), `cast_possible_truncation`+`cast_sign_loss` (layout only, for `sqrt().ceil() as usize`), `range_plus_one` (layout only, for `0..(n+1)` rank fixed-point), `uninlined_format_args` (edges/render/util, for `writeln!("{x}", x = …)` SVG templates), `too_many_arguments`+`similar_names` (edges only, for Bézier helpers), `unnecessary_wraps` (mod.rs only, for `render_svg -> Result`). `style.rs` carries zero lint exemptions. Largest sub-file (`render.rs`, 297) is well under the 1000-line policy; aggregate svg-tree = 985 lines.
 
-Verify line policy: `python -c "import os, glob; files = []; [files.extend(glob.glob(os.path.join(r,'*.rs'))) for r,_,_ in os.walk('crates')]; over = [(sum(1 for _ in open(f, encoding='utf-8', errors='ignore')), f) for f in files]; result = sorted([x for x in over if x[0] > 1000], reverse=True); print('\n'.join(f'{l:5} {p}' for l, p in result) if result else 'OK: zero files >1000 lines')"`
+Verify line policy (canonical, same as CI): `sh scripts/check-line-budget.sh`
+(prints offenders + exits non-zero if any file breaks its tier; production-only
+≤ 1000, files carrying test code ≤ 1200).
 
 ## TESTING
 
@@ -382,7 +397,7 @@ Both JSON and YAML are supported for model and migration files. Loaders accept `
 
 - Edition 2024 (bleeding edge)
 - rust-analyzer is unreliable on this workspace (large macro expansions in `vespertide-macro` + cargo-flamegraph profile in `tools/lsp-profile` cause indexer churn); prefer `cargo check`, `cargo clippy`, ast-grep, and ripgrep over LSP-based navigation when iterating
-- Every `.rs` file must stay ≤ 1000 lines; CI enforces this
+- Two-tier line policy (CI-enforced via `scripts/check-line-budget.sh`): production-only `.rs` ≤ 1000 lines; files carrying test code (`tests/` dir or inline `#[cfg(test)] mod tests {}`) ≤ 1200 lines
 - Migration replay pattern: baseline always reconstructed from history (raw SQL actions are opaque to replay)
 - Wire format stability: JSON output of every newtype, action, and config struct must remain byte-identical to 0.1.x. Verify via the schema-drift command in COMMANDS section.
 - `tools/lsp-profile`, `examples/app`, and `tests/runtime-sqlite` are out-of-workspace crates (separate `Cargo.lock`); see root `Cargo.toml` comment for the rationale

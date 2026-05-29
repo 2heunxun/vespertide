@@ -2,11 +2,11 @@ use anyhow::Result;
 use colored::Colorize;
 use vespertide_loader::load_config;
 use vespertide_planner::apply_action;
-use vespertide_query::{DatabaseBackend, build_plan_queries};
+use vespertide_query::{DatabaseBackend, PlanQueriesOptions, build_plan_queries_with_options};
 
 use crate::utils::load_migrations;
 
-pub async fn cmd_log(backend: DatabaseBackend) -> Result<()> {
+pub async fn cmd_log(backend: DatabaseBackend, transaction: bool) -> Result<()> {
     let config = load_config()?;
     let plans = load_migrations(&config)?;
 
@@ -52,9 +52,17 @@ pub async fn cmd_log(backend: DatabaseBackend) -> Result<()> {
             plan.actions.len().to_string().bright_yellow()
         );
 
-        // Use the current baseline schema (from all previous migrations)
-        let plan_queries = build_plan_queries(plan, &baseline_schema)
-            .map_err(|e| anyhow::anyhow!("query build error for v{}: {}", plan.version, e))?;
+        // Use the current baseline schema (from all previous migrations).
+        // Each applied migration is its own transaction at runtime, so
+        // `--transaction` wraps each plan's statement stream independently.
+        let plan_queries = build_plan_queries_with_options(
+            plan,
+            &baseline_schema,
+            PlanQueriesOptions {
+                wrap_in_transaction: transaction,
+            },
+        )
+        .map_err(|e| anyhow::anyhow!("query build error for v{}: {}", plan.version, e))?;
 
         // Update baseline schema incrementally by applying each action
         for action in &plan.actions {
@@ -160,7 +168,7 @@ mod tests {
         write_config(&cfg);
         write_migration(&cfg);
 
-        let result = cmd_log(DatabaseBackend::Postgres).await;
+        let result = cmd_log(DatabaseBackend::Postgres, false).await;
         assert!(result.is_ok());
     }
 
@@ -174,7 +182,7 @@ mod tests {
         write_config(&cfg);
         write_migration(&cfg);
 
-        let result = cmd_log(DatabaseBackend::MySql).await;
+        let result = cmd_log(DatabaseBackend::MySql, false).await;
         assert!(result.is_ok());
     }
 
@@ -188,7 +196,7 @@ mod tests {
         write_config(&cfg);
         write_migration(&cfg);
 
-        let result = cmd_log(DatabaseBackend::Sqlite).await;
+        let result = cmd_log(DatabaseBackend::Sqlite, false).await;
         assert!(result.is_ok());
     }
 
@@ -202,7 +210,7 @@ mod tests {
         write_config(&cfg);
         fs::create_dir_all(cfg.migrations_dir()).unwrap();
 
-        let result = cmd_log(DatabaseBackend::Postgres).await;
+        let result = cmd_log(DatabaseBackend::Postgres, false).await;
         assert!(result.is_ok());
     }
 
@@ -216,7 +224,7 @@ mod tests {
         write_config(&cfg);
         fs::create_dir_all(cfg.migrations_dir()).unwrap();
 
-        let result = cmd_log(DatabaseBackend::MySql).await;
+        let result = cmd_log(DatabaseBackend::MySql, false).await;
         assert!(result.is_ok());
     }
 
@@ -230,7 +238,22 @@ mod tests {
         write_config(&cfg);
         fs::create_dir_all(cfg.migrations_dir()).unwrap();
 
-        let result = cmd_log(DatabaseBackend::Sqlite).await;
+        let result = cmd_log(DatabaseBackend::Sqlite, false).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn cmd_log_with_transaction_flag_runs() {
+        let tmp = tempdir().unwrap();
+        let _guard = CwdGuard::new(&tmp.path().to_path_buf());
+
+        let cfg = VespertideConfig::default();
+        write_config(&cfg);
+        write_migration(&cfg);
+
+        // --transaction parity: each migration's stream wraps independently.
+        let result = cmd_log(DatabaseBackend::Postgres, true).await;
         assert!(result.is_ok());
     }
 
@@ -284,7 +307,7 @@ mod tests {
 
         // SQLite backend will generate multiple SQL statements for ModifyColumnType (table recreation)
         // This exercises line 84 where sql_statements.len() > 1
-        let result = cmd_log(DatabaseBackend::Sqlite).await;
+        let result = cmd_log(DatabaseBackend::Sqlite, false).await;
         assert!(result.is_ok());
     }
 }

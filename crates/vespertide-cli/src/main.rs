@@ -58,6 +58,12 @@ enum Commands {
         /// Database backend for SQL generation.
         #[arg(short = 'b', long = "backend", value_enum, default_value = "postgres")]
         backend: BackendArg,
+        /// Wrap each migration's statements in a plan-level `BEGIN;` /
+        /// `COMMIT;` transaction (opt-in; mirrors how each migration is
+        /// applied at runtime). Note: `MySQL` DDL implicitly commits, so this
+        /// is advisory there.
+        #[arg(long = "transaction")]
+        transaction: bool,
     },
     /// Create a new model file from template.
     New {
@@ -123,7 +129,10 @@ async fn main() -> Result<()> {
             backend,
             transaction,
         }) => cmd_sql(backend.into(), transaction).await,
-        Some(Commands::Log { backend }) => cmd_log(backend.into()).await,
+        Some(Commands::Log {
+            backend,
+            transaction,
+        }) => cmd_log(backend.into(), transaction).await,
         Some(Commands::New { name, format }) => cmd_new(name, format).await,
         Some(Commands::Status) => cmd_status().await,
         Some(Commands::Revision {

@@ -80,6 +80,12 @@
         }
       }
     },
+    "jsonValidation": [
+      {
+        "fileMatch": "vespertide.json",
+        "url": "https://raw.githubusercontent.com/dev-five-git/vespertide/refs/heads/main/schemas/config.schema.json"
+      }
+    ],
     "configuration": {
       "title": "Vespertide",
       "properties": {
