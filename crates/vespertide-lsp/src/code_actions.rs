@@ -103,14 +103,14 @@ fn swap_reversed_between(expr_text: &str, base: usize) -> Vec<DomainCodeAction> 
     for i in 0..tokens.len() {
         // tokens[i] must be the BETWEEN keyword.
         if tokens[i].kind != CheckTokenKind::Keyword
-            || !token_text(expr_text, &tokens[i]).eq_ignore_ascii_case("between")
+            || !token_text(expr_text, &tokens[i]).is_some_and(|t| t.eq_ignore_ascii_case("between"))
         {
             continue;
         }
         // Skip `NOT BETWEEN` — reversed form is always-true (harmless).
         if i >= 1
             && tokens[i - 1].kind == CheckTokenKind::Keyword
-            && token_text(expr_text, &tokens[i - 1]).eq_ignore_ascii_case("not")
+            && token_text(expr_text, &tokens[i - 1]).is_some_and(|t| t.eq_ignore_ascii_case("not"))
         {
             continue;
         }
@@ -122,13 +122,19 @@ fn swap_reversed_between(expr_text: &str, base: usize) -> Vec<DomainCodeAction> 
         };
         if !is_literal(low.kind)
             || andt.kind != CheckTokenKind::Keyword
-            || !token_text(expr_text, andt).eq_ignore_ascii_case("and")
+            || !token_text(expr_text, andt).is_some_and(|t| t.eq_ignore_ascii_case("and"))
             || !is_literal(high.kind)
         {
             continue;
         }
-        let low_text = token_text(expr_text, low);
-        let high_text = token_text(expr_text, high);
+        // Boundary-safe: `token_text` uses `str::get`, so a span that is not
+        // on a UTF-8 char boundary (defensive — the lexer emits ASCII-aligned
+        // spans today) yields `None` and we simply skip rather than panic.
+        let (Some(low_text), Some(high_text)) =
+            (token_text(expr_text, low), token_text(expr_text, high))
+        else {
+            continue;
+        };
         if !literal_greater(low_text, high_text) {
             continue;
         }
@@ -150,8 +156,11 @@ fn swap_reversed_between(expr_text: &str, base: usize) -> Vec<DomainCodeAction> 
     out
 }
 
-fn token_text<'a>(expr_text: &'a str, token: &vespertide_planner::CheckToken) -> &'a str {
-    &expr_text[token.span.clone()]
+/// Boundary-safe slice of a lexer token's text. Returns `None` when the span
+/// is out of range or does not fall on a UTF-8 char boundary, so hostile or
+/// malformed CHECK expressions can never panic the LSP.
+fn token_text<'a>(expr_text: &'a str, token: &vespertide_planner::CheckToken) -> Option<&'a str> {
+    expr_text.get(token.span.clone())
 }
 
 fn is_literal(kind: vespertide_planner::CheckTokenKind) -> bool {
@@ -161,24 +170,39 @@ fn is_literal(kind: vespertide_planner::CheckTokenKind) -> bool {
     )
 }
 
-/// True iff `a` is *demonstrably* greater than `b` under the same
-/// conservative ordering the planner uses (F-novel-15): exact integer,
-/// then float (covering cross-numeric), then lexicographic for two quoted
-/// string literals. Mixed numeric/string, bool, and null fold to `false`
-/// so an ambiguous pair never produces a (possibly wrong) swap.
+/// True iff `a` is *demonstrably* greater than `b` under a conservative
+/// ordering (mirrors fault F-novel-15). Only three unambiguous cases order:
+/// two `i64`-parseable integers (exact); two float literals (each containing
+/// `.`/`e`/`E`) compared as `f64`; or two single-quoted SQL string literals
+/// (lexicographic on the as-written text — the equal leading quote makes this
+/// equivalent to comparing contents). Everything else — mixed numeric/string,
+/// bool, null, or an integer too large for `i64` (where `f64` rounding could
+/// mis-order) — folds to `false`, so an ambiguous pair never produces a
+/// (possibly wrong) swap suggestion.
 fn literal_greater(a: &str, b: &str) -> bool {
     if let (Ok(x), Ok(y)) = (a.parse::<i64>(), b.parse::<i64>()) {
         return x > y;
     }
-    if let (Ok(x), Ok(y)) = (a.parse::<f64>(), b.parse::<f64>()) {
+    // Float path ONLY for genuine float literals (contain a fraction/exponent).
+    // This avoids `f64`-rounding mis-ordering of huge integers that overflow
+    // `i64` — those fall through to `false` (no swap offered).
+    if is_float_literal(a)
+        && is_float_literal(b)
+        && let (Ok(x), Ok(y)) = (a.parse::<f64>(), b.parse::<f64>())
+    {
         return x > y;
     }
-    // Two single-quoted SQL string literals: the leading quote is equal so
-    // comparing the as-written forms is equivalent to comparing contents.
+    // Two single-quoted SQL string literals: lexicographic on as-written text.
     if a.starts_with('\'') && b.starts_with('\'') {
         return a > b;
     }
     false
+}
+
+/// A numeric literal with a fractional or exponent part (so `f64` ordering is
+/// the intended comparison, not an `i64` that merely overflowed).
+fn is_float_literal(s: &str) -> bool {
+    s.bytes().any(|b| b == b'.' || b == b'e' || b == b'E') && s.parse::<f64>().is_ok()
 }
 
 /// Walk down to the deepest node containing `byte_offset`, then back up to
@@ -899,6 +923,45 @@ mod tests {
                 .iter()
                 .all(|a| a.title != "Swap reversed BETWEEN bounds"),
             "BETWEEN swap must only fire inside the CHECK expr"
+        );
+    }
+
+    #[test]
+    fn reversed_string_between_with_non_ascii_does_not_panic_and_swaps() {
+        // Multi-byte content inside the quoted string literals must not cause
+        // a slicing panic, and the swap must still produce valid JSON.
+        // 'ü...' (first byte 0xC3) > 'a...' (0x61) byte-wise → reversed → swap.
+        let src = r#"{"name":"u","columns":[{"name":"code","type":"text"}],"constraints":[{"type":"check","name":"chk","expr":"code BETWEEN 'über' AND 'apple'"}]}"#;
+        let tree = parse(src);
+        let cursor = src.find("BETWEEN").unwrap() + 2;
+        // Must not panic on multi-byte content inside the string literals.
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        let swap = actions
+            .iter()
+            .find(|a| a.title == "Swap reversed BETWEEN bounds")
+            .expect("non-ASCII string BETWEEN swap action missing");
+        let after = apply(src, swap);
+        serde_json::from_str::<serde_json::Value>(&after)
+            .expect("swap of non-ASCII bounds must still parse as JSON");
+        assert!(after.contains("'apple' AND 'über'"), "got: {after}");
+    }
+
+    #[test]
+    fn huge_integer_between_beyond_i64_offers_no_swap() {
+        // Integers that overflow i64 must NOT be compared via f64 (rounding
+        // could mis-order) — conservative: no swap offered.
+        let big = "99999999999999999999999999"; // > i64::MAX
+        let src = format!(
+            r#"{{"name":"u","columns":[{{"name":"n","type":"integer"}}],"constraints":[{{"type":"check","name":"chk","expr":"n BETWEEN {big} AND 0"}}]}}"#
+        );
+        let tree = parse(&src);
+        let cursor = src.find("BETWEEN").unwrap() + 2;
+        let actions = compute(&src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        assert!(
+            actions
+                .iter()
+                .all(|a| a.title != "Swap reversed BETWEEN bounds"),
+            "i64-overflow integer bounds must not be ordered via f64; no swap expected"
         );
     }
 

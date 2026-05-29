@@ -43,7 +43,7 @@ pub fn validate_schema(schema: &[TableDef]) -> Result<(), PlannerError> {
 ///
 /// Within a single table, the first failing check wins (enum / PK / column /
 /// constraint helpers are still first-fail at the table-local level — see
-/// [`collect_table_violations`]). This keeps the helpers simple while still
+/// `collect_table_violations`). This keeps the helpers simple while still
 /// guaranteeing that *every table* with a problem contributes one violation.
 ///
 /// Prefer this over [`validate_schema`] when surfacing **all** violations to

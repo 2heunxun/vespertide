@@ -59,7 +59,7 @@ pub(super) fn validate_between_boundary_order(table: &TableDef) -> Result<(), Pl
 /// Inspect every table-level CHECK constraint on `table` and collect every
 /// `BETWEEN low AND high` node whose literal boundaries are reversed.
 ///
-/// Unlike [`validate_between_boundary_order`], this does not stop at the first
+/// Unlike `validate_between_boundary_order`, this does not stop at the first
 /// violation. It is used by editor diagnostics so independent CHECK mistakes in
 /// one model all get their own squiggle.
 pub fn find_between_boundary_reversals(table: &TableDef) -> Vec<PlannerError> {

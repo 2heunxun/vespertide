@@ -8,7 +8,7 @@
 //! distinctly even though all three are JSON strings at the syntax level.
 //!
 //! Architecture:
-//!   * [`legend`] defines the ordered set of token types and modifiers
+//!   * `legend` defines the ordered set of token types and modifiers
 //!     reported on `initialize` (LSP requires the indices to be stable
 //!     for the lifetime of the connection).
 //!   * `classify_*` modules tree-sitter-walk a document and emit a
@@ -56,9 +56,9 @@ fn token_cache() -> &'static TokenCache {
 pub struct RawToken {
     /// UTF-8 byte range of the token in the source document.
     pub byte_range: Range<usize>,
-    /// Index into [`TOKEN_TYPE_NAMES`].
+    /// Index into `TOKEN_TYPE_NAMES`.
     pub token_type: u32,
-    /// Bitmask over [`TOKEN_MODIFIER_NAMES`].
+    /// Bitmask over `TOKEN_MODIFIER_NAMES`.
     pub token_modifiers: u32,
 }
 

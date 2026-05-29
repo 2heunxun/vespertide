@@ -5,7 +5,7 @@
 
 use tower_lsp_server::ls_types::{SemanticTokenModifier, SemanticTokenType, SemanticTokensLegend};
 
-/// Indices into [`TOKEN_TYPE_NAMES`]. Kept as a typed enum so the
+/// Indices into `TOKEN_TYPE_NAMES`. Kept as a typed enum so the
 /// classifier never hand-codes magic numbers.
 #[derive(Debug, Clone, Copy)]
 #[repr(u32)]
@@ -27,7 +27,7 @@ pub enum TokenIdx {
     String = 6,
 }
 
-/// Indices into [`TOKEN_MODIFIER_NAMES`]. Used as a bitmask in the LSP
+/// Indices into `TOKEN_MODIFIER_NAMES`. Used as a bitmask in the LSP
 /// wire format.
 #[derive(Debug, Clone, Copy)]
 #[repr(u32)]

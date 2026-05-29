@@ -182,7 +182,7 @@ pub enum MigrationAction {
     /// are how JSON represents map keys; serde transparently parses them
     /// back to `i64`). For backward compatibility the legacy array form
     /// `[[5, 10], [100, 20]]` is still accepted on read — see
-    /// [`remap_mapping_serde`] for the details. The map iterates in
+    /// `remap_mapping_serde` for the details. The map iterates in
     /// `old_value` order at emit time so snapshots stay deterministic.
     /// Variants whose name AND value are unchanged are absent; variants
     /// added or removed (no name overlap on either side) are also absent
@@ -236,17 +236,58 @@ mod tests {
     use rstest::rstest;
 
     fn default_column() -> ColumnDef {
-        ColumnDef {
-            name: "email".into(),
-            r#type: ColumnType::Simple(SimpleColumnType::Text),
-            nullable: true,
-            default: None,
-            comment: None,
-            primary_key: None,
-            unique: None,
-            index: None,
-            foreign_key: None,
+        ColumnDef::new("email", ColumnType::Simple(SimpleColumnType::Text), true)
+    }
+
+    fn idx(name: Option<&str>, cols: &[&str]) -> TableConstraint {
+        TableConstraint::Index {
+            name: name.map(Into::into),
+            columns: cols.iter().map(|c| (*c).into()).collect(),
         }
+    }
+    fn pk_id() -> TableConstraint {
+        TableConstraint::PrimaryKey {
+            auto_increment: false,
+            columns: vec!["id".into()],
+            strategy: crate::PrimaryKeyAdditionStrategy::default(),
+        }
+    }
+    fn pk_id_auto() -> TableConstraint {
+        TableConstraint::PrimaryKey {
+            auto_increment: true,
+            columns: vec!["id".into()],
+            strategy: crate::PrimaryKeyAdditionStrategy::default(),
+        }
+    }
+    fn uq_email(name: Option<&str>) -> TableConstraint {
+        TableConstraint::Unique {
+            name: name.map(Into::into),
+            columns: vec!["email".into()],
+            strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: crate::schema::KeepPolicy::First,
+            },
+        }
+    }
+    fn fk_user(name: Option<&str>, on_delete: Option<ReferenceAction>) -> TableConstraint {
+        TableConstraint::ForeignKey {
+            name: name.map(Into::into),
+            columns: vec!["user_id".into()],
+            ref_table: "users".into(),
+            ref_columns: vec!["id".into()],
+            on_delete,
+            on_update: None,
+            orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
+        }
+    }
+    fn chk(name: &str, expr: &str) -> TableConstraint {
+        TableConstraint::Check {
+            name: name.into(),
+            expr: expr.into(),
+            strategy: crate::CheckViolationStrategy::default(),
+        }
+    }
+    fn idx_email(name: Option<&str>) -> TableConstraint {
+        idx(name, &["email"])
     }
 
     #[test]
@@ -335,43 +376,19 @@ mod tests {
         "ModifyColumnType: users.age"
     )]
     #[case::add_constraint_index_with_name(
-        MigrationAction::AddConstraint {
-            table: "users".into(),
-            constraint: TableConstraint::Index {
-                name: Some("ix_users__email".into()),
-                columns: vec!["email".into()],
-            },
-        },
+        MigrationAction::AddConstraint { table: "users".into(), constraint: idx_email(Some("ix_users__email")) },
         "AddConstraint: users.ix_users__email (INDEX)"
     )]
     #[case::add_constraint_index_without_name(
-        MigrationAction::AddConstraint {
-            table: "users".into(),
-            constraint: TableConstraint::Index {
-                name: None,
-                columns: vec!["email".into()],
-            },
-        },
+        MigrationAction::AddConstraint { table: "users".into(), constraint: idx_email(None) },
         "AddConstraint: users.INDEX"
     )]
     #[case::remove_constraint_index_with_name(
-        MigrationAction::RemoveConstraint {
-            table: "users".into(),
-            constraint: TableConstraint::Index {
-                name: Some("ix_users__email".into()),
-                columns: vec!["email".into()],
-            },
-        },
+        MigrationAction::RemoveConstraint { table: "users".into(), constraint: idx_email(Some("ix_users__email")) },
         "RemoveConstraint: users.ix_users__email (INDEX)"
     )]
     #[case::remove_constraint_index_without_name(
-        MigrationAction::RemoveConstraint {
-            table: "users".into(),
-            constraint: TableConstraint::Index {
-                name: None,
-                columns: vec!["email".into()],
-            },
-        },
+        MigrationAction::RemoveConstraint { table: "users".into(), constraint: idx_email(None) },
         "RemoveConstraint: users.INDEX"
     )]
     #[case::rename_table(
@@ -419,77 +436,27 @@ mod tests {
 
     #[rstest]
     #[case::add_constraint_primary_key(
-        MigrationAction::AddConstraint {
-            table: "users".into(),
-            constraint: TableConstraint::PrimaryKey {
-                auto_increment: false,
-                columns: vec!["id".into()],
-                strategy: crate::PrimaryKeyAdditionStrategy::default(),
-            },
-        },
+        MigrationAction::AddConstraint { table: "users".into(), constraint: pk_id() },
         "AddConstraint: users.PRIMARY KEY"
     )]
     #[case::add_constraint_unique_with_name(
-        MigrationAction::AddConstraint {
-            table: "users".into(),
-            constraint: TableConstraint::Unique {
-                name: Some("uq_email".into()),
-                columns: vec!["email".into()],
-                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
-            },
-        },
+        MigrationAction::AddConstraint { table: "users".into(), constraint: uq_email(Some("uq_email")) },
         "AddConstraint: users.uq_email (UNIQUE)"
     )]
     #[case::add_constraint_unique_without_name(
-        MigrationAction::AddConstraint {
-            table: "users".into(),
-            constraint: TableConstraint::Unique {
-                name: None,
-                columns: vec!["email".into()],
-                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
-            },
-        },
+        MigrationAction::AddConstraint { table: "users".into(), constraint: uq_email(None) },
         "AddConstraint: users.UNIQUE"
     )]
     #[case::add_constraint_foreign_key_with_name(
-        MigrationAction::AddConstraint {
-            table: "posts".into(),
-            constraint: TableConstraint::ForeignKey {
-                name: Some("fk_user".into()),
-                columns: vec!["user_id".into()],
-                ref_table: "users".into(),
-                ref_columns: vec!["id".into()],
-                on_delete: Some(ReferenceAction::Cascade),
-                on_update: None,
-                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
-            },
-        },
+        MigrationAction::AddConstraint { table: "posts".into(), constraint: fk_user(Some("fk_user"), Some(ReferenceAction::Cascade)) },
         "AddConstraint: posts.fk_user (FOREIGN KEY)"
     )]
     #[case::add_constraint_foreign_key_without_name(
-        MigrationAction::AddConstraint {
-            table: "posts".into(),
-            constraint: TableConstraint::ForeignKey {
-                name: None,
-                columns: vec!["user_id".into()],
-                ref_table: "users".into(),
-                ref_columns: vec!["id".into()],
-                on_delete: None,
-                on_update: None,
-                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
-            },
-        },
+        MigrationAction::AddConstraint { table: "posts".into(), constraint: fk_user(None, None) },
         "AddConstraint: posts.FOREIGN KEY"
     )]
     #[case::add_constraint_check(
-        MigrationAction::AddConstraint {
-            table: "users".into(),
-            constraint: TableConstraint::Check {
-                name: "chk_age".into(),
-                expr: "age > 0".into(),
-                strategy: crate::CheckViolationStrategy::default(),
-            },
-        },
+        MigrationAction::AddConstraint { table: "users".into(), constraint: chk("chk_age", "age > 0") },
         "AddConstraint: users.chk_age (CHECK)"
     )]
     fn test_display_add_constraint(#[case] action: MigrationAction, #[case] expected: &str) {
@@ -498,77 +465,27 @@ mod tests {
 
     #[rstest]
     #[case::remove_constraint_primary_key(
-        MigrationAction::RemoveConstraint {
-            table: "users".into(),
-            constraint: TableConstraint::PrimaryKey {
-                auto_increment: false,
-                columns: vec!["id".into()],
-                strategy: crate::PrimaryKeyAdditionStrategy::default(),
-            },
-        },
+        MigrationAction::RemoveConstraint { table: "users".into(), constraint: pk_id() },
         "RemoveConstraint: users.PRIMARY KEY"
     )]
     #[case::remove_constraint_unique_with_name(
-        MigrationAction::RemoveConstraint {
-            table: "users".into(),
-            constraint: TableConstraint::Unique {
-                name: Some("uq_email".into()),
-                columns: vec!["email".into()],
-                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
-            },
-        },
+        MigrationAction::RemoveConstraint { table: "users".into(), constraint: uq_email(Some("uq_email")) },
         "RemoveConstraint: users.uq_email (UNIQUE)"
     )]
     #[case::remove_constraint_unique_without_name(
-        MigrationAction::RemoveConstraint {
-            table: "users".into(),
-            constraint: TableConstraint::Unique {
-                name: None,
-                columns: vec!["email".into()],
-                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
-            },
-        },
+        MigrationAction::RemoveConstraint { table: "users".into(), constraint: uq_email(None) },
         "RemoveConstraint: users.UNIQUE"
     )]
     #[case::remove_constraint_foreign_key_with_name(
-        MigrationAction::RemoveConstraint {
-            table: "posts".into(),
-            constraint: TableConstraint::ForeignKey {
-                name: Some("fk_user".into()),
-                columns: vec!["user_id".into()],
-                ref_table: "users".into(),
-                ref_columns: vec!["id".into()],
-                on_delete: None,
-                on_update: None,
-                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
-            },
-        },
+        MigrationAction::RemoveConstraint { table: "posts".into(), constraint: fk_user(Some("fk_user"), None) },
         "RemoveConstraint: posts.fk_user (FOREIGN KEY)"
     )]
     #[case::remove_constraint_foreign_key_without_name(
-        MigrationAction::RemoveConstraint {
-            table: "posts".into(),
-            constraint: TableConstraint::ForeignKey {
-                name: None,
-                columns: vec!["user_id".into()],
-                ref_table: "users".into(),
-                ref_columns: vec!["id".into()],
-                on_delete: None,
-                on_update: None,
-                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
-            },
-        },
+        MigrationAction::RemoveConstraint { table: "posts".into(), constraint: fk_user(None, None) },
         "RemoveConstraint: posts.FOREIGN KEY"
     )]
     #[case::remove_constraint_check(
-        MigrationAction::RemoveConstraint {
-            table: "users".into(),
-            constraint: TableConstraint::Check {
-                name: "chk_age".into(),
-                expr: "age > 0".into(),
-                strategy: crate::CheckViolationStrategy::default(),
-            },
-        },
+        MigrationAction::RemoveConstraint { table: "users".into(), constraint: chk("chk_age", "age > 0") },
         "RemoveConstraint: users.chk_age (CHECK)"
     )]
     fn test_display_remove_constraint(#[case] action: MigrationAction, #[case] expected: &str) {
@@ -804,15 +721,7 @@ mod tests {
                 MigrationAction::CreateTable {
                     table: "posts".into(),
                     columns: vec![],
-                    constraints: vec![TableConstraint::ForeignKey {
-                        name: Some("fk_user".into()),
-                        columns: vec!["user_id".into()],
-                        ref_table: "users".into(),
-                        ref_columns: vec!["id".into()],
-                        on_delete: None,
-                        on_update: None,
-                        orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
-                    }],
+                    constraints: vec![fk_user(Some("fk_user"), None)],
                 },
             ],
         };
@@ -974,15 +883,7 @@ mod tests {
     fn test_action_with_prefix_add_constraint() {
         let action = MigrationAction::AddConstraint {
             table: "posts".into(),
-            constraint: TableConstraint::ForeignKey {
-                name: Some("fk_user".into()),
-                columns: vec!["user_id".into()],
-                ref_table: "users".into(),
-                ref_columns: vec!["id".into()],
-                on_delete: None,
-                on_update: None,
-                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
-            },
+            constraint: fk_user(Some("fk_user"), None),
         };
         let prefixed = action.with_prefix("myapp_");
         if let MigrationAction::AddConstraint { table, constraint } = prefixed {
@@ -1001,15 +902,7 @@ mod tests {
     fn test_action_with_prefix_remove_constraint() {
         let action = MigrationAction::RemoveConstraint {
             table: "posts".into(),
-            constraint: TableConstraint::ForeignKey {
-                name: Some("fk_user".into()),
-                columns: vec!["user_id".into()],
-                ref_table: "users".into(),
-                ref_columns: vec!["id".into()],
-                on_delete: None,
-                on_update: None,
-                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
-            },
+            constraint: fk_user(Some("fk_user"), None),
         };
         let prefixed = action.with_prefix("myapp_");
         if let MigrationAction::RemoveConstraint { table, constraint } = prefixed {
@@ -1026,143 +919,35 @@ mod tests {
 
     #[rstest]
     #[case::replace_constraint_primary_key(
-        MigrationAction::ReplaceConstraint {
-            table: "users".into(),
-            from: TableConstraint::PrimaryKey {
-                auto_increment: false,
-                columns: vec!["id".into()],
-                strategy: crate::PrimaryKeyAdditionStrategy::default(),
-            },
-            to: TableConstraint::PrimaryKey {
-                auto_increment: true,
-                columns: vec!["id".into()],
-                strategy: crate::PrimaryKeyAdditionStrategy::default(),
-            },
-        },
+        MigrationAction::ReplaceConstraint { table: "users".into(), from: pk_id(), to: pk_id_auto() },
         "ReplaceConstraint: users.PRIMARY KEY"
     )]
     #[case::replace_constraint_unique_with_name(
-        MigrationAction::ReplaceConstraint {
-            table: "users".into(),
-            from: TableConstraint::Unique {
-                name: None,
-                columns: vec!["email".into()],
-                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
-            },
-            to: TableConstraint::Unique {
-                name: Some("uq_email".into()),
-                columns: vec!["email".into()],
-                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
-            },
-        },
+        MigrationAction::ReplaceConstraint { table: "users".into(), from: uq_email(None), to: uq_email(Some("uq_email")) },
         "ReplaceConstraint: users.uq_email (UNIQUE)"
     )]
     #[case::replace_constraint_unique_without_name(
-        MigrationAction::ReplaceConstraint {
-            table: "users".into(),
-            from: TableConstraint::Unique {
-                name: Some("uq_email".into()),
-                columns: vec!["email".into()],
-                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
-            },
-            to: TableConstraint::Unique {
-                name: None,
-                columns: vec!["email".into()],
-                strategy: crate::schema::UniqueConstraintStrategy::DeleteDuplicates { keep: crate::schema::KeepPolicy::First },
-            },
-        },
+        MigrationAction::ReplaceConstraint { table: "users".into(), from: uq_email(Some("uq_email")), to: uq_email(None) },
         "ReplaceConstraint: users.UNIQUE"
     )]
     #[case::replace_constraint_foreign_key_with_name(
-        MigrationAction::ReplaceConstraint {
-            table: "posts".into(),
-            from: TableConstraint::ForeignKey {
-                name: None,
-                columns: vec!["user_id".into()],
-                ref_table: "users".into(),
-                ref_columns: vec!["id".into()],
-                on_delete: None,
-                on_update: None,
-                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
-            },
-            to: TableConstraint::ForeignKey {
-                name: Some("fk_user".into()),
-                columns: vec!["user_id".into()],
-                ref_table: "users".into(),
-                ref_columns: vec!["id".into()],
-                on_delete: None,
-                on_update: None,
-                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
-            },
-        },
+        MigrationAction::ReplaceConstraint { table: "posts".into(), from: fk_user(None, None), to: fk_user(Some("fk_user"), None) },
         "ReplaceConstraint: posts.fk_user (FOREIGN KEY)"
     )]
     #[case::replace_constraint_foreign_key_without_name(
-        MigrationAction::ReplaceConstraint {
-            table: "posts".into(),
-            from: TableConstraint::ForeignKey {
-                name: Some("fk_user".into()),
-                columns: vec!["user_id".into()],
-                ref_table: "users".into(),
-                ref_columns: vec!["id".into()],
-                on_delete: None,
-                on_update: None,
-                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
-            },
-            to: TableConstraint::ForeignKey {
-                name: None,
-                columns: vec!["user_id".into()],
-                ref_table: "users".into(),
-                ref_columns: vec!["id".into()],
-                on_delete: None,
-                on_update: None,
-                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
-            },
-        },
+        MigrationAction::ReplaceConstraint { table: "posts".into(), from: fk_user(Some("fk_user"), None), to: fk_user(None, None) },
         "ReplaceConstraint: posts.FOREIGN KEY"
     )]
     #[case::replace_constraint_check(
-        MigrationAction::ReplaceConstraint {
-            table: "users".into(),
-            from: TableConstraint::Check {
-                name: "chk_age".into(),
-                expr: "age > 0".into(),
-                strategy: crate::CheckViolationStrategy::default(),
-            },
-            to: TableConstraint::Check {
-                name: "chk_age".into(),
-                expr: "age >= 0".into(),
-                strategy: crate::CheckViolationStrategy::default(),
-            },
-        },
+        MigrationAction::ReplaceConstraint { table: "users".into(), from: chk("chk_age", "age > 0"), to: chk("chk_age", "age >= 0") },
         "ReplaceConstraint: users.chk_age (CHECK)"
     )]
     #[case::replace_constraint_index_with_name(
-        MigrationAction::ReplaceConstraint {
-            table: "users".into(),
-            from: TableConstraint::Index {
-                name: None,
-                columns: vec!["email".into()],
-            },
-            to: TableConstraint::Index {
-                name: Some("ix_users__email".into()),
-                columns: vec!["email".into()],
-            },
-        },
+        MigrationAction::ReplaceConstraint { table: "users".into(), from: idx_email(None), to: idx_email(Some("ix_users__email")) },
         "ReplaceConstraint: users.ix_users__email (INDEX)"
     )]
     #[case::replace_constraint_index_without_name(
-        MigrationAction::ReplaceConstraint {
-            table: "users".into(),
-            from: TableConstraint::Index {
-                name: Some("ix_users__email".into()),
-                columns: vec!["email".into()],
-            },
-            to: TableConstraint::Index {
-                name: None,
-                columns: vec!["email".into()],
-            },
-        },
+        MigrationAction::ReplaceConstraint { table: "users".into(), from: idx_email(Some("ix_users__email")), to: idx_email(None) },
         "ReplaceConstraint: users.INDEX"
     )]
     fn test_display_replace_constraint(#[case] action: MigrationAction, #[case] expected: &str) {
@@ -1173,24 +958,8 @@ mod tests {
     fn test_action_with_prefix_replace_constraint() {
         let action = MigrationAction::ReplaceConstraint {
             table: "posts".into(),
-            from: TableConstraint::ForeignKey {
-                name: Some("fk_user".into()),
-                columns: vec!["user_id".into()],
-                ref_table: "users".into(),
-                ref_columns: vec!["id".into()],
-                on_delete: Some(ReferenceAction::Cascade),
-                on_update: None,
-                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
-            },
-            to: TableConstraint::ForeignKey {
-                name: Some("fk_user".into()),
-                columns: vec!["user_id".into()],
-                ref_table: "users".into(),
-                ref_columns: vec!["id".into()],
-                on_delete: Some(ReferenceAction::SetNull),
-                on_update: None,
-                orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
-            },
+            from: fk_user(Some("fk_user"), Some(ReferenceAction::Cascade)),
+            to: fk_user(Some("fk_user"), Some(ReferenceAction::SetNull)),
         };
         let prefixed = action.with_prefix("myapp_");
         if let MigrationAction::ReplaceConstraint { table, from, to } = prefixed {

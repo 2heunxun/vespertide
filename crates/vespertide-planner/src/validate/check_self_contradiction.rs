@@ -83,7 +83,7 @@ pub(super) fn validate_self_contradiction(table: &TableDef) -> Result<(), Planne
 /// Inspect every table-level CHECK constraint on `table` and collect each
 /// constraint whose expression contains a demonstrable self-contradiction.
 ///
-/// Unlike [`validate_self_contradiction`], this does not stop at the first
+/// Unlike `validate_self_contradiction`, this does not stop at the first
 /// faulty constraint. It is used by editor diagnostics so independent CHECK
 /// mistakes in one model all get their own squiggle.
 pub fn find_self_contradictions(table: &TableDef) -> Vec<PlannerError> {

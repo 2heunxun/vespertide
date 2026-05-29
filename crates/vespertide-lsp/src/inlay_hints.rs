@@ -23,7 +23,7 @@ use vespertide_planner::{CheckTokenKind, lex_check_expr};
 use crate::check_expr_range::expr_inner_range;
 
 /// A single inline annotation. The LSP layer maps `byte_offset` to an LSP
-/// `Position` and uses [`InlayHintKind::TYPE`] for these (matching how
+/// `Position` and uses `InlayHintKind::TYPE` for these (matching how
 /// rust-analyzer surfaces type info — the closest semantic match).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DomainInlayHint {

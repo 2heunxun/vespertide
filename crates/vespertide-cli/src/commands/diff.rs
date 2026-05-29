@@ -653,25 +653,56 @@ mod tests {
         let table = TableDef {
             name: name.into(),
             description: None,
-            columns: vec![ColumnDef {
-                name: "id".into(),
-                r#type: ColumnType::Simple(SimpleColumnType::Integer),
-                nullable: false,
-                default: None,
-                comment: None,
-                primary_key: None,
-                unique: None,
-                index: None,
-                foreign_key: None,
-            }],
-            constraints: vec![TableConstraint::PrimaryKey {
-                auto_increment: false,
-                columns: vec!["id".into()],
-                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-            }],
+            columns: vec![ColumnDef::new(
+                "id",
+                ColumnType::Simple(SimpleColumnType::Integer),
+                false,
+            )],
+            constraints: vec![pk_id()],
         };
         let path = models_dir.join(format!("{name}.json"));
         fs::write(path, serde_json::to_string_pretty(&table).unwrap()).unwrap();
+    }
+
+    fn idx(name: Option<&str>, cols: &[&str]) -> TableConstraint {
+        TableConstraint::Index {
+            name: name.map(Into::into),
+            columns: cols.iter().map(|c| (*c).into()).collect(),
+        }
+    }
+    fn pk_id() -> TableConstraint {
+        TableConstraint::PrimaryKey {
+            auto_increment: false,
+            columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+        }
+    }
+    fn uq_email(name: Option<&str>) -> TableConstraint {
+        TableConstraint::Unique {
+            name: name.map(Into::into),
+            columns: vec!["email".into()],
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
+        }
+    }
+    fn fk_user(name: Option<&str>, on_delete: Option<ReferenceAction>) -> TableConstraint {
+        TableConstraint::ForeignKey {
+            name: name.map(Into::into),
+            columns: vec!["user_id".into()],
+            ref_table: "users".into(),
+            ref_columns: vec!["id".into()],
+            on_delete,
+            on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
+        }
+    }
+    fn chk_age() -> TableConstraint {
+        TableConstraint::Check {
+            name: "check_age".into(),
+            expr: "age > 0".into(),
+            strategy: vespertide_core::CheckViolationStrategy::default(),
+        }
     }
 
     #[rstest]
@@ -684,29 +715,11 @@ mod tests {
         format!("{} {}", "Delete table:".bright_red(), "users".bright_cyan().bold())
     )]
     #[case(
-        MigrationAction::AddColumn {
-            table: "users".into(),
-            column: Box::new(ColumnDef {
-                name: "name".into(),
-                r#type: ColumnType::Simple(SimpleColumnType::Text),
-                nullable: true,
-                default: None,
-                comment: None,
-                primary_key: None,
-                unique: None,
-                index: None,
-                foreign_key: None,
-            }),
-            fill_with: None,
-        },
+        MigrationAction::AddColumn { table: "users".into(), column: Box::new(ColumnDef::new("name", ColumnType::Simple(SimpleColumnType::Text), true)), fill_with: None },
         format!("{} {}.{}", "Add column:".bright_green(), "users".bright_cyan(), "name".bright_cyan().bold())
     )]
     #[case(
-        MigrationAction::RenameColumn {
-            table: "users".into(),
-            from: "old".into(),
-            to: "new".into(),
-        },
+        MigrationAction::RenameColumn { table: "users".into(), from: "old".into(), to: "new".into() },
         format!("{} {}.{} {} {}", "Rename column:".bright_yellow(), "users".bright_cyan(), "old".bright_white(), "->".bright_white(), "new".bright_cyan().bold())
     )]
     #[case(
@@ -714,34 +727,15 @@ mod tests {
         format!("{} {}.{}", "Delete column:".bright_red(), "users".bright_cyan(), "name".bright_cyan().bold())
     )]
     #[case(
-        MigrationAction::ModifyColumnType {
-            table: "users".into(),
-            column: "id".into(),
-            new_type: ColumnType::Simple(SimpleColumnType::Integer),
-            fill_with: None,
-            narrowing_strategy: None,
-            timezone: None,
-        },
+        MigrationAction::ModifyColumnType { table: "users".into(), column: "id".into(), new_type: ColumnType::Simple(SimpleColumnType::Integer), fill_with: None, narrowing_strategy: None, timezone: None },
         format!("{} {}.{} {} {}", "Modify column type:".bright_yellow(), "users".bright_cyan(), "id".bright_cyan().bold(), "->".bright_white(), "integer".bright_cyan().bold())
     )]
     #[case(
-        MigrationAction::AddConstraint {
-            table: "users".into(),
-            constraint: vespertide_core::TableConstraint::Index {
-                name: Some("idx".into()),
-                columns: vec!["id".into()],
-            },
-        },
+        MigrationAction::AddConstraint { table: "users".into(), constraint: idx(Some("idx"), &["id"]) },
         format!("{} {} {} {}", "Add constraint:".bright_green(), "idx INDEX (id)".bright_cyan().bold(), "on".bright_white(), "users".bright_cyan())
     )]
     #[case(
-        MigrationAction::RemoveConstraint {
-            table: "users".into(),
-            constraint: vespertide_core::TableConstraint::Index {
-                name: Some("idx".into()),
-                columns: vec!["id".into()],
-            },
-        },
+        MigrationAction::RemoveConstraint { table: "users".into(), constraint: idx(Some("idx"), &["id"]) },
         format!("{} {} {} {}", "Remove constraint:".bright_red(), "idx INDEX (id)".bright_cyan().bold(), "from".bright_white(), "users".bright_cyan())
     )]
     #[case(
@@ -753,240 +747,67 @@ mod tests {
         format!("{} {}", "Execute raw SQL:".bright_yellow(), "SELECT 1".bright_cyan())
     )]
     #[case(
-        MigrationAction::AddConstraint {
-            table: "users".into(),
-            constraint: vespertide_core::TableConstraint::PrimaryKey {
-                auto_increment: false,
-                columns: vec!["id".into()],
-                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-            },
-        },
+        MigrationAction::AddConstraint { table: "users".into(), constraint: pk_id() },
         format!("{} {} {} {}", "Add constraint:".bright_green(), "PRIMARY KEY (id)".bright_cyan().bold(), "on".bright_white(), "users".bright_cyan())
     )]
     #[case(
-        MigrationAction::AddConstraint {
-            table: "users".into(),
-            constraint: vespertide_core::TableConstraint::Unique {
-                name: Some("unique_email".into()),
-                columns: vec!["email".into()],
-                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
-            },
-        },
+        MigrationAction::AddConstraint { table: "users".into(), constraint: uq_email(Some("unique_email")) },
         format!("{} {} {} {}", "Add constraint:".bright_green(), "unique_email UNIQUE (email)".bright_cyan().bold(), "on".bright_white(), "users".bright_cyan())
     )]
     #[case(
-        MigrationAction::AddConstraint {
-            table: "posts".into(),
-            constraint: vespertide_core::TableConstraint::ForeignKey {
-                name: Some("fk_user".into()),
-                columns: vec!["user_id".into()],
-                ref_table: "users".into(),
-                ref_columns: vec!["id".into()],
-                on_delete: None,
-                on_update: None,
-                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
-            },
-        },
+        MigrationAction::AddConstraint { table: "posts".into(), constraint: fk_user(Some("fk_user"), None) },
         format!("{} {} {} {}", "Add constraint:".bright_green(), "fk_user FK (user_id) -> users".bright_cyan().bold(), "on".bright_white(), "posts".bright_cyan())
     )]
     #[case(
-        MigrationAction::AddConstraint {
-            table: "users".into(),
-            constraint: vespertide_core::TableConstraint::Check {
-                name: "check_age".into(),
-                expr: "age > 0".into(),
-                strategy: vespertide_core::CheckViolationStrategy::default(),
-            },
-        },
+        MigrationAction::AddConstraint { table: "users".into(), constraint: chk_age() },
         format!("{} {} {} {}", "Add constraint:".bright_green(), "check_age CHECK (age > 0)".bright_cyan().bold(), "on".bright_white(), "users".bright_cyan())
     )]
     #[case(
-        MigrationAction::RemoveConstraint {
-            table: "users".into(),
-            constraint: vespertide_core::TableConstraint::PrimaryKey {
-                auto_increment: false,
-                columns: vec!["id".into()],
-                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-            },
-        },
+        MigrationAction::RemoveConstraint { table: "users".into(), constraint: pk_id() },
         format!("{} {} {} {}", "Remove constraint:".bright_red(), "PRIMARY KEY (id)".bright_cyan().bold(), "from".bright_white(), "users".bright_cyan())
     )]
     #[case(
-        MigrationAction::RemoveConstraint {
-            table: "users".into(),
-            constraint: vespertide_core::TableConstraint::Unique {
-                name: None,
-                columns: vec!["email".into()],
-                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates { keep: vespertide_core::KeepPolicy::First },
-            },
-        },
+        MigrationAction::RemoveConstraint { table: "users".into(), constraint: uq_email(None) },
         format!("{} {} {} {}", "Remove constraint:".bright_red(), "UNIQUE (email)".bright_cyan().bold(), "from".bright_white(), "users".bright_cyan())
     )]
     #[case(
-        MigrationAction::RemoveConstraint {
-            table: "posts".into(),
-            constraint: vespertide_core::TableConstraint::ForeignKey {
-                name: None,
-                columns: vec!["user_id".into()],
-                ref_table: "users".into(),
-                ref_columns: vec!["id".into()],
-                on_delete: None,
-                on_update: None,
-                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
-            },
-        },
+        MigrationAction::RemoveConstraint { table: "posts".into(), constraint: fk_user(None, None) },
         format!("{} {} {} {}", "Remove constraint:".bright_red(), "FK (user_id) -> users".bright_cyan().bold(), "from".bright_white(), "posts".bright_cyan())
     )]
     #[case(
-        MigrationAction::RemoveConstraint {
-            table: "users".into(),
-            constraint: vespertide_core::TableConstraint::Check {
-                name: "check_age".into(),
-                expr: "age > 0".into(),
-                strategy: vespertide_core::CheckViolationStrategy::default(),
-            },
-        },
-        format!(
-            "{} {} {} {}",
-            "Remove constraint:".bright_red(),
-            "check_age CHECK (age > 0)".bright_cyan().bold(),
-            "from".bright_white(),
-            "users".bright_cyan()
-        )
+        MigrationAction::RemoveConstraint { table: "users".into(), constraint: chk_age() },
+        format!("{} {} {} {}", "Remove constraint:".bright_red(), "check_age CHECK (age > 0)".bright_cyan().bold(), "from".bright_white(), "users".bright_cyan())
     )]
     #[case(
-        MigrationAction::ModifyColumnNullable {
-            table: "users".into(),
-            column: "email".into(),
-            nullable: false,
-            fill_with: None,
-            delete_null_rows: None,
-        },
-        format!(
-            "{} {}.{} {} {}",
-            "Modify column nullability:".bright_yellow(),
-            "users".bright_cyan(),
-            "email".bright_cyan().bold(),
-            "->".bright_white(),
-            "NOT NULL".bright_cyan().bold()
-        )
+        MigrationAction::ModifyColumnNullable { table: "users".into(), column: "email".into(), nullable: false, fill_with: None, delete_null_rows: None },
+        format!("{} {}.{} {} {}", "Modify column nullability:".bright_yellow(), "users".bright_cyan(), "email".bright_cyan().bold(), "->".bright_white(), "NOT NULL".bright_cyan().bold())
     )]
     #[case(
-        MigrationAction::ModifyColumnNullable {
-            table: "users".into(),
-            column: "email".into(),
-            nullable: true,
-            fill_with: None,
-            delete_null_rows: None,
-        },
-        format!(
-            "{} {}.{} {} {}",
-            "Modify column nullability:".bright_yellow(),
-            "users".bright_cyan(),
-            "email".bright_cyan().bold(),
-            "->".bright_white(),
-            "NULL".bright_cyan().bold()
-        )
+        MigrationAction::ModifyColumnNullable { table: "users".into(), column: "email".into(), nullable: true, fill_with: None, delete_null_rows: None },
+        format!("{} {}.{} {} {}", "Modify column nullability:".bright_yellow(), "users".bright_cyan(), "email".bright_cyan().bold(), "->".bright_white(), "NULL".bright_cyan().bold())
     )]
     #[case(
-        MigrationAction::ModifyColumnDefault {
-            table: "users".into(),
-            column: "status".into(),
-            new_default: Some("'active'".into()),
-            backfill: None,
-        },
-        format!(
-            "{} {}.{} {} {}",
-            "Modify column default:".bright_yellow(),
-            "users".bright_cyan(),
-            "status".bright_cyan().bold(),
-            "->".bright_white(),
-            "'active'".bright_cyan().bold()
-        )
+        MigrationAction::ModifyColumnDefault { table: "users".into(), column: "status".into(), new_default: Some("'active'".into()), backfill: None },
+        format!("{} {}.{} {} {}", "Modify column default:".bright_yellow(), "users".bright_cyan(), "status".bright_cyan().bold(), "->".bright_white(), "'active'".bright_cyan().bold())
     )]
     #[case(
-        MigrationAction::ModifyColumnDefault {
-            table: "users".into(),
-            column: "status".into(),
-            new_default: None,
-            backfill: None,
-        },
-        format!(
-            "{} {}.{} {} {}",
-            "Modify column default:".bright_yellow(),
-            "users".bright_cyan(),
-            "status".bright_cyan().bold(),
-            "->".bright_white(),
-            "(none)".bright_cyan().bold()
-        )
+        MigrationAction::ModifyColumnDefault { table: "users".into(), column: "status".into(), new_default: None, backfill: None },
+        format!("{} {}.{} {} {}", "Modify column default:".bright_yellow(), "users".bright_cyan(), "status".bright_cyan().bold(), "->".bright_white(), "(none)".bright_cyan().bold())
     )]
     #[case(
-        MigrationAction::ModifyColumnComment {
-            table: "users".into(),
-            column: "email".into(),
-            new_comment: Some("User email address".into()),
-        },
-        format!(
-            "{} {}.{} {} '{}'",
-            "Modify column comment:".bright_yellow(),
-            "users".bright_cyan(),
-            "email".bright_cyan().bold(),
-            "->".bright_white(),
-            "User email address".bright_cyan().bold()
-        )
+        MigrationAction::ModifyColumnComment { table: "users".into(), column: "email".into(), new_comment: Some("User email address".into()) },
+        format!("{} {}.{} {} '{}'", "Modify column comment:".bright_yellow(), "users".bright_cyan(), "email".bright_cyan().bold(), "->".bright_white(), "User email address".bright_cyan().bold())
     )]
     #[case(
-        MigrationAction::ModifyColumnComment {
-            table: "users".into(),
-            column: "email".into(),
-            new_comment: None,
-        },
-        format!(
-            "{} {}.{} {} '{}'",
-            "Modify column comment:".bright_yellow(),
-            "users".bright_cyan(),
-            "email".bright_cyan().bold(),
-            "->".bright_white(),
-            "(none)".bright_cyan().bold()
-        )
+        MigrationAction::ModifyColumnComment { table: "users".into(), column: "email".into(), new_comment: None },
+        format!("{} {}.{} {} '{}'", "Modify column comment:".bright_yellow(), "users".bright_cyan(), "email".bright_cyan().bold(), "->".bright_white(), "(none)".bright_cyan().bold())
     )]
     #[case(
-        MigrationAction::ModifyColumnComment {
-            table: "users".into(),
-            column: "email".into(),
-            new_comment: Some("This is a very long comment that exceeds thirty characters and should be truncated".into()),
-        },
-        format!(
-            "{} {}.{} {} '{}'",
-            "Modify column comment:".bright_yellow(),
-            "users".bright_cyan(),
-            "email".bright_cyan().bold(),
-            "->".bright_white(),
-            "This is a very long comment...".bright_cyan().bold()
-        )
+        MigrationAction::ModifyColumnComment { table: "users".into(), column: "email".into(), new_comment: Some("This is a very long comment that exceeds thirty characters and should be truncated".into()) },
+        format!("{} {}.{} {} '{}'", "Modify column comment:".bright_yellow(), "users".bright_cyan(), "email".bright_cyan().bold(), "->".bright_white(), "This is a very long comment...".bright_cyan().bold())
     )]
     #[case(
-        MigrationAction::ReplaceConstraint {
-            table: "posts".into(),
-            from: vespertide_core::TableConstraint::ForeignKey {
-                name: Some("fk_user".into()),
-                columns: vec!["user_id".into()],
-                ref_table: "users".into(),
-                ref_columns: vec!["id".into()],
-                on_delete: None,
-                on_update: None,
-                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
-            },
-            to: vespertide_core::TableConstraint::ForeignKey {
-                name: Some("fk_user".into()),
-                columns: vec!["user_id".into()],
-                ref_table: "users".into(),
-                ref_columns: vec!["id".into()],
-                on_delete: Some(ReferenceAction::Cascade),
-                on_update: None,
-                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
-            },
-        },
+        MigrationAction::ReplaceConstraint { table: "posts".into(), from: fk_user(Some("fk_user"), None), to: fk_user(Some("fk_user"), Some(ReferenceAction::Cascade)) },
         format!("{} {} {} {} {} {}", "Replace constraint:".bright_yellow(), "fk_user FK (user_id) -> users".bright_cyan().bold(), "->".bright_white(), "fk_user FK (user_id) -> users".bright_cyan().bold(), "on".bright_white(), "posts".bright_cyan())
     )]
     #[serial]
@@ -1108,10 +929,7 @@ mod tests {
         assert!(out.contains("ix_audit__tenant_id_user_id"));
     }
 
-    // -----------------------------------------------------------------------
     // F50: constraint-drop warnings
-    // -----------------------------------------------------------------------
-
     fn drop_warning(
         kind: vespertide_core::ConstraintKind,
         label: &str,
@@ -1194,10 +1012,7 @@ mod tests {
         assert!(out.contains("total > 0"));
     }
 
-    // -----------------------------------------------------------------------
     // F30: FK policy change warnings
-    // -----------------------------------------------------------------------
-
     use vespertide_planner::PolicyDelta;
 
     fn policy_warning(
@@ -1211,14 +1026,8 @@ mod tests {
             columns: vec!["user_id".to_string()],
             ref_table: "users".to_string(),
             ref_columns: vec!["id".to_string()],
-            on_delete_change: on_delete.map(|(b, a)| PolicyDelta {
-                before: b,
-                after: a,
-            }),
-            on_update_change: on_update.map(|(b, a)| PolicyDelta {
-                before: b,
-                after: a,
-            }),
+            on_delete_change: on_delete.map(|(before, after)| PolicyDelta { before, after }),
+            on_update_change: on_update.map(|(before, after)| PolicyDelta { before, after }),
         }
     }
 
@@ -1232,7 +1041,6 @@ mod tests {
             None,
         );
         let out = format_fk_policy_change_warning(&w);
-
         assert!(out.contains("ON DELETE:"), "missing ON DELETE row: {out}");
         assert!(out.contains("CASCADE"));
         assert!(out.contains("RESTRICT"));
@@ -1249,7 +1057,6 @@ mod tests {
     fn format_fk_policy_warning_on_update_only_renders_single_delta_line() {
         let w = policy_warning(None, Some((None, Some(ReferenceAction::Cascade))));
         let out = format_fk_policy_change_warning(&w);
-
         assert!(!out.contains("ON DELETE:"));
         assert!(out.contains("ON UPDATE:"));
         // None policy renders as the SQL-standard default.
@@ -1270,7 +1077,6 @@ mod tests {
             )),
         );
         let out = format_fk_policy_change_warning(&w);
-
         assert!(out.contains("ON DELETE:"));
         assert!(out.contains("SET NULL"));
         assert!(out.contains("ON UPDATE:"));
@@ -1294,10 +1100,7 @@ mod tests {
         assert!(out.contains("(unnamed)"));
     }
 
-    // -----------------------------------------------------------------------
     // F6/F19/F33/F87: type narrowing warnings
-    // -----------------------------------------------------------------------
-
     use vespertide_planner::NarrowingKind;
 
     fn narrowing(
@@ -1327,7 +1130,6 @@ mod tests {
             NarrowingKind::VarcharLength { from: 40, to: 30 },
         );
         let out = format_type_narrowing_warning(&w);
-
         // Identity line
         assert!(out.contains("users.email"));
         assert!(out.contains("varchar(40)"));
