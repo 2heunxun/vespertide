@@ -6,7 +6,7 @@
 //! without running a daemon.
 //!
 //! `pg_query@6` = PG 17 parser grammar. Windows (MSVC + GNU) is supported since
-//! libpg_query 16-5.1.0 / pg_query v5+, so this test runs on every platform —
+//! `libpg_query` 16-5.1.0 / `pg_query` v5+, so this test runs on every platform —
 //! no `cfg` gate, ensuring API drift can never slip past a Windows-only dev.
 
 use proptest::prelude::*;
