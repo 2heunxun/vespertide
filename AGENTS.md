@@ -440,9 +440,25 @@ There is no separate `lsp-release.yml` or `vscode-release.yml`.
 - `.changepacks/changepack_log_*.json` runtime state is gitignored.
 
 ### Zed extension
-Zed publishes happen out-of-band against the external `zed-industries/extensions`
-repo and are not in this pipeline. Update `apps/zed-extension/extension.toml`
-manually and open a PR against that repo when the LSP binary version moves.
+Zed publishing is now **automated** via the `zed-release` job in
+`.github/workflows/CI.yml` (community `huacnlee/zed-extension-action@v1`). It
+fires whenever `crates/vespertide-lsp/Cargo.toml` is in the changepacks wave
+(same trigger as `lsp-release`, because the Zed extension is a thin WASM shim
+that downloads `vespertide-lsp` from GitHub Releases at runtime), or on a manual
+`workflow_dispatch` with a `zed_version` input. The job bumps
+`apps/zed-extension/{extension.toml,Cargo.toml}` to the released version, pushes
+a lightweight `zed-extension-v<ver>` tag carrying that bump (main is left
+untouched), then opens/updates a PR against `zed-industries/extensions`.
+
+**Requirements (one-time, manual):**
+- A `dev-five-git/extensions` fork of `zed-industries/extensions`.
+- A `ZED_EXTENSIONS_TOKEN` repo secret — a PAT (or GitHub App token) with
+  `repo` + `workflow` scopes, able to push to the fork and open the upstream PR.
+- **Initial registration**: the very first time, manually open a PR to
+  `zed-industries/extensions` adding the extension as a git submodule plus an
+  `extensions.toml` entry with `path = "apps/zed-extension"` (monorepo subdir).
+  Subsequent automated bumps only edit `version` + the submodule SHA, so the
+  `path` field persists.
 
 ## MUTATION TESTING
 
