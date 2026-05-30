@@ -5,12 +5,9 @@
 //! by a real `PostgreSQL` server. This is the strictest PG validation possible
 //! without running a daemon.
 //!
-//! This file is gated to non-Windows targets because the `PostgreSQL` source tree
-//! does not build cleanly on MSVC/MinGW.
-//!
-//! `pg_query@6` = PG 17 parser grammar.
-
-#![cfg(not(target_os = "windows"))]
+//! `pg_query@6` = PG 17 parser grammar. Windows (MSVC + GNU) is supported since
+//! libpg_query 16-5.1.0 / pg_query v5+, so this test runs on every platform —
+//! no `cfg` gate, ensuring API drift can never slip past a Windows-only dev.
 
 use proptest::prelude::*;
 use vespertide_core::arbitrary::arb_table_def;
@@ -50,8 +47,8 @@ proptest! {
     #[test]
     fn pg_query_accepts_drop_and_rename(name in proptest::string::string_regex("[a-z][a-z0-9_]{0,15}").unwrap()) {
         let actions = [
-            MigrationAction::DeleteTable { table: name.clone() },
-            MigrationAction::RenameTable { from: name.clone(), to: format!("{name}_v2") },
+            MigrationAction::DeleteTable { table: name.clone().into() },
+            MigrationAction::RenameTable { from: name.clone().into(), to: format!("{name}_v2").into() },
         ];
         for action in &actions {
             let queries = build_action_queries(DatabaseBackend::Postgres, action, &[])

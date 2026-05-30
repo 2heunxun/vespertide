@@ -35,11 +35,10 @@ vespertide-core = { workspace = true, features = ["arbitrary"] }
 # - sqlparser:          pure-Rust 3-dialect SQL parser for Postgres/MySQL/SQLite syntax checks
 rusqlite = { version = "0.40", features = ["bundled"] }
 sqlparser = "0.62"
-
-# pg_query is PostgreSQL's real C parser via FFI. It does not build on Windows
-# (PG itself is Linux/macOS-first), but CI runs on Ubuntu so this gate is enforced there.
-# Windows developers will skip the `sql_pg_query` test file via #[cfg].
-[target.'cfg(not(target_os = "windows"))'.dev-dependencies]
+# pg_query = PostgreSQL's real C parser (libpg_query) via FFI, for strict PG
+# SQL validation. Windows (MSVC + GNU) is supported since libpg_query 16-5.1.0
+# / pg_query v5+ and CI-tested upstream, so NO platform gate — the test must
+# compile on every platform to avoid blind spots (see sql_pg_query.rs).
 pg_query = "6"
 
 [[bench]]
