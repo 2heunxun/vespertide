@@ -595,6 +595,13 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      # pg_query (dev-dep of vespertide-query, used by the sql_pg_query test)
+      # builds via bindgen, which needs libclang; the tarpaulin container does
+      # not ship it (ubuntu-latest runners do, which is why the `test` job is
+      # fine). Install libclang + the libpg_query C build toolchain here so
+      # `cargo tarpaulin --workspace` can compile the pg_query dev-dependency.
+      - name: Install pg_query build deps (libclang + PG C toolchain)
+        run: apt-get update && apt-get install -y clang libclang-dev build-essential libreadline-dev zlib1g-dev flex bison
       - name: Coverage
         run: |
           # rust coverage issue
