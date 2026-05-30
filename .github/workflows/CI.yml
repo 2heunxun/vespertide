@@ -489,7 +489,7 @@ jobs:
         shell: bash
 
       - name: Open PR to zed-industries/extensions
-        uses: huacnlee/zed-extension-action@v1
+        uses: huacnlee/zed-extension-action@v2
         with:
           extension-name: vespertide
           extension-path: extensions/vespertide

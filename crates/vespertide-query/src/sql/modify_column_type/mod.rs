@@ -138,7 +138,7 @@ fn build_pg_alter_with_timezone(
 
 use std::collections::BTreeMap;
 
-use sea_query::{Alias, Expr, Query};
+use sea_query::{Alias, Expr, ExprTrait, Query};
 
 use vespertide_core::{ColumnType, TableDef};
 

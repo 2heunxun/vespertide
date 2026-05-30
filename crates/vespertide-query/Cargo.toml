@@ -17,7 +17,11 @@ vespertide-core = { workspace = true }
 vespertide-naming = { workspace = true }
 vespertide-planner = { workspace = true }
 thiserror = "2"
-sea-query = { version = "0.32", features = ["thread-safe"] }
+# Pinned to the sea-query release that `sea-orm 2.0.0-rc.38` hard-pins
+# (`=1.0.0-rc.33`). sea-orm is the primary dependency, so vespertide-query
+# tracks its sea-query line to keep a single unified version in the graph.
+# The caret form still permits stable 1.0.0 once sea-orm upgrades past the rc.
+sea-query = { version = "1.0.0-rc.33", features = ["thread-safe"] }
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
@@ -29,7 +33,7 @@ vespertide-core = { workspace = true, features = ["arbitrary"] }
 # Daemon-free SQL validation:
 # - rusqlite (bundled): in-memory SQLite for real execution checks (no system libsqlite needed)
 # - sqlparser:          pure-Rust 3-dialect SQL parser for Postgres/MySQL/SQLite syntax checks
-rusqlite = { version = "0.39", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 sqlparser = "0.62"
 
 # pg_query is PostgreSQL's real C parser via FFI. It does not build on Windows

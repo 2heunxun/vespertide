@@ -10,7 +10,7 @@ tokio = { version = "1", features = ["full"] }
 sea-orm = { version = "2.0.0-rc.38", features = ["sqlx-sqlite", "sqlx-postgres", "runtime-tokio-native-tls", "macros"] }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
-vespera = "0.1.51"
+vespera = "0.2.0"
 
 # Mirror the workspace lint policy explicitly — `[lints] workspace = true`
 # cannot be used because this crate is intentionally outside the workspace
