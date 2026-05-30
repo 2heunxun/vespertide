@@ -45,10 +45,14 @@ _tmp_*/
 # Intentional outputs should be named without the `_output.txt` suffix.
 *_output.txt
 
-# ─── changepacks runtime logs ─────────────────────────────────────────
-# `bunx @changepacks/cli` writes per-run state files. Config (`config.json`)
-# and any committed change descriptors stay tracked; runtime logs do not.
-.changepacks/changepack_log_*.json
+# ─── changepacks ──────────────────────────────────────────────────────
+# NOTE: `.changepacks/changepack_log_*.json` files ARE the committed bump
+# descriptors (written by `bunx @changepacks/cli`, consumed by
+# `changepacks/action` on merge — analogous to changesets' `.changeset/*.md`).
+# They MUST stay tracked; ignoring them makes the release Action see no pending
+# changepacks and never open the "Update Versions" PR. Only the CLI binary that
+# the Action downloads into the repo root during CI is a runtime artifact.
+/changepacks
 
 # ─── Coverage output ──────────────────────────────────────────────────
 coverage/

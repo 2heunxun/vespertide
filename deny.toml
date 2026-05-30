@@ -18,6 +18,13 @@ allow = [
     "MPL-2.0",
     "CC0-1.0",
     "0BSD",
+    # NCSA (University of Illinois/NCSA Open Source License) — permissive,
+    # required only by `libfuzzer-sys` (`(MIT OR Apache-2.0) AND NCSA`), a
+    # dev-only dependency of the `vespertide-fuzz` cargo-fuzz harness.
+    "NCSA",
+    # MIT-0 (MIT No Attribution) — permissive, OSI-approved. Required by
+    # `borrow-or-share` (via `fluent-uri` → `tower-lsp-server`).
+    "MIT-0",
 ]
 confidence-threshold = 0.9
 

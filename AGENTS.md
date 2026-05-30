@@ -437,7 +437,13 @@ There is no separate `lsp-release.yml` or `vscode-release.yml`.
   `apps/vscode-extension/package.json`. `apps/landing`, `apps/zed-extension`,
   `tools/`, and `tests/` are intentionally not tracked.
 - Required secrets: `CARGO_REGISTRY_TOKEN`, `VSCE_PAT`, `OVSX_PAT`.
-- `.changepacks/changepack_log_*.json` runtime state is gitignored.
+- `.changepacks/changepack_log_*.json` files are the **committed bump
+  descriptors** (written by `bunx @changepacks/cli`, consumed by
+  `changepacks/action` on merge — analogous to changesets' `.changeset/*.md`),
+  not runtime state. They MUST be committed; the random suffix avoids
+  parallel-PR conflicts and the Action deletes them when it opens the "Update
+  Versions" PR. Only the `changepacks` CLI binary the Action downloads into the
+  repo root during CI is gitignored.
 
 ### Zed extension
 Zed publishing is now **automated** via the `zed-release` job in

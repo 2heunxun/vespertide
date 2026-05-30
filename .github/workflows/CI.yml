@@ -120,11 +120,48 @@ jobs:
         with:
           fetch-depth: 0
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+      # Derive the cargo-semver-checks release-type from the changepack THIS PR
+      # introduces, instead of hardcoding it. Rationale: on a feature PR the crate
+      # versions are still un-bumped (changepacks bumps them on merge), so deriving
+      # the release type from Cargo.toml would wrongly demand a bump and risk a
+      # double-bump if done by hand.
+      #
+      # CRITICAL: we key off the PR DIFF (base...head), not the mere presence of a
+      # changepack file. A descriptor that already exists on the base branch must
+      # NOT relax the gate (otherwise every future PR would inherit it and the gate
+      # would be permanently disabled). No PR-introduced changepack => empty =>
+      # the action derives strictly from the Cargo.toml version, so accidental
+      # breaking changes on ordinary PRs still fail the gate.
+      - name: Determine semver release-type from PR-introduced changepack
+        id: rt
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          RT=""
+          CHANGED=$(git diff --name-only "$BASE_SHA"..."$HEAD_SHA" -- '.changepacks/changepack_log_*.json' || true)
+          if [ -n "$CHANGED" ]; then
+            LEVELS=$(grep -hoE '"(Major|Minor|Patch)"' $CHANGED | tr -d '"' | sort -u || true)
+            # For 0.x crates a breaking (minor) bump is a "major" release in
+            # cargo-semver-checks' compatibility model (e.g. 0.1.x -> 0.2.0).
+            CUR_MAJOR=$(grep -m1 -E '^version' crates/vespertide-core/Cargo.toml | sed -E 's/[^0-9]*([0-9]+).*/\1/')
+            if echo "$LEVELS" | grep -q Major; then
+              RT=major
+            elif echo "$LEVELS" | grep -q Minor; then
+              if [ "$CUR_MAJOR" = "0" ]; then RT=major; else RT=minor; fi
+            fi
+          fi
+          echo "release_type=$RT" >> "$GITHUB_OUTPUT"
+          echo "PR-introduced changepack: ${CHANGED:-<none>}"
+          echo "Computed cargo-semver-checks release-type: '${RT:-<derive-from-version>}'"
       - uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
           # Only check published crates; skip cli (binary) and schema-gen (publish=false)
           package: vespertide,vespertide-core,vespertide-config,vespertide-loader,vespertide-naming,vespertide-planner,vespertide-query,vespertide-exporter,vespertide-macro
           feature-group: default-features
+          # Empty => action derives strictly from the Cargo.toml version.
+          release-type: ${{ steps.rt.outputs.release_type }}
 
   # publish
   changepacks:
@@ -142,7 +179,12 @@ jobs:
       - line-budget
       - coverage
       - deny
-      - semver-checks
+      # NOTE: `semver-checks` is intentionally NOT a need here. It runs only on
+      # pull_request (`if: github.event_name == 'pull_request'`), so on a push to
+      # `main` it is SKIPPED — and a skipped job in `needs` propagates "skipped"
+      # to this job under default GitHub Actions semantics, which would silently
+      # prevent the release from ever running on merge. Semver is enforced as a
+      # PR gate before merge; it must not block the push-time release job.
     permissions:
       # create pull request comments
       pull-requests: write
