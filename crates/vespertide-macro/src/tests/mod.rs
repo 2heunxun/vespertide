@@ -1,4 +1,5 @@
 use super::*;
+use serial_test::serial;
 use std::fs::File;
 use std::io::Write;
 use tempfile::tempdir;
@@ -550,6 +551,7 @@ fn test_build_migration_block_error_nonexistent_table() {
 }
 
 #[test]
+#[serial(cargo_manifest_dir)]
 fn test_vespertide_migration_impl_loading_error() {
     // Save original CARGO_MANIFEST_DIR
     let original = std::env::var("CARGO_MANIFEST_DIR").ok();
@@ -578,6 +580,7 @@ fn test_vespertide_migration_impl_loading_error() {
 }
 
 #[test]
+#[serial(cargo_manifest_dir)]
 fn test_vespertide_migration_impl_with_valid_project() {
     use std::fs;
 
@@ -776,6 +779,7 @@ fn test_macro_parsing_verbose_flag() {
 }
 
 #[test]
+#[serial(cargo_manifest_dir)]
 fn test_vespertide_migration_impl_with_migrations() {
     use std::fs;
 
@@ -846,6 +850,7 @@ fn test_vespertide_migration_impl_with_migrations() {
 }
 
 #[test]
+#[serial(cargo_manifest_dir)]
 fn test_vespertide_migration_impl_ignores_invalid_models() {
     use std::fs;
 

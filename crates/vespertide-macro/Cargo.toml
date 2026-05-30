@@ -29,6 +29,12 @@ proc-macro-crate = "3.5.0"
 tempfile = "3"
 runtime-macros = "1.1"
 trybuild = { version = "1.0.116", features = ["diff"] }
+# `serial_test::serial` for tests that mutate the process-global
+# `CARGO_MANIFEST_DIR` env var (4 tests in src/tests/mod.rs). Without this,
+# cargo's parallel test threads race on the env var and tests intermittently
+# observe a missing/wrong path — surfaced by the `Parallelism (RAYON_NUM_THREADS=1)`
+# CI job because rayon=1 changes the timing window enough to expose the race.
+serial_test = "3.4"
 
 [lints]
 workspace = true

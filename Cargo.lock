@@ -3006,6 +3006,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "runtime-macros",
+ "serial_test",
  "syn",
  "tempfile",
  "trybuild",
