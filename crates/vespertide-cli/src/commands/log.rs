@@ -113,28 +113,11 @@ pub async fn cmd_log(backend: DatabaseBackend, transaction: bool) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{env, fs, path::PathBuf};
+    use crate::test_support::CwdGuard;
+    use std::fs;
     use tempfile::tempdir;
     use vespertide_config::VespertideConfig;
     use vespertide_core::{MigrationAction, MigrationPlan};
-
-    struct CwdGuard {
-        original: PathBuf,
-    }
-
-    impl CwdGuard {
-        fn new(dir: &PathBuf) -> Self {
-            let original = env::current_dir().unwrap();
-            env::set_current_dir(dir).unwrap();
-            Self { original }
-        }
-    }
-
-    impl Drop for CwdGuard {
-        fn drop(&mut self) {
-            let _ = env::set_current_dir(&self.original);
-        }
-    }
 
     fn write_config(cfg: &VespertideConfig) {
         let text = serde_json::to_string_pretty(cfg).unwrap();

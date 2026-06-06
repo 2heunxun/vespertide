@@ -340,6 +340,43 @@ fn lock_timeout_only_emits_none_statement_arg() {
     assert!(s.contains("from_millis (Some (5000u64) , None)"));
 }
 
+/// L183-184: Verify the generated code starts with an opening brace.
+/// This ensures the outer block structure is correctly emitted.
+#[test]
+fn generate_migration_code_emits_outer_block_structure() {
+    let pool: proc_macro2::TokenStream = "pool".parse().unwrap();
+    let generated =
+        generate_migration_code(&pool, "vespertide_version", &[], false, None, None).unwrap();
+    let s = generated.to_string();
+    // The generated code must start with an opening brace (L183: code.push_str("{\n"))
+    // followed by the static array definition and async block.
+    assert!(
+        s.contains("{ static __VESPERTIDE_MIGRATIONS"),
+        "Generated code must start with opening brace and static array: {s}"
+    );
+}
+
+/// L183-184: direct cover for `write_codegen_error`. The fn is only
+/// reachable in production via `writeln!(&mut String, ...).map_err(write_codegen_error)?`,
+/// and `writeln!` to a `String` only fails on allocation failure
+/// (effectively unreachable). Call the helper directly with a
+/// synthetic `std::fmt::Error` so the line is covered AND the produced
+/// `syn::Error` message format is locked.
+#[test]
+fn write_codegen_error_formats_fmt_error_into_syn_error() {
+    let fmt_err = std::fmt::Error;
+    let syn_err = write_codegen_error(fmt_err);
+    let msg = syn_err.to_string();
+    assert!(
+        msg.starts_with("vespertide_migration codegen failed while writing Rust:"),
+        "syn::Error message must start with the documented prefix; got: {msg}"
+    );
+    assert!(
+        msg.contains("an error occurred when formatting an argument") || msg.contains("Error"),
+        "syn::Error message must embed the underlying fmt::Error display; got: {msg}"
+    );
+}
+
 #[test]
 fn test_generate_migration_code_multiple_blocks() {
     let pool: proc_macro2::TokenStream = "connection".parse().unwrap();
@@ -575,6 +612,67 @@ fn test_vespertide_migration_impl_loading_error() {
     if let Some(val) = original {
         unsafe {
             std::env::set_var("CARGO_MANIFEST_DIR", val);
+        }
+    }
+}
+
+#[test]
+#[serial(cargo_manifest_dir)]
+fn test_vespertide_migration_impl_surfaces_migration_block_error() {
+    use std::fs;
+
+    let dir = tempdir().unwrap();
+    let project_dir = dir.path();
+    let config_content = r#"{
+            "modelsDir": "models",
+            "migrationsDir": "migrations",
+            "tableNamingCase": "snake",
+            "columnNamingCase": "snake",
+            "modelFormat": "json"
+        }"#;
+    fs::write(project_dir.join("vespertide.json"), config_content).unwrap();
+    fs::create_dir_all(project_dir.join("models")).unwrap();
+    fs::create_dir_all(project_dir.join("migrations")).unwrap();
+
+    let invalid_migration = r#"{
+        "actions": [
+            {
+                "type": "add_constraint",
+                "table": "missing_table",
+                "constraint": { "type": "primary_key", "columns": ["id"], "auto_increment": false }
+            }
+        ],
+        "comment": "invalid add column",
+        "created_at": null,
+        "id": "invalid",
+        "version": 1
+    }"#;
+    fs::write(
+        project_dir
+            .join("migrations")
+            .join("0001_invalid.vespertide.json"),
+        invalid_migration,
+    )
+    .unwrap();
+
+    let original = std::env::var("CARGO_MANIFEST_DIR").ok();
+    unsafe {
+        std::env::set_var("CARGO_MANIFEST_DIR", project_dir);
+    }
+
+    let output = expand("pool".parse().unwrap()).to_string();
+    assert!(
+        output.contains("Failed to build queries for migration version 1"),
+        "expected build_migration_block error to surface, got: {output}"
+    );
+
+    if let Some(val) = original {
+        unsafe {
+            std::env::set_var("CARGO_MANIFEST_DIR", val);
+        }
+    } else {
+        unsafe {
+            std::env::remove_var("CARGO_MANIFEST_DIR");
         }
     }
 }
@@ -851,6 +949,133 @@ fn test_vespertide_migration_impl_with_migrations() {
 
 #[test]
 #[serial(cargo_manifest_dir)]
+fn test_vespertide_migration_impl_config_load_error() {
+    use std::fs;
+
+    // Inject a malformed vespertide.json so load_config_or_default returns Err,
+    // exercising the previously-excluded Err arm in vespertide_migration_impl.
+    let dir = tempdir().unwrap();
+    let project_dir = dir.path();
+    // Write invalid JSON.
+    fs::write(project_dir.join("vespertide.json"), "{ not valid json").unwrap();
+    fs::create_dir_all(project_dir.join("models")).unwrap();
+    fs::create_dir_all(project_dir.join("migrations")).unwrap();
+
+    let original = std::env::var("CARGO_MANIFEST_DIR").ok();
+    unsafe {
+        std::env::set_var("CARGO_MANIFEST_DIR", project_dir);
+    }
+
+    let input: proc_macro2::TokenStream = "pool".parse().unwrap();
+    let output = expand(input);
+    let output_str = output.to_string();
+
+    assert!(
+        output_str.contains("Failed to load config at compile time"),
+        "Expected config load error, got: {output_str}"
+    );
+
+    if let Some(val) = original {
+        unsafe {
+            std::env::set_var("CARGO_MANIFEST_DIR", val);
+        }
+    } else {
+        unsafe {
+            std::env::remove_var("CARGO_MANIFEST_DIR");
+        }
+    }
+}
+
+#[test]
+#[serial(cargo_manifest_dir)]
+fn test_vespertide_migration_impl_build_migration_error() {
+    use std::fs;
+
+    // Drive vespertide_migration_impl down the build_migration_block Err
+    // path inside the for loop: an AddColumn against a non-existent table
+    // fails query construction.
+    let dir = tempdir().unwrap();
+    let project_dir = dir.path();
+
+    let config_content = r#"{
+        "modelsDir": "models",
+        "migrationsDir": "migrations",
+        "tableNamingCase": "snake",
+        "columnNamingCase": "snake",
+        "modelFormat": "json"
+    }"#;
+    fs::write(project_dir.join("vespertide.json"), config_content).unwrap();
+    fs::create_dir_all(project_dir.join("models")).unwrap();
+    fs::create_dir_all(project_dir.join("migrations")).unwrap();
+
+    // V1 creates "users" with one column "id".
+    fs::write(
+        project_dir.join("migrations").join("0001_init.json"),
+        r#"{
+            "version": 1,
+            "actions": [
+                {
+                    "type": "create_table",
+                    "table": "users",
+                    "columns": [
+                        {"name": "id", "type": "integer", "nullable": false}
+                    ],
+                    "constraints": []
+                }
+            ]
+        }"#,
+    )
+    .unwrap();
+    // V2 attempts ModifyColumnType against a column that doesn't exist.
+    // Per-file validation passes (the action is structurally valid); the
+    // failure surfaces from build_plan_queries during baseline replay,
+    // which propagates through the for loop's Err arm in
+    // vespertide_migration_impl.
+    fs::write(
+        project_dir.join("migrations").join("0002_bad.json"),
+        r#"{
+            "version": 2,
+            "actions": [
+                {
+                    "type": "modify_column_type",
+                    "table": "users",
+                    "column": "ghost",
+                    "from_type": "integer",
+                    "to_type": "text"
+                }
+            ]
+        }"#,
+    )
+    .unwrap();
+
+    let original = std::env::var("CARGO_MANIFEST_DIR").ok();
+    unsafe {
+        std::env::set_var("CARGO_MANIFEST_DIR", project_dir);
+    }
+
+    let input: proc_macro2::TokenStream = "pool".parse().unwrap();
+    let output = expand(input);
+    let output_str = output.to_string();
+
+    assert!(
+        output_str.contains("Failed to build queries for migration version 2")
+            || output_str.contains("Failed to load migrations at compile time"),
+        "Expected migration build error to surface, got: {output_str}"
+    );
+
+    if let Some(val) = original {
+        unsafe {
+            std::env::set_var("CARGO_MANIFEST_DIR", val);
+        }
+    } else {
+        unsafe {
+            std::env::remove_var("CARGO_MANIFEST_DIR");
+        }
+    }
+}
+
+#[test]
+#[serial(cargo_manifest_dir)]
 fn test_vespertide_migration_impl_ignores_invalid_models() {
     use std::fs;
 
@@ -870,16 +1095,16 @@ fn test_vespertide_migration_impl_ignores_invalid_models() {
     fs::create_dir_all(project_dir.join("migrations")).unwrap();
 
     fs::write(
-            project_dir.join("models").join("broken.json"),
-            r#"{
+        project_dir.join("models").join("broken.json"),
+        r#"{
                 "name": "broken",
                 "columns": [
                     {"name": "user_id", "type": "integer", "nullable": false, "foreign_key": "invalid_format"}
                 ],
                 "constraints": []
             }"#,
-        )
-        .unwrap();
+    )
+    .unwrap();
 
     fs::write(
         project_dir.join("migrations").join("0001_initial.json"),

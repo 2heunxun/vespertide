@@ -288,6 +288,13 @@ fn token_type_name(token_type: u32) -> &'static str {
     }
 }
 
+#[test]
+fn debug_name_helpers_cover_all_remaining_display_arms() {
+    assert_eq!(severity_name(Severity::Information), "Information");
+    assert_eq!(severity_name(Severity::Hint), "Hint");
+    assert_eq!(token_type_name(u32::MAX), "unknown");
+}
+
 fn source_range(source: &str, needle: &str) -> Range<usize> {
     let start = source
         .find(needle)
@@ -449,7 +456,7 @@ fn i_s1_inlay_hint_on_check_expr_real_surface() {
             slice(
                 src,
                 hint.byte_offset..hint.byte_offset.min(src.len()).max(hint.byte_offset)
-            ),
+            )
         );
     }
     println!("expected CHECK-expr anchor: byte {expected_anchor}");

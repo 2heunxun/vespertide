@@ -84,6 +84,38 @@ mod tests {
         assert_eq!(column_type_to_java(&ty), "String");
     }
 
+    /// Direct unit cover of every `column_type_to_java` `SimpleColumnType`
+    /// match arm. The all-simple-types fixture exercises these via the
+    /// real JPA render pipeline; this rstest pins each arm in isolation so
+    /// the coverage tool credits the individual `=> "Foo"` lines (LLVM
+    /// source-map attribution can otherwise miss tightly-packed match arms).
+    #[rstest::rstest]
+    #[case(vespertide_core::SimpleColumnType::SmallInt, "Short")]
+    #[case(vespertide_core::SimpleColumnType::Integer, "Integer")]
+    #[case(vespertide_core::SimpleColumnType::BigInt, "Long")]
+    #[case(vespertide_core::SimpleColumnType::Real, "Float")]
+    #[case(vespertide_core::SimpleColumnType::DoublePrecision, "Double")]
+    #[case(vespertide_core::SimpleColumnType::Boolean, "Boolean")]
+    #[case(vespertide_core::SimpleColumnType::Text, "String")]
+    #[case(vespertide_core::SimpleColumnType::Xml, "String")]
+    #[case(vespertide_core::SimpleColumnType::Interval, "String")]
+    #[case(vespertide_core::SimpleColumnType::Json, "String")]
+    #[case(vespertide_core::SimpleColumnType::Inet, "String")]
+    #[case(vespertide_core::SimpleColumnType::Cidr, "String")]
+    #[case(vespertide_core::SimpleColumnType::Macaddr, "String")]
+    #[case(vespertide_core::SimpleColumnType::Date, "LocalDate")]
+    #[case(vespertide_core::SimpleColumnType::Time, "LocalTime")]
+    #[case(vespertide_core::SimpleColumnType::Timestamp, "LocalDateTime")]
+    #[case(vespertide_core::SimpleColumnType::Timestamptz, "OffsetDateTime")]
+    #[case(vespertide_core::SimpleColumnType::Bytea, "byte[]")]
+    #[case(vespertide_core::SimpleColumnType::Uuid, "UUID")]
+    fn column_type_to_java_simple_arm_returns_expected_java_type(
+        #[case] ty: vespertide_core::SimpleColumnType,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(column_type_to_java(&ColumnType::Simple(ty)), expected);
+    }
+
     #[rstest::rstest]
     #[case("created_at", "createdAt")]
     #[case("id", "id")]

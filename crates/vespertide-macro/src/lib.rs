@@ -199,8 +199,7 @@ fn generate_migration_code(
     )
     .map_err(write_codegen_error)?;
     for b in migration_blocks {
-        writeln!(code, "{krate_str}::runtime::EmbeddedMigration::new({}u32, {:?}, {:?}, __V{}_PG, __V{}_MYSQL, __V{}_SQLITE),", b.version, b.migration_id, b.comment, b.version, b.version, b.version)
-            .map_err(write_codegen_error)?;
+        writeln!(code, "{krate_str}::runtime::EmbeddedMigration::new({}u32, {:?}, {:?}, __V{}_PG, __V{}_MYSQL, __V{}_SQLITE),", b.version, b.migration_id, b.comment, b.version, b.version, b.version).map_err(write_codegen_error)?;
     }
     code.push_str("];\n");
 
@@ -210,13 +209,11 @@ fn generate_migration_code(
     // runtime so backend-appropriate lock/statement timeouts are applied.
     // Otherwise emit the original call unchanged (zero codegen churn).
     if lock_timeout_ms.is_none() && statement_timeout_ms.is_none() {
-        writeln!(code, "{krate_str}::runtime::run_embedded_migrations(__pool, {version_table:?}, {verbose}, __VESPERTIDE_MIGRATIONS).await")
-            .map_err(write_codegen_error)?;
+        writeln!(code, "{krate_str}::runtime::run_embedded_migrations(__pool, {version_table:?}, {verbose}, __VESPERTIDE_MIGRATIONS).await").map_err(write_codegen_error)?;
     } else {
         let lock = render_opt_u64(lock_timeout_ms);
         let stmt = render_opt_u64(statement_timeout_ms);
-        writeln!(code, "{krate_str}::runtime::run_embedded_migrations_with_options(__pool, {version_table:?}, {verbose}, __VESPERTIDE_MIGRATIONS, {krate_str}::runtime::MigrationRuntimeOptions::from_millis({lock}, {stmt})).await")
-            .map_err(write_codegen_error)?;
+        writeln!(code, "{krate_str}::runtime::run_embedded_migrations_with_options(__pool, {version_table:?}, {verbose}, __VESPERTIDE_MIGRATIONS, {krate_str}::runtime::MigrationRuntimeOptions::from_millis({lock}, {stmt})).await").map_err(write_codegen_error)?;
     }
     code.push_str("}\n"); // async block
     code.push_str("}\n"); // outer block
@@ -268,7 +265,6 @@ pub(crate) fn vespertide_migration_impl(input: TokenStream2) -> syn::Result<Toke
     // Load config to get prefix
     let config = match load_config_or_default(project_root) {
         Ok(config) => config,
-        #[cfg(not(tarpaulin_include))]
         Err(e) => {
             return Err(syn::Error::new(
                 proc_macro2::Span::call_site(),
@@ -298,7 +294,6 @@ pub(crate) fn vespertide_migration_impl(input: TokenStream2) -> syn::Result<Toke
     let mut baseline_schema = Vec::new();
     let mut migration_blocks = Vec::new();
 
-    #[cfg(not(tarpaulin_include))]
     for migration in &migrations {
         // Apply prefix to migration table names
         let prefixed_migration = migration.clone().with_prefix(prefix);
@@ -321,6 +316,14 @@ pub(crate) fn vespertide_migration_impl(input: TokenStream2) -> syn::Result<Toke
 }
 
 /// Zero-runtime migration entry point.
+///
+/// Irreducible proc-macro shell: the `#[proc_macro]` attribute requires the
+/// signature `fn(TokenStream) -> TokenStream` (NOT `TokenStream2`), so this
+/// wrapper can only convert types and dispatch to
+/// [`vespertide_migration_impl`] (which is fully unit-tested via
+/// `proc_macro2::TokenStream` in `tests/mod.rs`). Proc-macro entry fns
+/// cannot run in unit tests (they require the compiler's proc-macro server),
+/// so this shell is excluded from coverage.
 #[cfg(not(tarpaulin_include))]
 #[proc_macro]
 pub fn vespertide_migration(input: TokenStream) -> TokenStream {

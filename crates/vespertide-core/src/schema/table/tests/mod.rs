@@ -37,7 +37,7 @@ fn validate_unique_column_names_rejects_duplicate_names() {
         err,
         TableValidationError::DuplicateColumnName {
             table: "users".into(),
-            column: "id".into(),
+            column: "id".into()
         }
     );
     assert_eq!(

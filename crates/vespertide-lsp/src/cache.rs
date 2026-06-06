@@ -209,6 +209,8 @@ fn compute_docstore_fingerprint(docs: &DocumentStore) -> (u64, Vec<DocstoreFinge
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::DocumentStore;
+    use crate::test_support::uri;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
@@ -282,5 +284,37 @@ mod tests {
         for h in handles {
             h.join().unwrap();
         }
+    }
+
+    #[test]
+    fn docstore_fingerprint_cache_misses_for_other_store_and_len_change() {
+        let docs = DocumentStore::new();
+        docs.open(
+            uri("one.json"),
+            "json".to_string(),
+            1,
+            r#"{"name":"one","columns":[]}"#.to_string(),
+        );
+        let first = docstore_fingerprint(&docs);
+
+        let other_docs = DocumentStore::new();
+        other_docs.open(
+            uri("two.json"),
+            "json".to_string(),
+            1,
+            r#"{"name":"two","columns":[]}"#.to_string(),
+        );
+        let other = docstore_fingerprint(&other_docs);
+
+        docs.open(
+            uri("three.json"),
+            "json".to_string(),
+            1,
+            r#"{"name":"three","columns":[]}"#.to_string(),
+        );
+        let changed_len = docstore_fingerprint(&docs);
+
+        assert_ne!(first, other);
+        assert_ne!(first, changed_len);
     }
 }

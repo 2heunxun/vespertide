@@ -361,22 +361,20 @@ pub(super) fn check_filename_table_name_mismatch(
     table_name: &str,
     out: &mut Vec<DomainDiagnostic>,
 ) {
-    let Some(file_basename) = file_basename_of(uri) else {
-        return;
-    };
-    if file_basename == table_name {
-        return;
+    if let Some(file_basename) = file_basename_of(uri)
+        && file_basename != table_name
+    {
+        let byte_range = super::locator::locate_top_name(tree, text).unwrap_or(0..1);
+        out.push(DomainDiagnostic {
+            byte_range,
+            severity: Severity::Warning,
+            message: format!(
+                "Table name `{table_name}` does not match file basename `{file_basename}`. \
+                 Rename one to keep them in sync."
+            ),
+            code: "filename-mismatch".to_string(),
+        });
     }
-    let byte_range = super::locator::locate_top_name(tree, text).unwrap_or(0..1);
-    out.push(DomainDiagnostic {
-        byte_range,
-        severity: Severity::Warning,
-        message: format!(
-            "Table name `{table_name}` does not match file basename `{file_basename}`. \
-             Rename one to keep them in sync."
-        ),
-        code: "filename-mismatch".to_string(),
-    });
 }
 
 fn file_basename_of(uri: &Uri) -> Option<String> {
@@ -419,37 +417,42 @@ pub(super) fn validate_workspace(
             continue;
         };
 
-        let Some(target) = workspace
-            .iter()
-            .find(|entry| entry.table.name.as_str() == location.table.as_str())
-        else {
-            push_validate_error(out, 0..1, err.to_string());
-            continue;
-        };
-
-        if target.uri != *current_uri {
-            continue;
-        }
-
-        let byte_range = if let Some(column) = &location.column {
-            if let Some(field) = location.field {
-                super::locator::locate_column_field(
-                    target.tree.as_ref(),
-                    &target.source,
-                    column,
-                    field,
-                )
-            } else {
-                super::locator::locate_column(target.tree.as_ref(), &target.source, column)
-            }
-        } else if let Some(constraint) = &location.constraint {
-            super::locator::locate_constraint(target.tree.as_ref(), &target.source, constraint)
-        } else {
-            super::locator::locate_top_name(target.tree.as_ref(), &target.source).unwrap_or(0..1)
-        };
-
-        push_validate_error(out, byte_range, err.to_string());
+        emit_workspace_location_violation(workspace, current_uri, out, err.to_string(), &location);
     }
+}
+
+fn emit_workspace_location_violation(
+    workspace: &[WorkspaceTable],
+    current_uri: &Uri,
+    out: &mut Vec<DomainDiagnostic>,
+    message: String,
+    location: &super::locator::ErrorLocation,
+) {
+    let Some(target) = workspace
+        .iter()
+        .find(|entry| entry.table.name.as_str() == location.table.as_str())
+    else {
+        push_validate_error(out, 0..1, message);
+        return;
+    };
+
+    if target.uri != *current_uri {
+        return;
+    }
+
+    let byte_range = if let Some(column) = &location.column {
+        if let Some(field) = location.field {
+            super::locator::locate_column_field(target.tree.as_ref(), &target.source, column, field)
+        } else {
+            super::locator::locate_column(target.tree.as_ref(), &target.source, column)
+        }
+    } else if let Some(constraint) = &location.constraint {
+        super::locator::locate_constraint(target.tree.as_ref(), &target.source, constraint)
+    } else {
+        super::locator::locate_top_name(target.tree.as_ref(), &target.source).unwrap_or(0..1)
+    };
+
+    push_validate_error(out, byte_range, message);
 }
 
 fn push_validate_error(
@@ -479,4 +482,192 @@ fn byte_offset_for_line_col(text: &str, line: usize, col: usize) -> usize {
     }
 
     byte.min(text.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    use crate::test_support::uri;
+    use tower_lsp_server::ls_types::Uri;
+    use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType, TableConstraint};
+    use vespertide_planner::{MissingFkSupportingIndex, PlannerError};
+
+    fn col(name: &str) -> ColumnDef {
+        ColumnDef::new(name, ColumnType::Simple(SimpleColumnType::Integer), false)
+    }
+
+    fn table_with_constraints(name: &str, constraints: Vec<TableConstraint>) -> TableDef {
+        TableDef {
+            name: name.into(),
+            description: None,
+            columns: vec![col("id")],
+            constraints,
+        }
+    }
+
+    #[test]
+    fn byte_range_for_table_validation_uses_default_range() {
+        let err = PlannerError::TableValidation("not locatable".to_string());
+
+        assert_eq!(byte_range_for_violation(&err, None, ""), 0..1);
+    }
+
+    #[test]
+    fn simple_type_label_covers_bigint_and_fallback() {
+        assert_eq!(simple_type_label(SimpleColumnType::BigInt), "big_int");
+        assert_eq!(simple_type_label(SimpleColumnType::Text), "<other>");
+    }
+
+    #[test]
+    fn locate_missing_fk_falls_back_to_named_constraint_then_default() {
+        let missing_named = MissingFkSupportingIndex {
+            table: "posts".into(),
+            constraint_name: Some("fk_posts_user".into()),
+            columns: Vec::new(),
+            ref_table: "users".into(),
+            ref_columns: vec!["id".into()],
+            suggested_index_name: "ix_posts__user_id".into(),
+        };
+        let missing_unnamed = MissingFkSupportingIndex {
+            constraint_name: None,
+            ..missing_named.clone()
+        };
+
+        assert_eq!(locate_missing_fk(&missing_named, None, ""), 0..1);
+        assert_eq!(locate_missing_fk(&missing_unnamed, None, ""), 0..1);
+    }
+
+    #[test]
+    fn filename_mismatch_ignores_non_file_uri() {
+        let mut out = Vec::new();
+        let uri = Uri::from_str("https://example.com/user.json").unwrap();
+
+        check_filename_table_name_mismatch(r#"{"name":"user"}"#, &uri, None, "user", &mut out);
+
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn validate_workspace_surfaces_cross_cutting_table_validation_on_current_file() {
+        let current_uri = uri("dup.json");
+        let table = TableDef {
+            name: "dup".into(),
+            description: None,
+            columns: vec![col("id"), col("id")],
+            constraints: Vec::new(),
+        };
+        let workspace = vec![WorkspaceTable {
+            uri: current_uri.clone(),
+            table,
+            source: r#"{"name":"dup"}"#.to_string(),
+            tree: None,
+        }];
+        let mut out = Vec::new();
+
+        validate_workspace(&workspace, &current_uri, &mut out);
+
+        assert!(
+            out.iter()
+                .any(|diag| diag.byte_range == (0..1) && diag.code == "validate-schema"),
+            "got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn validate_workspace_anchors_constraint_level_violations() {
+        let current_uri = uri("users.json");
+        let source = r#"{"name":"users","columns":[{"name":"id","type":"integer"}],"constraints":[{"type":"index","name":"ix_empty","columns":[]}]}"#;
+        let tree = crate::parser::ParserPool::new()
+            .parse(source, crate::parser::DocumentFormat::Json)
+            .unwrap();
+        let table = table_with_constraints(
+            "users",
+            vec![
+                TableConstraint::PrimaryKey {
+                    columns: vec!["id".into()],
+                    auto_increment: false,
+                    strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+                },
+                TableConstraint::Index {
+                    name: Some("ix_empty".into()),
+                    columns: Vec::new(),
+                },
+            ],
+        );
+        let workspace = vec![WorkspaceTable {
+            uri: current_uri.clone(),
+            table,
+            source: source.to_string(),
+            tree: Some(tree),
+        }];
+        let mut out = Vec::new();
+
+        validate_workspace(&workspace, &current_uri, &mut out);
+
+        assert!(
+            out.iter()
+                .any(|diag| diag.code == "validate-schema" && diag.message.contains("ix_empty")),
+            "got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn emit_workspace_location_violation_handles_missing_and_other_file_targets() {
+        let current_uri = uri("current.json");
+        let other_uri = uri("other.json");
+        let table = TableDef {
+            name: "other".into(),
+            description: None,
+            columns: vec![col("id")],
+            constraints: Vec::new(),
+        };
+        let workspace = vec![WorkspaceTable {
+            uri: other_uri,
+            table,
+            source: r#"{"name":"other"}"#.to_string(),
+            tree: None,
+        }];
+        let missing = super::super::locator::ErrorLocation {
+            table: "missing".to_string(),
+            column: None,
+            constraint: None,
+            field: None,
+        };
+        let other = super::super::locator::ErrorLocation {
+            table: "other".to_string(),
+            column: None,
+            constraint: None,
+            field: None,
+        };
+        let mut out = Vec::new();
+
+        emit_workspace_location_violation(
+            &workspace,
+            &current_uri,
+            &mut out,
+            "missing target".to_string(),
+            &missing,
+        );
+        emit_workspace_location_violation(
+            &workspace,
+            &current_uri,
+            &mut out,
+            "other target".to_string(),
+            &other,
+        );
+
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].byte_range, 0..1);
+        assert_eq!(out[0].message, "missing target");
+    }
+
+    #[test]
+    fn byte_offset_for_line_col_walks_past_prior_lines() {
+        assert_eq!(
+            byte_offset_for_line_col("one\ntwo\nthree", 3, 2),
+            "one\ntwo\nt".len()
+        );
+    }
 }

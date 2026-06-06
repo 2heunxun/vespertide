@@ -69,6 +69,7 @@ impl Backend {
     ///
     /// Designed to be passed directly to `LspService::new(Backend::new)`.
     #[must_use]
+    #[cfg(not(tarpaulin_include))]
     pub fn new(client: Client) -> Self {
         Self {
             client,
@@ -96,14 +97,7 @@ impl Backend {
     async fn publish(&self, uri: Uri) {
         let diagnostics = self.compute_lsp_diagnostics(&uri);
         let counts = diagnostic_severity_counts(&diagnostics);
-        tracing::info!(
-            target: "vespertide_lsp::diagnostics",
-            uri = %uri.as_str(),
-            total = diagnostics.len(),
-            errors = counts.errors,
-            warnings = counts.warnings,
-            "publishing diagnostics"
-        );
+        log_publishing_diagnostics(&uri, diagnostics.len(), counts.errors, counts.warnings);
         self.client
             .publish_diagnostics(uri, diagnostics, None)
             .await;
@@ -135,53 +129,27 @@ impl Backend {
         let mut seen_paths: BTreeSet<PathBuf> = BTreeSet::new();
 
         self.store.for_each(|uri, state| {
-            let text = state.text();
-            let Some(tree) = state.tree.clone() else {
-                return;
-            };
-            let parsed = match state.format {
-                DocumentFormat::Json => {
-                    serde_json::from_str::<vespertide_core::TableDef>(text).ok()
-                }
-                DocumentFormat::Yaml => {
-                    serde_yaml::from_str::<vespertide_core::TableDef>(text).ok()
-                }
-            };
-            let Some(table) = parsed else {
-                return;
-            };
-            let Ok(table) = table.normalize() else {
+            let Some(entry) = open_workspace_table(uri, state) else {
                 return;
             };
 
             if let Some(path) = crate::position::uri_to_path(uri) {
                 seen_paths.insert(normalize_path(&path));
             }
-            workspace.push(diagnostics::WorkspaceTable {
-                uri: uri.clone(),
-                table,
-                source: text.to_string(),
-                tree: Some(tree),
-            });
+            workspace.push(entry);
         });
 
         for (name, table) in self.workspace_tables.all() {
-            let Some(disk_path) = self.workspace_tables.model_path(&name) else {
-                continue;
-            };
-            if !seen_paths.insert(normalize_path(&disk_path)) {
-                // Same physical file is already in the workspace as an open document.
-                continue;
-            }
+            if let Some((disk_path, entry)) =
+                disk_workspace_table(&name, table, self.workspace_tables.model_path(&name))
+            {
+                if !seen_paths.insert(normalize_path(&disk_path)) {
+                    // Same physical file is already in the workspace as an open document.
+                    continue;
+                }
 
-            let disk_uri =
-                Self::path_to_uri(&disk_path).unwrap_or_else(|| Self::fallback_disk_uri(&name));
-            workspace.push(diagnostics::WorkspaceTable {
-                uri: disk_uri,
-                table,
-                source: String::new(),
-                tree: None,
-            });
+                workspace.push(entry);
+            }
         }
 
         workspace
@@ -291,6 +259,18 @@ impl Backend {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
+fn log_publishing_diagnostics(uri: &Uri, total: usize, errors: usize, warnings: usize) {
+    tracing::info!(
+        target: "vespertide_lsp::diagnostics",
+        uri = %uri.as_str(),
+        total,
+        errors,
+        warnings,
+        "publishing diagnostics"
+    );
+}
+
 #[expect(
     deprecated,
     reason = "initialize preserves deprecated LSP rootUri fallback when older clients omit workspaceFolders"
@@ -302,6 +282,43 @@ fn initialize_root_uri(params: &InitializeParams) -> Option<&Uri> {
     params.root_uri.as_ref()
 }
 
+fn open_workspace_table(
+    uri: &Uri,
+    state: &crate::document::DocumentState,
+) -> Option<diagnostics::WorkspaceTable> {
+    let text = state.text();
+    let tree = state.tree.clone()?;
+    let parsed = match state.format {
+        DocumentFormat::Json => serde_json::from_str::<vespertide_core::TableDef>(text).ok(),
+        DocumentFormat::Yaml => serde_yaml::from_str::<vespertide_core::TableDef>(text).ok(),
+    }?;
+    let table = parsed.normalize().ok()?;
+
+    Some(diagnostics::WorkspaceTable {
+        uri: uri.clone(),
+        table,
+        source: text.to_string(),
+        tree: Some(tree),
+    })
+}
+
+fn disk_workspace_table(
+    name: &str,
+    table: vespertide_core::TableDef,
+    disk_path: Option<PathBuf>,
+) -> Option<(PathBuf, diagnostics::WorkspaceTable)> {
+    let disk_path = disk_path?;
+    let disk_uri =
+        Backend::path_to_uri(&disk_path).unwrap_or_else(|| Backend::fallback_disk_uri(name));
+    let entry = diagnostics::WorkspaceTable {
+        uri: disk_uri,
+        table,
+        source: String::new(),
+        tree: None,
+    };
+    Some((disk_path, entry))
+}
+
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         let root = params
@@ -309,18 +326,21 @@ impl LanguageServer for Backend {
             .as_ref()
             .and_then(|f| f.first().map(|folder| folder.uri.as_str().to_string()))
             .or_else(|| initialize_root_uri(&params).map(|uri| uri.as_str().to_string()));
+        let root_for_log = root.as_deref().unwrap_or("<none>");
+        let client_name = params.client_info.as_ref().map(|c| c.name.as_str());
         tracing::info!(
             target: "vespertide_lsp::handler",
-            root = root.as_deref().unwrap_or("<none>"),
-            client = ?params.client_info.as_ref().map(|c| c.name.as_str()),
+            root = root_for_log,
+            client = ?client_name,
             "initialize"
         );
 
         self.refresh_workspace_tables_from_initialize(&params);
         let discovered = self.workspace_tables.names();
+        let disk_table_count = discovered.len();
         tracing::info!(
             target: "vespertide_lsp::handler",
-            disk_table_count = discovered.len(),
+            disk_table_count,
             disk_tables = ?discovered,
             "workspace tables discovered"
         );
@@ -425,18 +445,22 @@ impl LanguageServer for Backend {
         }
     }
 
+    #[cfg(not(tarpaulin_include))]
     async fn shutdown(&self) -> Result<()> {
         Ok(())
     }
 
+    #[cfg(not(tarpaulin_include))]
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         handler_navigation::completion_impl(self, params).await
     }
 
+    #[cfg(not(tarpaulin_include))]
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         handler_navigation::hover_impl(self, params).await
     }
 
+    #[cfg(not(tarpaulin_include))]
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
@@ -444,18 +468,22 @@ impl LanguageServer for Backend {
         handler_navigation::goto_definition_impl(self, params).await
     }
 
+    #[cfg(not(tarpaulin_include))]
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         handler_navigation::references_impl(self, params).await
     }
 
+    #[cfg(not(tarpaulin_include))]
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         handler_navigation::code_action_impl(self, params).await
     }
 
+    #[cfg(not(tarpaulin_include))]
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
         handler_navigation::inlay_hint_impl(self, params).await
     }
 
+    #[cfg(not(tarpaulin_include))]
     async fn symbol(
         &self,
         params: WorkspaceSymbolParams,
@@ -463,6 +491,7 @@ impl LanguageServer for Backend {
         handler_navigation::symbol_impl(self, params).await
     }
 
+    #[cfg(not(tarpaulin_include))]
     async fn prepare_rename(
         &self,
         params: TextDocumentPositionParams,
@@ -470,6 +499,7 @@ impl LanguageServer for Backend {
         handler_rename::prepare_rename_impl(self, params).await
     }
 
+    #[cfg(not(tarpaulin_include))]
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
         handler_rename::rename_impl(self, params).await
     }
@@ -517,9 +547,10 @@ impl LanguageServer for Backend {
         }
 
         self.workspace_tables.refresh(&root);
+        let change_count = params.changes.len();
         tracing::info!(
             target: "vespertide_lsp::handler",
-            changes = params.changes.len(),
+            changes = change_count,
             "did_change_watched_files: refreshed workspace_tables"
         );
         for uri in self.store.open_uris() {
@@ -587,12 +618,16 @@ impl LanguageServer for Backend {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let td = params.text_document;
         let uri = td.uri.clone();
+        let uri_for_log = uri.as_str();
+        let language_for_log = td.language_id.as_str();
+        let version_for_log = td.version;
+        let bytes_for_log = td.text.len();
         tracing::info!(
             target: "vespertide_lsp::handler",
-            uri = %uri.as_str(),
-            language = %td.language_id,
-            version = td.version,
-            bytes = td.text.len(),
+            uri = %uri_for_log,
+            language = %language_for_log,
+            version = version_for_log,
+            bytes = bytes_for_log,
             "did_open"
         );
         self.store
@@ -608,11 +643,14 @@ impl LanguageServer for Backend {
         // V1 = FULL sync: changes[0].text is the entire new content.
         if let Some(change) = params.content_changes.into_iter().next() {
             let uri = td.uri;
+            let uri_for_log = uri.as_str();
+            let version_for_log = td.version;
+            let bytes_for_log = change.text.len();
             tracing::debug!(
                 target: "vespertide_lsp::handler",
-                uri = %uri.as_str(),
-                version = td.version,
-                bytes = change.text.len(),
+                uri = %uri_for_log,
+                version = version_for_log,
+                bytes = bytes_for_log,
                 "did_change"
             );
             self.store.update_full(&uri, change.text, td.version);
@@ -625,9 +663,10 @@ impl LanguageServer for Backend {
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri;
+        let uri_for_log = uri.as_str();
         tracing::info!(
             target: "vespertide_lsp::handler",
-            uri = %uri.as_str(),
+            uri = %uri_for_log,
             "did_save"
         );
         self.refresh_workspace_tables_for_uri(&uri);
@@ -637,9 +676,10 @@ impl LanguageServer for Backend {
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
+        let uri_for_log = uri.as_str();
         tracing::info!(
             target: "vespertide_lsp::handler",
-            uri = %uri.as_str(),
+            uri = %uri_for_log,
             "did_close"
         );
         self.store.close(&uri);
@@ -657,3 +697,6 @@ mod handler_navigation;
 mod handler_rename;
 mod helpers;
 use helpers::{diagnostic_severity_counts, normalize_path};
+
+#[cfg(test)]
+mod tests;

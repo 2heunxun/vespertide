@@ -169,6 +169,7 @@ See `docs/clippy-allow-audit.md` for the full audit history.
 | `QueryError::Other(...)` in new code | Emits deprecation warning. Use `SchemaError` / `InvalidColumnType` / `BackendError` / `UnsupportedAction` |
 | Exhaustive struct literal for `MigrationOptions` / `VespertideConfig` | `#[non_exhaustive]` — use `..Default::default()` |
 | Comparing newtype with `String::eq(&name.to_string(), "user")` | `TableName: PartialEq<&str>` — use `name == "user"` directly |
+| Per-ORM exporter snapshot test (single ORM) | Use the 4-ORM `orm_cases!` macro; snapshots must cross-compare all ORMs |
 
 ## COMMANDS
 
@@ -278,6 +279,7 @@ Verify line policy (canonical, same as CI): `sh scripts/check-line-budget.sh`
 ## TESTING
 
 - `rstest` for parameterized tests — **default choice for any test with ≥ 2 input variants** (multi-backend, multi-ORM, multi-format). Plain `#[test]` is reserved for single-case unit tests.
+- When writing new tests or improving existing ones, PREFER `rstest` parametric `#[case::name(...)]` cases over duplicated `#[test]` functions. Plain `#[test]` is reserved for genuinely single-input unit tests. Multi-variant logic (multi-backend, multi-ORM, multi-format, multiple inputs) MUST use `rstest`.
 - `serial_test::serial` for filesystem tests
 - `insta` for snapshot testing (exporter crate)
 - `proptest` for property-based testing (`vespertide-planner` diff + `vespertide-query` SQL)
@@ -368,6 +370,11 @@ fn create_table_snapshot(#[case] backend: DatabaseBackend) {
 
 This is the same pattern used by `vespertide-query` (3 backends, 357 snapshots) and `vespertide-exporter` (4 ORMs via `Orm` enum, 232 cross-ORM snapshots). When adding a new backend / ORM / format, the change is **one `#[case::name(Value)]` line**.
 
+### Exporter snapshots MUST cover ALL ORMs (no per-ORM snapshots)
+Every `vespertide-exporter` snapshot test MUST be written through the shared `orm_cases!` rstest macro in `crates/vespertide-exporter/src/tests/mod.rs`, which renders each fixture for **all four ORMs** (`Orm::SeaOrm`, `Orm::SqlAlchemy`, `Orm::SqlModel`, `Orm::Jpa`). A new export scenario = ONE fixture + ONE `orm_cases!(...)` line, producing exactly four snapshots (one per ORM) in the single shared `crates/vespertide-exporter/src/tests/snapshots/` directory.
+
+FORBIDDEN: per-ORM `#[test]` snapshot functions inside `src/seaorm/`, `src/sqlalchemy/`, `src/sqlmodel/`, `src/jpa/`, or any `snapshots/` directory other than `src/tests/snapshots/`. A scenario snapshotted for only one ORM is a defect — ORM output must always be cross-compared across all four. When adding a new ORM the change is a single `#[case::<orm>(Orm::<Variant>)]` line in the macro, never a new per-ORM test.
+
 ### `#[cfg(test)]` test-oracle pattern
 When a function exists solely as an oracle for a regression test (e.g. comparing
 a fused/optimized pipeline against the equivalent unfused implementation), gate
@@ -375,6 +382,64 @@ it with `#[cfg(test)]` rather than `#[allow(dead_code)]`. Canonical example:
 `vespertide-lsp/src/diagnostics/validation/visitors.rs` keeps
 `collect_syntax_errors`/`collect_unknown_column_types`/etc. as `#[cfg(test)]`
 oracles for the `fused_walk_matches_unfused_pipeline` test.
+
+### Coverage exclusions under `cargo tarpaulin --engine llvm` (stable channel)
+
+The toolchain is pinned to **stable** (`rust-toolchain.toml`); nightly-only
+attributes like `coverage(off)` (gated behind `feature(coverage_attribute)`)
+are **not available** and MUST NOT be reintroduced. The sanctioned exclusion
+mechanism is the **single-attribute** `#[cfg(not(tarpaulin_include))]` form,
+which `tarpaulin --engine llvm` honors via the `tarpaulin_include` cfg flag
+the runner sets while instrumenting. Workspace `check-cfg` declares
+`cfg(tarpaulin_include)` so the cfg compiles cleanly outside tarpaulin (the
+attribute body is included by default; tarpaulin removes it during its own
+run). CI invokes the standard `cargo tarpaulin --engine llvm ... --fail-under 100`
+in `.github/workflows/CI.yml` — no `RUSTFLAGS`, no `--cfg coverage_nightly`,
+no special toolchain.
+
+```rust
+// Genuinely-irreducible shell (interactive prompt, main entrypoint, tracing
+// macro internals, async-trait scaffolding, runtime-only logging):
+#[cfg(not(tarpaulin_include))]
+pub fn cmd_revision_interactive_prompts(/* ... */) -> Result<()> { /* ... */ }
+
+// Per-arm on a proven-unreachable `_ =>` of a `#[non_exhaustive]` enum
+// (currently single-variant; every reachable arm covered by tests). A
+// justification comment is mandatory next to the attribute.
+let keep = match strategy {
+    UniqueConstraintStrategy::DeleteDuplicates { keep } => *keep,
+    // `#[non_exhaustive]` future-variant guard; unreachable today.
+    #[cfg(not(tarpaulin_include))]
+    _ => return Err(QueryError::UnsupportedAction(/* ... */)),
+};
+```
+
+**Forbidden** (proven to break the build under tarpaulin):
+- Dual-block `#[cfg(not(tarpaulin_include))] X; #[cfg(tarpaulin_include)] Y`
+  pattern. Tarpaulin removes the `not(...)` block during instrumentation,
+  leaving the file with two identical definitions of `X` (or none, if `Y`
+  was a no-op). Use the single-attr form on a single definition only.
+- Whole-file or whole-function exclusions of real production logic
+  (gaming). Allowed exclusions are limited to:
+  1. **Irreducible shells**: `main`, interactive prompts, runtime tracing
+     macro expansions, process-global logging configuration, async-trait
+     delegations whose body is the trait method's `await` line, runtime
+     migration drivers that need a live DB.
+  2. **Proven-unreachable arms** on `#[non_exhaustive]` enums where every
+     existing variant is covered and the `_ =>` exists only to absorb
+     future variants. Every such per-arm exclusion MUST carry a comment
+     stating "currently unreachable" and pointing at the enum.
+
+Prefer real deterministic tests for reachable code (parameterized `rstest`
+across the matrix), and restructure closure-heavy code (e.g. `.filter(|x|
+predicate(x))` → `for x in ... { if !predicate(x) { continue; } ... }`,
+or chained `else if` → `match`) when LLVM source-map attribution misses
+otherwise-executed lines.
+
+If you ever see `coverage(off)` or `feature(coverage_attribute)` reappear,
+revert it — the stable-channel pin makes those attributes a hard build
+error, and the agreed exclusion idiom is `#[cfg(not(tarpaulin_include))]`
+only.
 
 ### NO TEST DELETION (policy)
 Never delete or `#[ignore]` a failing test to make CI green. Fix the code, not

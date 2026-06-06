@@ -23,11 +23,7 @@ pub fn build_remove_constraint(
     current_schema: &[TableDef],
     pending_constraints: &[TableConstraint],
 ) -> Result<Vec<BuiltQuery>, QueryError> {
-    let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| {
-        QueryError::SchemaError(format!(
-            "Table '{table}' not found in current schema. SQLite requires current schema information to remove constraints."
-        ))
-    })?;
+    let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::SchemaError(format!("Table '{table}' not found in current schema. SQLite requires current schema information to remove constraints.")))?;
 
     let new_constraints = constraints_without(table_def, constraint);
     let constraints_to_recreate = if matches!(constraint, TableConstraint::Unique { .. }) {

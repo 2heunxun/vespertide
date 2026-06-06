@@ -326,4 +326,47 @@ mod tests {
         let ws = find_fk_orphan_additions(&p, &baseline);
         assert!(ws.is_empty());
     }
+
+    /// Coverage-closure: a plan that contains non-FK `AddConstraint` /
+    /// `DeleteTable` actions mixed with one real FK addition exercises the
+    /// `let-else continue` skip arm (lines 78-81) for every non-matching
+    /// action variant in addition to the warned one.
+    #[rstest]
+    fn case_09_mixed_plan_only_emits_fk_warning_and_skips_other_actions() {
+        let baseline = vec![table("posts", vec![col("id", false), col("user_id", true)])];
+        let p = plan(vec![
+            // 0: AddConstraint Unique - not a FK, hits let-else continue
+            MigrationAction::AddConstraint {
+                table: "posts".into(),
+                constraint: TableConstraint::Unique {
+                    name: Some("uq".into()),
+                    columns: vec!["id".into()],
+                    strategy: vespertide_core::UniqueConstraintStrategy::default(),
+                },
+            },
+            // 1: DeleteTable - not AddConstraint at all
+            MigrationAction::DeleteTable {
+                table: "old".into(),
+            },
+            // 2: AddConstraint FK on baseline-existing column - the real warning
+            add_fk("posts", Some("fk"), &["user_id"], "users", &["id"]),
+        ]);
+        let ws = find_fk_orphan_additions(&p, &baseline);
+        assert_eq!(ws.len(), 1);
+        assert_eq!(ws[0].action_index, 2);
+    }
+
+    /// Coverage-closure: ensure `columns_to_strings` produces the expected
+    /// owned String list, including the empty-input edge case (defensive
+    /// helper contract).
+    #[rstest]
+    fn case_10_columns_to_strings_helper_contract() {
+        let empty: Vec<ColumnName> = vec![];
+        assert!(columns_to_strings(&empty).is_empty());
+        let some: Vec<ColumnName> = vec!["a".into(), "b".into()];
+        assert_eq!(
+            columns_to_strings(&some),
+            vec!["a".to_string(), "b".to_string()]
+        );
+    }
 }

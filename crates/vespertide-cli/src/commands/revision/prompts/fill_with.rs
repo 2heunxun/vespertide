@@ -93,7 +93,7 @@ pub(in crate::commands::revision) fn wrap_if_spaces(value: String) -> String {
 
 /// Prompt the user for a `fill_with` value using dialoguer.
 /// This function wraps terminal I/O and cannot be unit tested without a real terminal.
-#[cfg(not(tarpaulin_include))]
+#[cfg(not(tarpaulin_include))] // reason: interactive stdin/dialoguer prompt, not unit-testable
 pub(in crate::commands::revision) fn prompt_fill_with_value(
     prompt: &str,
     default: &str,
@@ -108,7 +108,7 @@ pub(in crate::commands::revision) fn prompt_fill_with_value(
 
 /// Prompt the user to select an enum value using dialoguer Select.
 /// Returns the selected value wrapped in single quotes for SQL.
-#[cfg(not(tarpaulin_include))]
+#[cfg(not(tarpaulin_include))] // reason: interactive stdin/dialoguer prompt, not unit-testable
 pub(in crate::commands::revision) fn prompt_enum_value(
     prompt: &str,
     enum_values: &[String],
@@ -125,7 +125,7 @@ pub(in crate::commands::revision) fn prompt_enum_value(
 
 /// Prompt for enum value selection and return bare (unquoted) value.
 /// Used by `cmd_revision` for enum `fill_with` collection where `BTreeMap` stores bare names.
-#[cfg(not(tarpaulin_include))]
+#[cfg(not(tarpaulin_include))] // reason: interactive stdin/dialoguer prompt, not unit-testable
 pub(in crate::commands::revision) fn prompt_enum_value_bare(
     prompt: &str,
     values: &[String],
@@ -207,7 +207,7 @@ where
     Ok(())
 }
 
-#[cfg(not(tarpaulin_include))]
+#[cfg(not(tarpaulin_include))] // reason: interactive stdin/dialoguer prompt, not unit-testable
 pub(in crate::commands::revision) fn prompt_delete_null_rows(
     table: &str,
     column: &str,
@@ -327,7 +327,7 @@ where
                     "{prompt}\n    {} {} '{}' is new — likely rename",
                     "(suggested:".bright_cyan(),
                     suggested.bright_green(),
-                    "press Enter to accept)".bright_cyan(),
+                    "press Enter to accept)".bright_cyan()
                 );
             }
             let ordered = reorder_with_suggestion(&item.remaining_values, suggestion.as_deref());
@@ -405,4 +405,39 @@ where
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reorder_with_suggestion_hoists_when_present() {
+        let values = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let out = reorder_with_suggestion(&values, Some("b"));
+        assert_eq!(out, vec!["b".to_string(), "a".to_string(), "c".to_string()]);
+    }
+
+    #[test]
+    fn reorder_with_suggestion_none_passthrough() {
+        let values = vec!["x".to_string(), "y".to_string()];
+        assert_eq!(reorder_with_suggestion(&values, None), values);
+    }
+
+    #[test]
+    fn reorder_with_suggestion_missing_still_hoists_inserts_suggestion() {
+        let values = vec!["a".to_string(), "b".to_string()];
+        // Suggestion not in list -> still hoisted to front, original order preserved.
+        let out = reorder_with_suggestion(&values, Some("missing"));
+        assert_eq!(
+            out,
+            vec!["missing".to_string(), "a".to_string(), "b".to_string()]
+        );
+    }
+
+    #[test]
+    fn reorder_with_suggestion_already_first_stays_at_front() {
+        let values = vec!["x".to_string(), "y".to_string()];
+        assert_eq!(reorder_with_suggestion(&values, Some("x")), values);
+    }
 }

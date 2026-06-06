@@ -159,6 +159,13 @@ fn in_txn_timeout_sql(backend: DatabaseBackend, options: MigrationRuntimeOptions
     out
 }
 
+/// Irreducible shell: thin delegation to
+/// [`run_embedded_migrations_with_options`] with default options. The body
+/// is a single `await` and cannot be unit-tested without a live
+/// [`DatabaseConnection`]; integration tests live in the out-of-workspace
+/// `tests/runtime-sqlite` crate (excluded from the tarpaulin workspace due to
+/// the `libsqlite3-sys` single-version `links = "sqlite3"` constraint).
+#[cfg(not(tarpaulin_include))]
 pub async fn run_embedded_migrations(
     pool: &DatabaseConnection,
     version_table: &str,
@@ -182,13 +189,21 @@ pub async fn run_embedded_migrations(
 ///
 /// [`run_embedded_migrations`] delegates here with default (no-timeout)
 /// options, so existing callers are unaffected.
+/// Irreducible shell: full migration flow against a live
+/// [`DatabaseConnection`] (version-table setup, pre/in-txn timeout SETs,
+/// version-read, apply loop, commit). Every observable step is `await`ed
+/// against a real backend, so there is no workspace-safe unit-test path; the
+/// pure helpers it composes (`pre_txn_timeout_sql`, `in_txn_timeout_sql`,
+/// `collect_version_ids`, `split_sql_blob`, `database_error`,
+/// `EmbeddedMigration::sql_blob`, `MigrationRuntimeOptions::is_noop`) are
+/// each unit-tested in the inline `tests` module below. End-to-end coverage
+/// lives in the out-of-workspace `tests/runtime-sqlite` crate (excluded from
+/// the tarpaulin workspace due to the `libsqlite3-sys` single-version
+/// `links = "sqlite3"` constraint).
+#[cfg(not(tarpaulin_include))]
 #[expect(
     clippy::print_stderr,
     reason = "verbose runtime migrations stream progress diagnostics to stderr while leaving host stdout application-owned"
-)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "linear runtime migration flow: version-table setup -> pre/in-txn timeouts -> version read -> apply loop -> commit; splitting fragments the transaction lifecycle"
 )]
 pub async fn run_embedded_migrations_with_options(
     pool: &DatabaseConnection,
@@ -366,7 +381,10 @@ mod tests {
 
     use crate::MigrationError;
 
-    use super::{EmbeddedMigration, split_sql_blob};
+    use super::{
+        EmbeddedMigration, MigrationRuntimeOptions, collect_version_ids, database_error,
+        in_txn_timeout_sql, pre_txn_timeout_sql, split_sql_blob,
+    };
 
     #[test]
     fn split_sql_blob_ignores_empty_segments() {
@@ -377,12 +395,41 @@ mod tests {
     }
 
     #[test]
+    fn split_sql_blob_empty_input_yields_no_segments() {
+        let sqls: Vec<_> = split_sql_blob("").collect();
+        assert!(sqls.is_empty());
+    }
+
+    #[test]
+    fn split_sql_blob_single_segment_no_terminator() {
+        let sqls: Vec<_> = split_sql_blob("SELECT 1").collect();
+        assert_eq!(sqls, vec!["SELECT 1"]);
+    }
+
+    #[test]
     fn embedded_migration_selects_backend_blob() {
         let migration = EmbeddedMigration::new(1, "id", "comment", "pg\0", "mysql\0", "sqlite\0");
 
         assert_eq!(migration.sql_blob(DatabaseBackend::Postgres), "pg\0");
         assert_eq!(migration.sql_blob(DatabaseBackend::MySql), "mysql\0");
         assert_eq!(migration.sql_blob(DatabaseBackend::Sqlite), "sqlite\0");
+    }
+
+    #[test]
+    fn embedded_migration_new_records_all_fields() {
+        let migration =
+            EmbeddedMigration::new(42, "uuid-7", "create users", "pg-sql", "my-sql", "lite-sql");
+
+        assert_eq!(migration.version, 42);
+        assert_eq!(migration.migration_id, "uuid-7");
+        assert_eq!(migration.comment, "create users");
+        assert_eq!(migration.postgres_sql_blob, "pg-sql");
+        assert_eq!(migration.mysql_sql_blob, "my-sql");
+        assert_eq!(migration.sqlite_sql_blob, "lite-sql");
+
+        // Clone + Copy semantics
+        let migration_copy = migration;
+        assert_eq!(migration_copy.version, migration.version);
     }
 
     #[test]
@@ -406,5 +453,242 @@ mod tests {
             err.source()
                 .is_some_and(|source| source.to_string() == "Custom Error: connection refused")
         );
+    }
+
+    #[test]
+    fn database_error_wraps_message_and_chains_source() {
+        let db_err = sea_orm::DbErr::Custom("nope".to_owned());
+        let err = database_error("apply failed".to_owned(), db_err);
+
+        match &err {
+            MigrationError::Database { message, source } => {
+                assert_eq!(message, "apply failed");
+                let chained = source.as_ref().expect("source set by database_error");
+                assert_eq!(chained.to_string(), "Custom Error: nope");
+            }
+            other => panic!("expected Database variant, got {other:?}"),
+        }
+        assert!(err.source().is_some());
+    }
+
+    // -- MigrationRuntimeOptions -------------------------------------------
+
+    #[test]
+    fn migration_runtime_options_default_is_noop() {
+        let opts = MigrationRuntimeOptions::default();
+        assert_eq!(opts.lock_timeout_ms, None);
+        assert_eq!(opts.statement_timeout_ms, None);
+        assert!(opts.is_noop());
+    }
+
+    #[test]
+    fn migration_runtime_options_from_millis_records_both_timeouts() {
+        let opts = MigrationRuntimeOptions::from_millis(Some(1000), Some(2000));
+        assert_eq!(opts.lock_timeout_ms, Some(1000));
+        assert_eq!(opts.statement_timeout_ms, Some(2000));
+        assert!(!opts.is_noop());
+    }
+
+    #[test]
+    fn migration_runtime_options_from_millis_lock_only_is_not_noop() {
+        let opts = MigrationRuntimeOptions::from_millis(Some(500), None);
+        assert_eq!(opts.lock_timeout_ms, Some(500));
+        assert_eq!(opts.statement_timeout_ms, None);
+        assert!(!opts.is_noop());
+    }
+
+    #[test]
+    fn migration_runtime_options_from_millis_statement_only_is_not_noop() {
+        let opts = MigrationRuntimeOptions::from_millis(None, Some(3000));
+        assert_eq!(opts.lock_timeout_ms, None);
+        assert_eq!(opts.statement_timeout_ms, Some(3000));
+        assert!(!opts.is_noop());
+    }
+
+    #[test]
+    fn migration_runtime_options_from_millis_no_timeouts_is_noop() {
+        let opts = MigrationRuntimeOptions::from_millis(None, None);
+        assert!(opts.is_noop());
+        assert_eq!(opts, MigrationRuntimeOptions::default());
+    }
+
+    #[test]
+    fn migration_runtime_options_supports_copy_clone_eq() {
+        let a = MigrationRuntimeOptions::from_millis(Some(10), Some(20));
+        let b = a;
+        let c = a;
+        assert_eq!(a, b);
+        assert_eq!(a, c);
+        assert_ne!(a, MigrationRuntimeOptions::default());
+    }
+
+    // -- pre_txn_timeout_sql -----------------------------------------------
+
+    #[test]
+    fn pre_txn_timeout_sql_postgres_emits_nothing() {
+        let opts = MigrationRuntimeOptions::from_millis(Some(500), Some(1000));
+        let sqls = pre_txn_timeout_sql(DatabaseBackend::Postgres, opts);
+        assert!(sqls.is_empty());
+    }
+
+    #[test]
+    fn pre_txn_timeout_sql_mysql_emits_nothing() {
+        let opts = MigrationRuntimeOptions::from_millis(Some(500), Some(1000));
+        let sqls = pre_txn_timeout_sql(DatabaseBackend::MySql, opts);
+        assert!(sqls.is_empty());
+    }
+
+    #[test]
+    fn pre_txn_timeout_sql_sqlite_with_lock_emits_busy_timeout() {
+        let opts = MigrationRuntimeOptions::from_millis(Some(750), None);
+        let sqls = pre_txn_timeout_sql(DatabaseBackend::Sqlite, opts);
+        assert_eq!(sqls, vec!["PRAGMA busy_timeout = 750".to_owned()]);
+    }
+
+    #[test]
+    fn pre_txn_timeout_sql_sqlite_without_lock_emits_nothing() {
+        let opts = MigrationRuntimeOptions::from_millis(None, Some(9999));
+        let sqls = pre_txn_timeout_sql(DatabaseBackend::Sqlite, opts);
+        assert!(sqls.is_empty());
+    }
+
+    #[test]
+    fn pre_txn_timeout_sql_sqlite_default_emits_nothing() {
+        let sqls = pre_txn_timeout_sql(DatabaseBackend::Sqlite, MigrationRuntimeOptions::default());
+        assert!(sqls.is_empty());
+    }
+
+    // -- in_txn_timeout_sql ------------------------------------------------
+
+    #[test]
+    fn in_txn_timeout_sql_postgres_both_timeouts() {
+        let opts = MigrationRuntimeOptions::from_millis(Some(500), Some(2000));
+        let sqls = in_txn_timeout_sql(DatabaseBackend::Postgres, opts);
+        assert_eq!(
+            sqls,
+            vec![
+                "SET LOCAL lock_timeout = 500".to_owned(),
+                "SET LOCAL statement_timeout = 2000".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn in_txn_timeout_sql_postgres_lock_only() {
+        let opts = MigrationRuntimeOptions::from_millis(Some(500), None);
+        let sqls = in_txn_timeout_sql(DatabaseBackend::Postgres, opts);
+        assert_eq!(sqls, vec!["SET LOCAL lock_timeout = 500".to_owned()]);
+    }
+
+    #[test]
+    fn in_txn_timeout_sql_postgres_statement_only() {
+        let opts = MigrationRuntimeOptions::from_millis(None, Some(2000));
+        let sqls = in_txn_timeout_sql(DatabaseBackend::Postgres, opts);
+        assert_eq!(sqls, vec!["SET LOCAL statement_timeout = 2000".to_owned()]);
+    }
+
+    #[test]
+    fn in_txn_timeout_sql_postgres_default_emits_nothing() {
+        let sqls = in_txn_timeout_sql(
+            DatabaseBackend::Postgres,
+            MigrationRuntimeOptions::default(),
+        );
+        assert!(sqls.is_empty());
+    }
+
+    #[test]
+    fn in_txn_timeout_sql_mysql_rounds_lock_up_to_seconds() {
+        // 1500 ms → div_ceil(1000) = 2 seconds
+        let opts = MigrationRuntimeOptions::from_millis(Some(1500), Some(7000));
+        let sqls = in_txn_timeout_sql(DatabaseBackend::MySql, opts);
+        assert_eq!(
+            sqls,
+            vec![
+                "SET SESSION innodb_lock_wait_timeout = 2".to_owned(),
+                "SET SESSION max_execution_time = 7000".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn in_txn_timeout_sql_mysql_sub_second_lock_rounds_up_to_one() {
+        // 250 ms → div_ceil(1000) = 1, max(1) = 1 (never collapses to 0)
+        let opts = MigrationRuntimeOptions::from_millis(Some(250), None);
+        let sqls = in_txn_timeout_sql(DatabaseBackend::MySql, opts);
+        assert_eq!(
+            sqls,
+            vec!["SET SESSION innodb_lock_wait_timeout = 1".to_owned()]
+        );
+    }
+
+    #[test]
+    fn in_txn_timeout_sql_mysql_exact_second_lock() {
+        // 1000 ms → div_ceil(1000) = 1
+        let opts = MigrationRuntimeOptions::from_millis(Some(1000), None);
+        let sqls = in_txn_timeout_sql(DatabaseBackend::MySql, opts);
+        assert_eq!(
+            sqls,
+            vec!["SET SESSION innodb_lock_wait_timeout = 1".to_owned()]
+        );
+    }
+
+    #[test]
+    fn in_txn_timeout_sql_mysql_statement_only() {
+        let opts = MigrationRuntimeOptions::from_millis(None, Some(3000));
+        let sqls = in_txn_timeout_sql(DatabaseBackend::MySql, opts);
+        assert_eq!(
+            sqls,
+            vec!["SET SESSION max_execution_time = 3000".to_owned()]
+        );
+    }
+
+    #[test]
+    fn in_txn_timeout_sql_mysql_default_emits_nothing() {
+        let sqls = in_txn_timeout_sql(DatabaseBackend::MySql, MigrationRuntimeOptions::default());
+        assert!(sqls.is_empty());
+    }
+
+    #[test]
+    fn in_txn_timeout_sql_sqlite_emits_nothing_even_with_both_set() {
+        // SQLite lock is handled pre-transaction; no statement timeout.
+        let opts = MigrationRuntimeOptions::from_millis(Some(500), Some(2000));
+        let sqls = in_txn_timeout_sql(DatabaseBackend::Sqlite, opts);
+        assert!(sqls.is_empty());
+    }
+
+    // -- collect_version_ids -----------------------------------------------
+
+    #[test]
+    fn collect_version_ids_empty_rows_yields_empty_map() {
+        let rows: Vec<sea_orm::QueryResult> = Vec::new();
+        let ids = collect_version_ids(&rows);
+        assert!(ids.is_empty());
+    }
+
+    #[test]
+    fn collect_version_ids_reads_positive_versions_and_skips_invalid_rows() {
+        fn row(version: Option<i32>, id: Option<&str>) -> sea_orm::QueryResult {
+            let mut values = std::collections::BTreeMap::new();
+            if let Some(version) = version {
+                values.insert("version".to_owned(), version.into());
+            }
+            if let Some(id) = id {
+                values.insert("id".to_owned(), id.into());
+            }
+            sea_orm::ProxyRow::new(values).into()
+        }
+
+        let rows = vec![
+            row(Some(7), Some("create-users")),
+            row(Some(-1), Some("negative")),
+            row(None, Some("missing-version")),
+            row(Some(8), None),
+        ];
+        let ids = collect_version_ids(&rows);
+
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids.get(&7).map(String::as_str), Some("create-users"));
+        assert_eq!(ids.get(&8).map(String::as_str), Some(""));
+        assert!(!ids.contains_key(&u32::MAX));
     }
 }

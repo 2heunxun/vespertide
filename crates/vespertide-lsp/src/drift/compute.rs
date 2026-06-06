@@ -95,31 +95,22 @@ pub fn compute_with_cache(
     let mut drifts = Vec::new();
 
     for action in &plan.actions {
-        let Some(table_name) = action.table_name() else {
-            continue;
-        };
-        let Some(uri) = index
-            .lookup(table_name)
-            .map(|loc| loc.uri)
-            .or_else(|| guess_uri(&loaded.models_dir, table_name))
-        else {
-            continue;
-        };
-        let Some((source, tree)) = source_and_tree(&uri, docs, parser_pool) else {
-            continue;
-        };
-        let Some((kind, byte_range, message)) =
-            action_to_drift(action, &loaded.baseline, &source, tree.as_ref())
-        else {
-            continue;
-        };
-
-        drifts.push(DomainDrift {
-            uri,
-            kind,
-            byte_range,
-            message,
-        });
+        if let Some(table_name) = action.table_name()
+            && let Some(uri) = index
+                .lookup(table_name)
+                .map(|loc| loc.uri)
+                .or_else(|| guess_uri(&loaded.models_dir, table_name))
+            && let Some((source, tree)) = source_and_tree(&uri, docs, parser_pool)
+            && let Some((kind, byte_range, message)) =
+                action_to_drift(action, &loaded.baseline, &source, tree.as_ref())
+        {
+            drifts.push(DomainDrift {
+                uri,
+                kind,
+                byte_range,
+                message,
+            });
+        }
     }
 
     let drifts_arc = Arc::new(drifts);
@@ -236,4 +227,126 @@ fn path_to_uri(path: &Path) -> Option<Uri> {
         path_text = format!("/{path_text}");
     }
     Uri::from_str(&format!("file://{path_text}")).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    fn write_config(root: &std::path::Path) {
+        fs::create_dir_all(root.join("models")).unwrap();
+        fs::create_dir_all(root.join("migrations")).unwrap();
+        fs::write(root.join("vespertide.json"), r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#).unwrap();
+    }
+
+    fn user_model() -> &'static str {
+        r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#
+    }
+
+    #[test]
+    fn compute_returns_empty_when_loaded_state_fails() {
+        let tmp = tempdir().unwrap();
+        fs::write(tmp.path().join("vespertide.json"), "not json").unwrap();
+
+        let out = compute_with_cache(
+            tmp.path(),
+            &WorkspaceIndex::new(),
+            &DocumentStore::new(),
+            &DriftCache::new(),
+        );
+
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn compute_returns_empty_when_diff_validation_fails() {
+        let tmp = tempdir().unwrap();
+        write_config(tmp.path());
+        fs::write(tmp.path().join("models/user.json"), r#"{"name":"user","columns":[{"name":"id","type":"integer"},{"name":"id","type":"integer"}]}"#).unwrap();
+
+        let out = compute_with_cache(
+            tmp.path(),
+            &WorkspaceIndex::new(),
+            &DocumentStore::new(),
+            &DriftCache::new(),
+        );
+
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn compute_returns_empty_when_diff_schemas_rejects_cyclic_creates() {
+        let tmp = tempdir().unwrap();
+        write_config(tmp.path());
+        fs::write(tmp.path().join("models/a.json"), r#"{"name":"a","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true},{"name":"b_id","type":"integer","nullable":false,"foreign_key":{"ref_table":"b","ref_columns":["id"]}}]}"#).unwrap();
+        fs::write(tmp.path().join("models/b.json"), r#"{"name":"b","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true},{"name":"a_id","type":"integer","nullable":false,"foreign_key":{"ref_table":"a","ref_columns":["id"]}}]}"#).unwrap();
+        let models =
+            vespertide_loader::load_models_from_dir(Some(tmp.path().to_path_buf())).unwrap();
+        assert!(
+            vespertide_planner::diff_schemas(&[], &models).is_err(),
+            "fixture must reach the diff_schemas error path"
+        );
+
+        let out = compute_with_cache(
+            tmp.path(),
+            &WorkspaceIndex::new(),
+            &DocumentStore::new(),
+            &DriftCache::new(),
+        );
+
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn compute_skips_actions_when_index_uri_has_no_source() {
+        let tmp = tempdir().unwrap();
+        write_config(tmp.path());
+        fs::write(tmp.path().join("models/user.json"), user_model()).unwrap();
+        let pool = ParserPool::new();
+        let tree = pool
+            .parse(user_model(), crate::parser::DocumentFormat::Json)
+            .unwrap();
+        let index = WorkspaceIndex::new();
+        let missing_uri = path_to_uri(&tmp.path().join("models/missing.json")).unwrap();
+        index.upsert(&missing_uri, user_model(), &tree);
+
+        let out = compute_with_cache(
+            tmp.path(),
+            &index,
+            &DocumentStore::new(),
+            &DriftCache::new(),
+        );
+
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn compute_skips_remap_enum_values_action_with_no_drift_mapping() {
+        let tmp = tempdir().unwrap();
+        write_config(tmp.path());
+        fs::write(tmp.path().join("migrations/0001_init.vespertide.json"), r#"{"comment":null,"created_at":null,"version":1,"actions":[{"type":"create_table","table":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true},{"name":"priority","type":{"kind":"enum","name":"priority_level","values":[{"name":"low","value":0},{"name":"high","value":1}]},"nullable":false}],"constraints":[]}]}"#).unwrap();
+        fs::write(tmp.path().join("models/user.json"), r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true},{"name":"priority","type":{"kind":"enum","name":"priority_level","values":[{"name":"low","value":0},{"name":"high","value":2}]},"nullable":false}]}"#).unwrap();
+
+        let out = compute_with_cache(
+            tmp.path(),
+            &WorkspaceIndex::new(),
+            &DocumentStore::new(),
+            &DriftCache::new(),
+        );
+
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn guess_uri_checks_yaml_yml_and_missing_extensions() {
+        let tmp = tempdir().unwrap();
+        fs::create_dir_all(tmp.path()).unwrap();
+        fs::write(tmp.path().join("user.yaml"), "name: user\ncolumns: []\n").unwrap();
+
+        assert!(guess_uri(tmp.path(), "user").is_some());
+        assert!(guess_uri(tmp.path(), "missing").is_none());
+    }
 }

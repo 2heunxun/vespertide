@@ -132,13 +132,10 @@ fn sqlite_constraint_handling(
 mod tests {
     use super::*;
     use crate::sql::types::DatabaseBackend;
+    use crate::test_support::col;
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
-    use vespertide_core::{ColumnDef, ComplexColumnType, SimpleColumnType};
-
-    fn col(name: &str, ty: ColumnType) -> ColumnDef {
-        ColumnDef::new(name, ty, true)
-    }
+    use vespertide_core::{ComplexColumnType, SimpleColumnType};
 
     #[rstest]
     #[case::delete_column_postgres(

@@ -99,6 +99,8 @@ fn build_check_violation_cleanup(
         CheckViolationStrategy::DeleteViolatingRows => {
             format!("DELETE FROM {quoted_table} WHERE NOT ({expr})")
         }
+        // `#[non_exhaustive]` future-variant guard; unreachable today.
+        #[cfg(not(tarpaulin_include))]
         _ => {
             return Err(QueryError::UnsupportedAction(format!(
                 "AddConstraint(Check) on '{table}': unsupported strategy variant"
@@ -107,4 +109,29 @@ fn build_check_violation_cleanup(
     };
 
     Ok(vec![BuiltQuery::Raw(RawSql::uniform(sql))])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_check_violation_cleanup_nullify_emits_update_set_null() {
+        // NullifyViolatingColumn body: format!("UPDATE ... SET <col> = NULL
+        // WHERE NOT (<expr>)"). Hits the previously-uncovered Nullify arm.
+        let queries = build_check_violation_cleanup(
+            DatabaseBackend::Postgres,
+            "orders",
+            "qty > 0",
+            &CheckViolationStrategy::NullifyViolatingColumn {
+                column: "qty".into(),
+            },
+        )
+        .expect("nullify arm should succeed");
+        assert_eq!(queries.len(), 1);
+        let sql = queries[0].build(DatabaseBackend::Postgres);
+        assert!(sql.contains("UPDATE \"orders\""));
+        assert!(sql.contains("SET \"qty\" = NULL"));
+        assert!(sql.contains("WHERE NOT (qty > 0)"));
+    }
 }

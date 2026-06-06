@@ -13,16 +13,48 @@
     reason = "tower-lsp-server prepareRename/rename trait wrappers force async helpers even though these bodies are synchronous"
 )]
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::{
-    Position, PrepareRenameResponse, Range, RenameParams, TextDocumentPositionParams, WorkspaceEdit,
+    Position, PrepareRenameResponse, Range, RenameParams, TextDocumentPositionParams, Uri,
+    WorkspaceEdit,
 };
 
 use super::Backend;
 use super::helpers::{byte_to_ls_position, domain_edits_to_lsp};
 use crate::parser::DocumentFormat;
+
+#[cfg(not(tarpaulin_include))]
+fn log_prepare_rename_not_renameable(uri: &Uri) {
+    tracing::debug!(
+        target: "vespertide_lsp::handler",
+        uri = %uri.as_str(),
+        "prepare_rename: position is not renameable"
+    );
+}
+
+#[cfg(not(tarpaulin_include))]
+fn log_prepare_rename(uri: &Uri, placeholder: &str) {
+    tracing::info!(
+        target: "vespertide_lsp::handler",
+        uri = %uri.as_str(),
+        placeholder = %placeholder,
+        "prepare_rename"
+    );
+}
+
+#[cfg(not(tarpaulin_include))]
+fn log_rename(uri: &Uri, new_name: &str, files: usize, total_edits: usize) {
+    tracing::info!(
+        target: "vespertide_lsp::handler",
+        uri = %uri.as_str(),
+        new_name = %new_name,
+        files,
+        total_edits,
+        "rename"
+    );
+}
 
 pub(super) async fn prepare_rename_impl(
     backend: &Backend,
@@ -41,11 +73,7 @@ pub(super) async fn prepare_rename_impl(
         crate::rename::prepare(text, format, state.tree.as_ref(), &uri, byte)
     });
     let Some(Some(domain)) = domain else {
-        tracing::debug!(
-            target: "vespertide_lsp::handler",
-            uri = %uri.as_str(),
-            "prepare_rename: position is not renameable"
-        );
+        log_prepare_rename_not_renameable(&uri);
         return Ok(None);
     };
 
@@ -66,12 +94,7 @@ pub(super) async fn prepare_rename_impl(
             },
         });
 
-    tracing::info!(
-        target: "vespertide_lsp::handler",
-        uri = %uri.as_str(),
-        placeholder = %domain.placeholder,
-        "prepare_rename"
-    );
+    log_prepare_rename(&uri, &domain.placeholder);
 
     Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
         range,
@@ -110,17 +133,27 @@ pub(super) async fn rename_impl(
         return Ok(None);
     };
 
-    tracing::info!(
-        target: "vespertide_lsp::handler",
-        uri = %uri.as_str(),
-        new_name = %new_name,
-        files = domain.edits.len(),
-        total_edits = domain.edits.values().map(Vec::len).sum::<usize>(),
-        "rename"
+    log_rename(
+        &uri,
+        &new_name,
+        domain.edits.len(),
+        domain.edits.values().map(Vec::len).sum::<usize>(),
     );
 
+    Ok(
+        lowered_rename_changes(domain.edits, backend).map(|changes| WorkspaceEdit {
+            changes: Some(changes),
+            ..WorkspaceEdit::default()
+        }),
+    )
+}
+
+pub(super) fn lowered_rename_changes(
+    edits: BTreeMap<tower_lsp_server::ls_types::Uri, Vec<crate::rename::DomainTextEdit>>,
+    backend: &Backend,
+) -> Option<HashMap<tower_lsp_server::ls_types::Uri, Vec<tower_lsp_server::ls_types::TextEdit>>> {
     let mut changes = HashMap::new();
-    for (target_uri, domain_edits) in domain.edits {
+    for (target_uri, domain_edits) in edits {
         let Some(text_edits) = domain_edits_to_lsp(&target_uri, &domain_edits, backend) else {
             continue;
         };
@@ -128,10 +161,8 @@ pub(super) async fn rename_impl(
     }
 
     if changes.is_empty() {
-        return Ok(None);
+        None
+    } else {
+        Some(changes)
     }
-    Ok(Some(WorkspaceEdit {
-        changes: Some(changes),
-        ..WorkspaceEdit::default()
-    }))
 }

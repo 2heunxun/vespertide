@@ -248,27 +248,11 @@ fn render_fk_hint(baseline: &[TableDef], target_table: &str, target_columns: &[S
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{pk, table};
     use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType, TableName};
 
     fn col(name: &str) -> ColumnDef {
         ColumnDef::new(name, ColumnType::Simple(SimpleColumnType::Integer), false)
-    }
-
-    fn table(name: &str, columns: Vec<ColumnDef>, constraints: Vec<TableConstraint>) -> TableDef {
-        TableDef {
-            name: TableName::from(name),
-            description: None,
-            columns,
-            constraints,
-        }
-    }
-
-    fn pk(columns: Vec<&str>) -> TableConstraint {
-        TableConstraint::PrimaryKey {
-            auto_increment: false,
-            columns: columns.into_iter().map(Into::into).collect(),
-            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-        }
     }
 
     fn uq(name: Option<&str>, columns: Vec<&str>) -> TableConstraint {
@@ -560,5 +544,135 @@ mod tests {
 
         let errs = find_primary_key_removals(&p, &baseline);
         assert!(errs.is_empty(), "expected absorbed PK, got: {errs:?}");
+    }
+
+    // ── Coverage-closure: ConstraintKey ordering + fk_hint empty paths ──
+
+    /// `render_fk_hint` returns "" when no FK in baseline points at the
+    /// affected `(table, columns)` set — exercises the early-return path
+    /// at the end of the function via PK→UQ swap with no referencing FK.
+    #[test]
+    fn pk_to_uq_no_fk_reference_yields_empty_hint() {
+        let baseline = vec![table("user", vec![col("id")], vec![pk(vec!["id"])])];
+        let p = plan(vec![
+            remove("user", pk(vec!["id"])),
+            add("user", uq(Some("uq_user_id"), vec!["id"])),
+        ]);
+
+        let errs = find_constraint_type_changes(&p, &baseline);
+        assert_eq!(errs.len(), 1);
+        let PlannerError::ConstraintTypeChanged { fk_hint, .. } = &errs[0] else {
+            panic!("wrong variant");
+        };
+        assert!(fk_hint.is_empty(), "fk_hint expected empty: {fk_hint:?}");
+    }
+
+    /// `render_fk_hint` skips FKs whose `ref_table` differs from the
+    /// target — exercises the `if ref_table != target_table { continue; }`
+    /// branch.
+    #[test]
+    fn pk_to_uq_with_fk_pointing_at_other_table_yields_empty_hint() {
+        let baseline = vec![
+            table("user", vec![col("id")], vec![pk(vec!["id"])]),
+            table("other", vec![col("id")], vec![pk(vec!["id"])]),
+            table(
+                "log",
+                vec![col("id"), col("other_id")],
+                vec![
+                    pk(vec!["id"]),
+                    fk(Some("fk_log_other"), vec!["other_id"], "other", vec!["id"]),
+                ],
+            ),
+        ];
+        let p = plan(vec![
+            remove("user", pk(vec!["id"])),
+            add("user", uq(Some("uq"), vec!["id"])),
+        ]);
+
+        let errs = find_constraint_type_changes(&p, &baseline);
+        let PlannerError::ConstraintTypeChanged { fk_hint, .. } = &errs[0] else {
+            panic!("wrong variant");
+        };
+        // log's FK targets `other`, not `user` — hint must be empty.
+        assert!(fk_hint.is_empty(), "fk_hint: {fk_hint}");
+    }
+
+    /// `render_fk_hint` skips FKs whose `ref_columns` set differs from the
+    /// target column set — exercises the `if ref_set != target_set { continue; }`
+    /// branch.
+    #[test]
+    fn pk_to_uq_with_fk_to_different_columns_yields_empty_hint() {
+        // user has both `id` and `email`. The PK→UQ swap happens on `id`.
+        // The log FK references `user.email`, a DIFFERENT column from the
+        // affected set → ref_set != target_set → fk_hint stays empty.
+        let baseline = vec![
+            table("user", vec![col("id"), col("email")], vec![pk(vec!["id"])]),
+            table(
+                "log",
+                vec![col("uemail")],
+                vec![fk(
+                    Some("fk_log_email"),
+                    vec!["uemail"],
+                    "user",
+                    vec!["email"],
+                )],
+            ),
+        ];
+        let p = plan(vec![
+            remove("user", pk(vec!["id"])),
+            add("user", uq(Some("uq"), vec!["id"])),
+        ]);
+
+        let errs = find_constraint_type_changes(&p, &baseline);
+        let PlannerError::ConstraintTypeChanged {
+            fk_hint, columns, ..
+        } = &errs[0]
+        else {
+            panic!("wrong variant");
+        };
+        // Affected unique column set is (id) but the FK references (email)
+        // — ref_set != target_set → hint must be empty.
+        assert_eq!(columns, "id");
+        assert!(fk_hint.is_empty(), "fk_hint: {fk_hint}");
+    }
+
+    /// `render_fk_hint` falls back to the `(columns)` shape when the FK
+    /// has no declared name.
+    #[test]
+    fn pk_to_uq_with_unnamed_fk_uses_columns_in_hint() {
+        let baseline = vec![
+            table("user", vec![col("id")], vec![pk(vec!["id"])]),
+            table(
+                "log",
+                vec![col("user_id")],
+                vec![fk(None, vec!["user_id"], "user", vec!["id"])],
+            ),
+        ];
+        let p = plan(vec![
+            remove("user", pk(vec!["id"])),
+            add("user", uq(Some("uq"), vec!["id"])),
+        ]);
+
+        let errs = find_constraint_type_changes(&p, &baseline);
+        let PlannerError::ConstraintTypeChanged { fk_hint, .. } = &errs[0] else {
+            panic!("wrong variant");
+        };
+        assert!(fk_hint.contains("(user_id)"), "fk_hint: {fk_hint}");
+    }
+
+    #[test]
+    fn classify_constraint_ignores_non_pk_unique_constraints() {
+        let index = TableConstraint::Index {
+            name: Some("ix_user__id".into()),
+            columns: vec!["id".into()],
+        };
+        let check = TableConstraint::Check {
+            name: "ck_id".into(),
+            expr: "id > 0".into(),
+            strategy: vespertide_core::CheckViolationStrategy::default(),
+        };
+
+        assert!(classify_constraint(&index).is_none());
+        assert!(classify_constraint(&check).is_none());
     }
 }

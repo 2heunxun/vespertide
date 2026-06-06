@@ -30,6 +30,28 @@ fn validate_migration_plan_error_order_matches_across_thread_counts() {
     }
 }
 
+#[test]
+#[serial]
+fn env_guard_restores_previous_validate_plan_threshold() {
+    // SAFETY: this test is `#[serial]`, so the environment mutation cannot race
+    // with another test in this binary.
+    unsafe { std::env::set_var(VALIDATE_PLAN_THRESHOLD_ENV, "123") };
+    {
+        let _threshold = EnvVarGuard::set(VALIDATE_PLAN_THRESHOLD_ENV, TEST_PAR_THRESHOLD);
+        assert_eq!(
+            std::env::var(VALIDATE_PLAN_THRESHOLD_ENV).as_deref(),
+            Ok(TEST_PAR_THRESHOLD)
+        );
+    }
+    assert_eq!(
+        std::env::var(VALIDATE_PLAN_THRESHOLD_ENV).as_deref(),
+        Ok("123")
+    );
+    // SAFETY: this test is `#[serial]`, so the environment mutation cannot race
+    // with another test in this binary.
+    unsafe { std::env::remove_var(VALIDATE_PLAN_THRESHOLD_ENV) };
+}
+
 fn plan_with_actions(action_count: usize) -> MigrationPlan {
     MigrationPlan {
         id: String::new(),

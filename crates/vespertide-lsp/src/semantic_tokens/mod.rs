@@ -176,4 +176,56 @@ mod tests {
         let result = classify(source, DocumentFormat::Json, None);
         assert!(result.is_empty());
     }
+
+    #[test]
+    fn classify_shared_populates_static_cache_on_miss() {
+        // Use a unique-ish source so the static cache hasn't seen it.
+        let pool = ParserPool::new();
+        let source =
+            r#"{"name":"unique_cache_miss_target","columns":[{"name":"x","type":"text"}]}"#;
+        let tree = pool.parse(source, DocumentFormat::Json).unwrap();
+        let a = classify_shared(source, DocumentFormat::Json, Some(&tree));
+        let b = classify_shared(source, DocumentFormat::Json, Some(&tree));
+        // Same Arc out of the static cache on the 2nd call.
+        assert!(Arc::ptr_eq(&a, &b));
+        assert!(!a.is_empty(), "non-empty doc must produce raw tokens");
+    }
+
+    #[test]
+    fn classify_shared_returns_empty_arc_for_none_tree() {
+        let tokens = classify_shared("anything", DocumentFormat::Json, None);
+        assert!(tokens.is_empty());
+    }
+
+    #[test]
+    fn filter_range_keeps_only_overlapping_tokens() {
+        let token_a = RawToken {
+            byte_range: 0..5,
+            token_type: 0,
+            token_modifiers: 0,
+        };
+        let token_b = RawToken {
+            byte_range: 10..15,
+            token_type: 0,
+            token_modifiers: 0,
+        };
+        let token_c = RawToken {
+            byte_range: 20..25,
+            token_type: 0,
+            token_modifiers: 0,
+        };
+        let kept = filter_range(vec![token_a, token_b, token_c], 8..18);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].byte_range, 10..15);
+    }
+
+    #[test]
+    fn classify_uncached_dispatches_yaml_when_format_is_yaml() {
+        // Ensures the YAML branch of the match in `classify_uncached` runs.
+        let pool = ParserPool::new();
+        let src = "name: yaml_dispatch\ncolumns:\n  - name: a\n    type: text\n";
+        let tree = pool.parse(src, DocumentFormat::Yaml).unwrap();
+        let tokens = classify(src, DocumentFormat::Yaml, Some(&tree));
+        assert!(!tokens.is_empty(), "YAML classifier should emit tokens");
+    }
 }

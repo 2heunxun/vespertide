@@ -37,3 +37,38 @@ pub fn to_lsp(domain: &DomainDiagnostic, doc: &FullTextDocument) -> Diagnostic {
         data: None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::error(Severity::Error, DiagnosticSeverity::ERROR)]
+    #[case::warning(Severity::Warning, DiagnosticSeverity::WARNING)]
+    #[case::information(Severity::Information, DiagnosticSeverity::INFORMATION)]
+    #[case::hint(Severity::Hint, DiagnosticSeverity::HINT)]
+    fn to_lsp_maps_severity_variants(
+        #[case] severity: Severity,
+        #[case] expected: DiagnosticSeverity,
+    ) {
+        let doc = FullTextDocument::new("json".to_string(), 1, "hello\nworld".to_string());
+        let domain = DomainDiagnostic {
+            byte_range: 0..5,
+            severity,
+            message: "msg".to_string(),
+            code: "test-code".to_string(),
+        };
+
+        let lsp = to_lsp(&domain, &doc);
+
+        assert_eq!(lsp.severity, Some(expected));
+        assert_eq!(lsp.message, "msg");
+        assert_eq!(
+            lsp.source,
+            Some("vespertide-lsp".to_string()),
+            "source must be set"
+        );
+        assert!(lsp.code.is_some());
+    }
+}

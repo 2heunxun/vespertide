@@ -210,3 +210,73 @@ pub(super) fn build_edges(
 
     edges
 }
+
+#[cfg(test)]
+mod tests {
+    //! Defensive-arm coverage for `build_edges`. The normal `collect_foreign_key_relations`
+    //! pipeline never feeds in a relation whose endpoints are missing from
+    //! `tables`, but the unknown-child / unknown-parent / self-reference arms
+    //! exist anyway. We poke them via hand-crafted `ForeignKeyRelation` sets.
+    use super::super::super::{Cardinality, ForeignKeyRelation};
+    use super::*;
+    use std::collections::BTreeSet;
+    use vespertide_core::schema::primary_key::PrimaryKeySyntax;
+    use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType};
+
+    fn solo_table() -> TableDef {
+        TableDef {
+            name: "solo".into(),
+            description: None,
+            columns: vec![
+                ColumnDef::new("id", ColumnType::Simple(SimpleColumnType::Integer), false)
+                    .primary_key(PrimaryKeySyntax::Bool(true)),
+            ],
+            constraints: vec![],
+        }
+    }
+
+    fn rel(child: &str, parent: &str) -> ForeignKeyRelation {
+        ForeignKeyRelation {
+            child_table: child.into(),
+            child_columns: vec!["x".into()],
+            parent_table: parent.into(),
+            parent_columns: vec!["id".into()],
+            on_delete: None,
+            on_update: None,
+            cardinality: Cardinality::OneToMany,
+        }
+    }
+
+    #[test]
+    fn build_edges_skips_unknown_child_endpoint() {
+        // model.rs:120-121 — child_table not in tables -> early continue.
+        let tables = vec![solo_table().normalize().unwrap()];
+        let boxes = build_boxes(&tables);
+        let mut rels = BTreeSet::new();
+        rels.insert(rel("ghost", "solo"));
+        let edges = build_edges(&tables, &boxes, &rels);
+        assert!(edges.is_empty());
+    }
+
+    #[test]
+    fn build_edges_skips_unknown_parent_endpoint() {
+        // model.rs:123-124 — parent_table not in tables -> early continue.
+        let tables = vec![solo_table().normalize().unwrap()];
+        let boxes = build_boxes(&tables);
+        let mut rels = BTreeSet::new();
+        rels.insert(rel("solo", "ghost"));
+        let edges = build_edges(&tables, &boxes, &rels);
+        assert!(edges.is_empty());
+    }
+
+    #[test]
+    fn build_edges_skips_self_referencing_relation() {
+        // model.rs:126-128 — self-reference (child_idx == parent_idx) skipped.
+        let tables = vec![solo_table().normalize().unwrap()];
+        let boxes = build_boxes(&tables);
+        let mut rels = BTreeSet::new();
+        rels.insert(rel("solo", "solo"));
+        let edges = build_edges(&tables, &boxes, &rels);
+        assert!(edges.is_empty());
+    }
+}

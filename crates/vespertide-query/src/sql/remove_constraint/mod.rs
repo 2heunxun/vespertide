@@ -25,10 +25,12 @@ pub fn build_remove_constraint(
         );
     }
 
-    match backend {
-        DatabaseBackend::Postgres => Ok(postgres::build_remove_constraint(table, constraint)),
-        DatabaseBackend::MySql => Ok(mysql::build_remove_constraint(table, constraint)),
-        DatabaseBackend::Sqlite => build_drop_index(table, constraint),
+    if backend == DatabaseBackend::Postgres {
+        Ok(postgres::build_remove_constraint(table, constraint))
+    } else if backend == DatabaseBackend::MySql {
+        Ok(mysql::build_remove_constraint(table, constraint))
+    } else {
+        build_drop_index(table, constraint)
     }
 }
 
@@ -512,5 +514,101 @@ mod tests {
         assert!(sql.contains("custom_idx_email"));
 
         let _ = backend;
+    }
+
+    /// Drives line 18 — the `DatabaseBackend::Postgres` dispatch arm of
+    /// `build_remove_constraint` — for an `Index` constraint (which never
+    /// triggers the SQLite early-return on line 13-15 because
+    /// `sqlite::requires_rebuild` returns false for `Index`).
+    #[test]
+    fn build_remove_constraint_postgres_index_takes_top_level_dispatch() {
+        let constraint = index("idx_email", &["email"]);
+        let queries =
+            build_remove_constraint(DatabaseBackend::Postgres, "users", &constraint, &[], &[])
+                .unwrap();
+        assert_eq!(queries.len(), 1);
+        let sql = queries[0].build(DatabaseBackend::Postgres);
+        assert!(sql.contains("DROP INDEX"));
+    }
+
+    /// `build_drop_index` is the body of the `DatabaseBackend::Sqlite`
+    /// dispatch arm. The public `build_remove_constraint` reaches it only
+    /// when the constraint is an `Index` (everything else routes to the
+    /// SQLite rebuild path), so the `Err` branch at L26 is unreachable
+    /// via the public API. Calling `build_drop_index` directly from the
+    /// in-module test target covers the error path (L26) plus
+    /// `constraint_kind` (L34-40), and also documents that the guard
+    /// must remain in place even if `requires_rebuild` is later
+    /// expanded to leave new constraint kinds in the drop-index path.
+    #[rstest]
+    #[case::primary_key(pk(), "primary key")]
+    #[case::unique(unique(Some("uq_email"), &["email"]), "unique")]
+    #[case::foreign_key(fk(Some("fk_user")), "foreign key")]
+    #[case::check(check("chk_age"), "check")]
+    fn build_drop_index_rejects_non_index_constraint(
+        #[case] constraint: TableConstraint,
+        #[case] expected_kind: &str,
+    ) {
+        let result = build_drop_index("users", &constraint);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let message = err.to_string();
+        assert!(
+            message.contains(expected_kind),
+            "error message should mention '{expected_kind}', got: {message}"
+        );
+        assert!(
+            message.contains("requires a table rebuild"),
+            "error must explain why drop_index is not applicable, got: {message}"
+        );
+    }
+
+    /// Direct cover for `constraint_kind` (L34-40). Although the helper is
+    /// only used inside the error message in [`build_drop_index_rejects_non_index_constraint`],
+    /// asserting the returned label for every variant pins the mapping
+    /// and exercises every match arm explicitly.
+    #[rstest]
+    #[case::primary_key(pk(), "primary key")]
+    #[case::unique(unique(None, &["email"]), "unique")]
+    #[case::foreign_key(fk(None), "foreign key")]
+    #[case::index(index("idx_email", &["email"]), "index")]
+    #[case::check(check("chk_age"), "check")]
+    fn constraint_kind_maps_every_variant(
+        #[case] constraint: TableConstraint,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(constraint_kind(&constraint), expected);
+    }
+
+    #[rstest]
+    #[case::named(Some("idx_user_email"))]
+    #[case::unnamed(None)]
+    fn remove_index_sqlite_uses_drop_index_path(#[case] name: Option<&str>) {
+        let constraint = TableConstraint::Index {
+            name: name.map(Into::into),
+            columns: vec!["email".into()],
+        };
+        let queries =
+            build_remove_constraint(DatabaseBackend::Sqlite, "users", &constraint, &[], &[])
+                .unwrap();
+        assert_eq!(queries.len(), 1);
+        assert!(
+            queries[0]
+                .build(DatabaseBackend::Sqlite)
+                .contains("DROP INDEX")
+        );
+    }
+
+    #[rstest]
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    fn remove_index_non_sqlite_uses_backend_module(#[case] backend: DatabaseBackend) {
+        let constraint = TableConstraint::Index {
+            name: Some("idx_user_email".into()),
+            columns: vec!["email".into()],
+        };
+        let queries = build_remove_constraint(backend, "users", &constraint, &[], &[]).unwrap();
+        assert_eq!(queries.len(), 1);
+        assert!(queries[0].build(backend).contains("DROP INDEX"));
     }
 }

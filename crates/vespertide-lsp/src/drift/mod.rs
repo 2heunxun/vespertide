@@ -26,7 +26,6 @@ mod tests {
 
     use tempfile::tempdir;
     use tower_lsp_server::ls_types::Uri;
-    use tree_sitter::Tree;
     use vespertide_core::{
         ColumnDef, ColumnType, MigrationAction, SimpleColumnType, TableConstraint, TableDef,
     };
@@ -36,14 +35,9 @@ mod tests {
         render_default, render_nullable,
     };
     use super::{DomainDrift, DriftKind, compute};
-    use crate::parser::{DocumentFormat, ParserPool};
     use crate::store::DocumentStore;
+    use crate::test_support::parse_json;
     use crate::workspace_index::WorkspaceIndex;
-
-    fn parse_json(source: &str) -> Tree {
-        let pool = ParserPool::new();
-        pool.parse(source, DocumentFormat::Json).unwrap()
-    }
 
     fn column(name: &str, r#type: ColumnType, nullable: bool) -> ColumnDef {
         ColumnDef {

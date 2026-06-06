@@ -396,13 +396,11 @@ fn walk_for_named_mapping(
 fn mapping_has_name(node: tree_sitter::Node<'_>, source: &[u8], target_name: &str) -> bool {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if !is_pair(child) || !pair_key_matches(child, source, "name") {
-            continue;
-        }
-        let Some(value) = child.named_child(1) else {
-            continue;
-        };
-        if node_text(value, source).is_some_and(|text| strip_quotes(text) == target_name) {
+        if is_pair(child)
+            && pair_key_matches(child, source, "name")
+            && let Some(value) = child.named_child(1)
+            && node_text(value, source).is_some_and(|text| strip_quotes(text) == target_name)
+        {
             return true;
         }
     }
@@ -445,6 +443,9 @@ fn strip_quotes(s: &str) -> &str {
 mod tests {
     use super::*;
     use crate::parser::{DocumentFormat, ParserPool};
+    use rstest::rstest;
+    use vespertide_planner::error::InvalidEnumDefaultError;
+    use vespertide_planner::{MultipleErrors, PlannerError};
 
     #[test]
     fn locate_column_finds_target_byte_range() {
@@ -490,5 +491,76 @@ mod tests {
 
         assert!(snippet.contains("comment"), "got: {snippet}");
         assert!(snippet.contains("user email"), "got: {snippet}");
+    }
+
+    #[rstest]
+    #[case::multiple(PlannerError::Multiple(Box::new(MultipleErrors(vec![PlannerError::ColumnExists("users".into(), "email".into())]))), Some("email"), None, None)]
+    #[case::dangling_column(PlannerError::DanglingForeignKeyAfterDrop { dropped_table: "users".into(), dropped_column: Some("id".into()), referencing_table: "posts".into(), referencing_constraint: None }, Some("id"), None, None)]
+    #[case::dangling_table(PlannerError::DanglingForeignKeyAfterDrop { dropped_table: "users".into(), dropped_column: None, referencing_table: "posts".into(), referencing_constraint: None }, None, None, None)]
+    #[case::column_tuple(PlannerError::ColumnNotFound("users".into(), "missing".into()), Some("missing"), None, None)]
+    #[case::column_struct(PlannerError::PrimaryKeyColumnNullable { table: "users".into(), column: "id".into() }, Some("id"), None, None)]
+    #[case::auto_increment_type(PlannerError::InvalidAutoIncrement("users".into(), "slug".into(), "text".into()), Some("slug"), None, Some(ErrorField::Type))]
+    fn planner_error_location_remaining_column_and_table_arms(
+        #[case] err: PlannerError,
+        #[case] column: Option<&str>,
+        #[case] constraint: Option<&str>,
+        #[case] field: Option<ErrorField>,
+    ) {
+        let loc = ErrorLocation::from_planner_error(&err).expect("located planner error");
+
+        assert_eq!(loc.table, "users");
+        assert_eq!(loc.column.as_deref(), column);
+        assert_eq!(loc.constraint.as_deref(), constraint);
+        assert_eq!(loc.field, field);
+    }
+
+    #[test]
+    fn planner_error_location_table_validation_has_no_anchor() {
+        let err = PlannerError::TableValidation("bad table".to_string());
+        assert!(ErrorLocation::from_planner_error(&err).is_none());
+    }
+
+    #[test]
+    fn planner_error_location_invalid_enum_default_anchors_default_field() {
+        let err = PlannerError::InvalidEnumDefault(Box::new(InvalidEnumDefaultError {
+            enum_name: "status".into(),
+            table_name: "users".into(),
+            column_name: "status".into(),
+            value_type: "default".into(),
+            value: "'bad'".into(),
+            allowed: "active".into(),
+        }));
+        let loc = ErrorLocation::from_planner_error(&err).expect("invalid enum default location");
+
+        assert_eq!(loc.table, "users");
+        assert_eq!(loc.column.as_deref(), Some("status"));
+        assert_eq!(loc.field, Some(ErrorField::Default));
+    }
+
+    #[test]
+    fn locators_without_tree_use_default_range() {
+        assert_eq!(locate_column(None, "", "id"), 0..1);
+        assert_eq!(locate_column_field(None, "", "id", ErrorField::Type), 0..1);
+        assert_eq!(locate_constraint(None, "", "pk_id"), 0..1);
+    }
+
+    #[test]
+    fn locate_top_name_returns_none_when_document_has_no_mapping() {
+        let pool = ParserPool::new();
+        let src = "just_a_scalar\n";
+        let tree = pool.parse(src, DocumentFormat::Yaml).unwrap();
+
+        assert!(locate_top_name(Some(&tree), src).is_none());
+    }
+
+    #[test]
+    fn malformed_named_mapping_without_value_is_skipped() {
+        let pool = ParserPool::new();
+        let src = r#"{"name":"users","columns":[{"name":}]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+
+        let range = locate_column(Some(&tree), src, "missing");
+
+        assert!(src[range].contains("users"));
     }
 }

@@ -46,7 +46,7 @@ pub(super) fn render_doc(boxes: &[TableBox], edges: &[EdgeSpec], vw: f64, vh: f6
         "  <rect x=\"0\" y=\"0\" width=\"{w:.0}\" height=\"{h:.0}\" fill=\"{bg}\"/>",
         w = vw,
         h = vh,
-        bg = BG,
+        bg = BG
     );
 
     // Pass 1: draw every edge path. Doing all paths before any labels
@@ -123,7 +123,7 @@ fn render_table(out: &mut String, bx: &TableBox) {
         out,
         "    <g class=\"table\" transform=\"translate({x:.1} {y:.1})\">",
         x = bx.x,
-        y = bx.y,
+        y = bx.y
     );
 
     // Card background with shadow.
@@ -145,7 +145,7 @@ fn render_table(out: &mut String, bx: &TableBox) {
         out,
         "      <path d=\"{path}\" fill=\"{fill}\"/>",
         path = header_path,
-        fill = HEADER_FILL,
+        fill = HEADER_FILL
     );
 
     // Title.

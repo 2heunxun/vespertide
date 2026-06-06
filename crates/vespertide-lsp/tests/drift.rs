@@ -13,11 +13,7 @@ use vespertide_lsp::{
 // -----------------------------------------------------------------------------
 
 fn write_vespertide_json(root: &Path) {
-    fs::write(
-        root.join("vespertide.json"),
-        r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake"}"#,
-    )
-    .unwrap();
+    fs::write(root.join("vespertide.json"), r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake"}"#).unwrap();
 }
 
 fn write_model(root: &Path, table: &str, body: &str) {

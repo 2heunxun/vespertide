@@ -17,23 +17,11 @@ pub fn schema_from_plans(plans: &[MigrationPlan]) -> Result<Vec<TableDef>, Plann
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{col_nullable as col, table};
     use rstest::rstest;
     use vespertide_core::{
         ColumnDef, ColumnType, MigrationAction, SimpleColumnType, TableConstraint,
     };
-
-    fn col(name: &str, ty: ColumnType) -> ColumnDef {
-        ColumnDef::new(name, ty, true)
-    }
-
-    fn table(name: &str, columns: Vec<ColumnDef>, constraints: Vec<TableConstraint>) -> TableDef {
-        TableDef {
-            name: name.into(),
-            description: None,
-            columns,
-            constraints,
-        }
-    }
 
     #[rstest]
     #[case::create_only(

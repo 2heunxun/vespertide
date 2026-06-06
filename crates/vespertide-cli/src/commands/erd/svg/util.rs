@@ -34,3 +34,20 @@ pub(super) fn escape_xml(input: &str) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_empty_contains_placeholder_svg() {
+        let svg = render_empty();
+        assert!(svg.contains("<svg"));
+        assert!(svg.contains("No tables to render"));
+    }
+
+    #[test]
+    fn escape_xml_escapes_every_special_character() {
+        assert_eq!(escape_xml("&<>\"'x"), "&amp;&lt;&gt;&quot;&apos;x");
+    }
+}

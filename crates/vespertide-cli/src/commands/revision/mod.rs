@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chrono::Utc;
 use colored::Colorize;
-use vespertide_core::{MigrationAction, MigrationPlan, NarrowingStrategy};
+use vespertide_core::{MigrationAction, MigrationPlan, NarrowingStrategy, TableDef};
 use vespertide_planner::{
     CascadeReachWarning, CheckAdditionWarning, CheckStrengtheningWarning, CheckTypeMismatchWarning,
     DanglingFkDrop, DefaultChangeWarning, DropChoice, DropResolution, FkOrphanAdditionWarning,
@@ -66,6 +66,34 @@ fn dangling_drops_to_planner_error(drops: Vec<DanglingFkDrop>) -> Option<Planner
         1 => errors.remove(0),
         _ => PlannerError::Multiple(Box::new(MultipleErrors(errors))),
     })
+}
+
+fn single_or_multiple_error(mut errors: Vec<PlannerError>) -> PlannerError {
+    if errors.len() == 1 {
+        errors.remove(0)
+    } else {
+        PlannerError::Multiple(Box::new(MultipleErrors(errors)))
+    }
+}
+
+fn ensure_no_dangling_fk_drops(plan: &MigrationPlan, baseline_schema: &[TableDef]) -> Result<()> {
+    if let Some(err) =
+        dangling_drops_to_planner_error(find_dangling_fk_drops(plan, baseline_schema))
+    {
+        anyhow::bail!("{err}");
+    }
+    Ok(())
+}
+
+fn ensure_no_f12_errors(plan: &MigrationPlan, baseline_schema: &[TableDef]) -> Result<()> {
+    let mut f12_errors: Vec<PlannerError> = Vec::new();
+    f12_errors.extend(find_constraint_type_changes(plan, baseline_schema));
+    f12_errors.extend(find_primary_key_removals(plan, baseline_schema));
+    if !f12_errors.is_empty() {
+        let err = single_or_multiple_error(f12_errors);
+        anyhow::bail!("{err}");
+    }
+    Ok(())
 }
 
 pub async fn cmd_revision(
@@ -235,16 +263,15 @@ where
     if !resolutions.is_empty() {
         let mut chosen: Vec<(DropResolution, DropChoice)> = Vec::new();
         for r in resolutions {
-            match drop_resolution_prompt_fn(&r)? {
-                None => {
-                    println!(
-                        "{} {}",
-                        "Cancelled.".bright_yellow().bold(),
-                        "Drop resolution declined; no migration written.".bright_white()
-                    );
-                    return Ok(());
-                }
-                Some(choice) => chosen.push((r, choice)),
+            if let Some(choice) = drop_resolution_prompt_fn(&r)? {
+                chosen.push((r, choice));
+            } else {
+                println!(
+                    "{} {}",
+                    "Cancelled.".bright_yellow().bold(),
+                    "Drop resolution declined; no migration written.".bright_white()
+                );
+                return Ok(());
             }
         }
         // Apply in descending action-index order so earlier indices stay
@@ -263,27 +290,14 @@ where
     // table/column) in the same revision. Surfaced *before* any other
     // interactive prompt so the user is not asked for fill_with values on
     // a plan that is going to be rejected anyway.
-    if let Some(err) =
-        dangling_drops_to_planner_error(find_dangling_fk_drops(&plan, &baseline_schema))
-    {
-        return Err(anyhow::anyhow!("{err}"));
-    }
+    ensure_no_dangling_fk_drops(&plan, &baseline_schema)?;
 
     // F12 — PK ↔ UQ constraint swaps and PRIMARY KEY removal without a
     // replacement. Both are hard errors (per user policy: every F12
     // scenario blocks at revision time). Combine the two detector outputs
     // into the standard 0/1/N+ contract so multi-table violations are
     // reported in one shot.
-    let mut f12_errors: Vec<PlannerError> = Vec::new();
-    f12_errors.extend(find_constraint_type_changes(&plan, &baseline_schema));
-    f12_errors.extend(find_primary_key_removals(&plan, &baseline_schema));
-    if let Some(err) = match f12_errors.len() {
-        0 => None,
-        1 => Some(f12_errors.remove(0)),
-        _ => Some(PlannerError::Multiple(Box::new(MultipleErrors(f12_errors)))),
-    } {
-        return Err(anyhow::anyhow!("{err}"));
-    }
+    ensure_no_f12_errors(&plan, &baseline_schema)?;
 
     // F2 — Adding UNIQUE on an existing column risks DB rejection if
     // production data has duplicates. Prompt for a deduplication strategy
@@ -542,13 +556,7 @@ where
             .collect();
     if !timezone_warnings.is_empty() {
         let Some(choices) = timezone_conversion_prompt_fn(&timezone_warnings)? else {
-            println!(
-                "{} {}",
-                "Cancelled.".bright_yellow().bold(),
-                "A timezone is required for safe timestamp \u{2194} timestamptz conversion. \
-                 Re-run when you've decided which timezone to use."
-                    .bright_white()
-            );
+            println!("{} {}", "Cancelled.".bright_yellow().bold(), "A timezone is required for safe timestamp \u{2194} timestamptz conversion. Re-run when you've decided which timezone to use.".bright_white());
             return Ok(());
         };
         prompts::apply_timezone_choices_to_plan(&mut plan, &timezone_warnings, &choices);

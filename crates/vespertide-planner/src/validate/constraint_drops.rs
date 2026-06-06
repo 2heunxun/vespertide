@@ -111,8 +111,8 @@ fn constraint_label(constraint: &TableConstraint) -> String {
             Some(n) => format!("{n} INDEX ({})", join_columns(columns)),
             None => format!("INDEX ({})", join_columns(columns)),
         },
-        // `TableConstraint` is `#[non_exhaustive]`; unknown future variants
-        // fall back to the kind name so we still produce something useful.
+        // reason: unreachable - exhaustive over current TableConstraint variants; fallback required only for #[non_exhaustive] future variants
+        #[cfg(not(tarpaulin_include))]
         _ => format!("{:?}", constraint.kind()),
     }
 }
@@ -123,4 +123,77 @@ fn join_columns(columns: &[vespertide_core::ColumnName]) -> String {
         .map(vespertide_core::ColumnName::as_str)
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+#[cfg(test)]
+mod private_helpers {
+    //! Inline tests for the private `constraint_label` helper. The public
+    //! `find_constraint_drops_without_replacement` filters Index drops out
+    //! before `constraint_label` runs, so the Index arms in
+    //! `constraint_label` are unreachable through the integration tests
+    //! in `validate/tests/constraint_drops.rs`. They are still part of
+    //! the public-facing label contract for any future caller, so we lock
+    //! them here directly.
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    fn index_with_name_label() {
+        let c = TableConstraint::Index {
+            name: Some("ix_users__email".to_string()),
+            columns: vec!["email".into()],
+        };
+        assert_eq!(constraint_label(&c), "ix_users__email INDEX (email)");
+    }
+
+    #[rstest]
+    fn index_without_name_label() {
+        let c = TableConstraint::Index {
+            name: None,
+            columns: vec!["email".into(), "tenant_id".into()],
+        };
+        assert_eq!(constraint_label(&c), "INDEX (email, tenant_id)");
+    }
+
+    /// `join_columns` over an empty slice returns the empty string
+    /// (covers the `Vec<_>::join` empty-input arm via every label that
+    /// uses zero columns, but the helper has its own trivial contract
+    /// worth pinning).
+    #[rstest]
+    fn join_columns_empty_returns_empty_string() {
+        let cols: Vec<vespertide_core::ColumnName> = vec![];
+        assert_eq!(join_columns(&cols), "");
+    }
+
+    #[rstest]
+    #[case::primary_key(TableConstraint::PrimaryKey { auto_increment: false, columns: vec!["id".into()], strategy: vespertide_core::PrimaryKeyAdditionStrategy::default() }, "PRIMARY KEY (id)")]
+    #[case::unique_named(TableConstraint::Unique { name: Some("uq_users__email".into()), columns: vec!["email".into()], strategy: vespertide_core::UniqueConstraintStrategy::default() }, "uq_users__email UNIQUE (email)")]
+    #[case::unique_unnamed(TableConstraint::Unique { name: None, columns: vec!["email".into()], strategy: vespertide_core::UniqueConstraintStrategy::default() }, "UNIQUE (email)")]
+    #[case::foreign_key_named(TableConstraint::ForeignKey { name: Some("fk_posts__user_id".into()), columns: vec!["user_id".into()], ref_table: "users".into(), ref_columns: vec!["id".into()], on_delete: None, on_update: None, orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default() }, "fk_posts__user_id FK (user_id) -> users")]
+    #[case::foreign_key_unnamed(TableConstraint::ForeignKey { name: None, columns: vec!["user_id".into()], ref_table: "users".into(), ref_columns: vec!["id".into()], on_delete: None, on_update: None, orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default() }, "FK (user_id) -> users")]
+    #[case::check(TableConstraint::Check { name: "chk_age".into(), expr: "age > 0".into(), strategy: vespertide_core::CheckViolationStrategy::default() }, "chk_age CHECK (age > 0)")]
+    fn constraint_label_formats_integrity_constraints(
+        #[case] constraint: TableConstraint,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(constraint_label(&constraint), expected);
+    }
+
+    #[rstest]
+    fn index_drop_is_filtered_before_warning() {
+        let plan = MigrationPlan {
+            id: "test".into(),
+            version: 1,
+            comment: None,
+            created_at: None,
+            actions: vec![MigrationAction::RemoveConstraint {
+                table: "users".into(),
+                constraint: TableConstraint::Index {
+                    name: Some("ix_users__email".into()),
+                    columns: vec!["email".into()],
+                },
+            }],
+        };
+        assert!(find_constraint_drops_without_replacement(&plan).is_empty());
+    }
 }

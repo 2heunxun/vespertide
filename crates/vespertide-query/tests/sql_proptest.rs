@@ -194,7 +194,7 @@ fn arb_migration_action() -> impl Strategy<Value = MigrationAction> {
         arb_table_def_simple().prop_map(|table| MigrationAction::CreateTable {
             table: table.name,
             columns: table.columns,
-            constraints: table.constraints,
+            constraints: table.constraints
         }),
         arb_ident().prop_map(|table| MigrationAction::DeleteTable {
             table: table.into()
@@ -217,12 +217,12 @@ fn arb_migration_action() -> impl Strategy<Value = MigrationAction> {
             |(table, column, new_comment)| MigrationAction::ModifyColumnComment {
                 table: table.into(),
                 column: column.into(),
-                new_comment,
+                new_comment
             },
         ),
         (arb_ident(), arb_ident()).prop_map(|(from, to)| MigrationAction::RenameTable {
             from: from.into(),
-            to: to.into(),
+            to: to.into()
         }),
         arb_raw_sql().prop_map(|sql| MigrationAction::RawSql { sql }),
     ]
@@ -233,7 +233,7 @@ fn arb_stateless_sql_action() -> impl Strategy<Value = MigrationAction> {
         arb_table_def_simple().prop_map(|table| MigrationAction::CreateTable {
             table: table.name,
             columns: table.columns,
-            constraints: table.constraints,
+            constraints: table.constraints
         }),
         arb_ident().prop_map(|table| MigrationAction::DeleteTable {
             table: table.into()
@@ -254,7 +254,7 @@ fn arb_stateless_sql_action() -> impl Strategy<Value = MigrationAction> {
         }),
         (arb_ident(), arb_ident()).prop_map(|(from, to)| MigrationAction::RenameTable {
             from: from.into(),
-            to: to.into(),
+            to: to.into()
         }),
         arb_raw_sql().prop_map(|sql| MigrationAction::RawSql { sql }),
     ]

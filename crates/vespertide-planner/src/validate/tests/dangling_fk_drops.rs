@@ -364,6 +364,224 @@ fn case_11_composite_fk_partial_column_drop() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+// Coverage-closure: FK with owner-column drop suppresses FK from surviving set
+// (lines 197-202 in collect_surviving_fks) — child's FK column gone → FK
+// disappears via column cascade, NOT reported as dangling even if the parent
+// column is also dropped.
+// ───────────────────────────────────────────────────────────────────────────
+#[test]
+fn case_13_fk_owner_column_dropped_suppresses_dangling() {
+    let baseline = vec![
+        table("parent", vec![int_col("id")], vec![pk(vec!["id"])]),
+        table(
+            "child",
+            vec![int_col("id"), int_col("parent_id")],
+            vec![
+                pk(vec!["id"]),
+                fk(
+                    Some("fk_child_parent"),
+                    vec!["parent_id"],
+                    "parent",
+                    vec!["id"],
+                ),
+            ],
+        ),
+    ];
+    // Drop both the FK-owning column AND the referenced column. The FK
+    // disappears via the child's column cascade, so the parent.id drop
+    // is no longer dangling.
+    let plan = plan_with(vec![
+        MigrationAction::DeleteColumn {
+            table: "child".into(),
+            column: "parent_id".into(),
+        },
+        MigrationAction::DeleteColumn {
+            table: "parent".into(),
+            column: "id".into(),
+        },
+    ]);
+
+    assert_eq!(
+        find_dangling_fk_drops(&plan, &baseline),
+        Vec::<DanglingFkDrop>::new()
+    );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Coverage-closure: ReplaceConstraint of FK counts as an explicit removal
+// (`collect_explicitly_removed_fks` `ReplaceConstraint` branch).
+// ───────────────────────────────────────────────────────────────────────────
+#[test]
+fn case_14_replace_constraint_fk_counts_as_explicit_removal() {
+    let plan = plan_with(vec![
+        MigrationAction::ReplaceConstraint {
+            table: "child".into(),
+            from: fk(
+                Some("fk_child_parent"),
+                vec!["parent_id"],
+                "parent",
+                vec!["id"],
+            ),
+            to: fk(
+                Some("fk_child_parent"),
+                vec!["parent_id"],
+                "parent",
+                vec!["id"],
+            ),
+        },
+        // Drop parent.id — the original FK is "removed" by Replace, so the
+        // detector will look at the *new* FK from the Replace's `to` side
+        // when it's tracked as an addition. But Replace alone doesn't add;
+        // here we just want to demonstrate the explicit-removal arm fires
+        // and the parent.id drop is detected as dangling against the
+        // *replaced* FK (which is the same shape).
+        MigrationAction::DeleteColumn {
+            table: "parent".into(),
+            column: "id".into(),
+        },
+    ]);
+
+    // The original baseline FK is treated as explicitly removed by the
+    // Replace's `from`, so it does NOT survive to the dangling check. No
+    // warning expected.
+    assert_eq!(
+        find_dangling_fk_drops(&plan, &two_table_baseline()),
+        Vec::<DanglingFkDrop>::new()
+    );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Coverage-closure: CreateTable with FK pointing at a column dropped by the
+// same plan (lines 226-251 — CreateTable's surviving FK addition + dangling).
+// ───────────────────────────────────────────────────────────────────────────
+#[test]
+fn case_15_create_table_with_fk_to_dropped_column() {
+    let baseline = vec![table("parent", vec![int_col("id")], vec![pk(vec!["id"])])];
+    let plan = plan_with(vec![
+        MigrationAction::CreateTable {
+            table: "child".into(),
+            columns: vec![int_col("id"), int_col("parent_id")],
+            constraints: vec![
+                pk(vec!["id"]),
+                fk(Some("fk_new"), vec!["parent_id"], "parent", vec!["id"]),
+            ],
+        },
+        // Drop the column the freshly-created FK points at.
+        MigrationAction::DeleteColumn {
+            table: "parent".into(),
+            column: "id".into(),
+        },
+    ]);
+
+    assert_eq!(
+        find_dangling_fk_drops(&plan, &baseline),
+        vec![dangling("parent", Some("id"), "child", Some("fk_new"))]
+    );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Coverage-closure: AddConstraint(FK) whose owner table is also dropped in
+// the same plan — `if drop_set.contains(&(table, None)) { continue; }`
+// (lines 262-264).
+// ───────────────────────────────────────────────────────────────────────────
+#[test]
+fn case_16_add_constraint_fk_on_to_be_dropped_table_skipped() {
+    let baseline = vec![
+        table("parent", vec![int_col("id")], vec![pk(vec!["id"])]),
+        table(
+            "child",
+            vec![int_col("id"), int_col("parent_id")],
+            vec![pk(vec!["id"])],
+        ),
+    ];
+    let plan = plan_with(vec![
+        MigrationAction::AddConstraint {
+            table: "child".into(),
+            constraint: fk(Some("fk_add"), vec!["parent_id"], "parent", vec!["id"]),
+        },
+        // Drop the owner — added FK never survives the plan.
+        MigrationAction::DeleteTable {
+            table: "child".into(),
+        },
+        // Drop the referenced column too — must NOT produce a dangling
+        // warning since the new FK disappeared with its table.
+        MigrationAction::DeleteColumn {
+            table: "parent".into(),
+            column: "id".into(),
+        },
+    ]);
+
+    assert_eq!(
+        find_dangling_fk_drops(&plan, &baseline),
+        Vec::<DanglingFkDrop>::new()
+    );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Coverage-closure: AddConstraint(FK) pointing at a column the same plan
+// drops — the new FK becomes immediately dangling.
+// ───────────────────────────────────────────────────────────────────────────
+#[test]
+fn case_17_add_constraint_fk_pointing_at_dropped_column() {
+    let baseline = vec![
+        table("parent", vec![int_col("id")], vec![pk(vec!["id"])]),
+        table(
+            "child",
+            vec![int_col("id"), int_col("parent_id")],
+            vec![pk(vec!["id"])],
+        ),
+    ];
+    let plan = plan_with(vec![
+        MigrationAction::AddConstraint {
+            table: "child".into(),
+            constraint: fk(Some("fk_add"), vec!["parent_id"], "parent", vec!["id"]),
+        },
+        MigrationAction::DeleteColumn {
+            table: "parent".into(),
+            column: "id".into(),
+        },
+    ]);
+
+    assert_eq!(
+        find_dangling_fk_drops(&plan, &baseline),
+        vec![dangling("parent", Some("id"), "child", Some("fk_add"))]
+    );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Coverage-closure: CreateTable whose own table is also dropped — guard at
+// line 232 (`if drop_set.contains(&(table, None)) { continue; }`).
+// ───────────────────────────────────────────────────────────────────────────
+#[test]
+fn case_18_create_table_then_drop_skips_new_fk_tracking() {
+    let baseline = vec![table("parent", vec![int_col("id")], vec![pk(vec!["id"])])];
+    let plan = plan_with(vec![
+        MigrationAction::CreateTable {
+            table: "child".into(),
+            columns: vec![int_col("id"), int_col("parent_id")],
+            constraints: vec![
+                pk(vec!["id"]),
+                fk(Some("fk_new"), vec!["parent_id"], "parent", vec!["id"]),
+            ],
+        },
+        MigrationAction::DeleteTable {
+            table: "child".into(),
+        },
+        MigrationAction::DeleteColumn {
+            table: "parent".into(),
+            column: "id".into(),
+        },
+    ]);
+
+    // child is dropped right after being created → its new FK does not
+    // contribute to the surviving set → parent.id drop produces no warning.
+    assert_eq!(
+        find_dangling_fk_drops(&plan, &baseline),
+        Vec::<DanglingFkDrop>::new()
+    );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // Case 12: multiple dangling drops in one plan — all reported in deterministic order
 // ───────────────────────────────────────────────────────────────────────────
 #[test]

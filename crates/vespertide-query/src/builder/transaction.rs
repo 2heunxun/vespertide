@@ -9,12 +9,14 @@ pub(super) fn wrap_backend_queries(plan_queries: &mut [PlanQueries], backend: Da
     else {
         return;
     };
-    let Some(last_idx) = plan_queries
+    // `rposition` succeeds by construction whenever `position` did (same
+    // predicate, same input). `unwrap_or(first_idx)` is correct for both
+    // the single-non-empty-queue case (rposition == first_idx) and the
+    // unreachable `None` arm, so the `let-else` shape goes away entirely.
+    let last_idx = plan_queries
         .iter()
         .rposition(|pq| !backend_queries(pq, backend).is_empty())
-    else {
-        return;
-    };
+        .unwrap_or(first_idx);
 
     backend_queries_mut(&mut plan_queries[first_idx], backend)
         .insert(0, BuiltQuery::Raw(RawSql::uniform("BEGIN;".to_string())));

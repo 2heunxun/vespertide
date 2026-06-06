@@ -210,10 +210,6 @@ fn render_imports(used_types: &UsedTypes<'_>, needs_enum: bool) -> Vec<String> {
     lines
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "SQLModel entity body rendering is a linear template emitter"
-)]
 fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
 

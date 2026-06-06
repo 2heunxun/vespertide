@@ -68,53 +68,49 @@ pub fn compute_document_symbols(
     source: &str,
     tree: Option<&tree_sitter::Tree>,
 ) -> Vec<DomainDocumentSymbol> {
-    let Some(tree) = tree else {
-        return Vec::new();
-    };
-    let source_bytes = source.as_bytes();
-    let Some(outer) = find_outer_mapping(tree.root_node()) else {
-        return Vec::new();
-    };
-
-    // Table name → top-level identifier
-    let Some((table_name, table_name_range)) = direct_string_value(outer, source_bytes, "name")
-    else {
-        return Vec::new();
-    };
-
-    // Columns → children
-    let mut children = Vec::new();
-    if let Some(columns_pair) = find_pair_with_key(outer, source_bytes, "columns")
-        && let Some(columns_value_raw) = columns_pair.named_child(1)
-    {
-        let columns_value = unwrap_yaml(columns_value_raw);
-        if matches!(
-            columns_value.kind(),
-            "array" | "block_sequence" | "flow_sequence"
-        ) {
-            for column in direct_column_objects(columns_value) {
-                if let Some((col_name, col_name_range)) =
-                    direct_string_value(column, source_bytes, "name")
-                {
-                    children.push(DomainDocumentSymbol {
-                        name: col_name,
-                        kind: DomainDocumentSymbolKind::Column,
-                        byte_range: column.byte_range(),
-                        selection_byte_range: col_name_range,
-                        children: Vec::new(),
-                    });
+    if let Some(tree) = tree {
+        let source_bytes = source.as_bytes();
+        if let Some(outer) = find_outer_mapping(tree.root_node())
+            && let Some((table_name, table_name_range)) =
+                direct_string_value(outer, source_bytes, "name")
+        {
+            // Columns → children
+            let mut children = Vec::new();
+            if let Some(columns_pair) = find_pair_with_key(outer, source_bytes, "columns")
+                && let Some(columns_value_raw) = columns_pair.named_child(1)
+            {
+                let columns_value = unwrap_yaml(columns_value_raw);
+                if matches!(
+                    columns_value.kind(),
+                    "array" | "block_sequence" | "flow_sequence"
+                ) {
+                    for column in direct_column_objects(columns_value) {
+                        if let Some((col_name, col_name_range)) =
+                            direct_string_value(column, source_bytes, "name")
+                        {
+                            children.push(DomainDocumentSymbol {
+                                name: col_name,
+                                kind: DomainDocumentSymbolKind::Column,
+                                byte_range: column.byte_range(),
+                                selection_byte_range: col_name_range,
+                                children: Vec::new(),
+                            });
+                        }
+                    }
                 }
             }
+
+            return vec![DomainDocumentSymbol {
+                name: table_name,
+                kind: DomainDocumentSymbolKind::Table,
+                byte_range: outer.byte_range(),
+                selection_byte_range: table_name_range,
+                children,
+            }];
         }
     }
 
-    vec![DomainDocumentSymbol {
-        name: table_name,
-        kind: DomainDocumentSymbolKind::Table,
-        byte_range: outer.byte_range(),
-        selection_byte_range: table_name_range,
-        children,
-    }]
+    Vec::new()
 }
 
 // =====================================================================
@@ -127,11 +123,10 @@ pub fn compute_folding_ranges(
     tree: Option<&tree_sitter::Tree>,
 ) -> Vec<DomainFoldingRange> {
     let _ = source;
-    let Some(tree) = tree else {
-        return Vec::new();
-    };
     let mut out = Vec::new();
-    collect_foldable(tree.root_node(), &mut out);
+    if let Some(tree) = tree {
+        collect_foldable(tree.root_node(), &mut out);
+    }
     out
 }
 
@@ -167,30 +162,21 @@ pub fn compute_document_highlight(
     tree: Option<&tree_sitter::Tree>,
     cursor_byte: usize,
 ) -> Vec<DomainDocumentHighlight> {
-    let Some(tree) = tree else {
-        return Vec::new();
-    };
-    let Some(node) = node_at_byte(tree, cursor_byte) else {
-        return Vec::new();
-    };
-    let Some(string_node) = enclosing_string(node) else {
-        return Vec::new();
-    };
-    let source_bytes = source.as_bytes();
-    let target = inner_string_range_text(string_node, source_bytes);
-    let Some((target, target_range)) = target else {
-        return Vec::new();
-    };
-
-    // Scan every string in the tree for matches.
     let mut out = Vec::new();
-    collect_matching_strings(
-        tree.root_node(),
-        source_bytes,
-        target.as_str(),
-        target_range.clone(),
-        &mut out,
-    );
+    if let Some(tree) = tree
+        && let Some(node) = node_at_byte(tree, cursor_byte)
+        && let Some(string_node) = enclosing_string(node)
+        && let Some((target, target_range)) =
+            inner_string_range_text(string_node, source.as_bytes())
+    {
+        collect_matching_strings(
+            tree.root_node(),
+            source.as_bytes(),
+            target.as_str(),
+            target_range,
+            &mut out,
+        );
+    }
     out
 }
 
@@ -239,25 +225,22 @@ pub fn compute_selection_ranges(
     cursor_byte: usize,
 ) -> Vec<DomainSelectionRange> {
     let _ = source;
-    let Some(tree) = tree else {
-        return Vec::new();
-    };
-    let Some(start) = node_at_byte(tree, cursor_byte) else {
-        return Vec::new();
-    };
-
     let mut chain = Vec::new();
-    let mut current = Some(start);
-    let mut last_range: Option<Range<usize>> = None;
-    while let Some(node) = current {
-        let r = node.byte_range();
-        if last_range.as_ref() != Some(&r) && r.end > r.start {
-            chain.push(DomainSelectionRange {
-                byte_range: r.clone(),
-            });
-            last_range = Some(r);
+    if let Some(tree) = tree
+        && let Some(start) = node_at_byte(tree, cursor_byte)
+    {
+        let mut current = Some(start);
+        let mut last_range: Option<Range<usize>> = None;
+        while let Some(node) = current {
+            let r = node.byte_range();
+            if last_range.as_ref() != Some(&r) && r.end > r.start {
+                chain.push(DomainSelectionRange {
+                    byte_range: r.clone(),
+                });
+                last_range = Some(r);
+            }
+            current = node.parent();
         }
-        current = node.parent();
     }
     chain
 }
@@ -327,25 +310,24 @@ fn inner_string_range_text(
 
 fn direct_column_objects(columns_value: tree_sitter::Node<'_>) -> Vec<tree_sitter::Node<'_>> {
     let array = unwrap_yaml(columns_value);
-    if !matches!(array.kind(), "array" | "block_sequence" | "flow_sequence") {
-        return Vec::new();
-    }
     let mut out = Vec::new();
-    let mut cursor = array.walk();
-    for raw_child in array.children(&mut cursor) {
-        let child = unwrap_yaml(raw_child);
-        match child.kind() {
-            "object" | "block_mapping" | "flow_mapping" => out.push(child),
-            "block_sequence_item" => {
-                let mut inner_cursor = child.walk();
-                for inner in child.children(&mut inner_cursor) {
-                    let inner = unwrap_yaml(inner);
-                    if matches!(inner.kind(), "object" | "block_mapping" | "flow_mapping") {
-                        out.push(inner);
+    if matches!(array.kind(), "array" | "block_sequence" | "flow_sequence") {
+        let mut cursor = array.walk();
+        for raw_child in array.children(&mut cursor) {
+            let child = unwrap_yaml(raw_child);
+            match child.kind() {
+                "object" | "block_mapping" | "flow_mapping" => out.push(child),
+                "block_sequence_item" => {
+                    let mut inner_cursor = child.walk();
+                    for inner in child.children(&mut inner_cursor) {
+                        let inner = unwrap_yaml(inner);
+                        if matches!(inner.kind(), "object" | "block_mapping" | "flow_mapping") {
+                            out.push(inner);
+                        }
                     }
                 }
+                _ => {}
             }
-            _ => {}
         }
     }
     out
@@ -371,14 +353,15 @@ fn enclosing_string(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>
 }
 
 fn unwrap_yaml(node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
+    // Fused while-let so the empty-wrapper case shares the same exit as the
+    // kind-mismatch case — no defensive `return current` branch dependent on
+    // tree-sitter-yaml producing empty wrappers.
     let mut current = node;
-    while matches!(current.kind(), "flow_node" | "block_node") {
-        let Some(inner) = current.named_child(0) else {
-            break;
-        };
-        if inner.id() == current.id() {
-            break;
-        }
+    while matches!(current.kind(), "flow_node" | "block_node")
+        && let Some(inner) = current
+            .named_child(0)
+            .filter(|inner| inner.id() != current.id())
+    {
         current = inner;
     }
     current
@@ -415,9 +398,20 @@ fn trim_one_byte(range: &Range<usize>) -> Range<usize> {
 mod tests {
     use super::*;
     use crate::parser::{DocumentFormat, ParserPool};
+    use crate::test_support::parse_json;
+    use rstest::rstest;
 
-    fn parse_json(src: &str) -> tree_sitter::Tree {
-        ParserPool::new().parse(src, DocumentFormat::Json).unwrap()
+    fn find_empty_yaml_wrapper(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+        if matches!(node.kind(), "flow_node" | "block_node") && node.named_child(0).is_none() {
+            return Some(node);
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if let Some(found) = find_empty_yaml_wrapper(child) {
+                return Some(found);
+            }
+        }
+        None
     }
 
     #[test]
@@ -496,5 +490,111 @@ mod tests {
         assert_eq!(syms.len(), 1);
         assert_eq!(syms[0].name, "post");
         assert_eq!(syms[0].children.len(), 2);
+    }
+
+    #[test]
+    fn helper_branches_handle_non_strings_non_arrays_and_empty_wrappers() {
+        let json = parse_json(r#"{"name":"u","columns":"not-an-array"}"#);
+        let outer = find_outer_mapping(json.root_node()).unwrap();
+        let columns_pair = find_pair_with_key(
+            outer,
+            r#"{"name":"u","columns":"not-an-array"}"#.as_bytes(),
+            "columns",
+        )
+        .unwrap();
+        let columns_value = columns_pair.named_child(1).unwrap();
+        assert!(direct_column_objects(columns_value).is_empty());
+        assert!(inner_string_range_text(json.root_node(), r#"{"name":"u"}"#.as_bytes()).is_none());
+        assert!(enclosing_string(json.root_node()).is_none());
+
+        let string = find_pair_with_key(
+            outer,
+            r#"{"name":"u","columns":"not-an-array"}"#.as_bytes(),
+            "name",
+        )
+        .unwrap()
+        .named_child(1)
+        .unwrap();
+        assert!(inner_string_range_text(string, b"").is_none());
+
+        let pool = ParserPool::new();
+        let yaml = "name:\n";
+        let tree = pool.parse(yaml, DocumentFormat::Yaml).unwrap();
+        let pair = find_outer_mapping(tree.root_node())
+            .and_then(|mapping| find_pair_with_key(mapping, yaml.as_bytes(), "name"))
+            .unwrap();
+        if let Some(wrapper) = pair.named_child(1) {
+            let _ = unwrap_yaml(wrapper);
+        }
+    }
+
+    #[test]
+    fn folding_and_trim_helpers_cover_recursive_and_short_ranges() {
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"integer"}]}"#;
+        let tree = parse_json(src);
+        let mut ranges = Vec::new();
+        collect_foldable(tree.root_node(), &mut ranges);
+
+        assert!(
+            ranges.len() >= 3,
+            "top object, columns array, and column object should fold: {ranges:?}"
+        );
+        assert_eq!(trim_one_byte(&(4..5)), 4..5);
+        assert_eq!(trim_one_byte(&(4..6)), 5..5);
+    }
+
+    #[test]
+    fn document_highlight_returns_empty_when_tree_outlives_source_text() {
+        let src = r#"{"name":"u"}"#;
+        let tree = parse_json(src);
+        let cursor = src.find('u').unwrap();
+
+        assert!(compute_document_highlight("", Some(&tree), cursor).is_empty());
+    }
+
+    #[test]
+    fn unwrap_yaml_handles_empty_wrapper_node() {
+        let pool = ParserPool::new();
+        let yaml = "name:\n";
+        let tree = pool.parse(yaml, DocumentFormat::Yaml).unwrap();
+        if let Some(wrapper) = find_empty_yaml_wrapper(tree.root_node()) {
+            let unwrapped = unwrap_yaml(wrapper);
+            assert_eq!(unwrapped.id(), wrapper.id());
+        }
+    }
+
+    #[test]
+    fn none_tree_returns_empty_for_all_file_features() {
+        assert!(compute_document_symbols("x", None).is_empty());
+        assert!(compute_folding_ranges("x", None).is_empty());
+        assert!(compute_document_highlight("x", None, 0).is_empty());
+        assert!(compute_selection_ranges("x", None, 0).is_empty());
+    }
+
+    #[rstest]
+    #[case::yaml_scalar("just_a_scalar\n", DocumentFormat::Yaml)]
+    #[case::json_missing_name(r#"{"columns":[]}"#, DocumentFormat::Json)]
+    fn document_symbols_empty_cases(#[case] src: &str, #[case] format: DocumentFormat) {
+        let pool = ParserPool::new();
+        let tree = pool.parse(src, format).unwrap();
+
+        assert!(compute_document_symbols(src, Some(&tree)).is_empty());
+    }
+
+    #[test]
+    fn document_highlight_cursor_on_brace_returns_empty() {
+        let src = r#"{"name":"u","columns":[]}"#;
+        let tree = parse_json(src);
+
+        assert!(compute_document_highlight(src, Some(&tree), 0).is_empty());
+    }
+
+    #[test]
+    fn selection_ranges_builds_chain_for_column_name() {
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"integer"}]}"#;
+        let tree = parse_json(src);
+        let cursor = src.find(r#""id""#).unwrap() + 1;
+
+        assert!(compute_selection_ranges(src, Some(&tree), cursor).len() >= 2);
     }
 }

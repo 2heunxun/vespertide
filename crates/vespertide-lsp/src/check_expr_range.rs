@@ -25,3 +25,46 @@ pub(crate) fn expr_inner_range(value_node: tree_sitter::Node<'_>) -> Option<Rang
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::{DocumentFormat, ParserPool};
+    use crate::test_support::parse_yaml;
+
+    fn first_kind<'tree>(
+        node: tree_sitter::Node<'tree>,
+        kind: &str,
+    ) -> Option<tree_sitter::Node<'tree>> {
+        if node.kind() == kind {
+            return Some(node);
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if let Some(found) = first_kind(child, kind) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn non_scalar_nodes_have_no_check_expr_inner_range() {
+        let tree = ParserPool::new()
+            .parse(r#"{"expr":"age > 0"}"#, DocumentFormat::Json)
+            .unwrap();
+
+        assert!(expr_inner_range(tree.root_node()).is_none());
+    }
+
+    #[test]
+    fn yaml_block_scalar_inner_range_starts_after_indicator() {
+        let src =
+            "name: u\nconstraints:\n  - type: check\n    expr: >-\n      age BETWEEN 100 AND 0\n";
+        let tree = parse_yaml(src);
+        let block = first_kind(tree.root_node(), "block_scalar").expect("block scalar");
+        let inner = expr_inner_range(block).expect("block scalar inner range");
+
+        assert!(src[inner].contains("age BETWEEN 100 AND 0"));
+    }
+}

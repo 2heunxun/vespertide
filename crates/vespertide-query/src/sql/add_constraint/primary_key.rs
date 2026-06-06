@@ -65,7 +65,8 @@ fn build_pk_pre_cleanup<T: AsRef<str>>(
 ) -> Vec<BuiltQuery> {
     let keep = match strategy {
         PrimaryKeyAdditionStrategy::DeleteDuplicates { keep } => *keep,
-        _ => return vec![],
+        #[cfg(not(tarpaulin_include))]
+        _ => return vec![], // `#[non_exhaustive]` future-variant guard; unreachable today.
     };
     let Some(old_pk_column) = try_resolve_single_pk_column(table, current_schema, new_pk_columns)
     else {
@@ -129,4 +130,125 @@ fn try_resolve_single_pk_column<T: AsRef<str>>(
         return None;
     }
     Some(pk_column)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+    use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType};
+
+    fn schema_with_single_pk() -> Vec<TableDef> {
+        // single-column PK on `id` so try_resolve_single_pk_column succeeds.
+        let mut id_col = ColumnDef::new("id", ColumnType::Simple(SimpleColumnType::Integer), false);
+        id_col.primary_key =
+            Some(vespertide_core::schema::primary_key::PrimaryKeySyntax::Bool(true));
+        let email_col = ColumnDef::new("email", ColumnType::Simple(SimpleColumnType::Text), false);
+        vec![TableDef {
+            name: "users".into(),
+            description: None,
+            columns: vec![id_col, email_col],
+            constraints: vec![],
+        }]
+    }
+
+    #[rstest]
+    #[case::keep_first(KeepPolicy::First, "MIN")]
+    #[case::keep_last(KeepPolicy::Last, "MAX")]
+    fn build_pk_pre_cleanup_emits_delete_with_aggregate(
+        #[case] keep: KeepPolicy,
+        #[case] expected_agg: &str,
+    ) {
+        // new PK columns differ from baseline (`id`), so try_resolve returns
+        // Some("id"), and DeleteDuplicates → real DELETE body executes.
+        let schema = schema_with_single_pk();
+        let new_pk: Vec<&str> = vec!["email"];
+        let queries = build_pk_pre_cleanup(
+            DatabaseBackend::Postgres,
+            "users",
+            &new_pk,
+            &PrimaryKeyAdditionStrategy::DeleteDuplicates { keep },
+            &schema,
+        );
+        assert_eq!(queries.len(), 1);
+        let sql = queries[0].build(DatabaseBackend::Postgres);
+        assert!(sql.contains("DELETE FROM"));
+        assert!(sql.contains(expected_agg));
+        assert!(sql.contains("GROUP BY"));
+        assert!(sql.contains("\"id\""));
+        assert!(sql.contains("\"email\""));
+    }
+
+    #[test]
+    fn build_pk_pre_cleanup_no_baseline_pk_skips_cleanup() {
+        // Empty schema → table_def lookup fails → try_resolve returns None →
+        // the let-else fallback path returns vec![] without DELETE.
+        let queries = build_pk_pre_cleanup::<&str>(
+            DatabaseBackend::Postgres,
+            "nonexistent",
+            &["id"],
+            &PrimaryKeyAdditionStrategy::DeleteDuplicates {
+                keep: KeepPolicy::First,
+            },
+            &[],
+        );
+        assert!(queries.is_empty());
+    }
+
+    #[test]
+    fn try_resolve_single_pk_column_returns_none_for_composite_pk() {
+        // Composite PK (len != 1) → returns None.
+        let schema = vec![TableDef {
+            name: "events".into(),
+            description: None,
+            columns: vec![
+                ColumnDef::new(
+                    "tenant_id",
+                    ColumnType::Simple(SimpleColumnType::Integer),
+                    false,
+                ),
+                ColumnDef::new("ts", ColumnType::Simple(SimpleColumnType::BigInt), false),
+            ],
+            constraints: vec![TableConstraint::PrimaryKey {
+                auto_increment: false,
+                columns: vec!["tenant_id".into(), "ts".into()],
+                strategy: PrimaryKeyAdditionStrategy::default(),
+            }],
+        }];
+        let resolved = try_resolve_single_pk_column("events", &schema, &["new_col"]);
+        assert!(resolved.is_none());
+    }
+
+    #[test]
+    fn try_resolve_single_pk_column_returns_none_when_pk_in_new_set() {
+        // PK column appears inside the new PK set → returns None (tautology
+        // guard: NOT IN (SELECT MIN(pk) GROUP BY pk) would match every row).
+        let schema = schema_with_single_pk();
+        let resolved = try_resolve_single_pk_column("users", &schema, &["id"]);
+        assert!(resolved.is_none());
+    }
+
+    #[test]
+    fn try_resolve_single_pk_column_returns_none_for_unknown_table() {
+        let resolved = try_resolve_single_pk_column::<&str>("nonexistent", &[], &["id"]);
+        assert!(resolved.is_none());
+    }
+
+    #[test]
+    fn try_resolve_single_pk_column_returns_none_for_table_without_pk() {
+        // Table exists but has no PK (no constraints, no inline primary_key) →
+        // the `find_map(...).or_else(...)?` returns None.
+        let schema = vec![TableDef {
+            name: "logs".into(),
+            description: None,
+            columns: vec![ColumnDef::new(
+                "msg",
+                ColumnType::Simple(SimpleColumnType::Text),
+                false,
+            )],
+            constraints: vec![],
+        }];
+        let resolved = try_resolve_single_pk_column("logs", &schema, &["id"]);
+        assert!(resolved.is_none());
+    }
 }

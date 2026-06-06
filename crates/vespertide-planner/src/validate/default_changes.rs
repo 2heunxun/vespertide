@@ -509,4 +509,62 @@ mod tests {
         assert_eq!(warnings.len(), 1);
         assert_eq!(warnings[0].kind, DefaultChangeKind::AddedDefault);
     }
+
+    // ── Coverage-closure: DefaultChangeKind::label() across every variant ──
+
+    /// Direct `.label()` call covering each match arm (lines 102-109).
+    #[test]
+    fn label_returns_short_human_label_per_variant() {
+        assert_eq!(DefaultChangeKind::AddedDefault.label(), "added default");
+        assert_eq!(DefaultChangeKind::RemovedDefault.label(), "removed default");
+        assert_eq!(
+            DefaultChangeKind::LiteralToLiteral.label(),
+            "literal → literal"
+        );
+        assert_eq!(
+            DefaultChangeKind::LiteralToFunction.label(),
+            "literal → function"
+        );
+        assert_eq!(
+            DefaultChangeKind::FunctionToLiteral.label(),
+            "function → literal"
+        );
+        assert_eq!(
+            DefaultChangeKind::FunctionToFunction.label(),
+            "function → function"
+        );
+    }
+
+    /// `lookup_old_default` returns `None` when the baseline table is
+    /// present but the column is not — exercises the second `find(...)?`
+    /// chain (line 190 area).
+    #[test]
+    fn lookup_old_default_missing_column_yields_added_default() {
+        let baseline = vec![table_with(
+            "users",
+            vec![col_with_default("id", None)], // no `email` column
+        )];
+        let plan = plan_with(vec![modify_default("users", "email", Some("'x'"))]);
+
+        let warnings = find_default_changes(&plan, &baseline);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].kind, DefaultChangeKind::AddedDefault);
+    }
+
+    /// `classify` `(None, None)` defensive fall-through (line 219 area).
+    #[test]
+    fn classify_none_to_none_defensive_returns_literal_to_literal() {
+        // Direct unit-call: defensive arm cannot be hit through the
+        // public pipeline (the action implies at least one side is set),
+        // so we cover it explicitly here.
+        assert_eq!(classify(None, None), DefaultChangeKind::LiteralToLiteral);
+    }
+
+    /// `is_function_expr` empty / whitespace input (defensive guard line
+    /// 231-233).
+    #[test]
+    fn is_function_expr_empty_returns_false() {
+        assert!(!is_function_expr(""));
+        assert!(!is_function_expr("   "));
+    }
 }

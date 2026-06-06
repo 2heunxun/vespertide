@@ -481,3 +481,72 @@ fn apply_replace_constraint_no_match_errors() {
     assert!(matches!(err, PlannerError::TableValidation(_)));
     assert_eq!(schema[0].constraints, vec![existing]);
 }
+
+/// L33 of apply/mod.rs: dispatch arm for
+/// `MigrationAction::RemapEnumValues { table, column, mapping }`.
+/// Existing `remap_enum_values_*` tests in apply/column_ops.rs hit
+/// the helper directly; this test drives the public `apply_action`
+/// match so the dispatch arm itself is exercised.
+#[test]
+fn apply_action_dispatches_remap_enum_values_arm() {
+    use std::collections::BTreeMap;
+    use vespertide_core::{ComplexColumnType, EnumValues, NumValue};
+
+    let int_enum = ColumnType::Complex(ComplexColumnType::Enum {
+        name: "priority".into(),
+        values: EnumValues::Integer(vec![
+            NumValue {
+                name: "Low".into(),
+                value: 0,
+            },
+            NumValue {
+                name: "High".into(),
+                value: 10,
+            },
+        ]),
+    });
+    let priority_col = ColumnDef {
+        name: "priority".into(),
+        r#type: int_enum,
+        nullable: false,
+        default: None,
+        comment: None,
+        primary_key: None,
+        unique: None,
+        index: None,
+        foreign_key: None,
+    };
+    let mut schema = vec![table("orders", vec![priority_col], vec![])];
+
+    let mut mapping: BTreeMap<i64, i64> = BTreeMap::new();
+    mapping.insert(0, 5);
+    mapping.insert(10, 50);
+
+    let action = MigrationAction::RemapEnumValues {
+        table: "orders".into(),
+        column: "priority".into(),
+        mapping,
+    };
+    apply_action(&mut schema, &action)
+        .expect("RemapEnumValues dispatch arm returns Ok for an integer enum");
+
+    // Schema column is still an integer enum with the same names but
+    // remapped integer values — confirms the dispatch landed on the
+    // RemapEnumValues path (other arms wouldn't touch enum values).
+    let ColumnType::Complex(ComplexColumnType::Enum {
+        values: EnumValues::Integer(ref new_values),
+        ..
+    }) = schema[0].columns[0].r#type
+    else {
+        panic!(
+            "expected updated integer enum, got: {:?}",
+            schema[0].columns[0].r#type
+        );
+    };
+    let by_name: std::collections::HashMap<&str, i64> = new_values
+        .iter()
+        .map(|v| (v.name.as_str(), v.value))
+        .collect();
+    assert_eq!(by_name["Low"], 5);
+    assert_eq!(by_name["High"], 50);
+}

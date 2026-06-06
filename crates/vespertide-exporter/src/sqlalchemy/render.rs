@@ -51,10 +51,6 @@ pub fn export(schema: &[TableDef]) -> Result<String, String> {
     Ok(assemble_with_imports(&used_types, &parts))
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "SQLAlchemy entity rendering is a linear template emitter"
-)]
 fn render_entity_part(table: &TableDef, used_types: &mut UsedTypes<'static>) -> String {
     let mut lines: Vec<String> = Vec::new();
 
@@ -79,10 +75,7 @@ fn render_entity_part(table: &TableDef, used_types: &mut UsedTypes<'static>) -> 
     let composite_fks = collect_composite_fks(table);
 
     // Check for single-column foreign keys
-    let has_single_fk = table
-        .constraints
-        .iter()
-        .any(|c| matches!(c, TableConstraint::ForeignKey { columns, ref_columns, .. } if columns.len() == 1 && ref_columns.len() == 1));
+    let has_single_fk = table.constraints.iter().any(|c| matches!(c, TableConstraint::ForeignKey { columns, ref_columns, .. } if columns.len() == 1 && ref_columns.len() == 1));
     if has_single_fk {
         used_types.sa_types.insert("ForeignKey");
     }

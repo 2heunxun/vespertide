@@ -170,4 +170,57 @@ mod tests {
         let parsed: Wrap = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, empty);
     }
+
+    // ── coverage-closure tests for lines 54, 55 (expecting) + 84 (visit_map dup) ──
+
+    #[test]
+    fn rejects_non_map_non_seq_value_invokes_expecting() {
+        // Boolean at the mapping slot triggers Visitor::expecting (lines 54-55),
+        // since the underlying serde_json::deserialize_any path neither calls
+        // visit_map nor visit_seq for a bool token.
+        let json = r#"{"mapping": true}"#;
+        let err = serde_json::from_str::<Wrap>(json).unwrap_err();
+        let msg = err.to_string();
+        // The expecting string includes the unique phrase "integer→integer".
+        assert!(
+            msg.contains("integer\u{2192}integer") || msg.contains("array of"),
+            "expected expecting() text in error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn rejects_non_map_non_seq_string_invokes_expecting() {
+        // String form re-exercises the expecting() formatter (54-55).
+        let json = r#"{"mapping": "not-a-map"}"#;
+        let err = serde_json::from_str::<Wrap>(json).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("integer\u{2192}integer") || msg.contains("array of"),
+            "expected expecting() text in error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_keys_in_canonical_map_form() {
+        // serde_json's parser sees the second `"5"` as a fresh map entry, so
+        // visit_map's duplicate-detection branch on line 84-90 fires.
+        let json = r#"{"mapping":{"5":100,"5":200}}"#;
+        let err = serde_json::from_str::<Wrap>(json).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("duplicate enum remap key"),
+            "expected duplicate-key error from visit_map, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn visit_map_iterates_multi_entry_canonical_form() {
+        // Re-exercises the `while let Some(...) = access.next_entry::<i64, i64>()?`
+        // loop body on line 84 with several entries; the loop must execute at
+        // least once per entry and then terminate cleanly.
+        let json = r#"{"mapping":{"1":10,"2":20,"3":30,"4":40}}"#;
+        let parsed: Wrap = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.mapping.len(), 4);
+        assert_eq!(parsed.mapping.get(&3), Some(&30));
+    }
 }

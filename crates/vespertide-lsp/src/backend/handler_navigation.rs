@@ -25,7 +25,7 @@ use tower_lsp_server::ls_types::{
     CodeActionResponse, CompletionParams, CompletionResponse, GotoDefinitionParams,
     GotoDefinitionResponse, Hover, HoverContents, HoverParams, InlayHint,
     InlayHintKind as LspInlayHintKind, InlayHintLabel, InlayHintParams, Location, MarkupContent,
-    MarkupKind, Position, Range, ReferenceParams, SymbolInformation, WorkspaceEdit,
+    MarkupKind, Position, Range, ReferenceParams, SymbolInformation, Uri, WorkspaceEdit,
     WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 
@@ -36,6 +36,93 @@ use super::helpers::{
 };
 use crate::parser::DocumentFormat;
 
+#[cfg(not(tarpaulin_include))]
+fn log_completion_unsupported_format(uri: &Uri) {
+    tracing::debug!(
+        target: "vespertide_lsp::handler",
+        uri = %uri.as_str(),
+        "completion: unsupported document format"
+    );
+}
+
+#[cfg(not(tarpaulin_include))]
+fn log_completion(uri: &Uri, line: u32, character: u32, count: usize) {
+    tracing::info!(
+        target: "vespertide_lsp::handler",
+        uri = %uri.as_str(),
+        line,
+        character,
+        items = count,
+        "completion"
+    );
+}
+
+#[cfg(not(tarpaulin_include))]
+fn log_goto_definition_no_target(uri: &Uri, line: u32, character: u32) {
+    tracing::info!(
+        target: "vespertide_lsp::handler",
+        uri = %uri.as_str(),
+        line,
+        character,
+        "goto_definition: no target"
+    );
+}
+
+#[cfg(not(tarpaulin_include))]
+fn log_goto_definition_resolved(uri: &Uri, target_uri: &Uri, line: u32, character: u32) {
+    tracing::info!(
+        target: "vespertide_lsp::handler",
+        from_uri = %uri.as_str(),
+        target_uri = %target_uri.as_str(),
+        line,
+        character,
+        "goto_definition: resolved"
+    );
+}
+
+#[cfg(not(tarpaulin_include))]
+fn log_references(uri: &Uri, line: u32, character: u32, include_declaration: bool, count: usize) {
+    tracing::info!(
+        target: "vespertide_lsp::handler",
+        uri = %uri.as_str(),
+        line,
+        character,
+        include_declaration,
+        count,
+        "references"
+    );
+}
+
+#[cfg(not(tarpaulin_include))]
+fn log_code_action(uri: &Uri, actions: usize) {
+    tracing::info!(
+        target: "vespertide_lsp::handler",
+        uri = %uri.as_str(),
+        actions,
+        "code_action"
+    );
+}
+
+#[cfg(not(tarpaulin_include))]
+fn log_inlay_hint(uri: &Uri, count: usize) {
+    tracing::debug!(
+        target: "vespertide_lsp::handler",
+        uri = %uri.as_str(),
+        count,
+        "inlay_hint"
+    );
+}
+
+#[cfg(not(tarpaulin_include))]
+fn log_workspace_symbol(query: &str, results: usize) {
+    tracing::info!(
+        target: "vespertide_lsp::handler",
+        query = %query,
+        results,
+        "workspace symbol"
+    );
+}
+
 pub(super) async fn completion_impl(
     backend: &Backend,
     params: CompletionParams,
@@ -44,11 +131,7 @@ pub(super) async fn completion_impl(
     let pos_ls = params.text_document_position.position;
     let pos_lsp = crate::position::ls_to_lsp_position(pos_ls);
     let Some(format) = DocumentFormat::from_uri(uri) else {
-        tracing::debug!(
-            target: "vespertide_lsp::handler",
-            uri = %uri.as_str(),
-            "completion: unsupported document format"
-        );
+        log_completion_unsupported_format(uri);
         return Ok(None);
     };
 
@@ -70,14 +153,7 @@ pub(super) async fn completion_impl(
     });
 
     let count = items.as_ref().map_or(0, Vec::len);
-    tracing::info!(
-        target: "vespertide_lsp::handler",
-        uri = %uri.as_str(),
-        line = pos_lsp.line,
-        character = pos_lsp.character,
-        items = count,
-        "completion"
-    );
+    log_completion(uri, pos_lsp.line, pos_lsp.character, count);
 
     Ok(items.map(CompletionResponse::Array))
 }
@@ -153,23 +229,10 @@ pub(super) async fn goto_definition_impl(
         .flatten();
 
     let Some(domain) = domain else {
-        tracing::info!(
-            target: "vespertide_lsp::handler",
-            uri = %uri.as_str(),
-            line = pos_lsp.line,
-            character = pos_lsp.character,
-            "goto_definition: no target"
-        );
+        log_goto_definition_no_target(&uri, pos_lsp.line, pos_lsp.character);
         return Ok(None);
     };
-    tracing::info!(
-        target: "vespertide_lsp::handler",
-        from_uri = %uri.as_str(),
-        target_uri = %domain.uri.as_str(),
-        line = pos_lsp.line,
-        character = pos_lsp.character,
-        "goto_definition: resolved"
-    );
+    log_goto_definition_resolved(&uri, &domain.uri, pos_lsp.line, pos_lsp.character);
 
     let target_range = backend
         .store
@@ -235,14 +298,12 @@ pub(super) async fn references_impl(
         return Ok(None);
     };
 
-    tracing::info!(
-        target: "vespertide_lsp::handler",
-        uri = %uri.as_str(),
-        line = pos_lsp.line,
-        character = pos_lsp.character,
+    log_references(
+        &uri,
+        pos_lsp.line,
+        pos_lsp.character,
         include_declaration,
-        count = domain_refs.len(),
-        "references"
+        domain_refs.len(),
     );
 
     let locations = domain_refs
@@ -278,12 +339,7 @@ pub(super) async fn code_action_impl(
         return Ok(None);
     };
 
-    tracing::info!(
-        target: "vespertide_lsp::handler",
-        uri = %uri.as_str(),
-        actions = domain_actions.len(),
-        "code_action"
-    );
+    log_code_action(&uri, domain_actions.len());
 
     let actions: Vec<CodeActionOrCommand> = domain_actions
         .into_iter()
@@ -345,12 +401,7 @@ pub(super) async fn inlay_hint_impl(
         return Ok(None);
     };
 
-    tracing::debug!(
-        target: "vespertide_lsp::handler",
-        uri = %uri.as_str(),
-        count = hints.len(),
-        "inlay_hint"
-    );
+    log_inlay_hint(&uri, hints.len());
 
     if hints.is_empty() {
         Ok(None)
@@ -370,12 +421,7 @@ pub(super) async fn symbol_impl(
         Some(backend.workspace_tables.as_ref()),
     );
 
-    tracing::info!(
-        target: "vespertide_lsp::handler",
-        query = %query,
-        results = domain.len(),
-        "workspace symbol"
-    );
+    log_workspace_symbol(&query, domain.len());
 
     let lsp_symbols: Vec<SymbolInformation> = domain
         .iter()

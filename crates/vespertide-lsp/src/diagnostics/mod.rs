@@ -199,6 +199,7 @@ pub fn compute_workspace(
 mod tests {
     use super::*;
     use crate::parser::{DocumentFormat, ParserPool};
+    use rstest::rstest;
 
     #[test]
     fn valid_table_no_diagnostics() {
@@ -1021,5 +1022,45 @@ mod tests {
             "YAML type-mismatched CHECK should emit exactly one diagnostic, got: {diags:?}"
         );
         assert_eq!(mismatch_diags[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn diagnostics_shared_returns_arc_consistently() {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+
+        let first = compute_shared(src, DocumentFormat::Json, Some(&tree), &idx);
+        let second = compute_shared(src, DocumentFormat::Json, Some(&tree), &idx);
+
+        assert_eq!(&*first, &*second);
+    }
+
+    #[rstest]
+    #[case::index_column_missing(r#"{"name":"u","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}],"constraints":[{"type":"index","name":"ix_missing","columns":["nonexistent_col"]}]}"#)]
+    #[case::empty_index_columns(r#"{"name":"u","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}],"constraints":[{"type":"index","name":"ix_empty","columns":[]}]}"#)]
+    #[case::invalid_enum_default(r#"{"name":"u","columns":[{"name":"status","type":{"kind":"enum","name":"st","values":["active","banned"]},"nullable":false,"default":"'unknown'"}]}"#)]
+    fn diagnostics_invalid_schema_cases_emit_diagnostics(#[case] src: &str) {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let tree = pool.parse(src, DocumentFormat::Json);
+
+        let diags = compute(src, DocumentFormat::Json, tree.as_ref(), &idx);
+
+        assert!(!diags.is_empty(), "invalid schema should emit diagnostics");
+    }
+
+    #[test]
+    fn missing_primary_key_warning_path_does_not_panic() {
+        diagnostics_cache().clear();
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let src = r#"{"name":"u","columns":[{"name":"data","type":"text","nullable":false}]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json);
+
+        let _ = compute(src, DocumentFormat::Json, tree.as_ref(), &idx);
     }
 }

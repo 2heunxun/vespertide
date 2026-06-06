@@ -6,7 +6,7 @@
   "author": "devfive",
   "devDependencies": {
     "eslint-plugin-devup": "^2.0.19",
-    "oxlint": "^1.67.0",
+    "oxlint": "^1.68.0",
     "husky": "^9.1",
     "bun-test-env-dom": "^1.0",
     "@devup-ui/bun-plugin": "^1.0",
@@ -16,13 +16,13 @@
     "apps/*"
   ],
   "scripts": {
-    "prelint": "cargo clippy -- -D warnings && cargo fmt --check && cargo check",
+    "prelint": "cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo fmt --all -- --check && cargo check --workspace --all-features",
     "build": "bun run -F ./apps/landing build",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
-    "prelint:fix": "cargo clippy --fix --allow-dirty && cargo fmt && cargo check",
+    "prelint:fix": "cargo clippy --workspace --all-targets --all-features --fix --allow-dirty -- -D warnings && cargo fmt --all && cargo check --workspace --all-features",
     "test": "bun test",
-    "posttest": "cargo tarpaulin --out xml --out stdout --out html --all-targets",
+    "posttest": "cargo tarpaulin --engine llvm --out Lcov Stdout --workspace --exclude app --fail-under 100",
     "dev": "bun run --workspaces dev",
     "api": "cargo run",
     "prepare": "husky",

@@ -119,12 +119,7 @@ impl Default for DocumentStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
-    use tower_lsp_server::ls_types::Uri;
-
-    fn uri(path: &str) -> Uri {
-        Uri::from_str(&format!("file:///{path}")).unwrap()
-    }
+    use crate::test_support::uri;
 
     #[test]
     fn open_insert_update_close() {
@@ -166,5 +161,75 @@ mod tests {
         }
 
         assert_eq!(store.open_uris(), vec![a, b]);
+    }
+
+    #[test]
+    fn default_constructs_empty_store() {
+        let store = DocumentStore::default();
+
+        assert!(store.is_empty());
+    }
+
+    #[test]
+    fn for_each_iterates_in_uri_order() {
+        let store = DocumentStore::new();
+        store.open(
+            uri("z.json"),
+            "json".to_string(),
+            1,
+            r#"{"name":"z"}"#.to_string(),
+        );
+        store.open(
+            uri("a.json"),
+            "json".to_string(),
+            1,
+            r#"{"name":"a"}"#.to_string(),
+        );
+        store.open(
+            uri("m.json"),
+            "json".to_string(),
+            1,
+            r#"{"name":"m"}"#.to_string(),
+        );
+
+        let mut collected = Vec::new();
+        store.for_each(|u, _state| collected.push(u.as_str().to_string()));
+        let mut sorted = collected.clone();
+        sorted.sort();
+
+        assert_eq!(
+            collected, sorted,
+            "for_each must yield URIs in sorted order"
+        );
+        assert_eq!(collected.len(), 3);
+    }
+
+    #[test]
+    fn with_doc_returns_tree_for_open_document() {
+        let store = DocumentStore::new();
+        let u = uri("user.json");
+        store.open(
+            u.clone(),
+            "json".to_string(),
+            1,
+            r#"{"name":"user","columns":[]}"#.to_string(),
+        );
+
+        let has_tree = store
+            .with_doc(&u, |_text, tree| tree.is_some())
+            .expect("doc present");
+
+        assert!(has_tree);
+    }
+
+    #[test]
+    fn docs_iter_for_uri_returns_none_for_missing_document() {
+        let store = DocumentStore::new();
+
+        assert!(
+            store
+                .docs_iter_for_uri(&uri("missing.json"), |_| 42)
+                .is_none()
+        );
     }
 }

@@ -8,6 +8,8 @@ pub mod builder;
 pub mod error;
 mod parallel_config;
 pub mod sql;
+#[cfg(test)]
+mod test_support;
 
 pub use builder::{
     PlanQueries, PlanQueriesOptions, build_plan_queries, build_plan_queries_with_options,

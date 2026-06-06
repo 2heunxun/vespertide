@@ -73,6 +73,15 @@ must_use_candidate = { level = "allow", priority = 1 }       # blanket-applying 
 missing_errors_doc = { level = "allow", priority = 1 }       # adding `# Errors` to every Result fn is performative; deferred
 missing_panics_doc = { level = "allow", priority = 1 }       # same as above; we don't panic in production code paths
 return_self_not_must_use = { level = "allow", priority = 1 } # builder patterns are obvious from context
+doc_markdown = { level = "allow", priority = 1 }             # test-coverage comments use line labels and file paths extensively
+doc_lazy_continuation = { level = "allow", priority = 1 }     # coverage notes in test docs intentionally read as prose
+unnecessary_to_owned = { level = "allow", priority = 1 }      # tempdir path guards keep explicit owned path ergonomics in tests
+inconsistent_struct_constructor = { level = "allow", priority = 1 } # long prompt fixtures group fields by scenario intent
+used_underscore_binding = { level = "allow", priority = 1 }   # test fixtures use `_tmp` to signal lifetime retention
+too_many_lines = { level = "allow", priority = 1 }            # large scenario tests are preferable to fragile fixture indirection
+useless_vec = { level = "allow", priority = 1 }               # tests sometimes use Vec shape to mirror production APIs
+float_cmp = { level = "allow", priority = 1 }                 # SVG geometry tests assert exact constants where produced deterministically
+default_trait_access = { level = "allow", priority = 1 }      # test fixtures often rely on contextual Default for brevity
 
 [workspace.dependencies]
 rayon = "1.12"

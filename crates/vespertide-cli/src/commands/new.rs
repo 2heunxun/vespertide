@@ -81,29 +81,10 @@ async fn write_yaml(path: &Path, table: &TableDef, schema_url: &str) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
+    use crate::test_support::CwdGuard;
     use std::fs as std_fs;
-    use std::path::PathBuf;
     use tempfile::tempdir;
     use vespertide_config::VespertideConfig;
-
-    struct CwdGuard {
-        original: PathBuf,
-    }
-
-    impl CwdGuard {
-        fn new(dir: &Path) -> Self {
-            let original = env::current_dir().unwrap();
-            env::set_current_dir(dir).unwrap();
-            Self { original }
-        }
-    }
-
-    impl Drop for CwdGuard {
-        fn drop(&mut self) {
-            let _ = env::set_current_dir(&self.original);
-        }
-    }
 
     fn write_config(model_format: FileFormat) {
         let mut cfg = VespertideConfig::default();

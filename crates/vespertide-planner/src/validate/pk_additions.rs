@@ -334,4 +334,86 @@ mod tests {
         assert!(!ws[0].duplicate_possible);
         assert!(!ws[0].auto_cleanup_capable);
     }
+
+    #[rstest]
+    fn case_09_inline_pk_baseline_is_detected_as_single_pk() {
+        let mut id = col("id", false);
+        id.primary_key = Some(vespertide_core::schema::primary_key::PrimaryKeySyntax::Bool(true));
+        let baseline = vec![table("users", vec![id, col("email", false)], vec![])];
+        let p = plan(vec![add_pk("users", &["email"])]);
+
+        let ws = find_primary_key_additions(&p, &baseline);
+        assert_eq!(ws.len(), 1);
+        assert!(ws[0].duplicate_possible);
+    }
+
+    /// L125: the `else { false }` arm inside the `iter().any(...)`
+    /// closure that searches for a baseline UNIQUE constraint matching
+    /// the new PK column set. Existing cases only exercise the
+    /// Unique-matching path or empty constraint lists; this test
+    /// drops a non-Unique (Check / Index) constraint BEFORE any
+    /// matching one so the closure visits the `_ => false` branch.
+    #[rstest]
+    fn case_10_non_unique_constraints_skipped_in_any_closure() {
+        let baseline = vec![table(
+            "users",
+            vec![col("id", false), col("email", false)],
+            vec![
+                // L125 wildcard arm: Check returns `false` from the
+                // closure so `iter().any(...)` keeps scanning.
+                TableConstraint::Check {
+                    name: "chk_email".into(),
+                    expr: "email <> ''".into(),
+                    strategy: vespertide_core::CheckViolationStrategy::default(),
+                },
+                // Same wildcard for an Index constraint.
+                TableConstraint::Index {
+                    name: Some("ix_email".into()),
+                    columns: vec!["email".into()],
+                },
+                // Finally a matching Unique → covered_by_unique = true
+                // → with NOT-NULL column, the warning is fully
+                // suppressed (case_07 pattern).
+                TableConstraint::Unique {
+                    name: Some("uq_email".into()),
+                    columns: vec!["email".into()],
+                    strategy: vespertide_core::UniqueConstraintStrategy::default(),
+                },
+            ],
+        )];
+        let p = plan(vec![add_pk("users", &["email"])]);
+        let ws = find_primary_key_additions(&p, &baseline);
+        // Unique constraint covers the PK set AND email is NOT NULL → no warning.
+        assert!(
+            ws.is_empty(),
+            "fully-covered single-column PK should not warn, got: {ws:?}"
+        );
+    }
+
+    /// L125 also hits when the baseline has ONLY non-Unique
+    /// constraints (e.g. a sole Check). The `any(...)` closure
+    /// returns `false` for every constraint via the `_ => false`
+    /// arm, so `covered_by_unique` ends up false and the warning
+    /// is emitted (because duplicates remain possible).
+    #[rstest]
+    fn case_11_only_non_unique_constraints_still_warns_via_wildcard() {
+        let baseline = vec![table(
+            "users",
+            vec![col("id", false), col("email", false)],
+            vec![
+                // Only non-Unique constraint — every iter.any() step
+                // takes L125's `_ => false` branch.
+                TableConstraint::Check {
+                    name: "chk_email".into(),
+                    expr: "email <> ''".into(),
+                    strategy: vespertide_core::CheckViolationStrategy::default(),
+                },
+            ],
+        )];
+        let p = plan(vec![add_pk("users", &["email"])]);
+        let ws = find_primary_key_additions(&p, &baseline);
+        // No Unique → covered_by_unique = false → warning fires.
+        assert_eq!(ws.len(), 1);
+        assert!(ws[0].duplicate_possible);
+    }
 }

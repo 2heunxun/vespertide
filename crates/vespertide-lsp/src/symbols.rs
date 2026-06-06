@@ -165,39 +165,9 @@ fn build_workspace_symbol_list(
     let mut seen_uris = std::collections::BTreeSet::new();
 
     docs.for_each(|uri, state| {
-        let Some(tree) = state.tree.as_ref() else {
-            return;
-        };
-        seen_uris.insert(uri.clone());
-        let text = state.text();
-        let raw = symbol_cache().get_or_compute((hash_text(text), text.len()), || {
-            extract_raw_symbols(tree, text)
-        });
-        for raw_sym in raw.iter() {
-            out.push(WorkspaceSymbolEntry {
-                uri: uri.clone(),
-                raw: raw_sym.clone(),
-            });
-        }
-    });
-
-    if let Some(disk) = disk_tables {
-        let pool = shared_parser_pool();
-        for name in disk.names() {
-            let Some(path) = disk.model_path(&name) else {
-                continue;
-            };
-            let Some(uri) = path_to_uri(&path) else {
-                continue;
-            };
-            if seen_uris.contains(&uri) {
-                continue;
-            }
-            let Some((text_arc, tree_arc)) = disk.cached_parse(&path, pool) else {
-                continue;
-            };
-            let text = &*text_arc;
-            let tree = &*tree_arc;
+        if let Some(tree) = state.tree.as_ref() {
+            seen_uris.insert(uri.clone());
+            let text = state.text();
             let raw = symbol_cache().get_or_compute((hash_text(text), text.len()), || {
                 extract_raw_symbols(tree, text)
             });
@@ -206,6 +176,29 @@ fn build_workspace_symbol_list(
                     uri: uri.clone(),
                     raw: raw_sym.clone(),
                 });
+            }
+        }
+    });
+
+    if let Some(disk) = disk_tables {
+        let pool = shared_parser_pool();
+        for name in disk.names() {
+            if let Some(path) = disk.model_path(&name)
+                && let Some(uri) = path_to_uri(&path)
+                && !seen_uris.contains(&uri)
+                && let Some((text_arc, tree_arc)) = disk.cached_parse(&path, pool)
+            {
+                let text = &*text_arc;
+                let tree = &*tree_arc;
+                let raw = symbol_cache().get_or_compute((hash_text(text), text.len()), || {
+                    extract_raw_symbols(tree, text)
+                });
+                for raw_sym in raw.iter() {
+                    out.push(WorkspaceSymbolEntry {
+                        uri: uri.clone(),
+                        raw: raw_sym.clone(),
+                    });
+                }
             }
         }
     }
@@ -229,63 +222,55 @@ fn shared_parser_pool() -> &'static crate::parser::ParserPool {
 /// apply `ascii_ci_contains(name, needle)` to filter.
 fn extract_raw_symbols(tree: &tree_sitter::Tree, source: &str) -> Vec<RawSymbol> {
     let source_bytes = source.as_bytes();
-    let Some(mapping) = find_outer_mapping(tree.root_node()) else {
-        return Vec::new();
-    };
-    let table_name = direct_pair_value(mapping, source_bytes, "name")
-        .map(|(text, range)| (text.to_string(), range));
-    let Some((table_name, table_range)) = table_name else {
-        return Vec::new();
-    };
-
     let mut out = Vec::new();
-    out.push(RawSymbol {
-        name: table_name.clone(),
-        kind: SymbolKind::Table,
-        container: None,
-        byte_range: table_range,
-    });
-
-    let Some(columns_value) = direct_pair_node(mapping, source_bytes, "columns") else {
-        return out;
-    };
-    let columns_array = unwrap_yaml_node(columns_value);
-    if !matches!(
-        columns_array.kind(),
-        "array" | "block_sequence" | "flow_sequence"
-    ) {
-        return out;
-    }
-
-    let mut cursor = columns_array.walk();
-    for raw_child in columns_array.children(&mut cursor) {
-        let child = unwrap_yaml_node(raw_child);
-        let mapping = match child.kind() {
-            "object" | "block_mapping" | "flow_mapping" => Some(child),
-            "block_sequence_item" => {
-                let mut inner_cursor = child.walk();
-                child
-                    .children(&mut inner_cursor)
-                    .map(unwrap_yaml_node)
-                    .find(|n| matches!(n.kind(), "object" | "block_mapping" | "flow_mapping"))
-            }
-            _ => None,
-        };
-        let Some(column_mapping) = mapping else {
-            continue;
-        };
-        let Some((column_name, column_range)) =
-            direct_pair_value(column_mapping, source_bytes, "name")
-                .map(|(text, range)| (text.to_string(), range))
-        else {
-            continue;
-        };
+    if let Some(mapping) = find_outer_mapping(tree.root_node())
+        && let Some((table_name, table_range)) = direct_pair_value(mapping, source_bytes, "name")
+            .map(|(text, range)| (text.to_string(), range))
+    {
         out.push(RawSymbol {
-            name: column_name,
-            kind: SymbolKind::Column,
-            container: Some(table_name.clone()),
-            byte_range: column_range,
+            name: table_name.clone(),
+            kind: SymbolKind::Table,
+            container: None,
+            byte_range: table_range,
         });
+
+        if let Some(columns_value) = direct_pair_node(mapping, source_bytes, "columns") {
+            let columns_array = unwrap_yaml_node(columns_value);
+            if matches!(
+                columns_array.kind(),
+                "array" | "block_sequence" | "flow_sequence"
+            ) {
+                let mut cursor = columns_array.walk();
+                for raw_child in columns_array.children(&mut cursor) {
+                    let child = unwrap_yaml_node(raw_child);
+                    let mapping = match child.kind() {
+                        "object" | "block_mapping" | "flow_mapping" => Some(child),
+                        "block_sequence_item" => {
+                            let mut inner_cursor = child.walk();
+                            child
+                                .children(&mut inner_cursor)
+                                .map(unwrap_yaml_node)
+                                .find(|n| {
+                                    matches!(n.kind(), "object" | "block_mapping" | "flow_mapping")
+                                })
+                        }
+                        _ => None,
+                    };
+                    if let Some(column_mapping) = mapping
+                        && let Some((column_name, column_range)) =
+                            direct_pair_value(column_mapping, source_bytes, "name")
+                                .map(|(text, range)| (text.to_string(), range))
+                    {
+                        out.push(RawSymbol {
+                            name: column_name,
+                            kind: SymbolKind::Column,
+                            container: Some(table_name.clone()),
+                            byte_range: column_range,
+                        });
+                    }
+                }
+            }
+        }
     }
 
     out
@@ -355,14 +340,15 @@ fn find_outer_mapping(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'
 }
 
 fn unwrap_yaml_node(node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
+    // Fused while-let so the empty-wrapper case (no usable `named_child(0)`)
+    // and the kind-mismatch case share the same exit — no defensive `return`
+    // line that depends on a tree-sitter-yaml release producing empty wrappers.
     let mut current = node;
-    while matches!(current.kind(), "flow_node" | "block_node") {
-        let Some(inner) = current.named_child(0) else {
-            break;
-        };
-        if inner.id() == current.id() {
-            break;
-        }
+    while matches!(current.kind(), "flow_node" | "block_node")
+        && let Some(inner) = current
+            .named_child(0)
+            .filter(|inner| inner.id() != current.id())
+    {
         current = inner;
     }
     current
@@ -414,11 +400,31 @@ fn ascii_ci_contains(haystack: &str, needle_lower: &str) -> bool {
 mod tests {
     use super::*;
     use crate::parser::{DocumentFormat, ParserPool};
-    use std::str::FromStr;
+    use crate::test_support::uri;
+    use std::fs;
     use std::sync::Arc;
+    use tempfile::tempdir;
 
-    fn uri(p: &str) -> Uri {
-        Uri::from_str(&format!("file:///{p}")).unwrap()
+    fn write_workspace(root: &std::path::Path, models: &[(&str, &str)]) {
+        let models_dir = root.join("models");
+        fs::create_dir_all(&models_dir).unwrap();
+        fs::write(root.join("vespertide.json"), r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#).unwrap();
+        for (name, content) in models {
+            fs::write(models_dir.join(name), content).unwrap();
+        }
+    }
+
+    fn find_empty_yaml_wrapper(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+        if matches!(node.kind(), "flow_node" | "block_node") && node.named_child(0).is_none() {
+            return Some(node);
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if let Some(found) = find_empty_yaml_wrapper(child) {
+                return Some(found);
+            }
+        }
+        None
     }
 
     #[test]
@@ -679,13 +685,7 @@ mod tests {
         // Smoke test the end-to-end caching: same input → same output across 3 calls.
         let docs = DocumentStore::new();
         let uri: Uri = "file:///t.json".parse().unwrap();
-        docs.open(
-            uri,
-            "json".to_string(),
-            1,
-            r#"{"name":"user","columns":[{"name":"id","type":"integer"},{"name":"email","type":"text"}]}"#
-                .to_string(),
-        );
+        docs.open(uri, "json".to_string(), 1, r#"{"name":"user","columns":[{"name":"id","type":"integer"},{"name":"email","type":"text"}]}"#.to_string());
 
         let first = compute("email", &docs, None);
         let second = compute("email", &docs, None);
@@ -699,13 +699,7 @@ mod tests {
     fn compute_shared_and_compute_return_same_results() {
         let docs = DocumentStore::new();
         let uri: Uri = "file:///t.json".parse().unwrap();
-        docs.open(
-            uri,
-            "json".to_string(),
-            1,
-            r#"{"name":"user","columns":[{"name":"id","type":"integer"},{"name":"email","type":"text"}]}"#
-                .to_string(),
-        );
+        docs.open(uri, "json".to_string(), 1, r#"{"name":"user","columns":[{"name":"id","type":"integer"},{"name":"email","type":"text"}]}"#.to_string());
 
         let shared = compute_shared("email", &docs, None);
         let owned = compute("email", &docs, None);
@@ -816,5 +810,166 @@ mod tests {
         let second = compute("", &docs, None);
         assert_eq!(first.len(), second.len(), "deterministic across calls");
         assert!(first.iter().any(|s| s.name == "email"));
+    }
+
+    #[test]
+    fn extract_raw_symbols_returns_empty_without_mapping_or_table_name() {
+        let pool = ParserPool::new();
+        let scalar = "just_a_scalar\n";
+        let scalar_tree = pool.parse(scalar, DocumentFormat::Yaml).unwrap();
+        assert!(extract_raw_symbols(&scalar_tree, scalar).is_empty());
+
+        let nameless = r#"{"columns":[]}"#;
+        let nameless_tree = pool.parse(nameless, DocumentFormat::Json).unwrap();
+        assert!(extract_raw_symbols(&nameless_tree, nameless).is_empty());
+    }
+
+    #[test]
+    fn extract_raw_symbols_handles_missing_or_non_array_columns_and_nameless_column() {
+        let pool = ParserPool::new();
+        let no_columns = r#"{"name":"user"}"#;
+        let no_columns_tree = pool.parse(no_columns, DocumentFormat::Json).unwrap();
+        let symbols = extract_raw_symbols(&no_columns_tree, no_columns);
+        assert_eq!(symbols.len(), 1);
+
+        let non_array = r#"{"name":"user","columns":"oops"}"#;
+        let non_array_tree = pool.parse(non_array, DocumentFormat::Json).unwrap();
+        let symbols = extract_raw_symbols(&non_array_tree, non_array);
+        assert_eq!(symbols.len(), 1);
+
+        let nameless_column = r#"{"name":"user","columns":[{"type":"integer"}]}"#;
+        let nameless_column_tree = pool.parse(nameless_column, DocumentFormat::Json).unwrap();
+        let symbols = extract_raw_symbols(&nameless_column_tree, nameless_column);
+        assert_eq!(symbols.len(), 1);
+    }
+
+    #[test]
+    fn unwrap_yaml_and_trim_one_byte_defensive_branches() {
+        let pool = ParserPool::new();
+        let src = "name:\n";
+        let tree = pool.parse(src, DocumentFormat::Yaml).unwrap();
+        if let Some(pair) = find_pair_with_key(
+            find_outer_mapping(tree.root_node()).unwrap(),
+            src.as_bytes(),
+            "name",
+        ) && let Some(value) = pair.named_child(1)
+        {
+            let _ = unwrap_yaml_node(value);
+        }
+
+        assert_eq!(trim_one_byte(&(4..5)), 4..5);
+    }
+
+    #[test]
+    fn workspace_symbol_disk_scan_skips_unreadable_model_after_refresh() {
+        let tmp = tempdir().unwrap();
+        let model = r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#;
+        write_workspace(tmp.path(), &[("user.json", model)]);
+        let tables = WorkspaceTables::new();
+        assert!(tables.refresh(tmp.path()));
+        fs::remove_file(tmp.path().join("models").join("user.json")).unwrap();
+
+        let docs = DocumentStore::new();
+        let entries = build_workspace_symbol_list(&docs, Some(&tables));
+        assert!(
+            entries.is_empty(),
+            "deleted disk model should be skipped: {entries:?}"
+        );
+    }
+
+    #[test]
+    fn workspace_symbol_disk_scan_skips_paths_that_are_not_valid_uris() {
+        let tmp = tempdir().unwrap();
+        let model = r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#;
+        write_workspace(tmp.path(), &[("user model.json", model)]);
+        let tables = WorkspaceTables::new();
+        assert!(tables.refresh(tmp.path()));
+
+        let docs = DocumentStore::new();
+        let entries = build_workspace_symbol_list(&docs, Some(&tables));
+        assert!(
+            entries.is_empty(),
+            "space-containing path should fail raw URI construction and be skipped: {entries:?}"
+        );
+    }
+
+    #[test]
+    fn unwrap_yaml_node_handles_empty_wrapper_node() {
+        let pool = ParserPool::new();
+        let src = "name:\n";
+        let tree = pool.parse(src, DocumentFormat::Yaml).unwrap();
+        if let Some(wrapper) = find_empty_yaml_wrapper(tree.root_node()) {
+            let unwrapped = unwrap_yaml_node(wrapper);
+            assert_eq!(unwrapped.id(), wrapper.id());
+        }
+    }
+
+    /// After the L263 restructure (`while-let` fuses the empty-wrapper and
+    /// kind-mismatch exits), `unwrap_yaml_node` is exit-via-fallthrough only.
+    /// This regression test asserts the fused loop still returns the original
+    /// node for both a non-wrapper input and a fully nested wrapper chain.
+    #[test]
+    fn unwrap_yaml_node_returns_input_on_non_wrapper_kind() {
+        let pool = ParserPool::new();
+        let src = "name: user\ncolumns:\n  - name: id\n    type: integer\n";
+        let tree = pool.parse(src, DocumentFormat::Yaml).unwrap();
+        let root = tree.root_node();
+        // Root is `stream`, not `flow_node`/`block_node` — must return unchanged.
+        assert_eq!(unwrap_yaml_node(root).id(), root.id());
+
+        // Visit every flow_node/block_node in the tree and confirm the unwrap
+        // terminates at a node whose kind is NOT a wrapper (peeled cleanly).
+        let mut found_wrapper = false;
+        walk_assert_unwrap_terminates(root, &mut found_wrapper);
+        assert!(
+            found_wrapper,
+            "test fixture must contain at least one yaml wrapper node"
+        );
+    }
+
+    fn walk_assert_unwrap_terminates(node: tree_sitter::Node<'_>, found_wrapper: &mut bool) {
+        if matches!(node.kind(), "flow_node" | "block_node") {
+            *found_wrapper = true;
+            let unwrapped = unwrap_yaml_node(node);
+            assert!(
+                !matches!(unwrapped.kind(), "flow_node" | "block_node")
+                    || unwrapped.id() == node.id(),
+                "unwrap must either peel to a non-wrapper or return itself when peel impossible"
+            );
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            walk_assert_unwrap_terminates(child, found_wrapper);
+        }
+    }
+
+    #[test]
+    fn workspace_symbols_shared_returns_same_arc_on_warm_cache() {
+        let docs = DocumentStore::new();
+        docs.open(
+            uri("t.json"),
+            "json".to_string(),
+            1,
+            r#"{"name":"x","columns":[{"name":"id","type":"integer"}]}"#.to_string(),
+        );
+
+        let first = compute_shared("", &docs, None);
+        let second = compute_shared("", &docs, None);
+
+        assert!(Arc::ptr_eq(&first, &second), "warm cache returns same Arc");
+        assert!(first.iter().any(|s| s.name == "x"));
+    }
+
+    #[test]
+    fn workspace_symbols_filter_excludes_non_matches() {
+        let docs = DocumentStore::new();
+        docs.open(
+            uri("t.json"),
+            "json".to_string(),
+            1,
+            r#"{"name":"user","columns":[{"name":"email","type":"text"}]}"#.to_string(),
+        );
+
+        assert!(compute("xyz_nothing_matches", &docs, None).is_empty());
     }
 }

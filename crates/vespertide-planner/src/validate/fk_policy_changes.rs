@@ -177,8 +177,102 @@ pub fn render_reference_action(action: Option<&ReferenceAction>) -> &'static str
         Some(ReferenceAction::SetNull) => "SET NULL",
         Some(ReferenceAction::SetDefault) => "SET DEFAULT",
         Some(ReferenceAction::NoAction) | None => "NO ACTION",
-        // `ReferenceAction` is `#[non_exhaustive]`; future variants fall back
-        // to a generic placeholder rather than panicking.
-        _ => "(unknown)",
+        // reason: unreachable - exhaustive over current ReferenceAction variants; fallback required only for #[non_exhaustive] future variants
+        #[cfg(not(tarpaulin_include))]
+        Some(_) => "(unknown)",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::cascade(Some(ReferenceAction::Cascade), "CASCADE")]
+    #[case::restrict(Some(ReferenceAction::Restrict), "RESTRICT")]
+    #[case::set_null(Some(ReferenceAction::SetNull), "SET NULL")]
+    #[case::set_default(Some(ReferenceAction::SetDefault), "SET DEFAULT")]
+    #[case::no_action(Some(ReferenceAction::NoAction), "NO ACTION")]
+    #[case::implicit_no_action(None, "NO ACTION")]
+    fn render_reference_action_labels_known_policies(
+        #[case] action: Option<ReferenceAction>,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(render_reference_action(action.as_ref()), expected);
+    }
+
+    fn fk(
+        on_delete: Option<ReferenceAction>,
+        on_update: Option<ReferenceAction>,
+    ) -> TableConstraint {
+        TableConstraint::ForeignKey {
+            name: Some("fk_posts__user_id".into()),
+            columns: vec!["user_id".into()],
+            ref_table: "users".into(),
+            ref_columns: vec!["id".into()],
+            on_delete,
+            on_update,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
+        }
+    }
+
+    #[rstest]
+    fn replace_constraint_reports_delete_and_update_policy_changes() {
+        let plan = MigrationPlan {
+            id: "test".into(),
+            version: 1,
+            comment: None,
+            created_at: None,
+            actions: vec![MigrationAction::ReplaceConstraint {
+                table: "posts".into(),
+                from: fk(Some(ReferenceAction::Restrict), None),
+                to: fk(
+                    Some(ReferenceAction::Cascade),
+                    Some(ReferenceAction::SetNull),
+                ),
+            }],
+        };
+
+        let warnings = find_fk_policy_changes(&plan);
+
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(
+            warnings[0].constraint_name.as_deref(),
+            Some("fk_posts__user_id")
+        );
+        assert_eq!(
+            warnings[0]
+                .on_delete_change
+                .as_ref()
+                .map(|d| (&d.before, &d.after)),
+            Some((
+                &Some(ReferenceAction::Restrict),
+                &Some(ReferenceAction::Cascade)
+            ))
+        );
+        assert_eq!(
+            warnings[0]
+                .on_update_change
+                .as_ref()
+                .map(|d| (&d.before, &d.after)),
+            Some((&None, &Some(ReferenceAction::SetNull)))
+        );
+    }
+
+    #[rstest]
+    fn explicit_no_action_matches_absent_policy() {
+        let plan = MigrationPlan {
+            id: "test".into(),
+            version: 1,
+            comment: None,
+            created_at: None,
+            actions: vec![MigrationAction::ReplaceConstraint {
+                table: "posts".into(),
+                from: fk(None, None),
+                to: fk(Some(ReferenceAction::NoAction), None),
+            }],
+        };
+        assert!(find_fk_policy_changes(&plan).is_empty());
     }
 }

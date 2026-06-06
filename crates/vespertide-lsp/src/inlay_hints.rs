@@ -46,40 +46,36 @@ pub fn compute(
     tree: Option<&tree_sitter::Tree>,
     visible_range: Range<usize>,
 ) -> Vec<DomainInlayHint> {
-    let Some(tree) = tree else {
-        return Vec::new();
-    };
-    let source_bytes = source.as_bytes();
-    let Some(columns_value) = find_value_for_key(tree.root_node(), source_bytes, "columns") else {
-        return Vec::new();
-    };
-
     let mut out = Vec::new();
-    let column_objects = direct_column_objects(columns_value);
-    for column in &column_objects {
-        if !ranges_overlap(&column.byte_range(), &visible_range) {
-            continue;
-        }
-        if let Some(hint) = column_to_hint(*column, source_bytes) {
-            out.push(hint);
-        }
-    }
+    if let Some(tree) = tree {
+        let source_bytes = source.as_bytes();
+        if let Some(columns_value) = find_value_for_key(tree.root_node(), source_bytes, "columns") {
+            let column_objects = direct_column_objects(columns_value);
+            for column in &column_objects {
+                if ranges_overlap(&column.byte_range(), &visible_range)
+                    && let Some(hint) = column_to_hint(*column, source_bytes)
+                {
+                    out.push(hint);
+                }
+            }
 
-    // CHECK-expr column-type hints. Resolve `column_name -> type_label`
-    // from the SAME in-doc columns pass — never from disk, so unsaved
-    // edits never race.
-    let type_map = build_column_type_map(&column_objects, source_bytes);
-    if !type_map.is_empty()
-        && let Some(constraints_value) =
-            find_value_for_key(tree.root_node(), source_bytes, "constraints")
-    {
-        emit_check_expr_type_hints(
-            constraints_value,
-            source_bytes,
-            &type_map,
-            &visible_range,
-            &mut out,
-        );
+            // CHECK-expr column-type hints. Resolve `column_name -> type_label`
+            // from the SAME in-doc columns pass — never from disk, so unsaved
+            // edits never race.
+            let type_map = build_column_type_map(&column_objects, source_bytes);
+            if !type_map.is_empty()
+                && let Some(constraints_value) =
+                    find_value_for_key(tree.root_node(), source_bytes, "constraints")
+            {
+                emit_check_expr_type_hints(
+                    constraints_value,
+                    source_bytes,
+                    &type_map,
+                    &visible_range,
+                    &mut out,
+                );
+            }
+        }
     }
 
     out
@@ -96,13 +92,11 @@ fn build_column_type_map(
 ) -> HashMap<String, String> {
     let mut map = HashMap::new();
     for column in columns {
-        let Some(name) = pair_string_value(*column, source, "name") else {
-            continue;
-        };
-        let Some(type_label) = column_type_label(*column, source) else {
-            continue;
-        };
-        map.insert(name, type_label);
+        if let Some(name) = pair_string_value(*column, source, "name")
+            && let Some(type_label) = column_type_label(*column, source)
+        {
+            map.insert(name, type_label);
+        }
     }
     map
 }
@@ -155,59 +149,41 @@ fn emit_check_expr_type_hints(
     for raw_child in array.children(&mut cursor) {
         let item = unwrap_yaml_node(raw_child);
         let object = match item.kind() {
-            "object" | "block_mapping" | "flow_mapping" => item,
+            "object" | "block_mapping" | "flow_mapping" => Some(item),
             "block_sequence_item" => {
                 let mut inner_cursor = item.walk();
-                let Some(found) = item.children(&mut inner_cursor).find_map(|c| {
+                item.children(&mut inner_cursor).find_map(|c| {
                     let inner = unwrap_yaml_node(c);
                     matches!(inner.kind(), "object" | "block_mapping" | "flow_mapping")
                         .then_some(inner)
-                }) else {
-                    continue;
-                };
-                found
+                })
             }
-            _ => continue,
+            _ => None,
         };
 
-        let Some(expr_pair) = find_pair_with_key(object, source, "expr") else {
-            continue;
-        };
-        let Some(expr_value_raw) = expr_pair.named_child(1) else {
-            continue;
-        };
-        let expr_value = unwrap_yaml_node(expr_value_raw);
-
-        let Some(inner) = expr_inner_range(expr_value) else {
-            continue;
-        };
-        if !ranges_overlap(&inner, visible_range) {
-            continue;
-        }
-        let Some(expr_bytes) = source.get(inner.clone()) else {
-            continue;
-        };
-        let Ok(expr_text) = std::str::from_utf8(expr_bytes) else {
-            continue;
-        };
-
-        for token in lex_check_expr(expr_text) {
-            if token.kind != CheckTokenKind::Column {
-                continue;
+        if let Some(object) = object
+            && let Some(expr_pair) = find_pair_with_key(object, source, "expr")
+            && let Some(expr_value_raw) = expr_pair.named_child(1)
+            && let Some(inner) = expr_inner_range(unwrap_yaml_node(expr_value_raw))
+            && ranges_overlap(&inner, visible_range)
+            && let Some(expr_text) = source
+                .get(inner.clone())
+                .and_then(|bytes| std::str::from_utf8(bytes).ok())
+        {
+            for token in lex_check_expr(expr_text) {
+                if token.kind == CheckTokenKind::Column
+                    && let Some(name) = expr_text
+                        .as_bytes()
+                        .get(token.span.clone())
+                        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                    && let Some(type_label) = type_map.get(name)
+                {
+                    out.push(DomainInlayHint {
+                        byte_offset: inner.start + token.span.end,
+                        label: format!(": {type_label}"),
+                    });
+                }
             }
-            let Some(name_bytes) = expr_text.as_bytes().get(token.span.clone()) else {
-                continue;
-            };
-            let Ok(name) = std::str::from_utf8(name_bytes) else {
-                continue;
-            };
-            let Some(type_label) = type_map.get(name) else {
-                continue;
-            };
-            out.push(DomainInlayHint {
-                byte_offset: inner.start + token.span.end,
-                label: format!(": {type_label}"),
-            });
         }
     }
 }
@@ -254,20 +230,12 @@ fn column_to_hint(column: tree_sitter::Node<'_>, source: &[u8]) -> Option<Domain
 }
 
 fn pair_is_true(object: tree_sitter::Node<'_>, source: &[u8], key: &str) -> bool {
-    let Some(pair) = find_pair_with_key(object, source, key) else {
-        return false;
-    };
-    let Some(value_raw) = pair.named_child(1) else {
-        return false;
-    };
-    let value = unwrap_yaml_node(value_raw);
-    matches!(
-        source
-            .get(value.byte_range())
-            .and_then(|b| std::str::from_utf8(b).ok())
-            .map(str::trim),
-        Some("true")
-    )
+    find_pair_with_key(object, source, key)
+        .and_then(|pair| pair.named_child(1))
+        .map(unwrap_yaml_node)
+        .and_then(|value| source.get(value.byte_range()))
+        .and_then(|b| std::str::from_utf8(b).ok())
+        .is_some_and(|text| text.trim() == "true")
 }
 
 /// Extract `"target_table.target_column"` from a column's `foreign_key`
@@ -340,26 +308,24 @@ fn first_array_string(array: tree_sitter::Node<'_>, source: &[u8]) -> Option<Str
 
 fn direct_column_objects(columns_value: tree_sitter::Node<'_>) -> Vec<tree_sitter::Node<'_>> {
     let array = unwrap_yaml_node(columns_value);
-    if !matches!(array.kind(), "array" | "block_sequence" | "flow_sequence") {
-        return Vec::new();
-    }
-
     let mut out = Vec::new();
-    let mut cursor = array.walk();
-    for raw_child in array.children(&mut cursor) {
-        let child = unwrap_yaml_node(raw_child);
-        match child.kind() {
-            "object" | "block_mapping" | "flow_mapping" => out.push(child),
-            "block_sequence_item" => {
-                let mut inner_cursor = child.walk();
-                for inner in child.children(&mut inner_cursor) {
-                    let inner = unwrap_yaml_node(inner);
-                    if matches!(inner.kind(), "object" | "block_mapping" | "flow_mapping") {
-                        out.push(inner);
+    if matches!(array.kind(), "array" | "block_sequence" | "flow_sequence") {
+        let mut cursor = array.walk();
+        for raw_child in array.children(&mut cursor) {
+            let child = unwrap_yaml_node(raw_child);
+            match child.kind() {
+                "object" | "block_mapping" | "flow_mapping" => out.push(child),
+                "block_sequence_item" => {
+                    let mut inner_cursor = child.walk();
+                    for inner in child.children(&mut inner_cursor) {
+                        let inner = unwrap_yaml_node(inner);
+                        if matches!(inner.kind(), "object" | "block_mapping" | "flow_mapping") {
+                            out.push(inner);
+                        }
                     }
                 }
+                _ => {}
             }
-            _ => {}
         }
     }
     out
@@ -408,13 +374,14 @@ fn find_pair_with_key<'tree>(
 fn unwrap_yaml_node(node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
     let mut current = node;
     while matches!(current.kind(), "flow_node" | "block_node") {
-        let Some(inner) = current.named_child(0) else {
-            break;
-        };
-        if inner.id() == current.id() {
-            break;
+        if let Some(inner) = current
+            .named_child(0)
+            .filter(|inner| inner.id() != current.id())
+        {
+            current = inner;
+        } else {
+            return current;
         }
-        current = inner;
     }
     current
 }
@@ -427,10 +394,8 @@ fn ranges_overlap(a: &Range<usize>, b: &Range<usize>) -> bool {
 mod tests {
     use super::*;
     use crate::parser::{DocumentFormat, ParserPool};
-
-    fn parse(src: &str) -> tree_sitter::Tree {
-        ParserPool::new().parse(src, DocumentFormat::Json).unwrap()
-    }
+    use crate::test_support::{parse_json as parse, parse_yaml};
+    use rstest::rstest;
 
     #[test]
     fn primary_key_column_gets_pk_hint() {
@@ -546,23 +511,16 @@ mod tests {
         let age_offset_in_expr = "age > 0".find("age").unwrap();
         let expected_anchor = inner_start + age_offset_in_expr + "age".len();
 
-        let check_hint = hints
-            .iter()
-            .find(|h| h.byte_offset == expected_anchor)
-            .unwrap_or_else(|| {
-                panic!(
-                    "expected a CHECK-expr type hint at byte_offset {expected_anchor}; got: {hints:?}"
-                )
-            });
+        let check_hint = hints.iter().find(|h| h.byte_offset == expected_anchor).unwrap_or_else(|| panic!("expected a CHECK-expr type hint at byte_offset {expected_anchor}; got: {hints:?}"));
         assert!(
             check_hint.label.contains("integer"),
             "expected label to contain `integer`, got: {:?}",
-            check_hint.label,
+            check_hint.label
         );
         assert!(
             check_hint.label.contains(':'),
             "expected `: integer`-style label, got: {:?}",
-            check_hint.label,
+            check_hint.label
         );
     }
 
@@ -613,7 +571,130 @@ mod tests {
         assert!(
             pk_hint.label.contains("PK"),
             "expected PK in legacy flag inlay, got: {:?}",
-            pk_hint.label,
+            pk_hint.label
+        );
+    }
+
+    #[test]
+    fn column_type_map_skips_columns_missing_name_or_type() {
+        let src = r#"{"name":"u","columns":[{"type":"integer","primary_key":true},{"name":"id","primary_key":true},{"name":"ok","type":"text"}],"constraints":[{"type":"check","name":"chk","expr":"ok = 'x'"}]}"#;
+        let tree = parse(src);
+        let hints = compute(src, Some(&tree), 0..src.len());
+        assert!(
+            hints.iter().any(|h| h.label.contains("text")),
+            "valid column should still produce CHECK hint, got: {hints:?}"
+        );
+    }
+
+    #[test]
+    fn malformed_constraints_and_expr_values_are_skipped() {
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"integer","primary_key":true}],"constraints":["not object",{"type":"check","name":"missing expr"},{"type":"check","name":"bad expr","expr":{}},{"type":"check","name":"good","expr":"id > 0"}]}"#;
+        let tree = parse(src);
+        let hints = compute(src, Some(&tree), 0..src.len());
+        assert!(hints.iter().any(|h| h.label.contains("PK")));
+        assert!(
+            hints.iter().any(|h| h.label.contains("integer")),
+            "good CHECK expr should survive malformed siblings, got: {hints:?}"
+        );
+    }
+
+    #[test]
+    fn malformed_column_flags_and_foreign_keys_are_ignored() {
+        let src = r#"{"name":"p","columns":[{"name":"a","type":"integer","primary_key":},{"name":"b","type":"integer","foreign_key":"user.id"},{"name":"c","type":"integer","foreign_key":{"ref_table":"user","ref_columns":"id"}},{"name":"d","type":"integer","foreign_key":{"ref_table":"user","ref_columns":[]}}]}"#;
+        let tree = parse(src);
+        let hints = compute(src, Some(&tree), 0..src.len());
+        assert!(
+            hints.is_empty(),
+            "malformed flags/FKs should not emit hints, got: {hints:?}"
+        );
+    }
+
+    #[test]
+    fn yaml_block_sequence_ref_columns_uses_first_entry() {
+        let pool = ParserPool::new();
+        let src = "name: post\ncolumns:\n  - name: author_id\n    type: integer\n    foreign_key:\n      ref_table: user\n      ref_columns:\n        - id\n        - org_id\n";
+        let tree = pool.parse(src, DocumentFormat::Yaml).unwrap();
+        let hints = compute(src, Some(&tree), 0..src.len());
+        assert!(
+            hints.iter().any(|h| h.label.contains("user.id")),
+            "block sequence first FK column should be used, got: {hints:?}"
+        );
+    }
+
+    #[test]
+    fn columns_value_that_is_not_sequence_yields_no_hints() {
+        let src = r#"{"name":"u","columns":"not an array"}"#;
+        let tree = parse(src);
+        let hints = compute(src, Some(&tree), 0..src.len());
+        assert!(hints.is_empty());
+    }
+
+    #[test]
+    fn yaml_malformed_constraint_items_and_missing_values_are_skipped() {
+        let src = "name: u\ncolumns:\n  - name: id\n    type: integer\n    primary_key:\nconstraints:\n  - just_text\n  - type: check\n    expr:\n  - type: check\n    expr: id > 0\n";
+        let tree = parse_yaml(src);
+        let hints = compute(src, Some(&tree), 0..src.len());
+
+        assert!(
+            hints.iter().any(|h| h.label.contains("integer")),
+            "good CHECK expr should survive malformed YAML siblings, got: {hints:?}"
+        );
+        assert!(
+            hints.iter().all(|h| !h.label.contains("PK")),
+            "missing primary_key value must not emit a PK hint: {hints:?}"
+        );
+    }
+
+    #[test]
+    fn none_tree_returns_empty() {
+        assert!(compute("anything", None, 0..0).is_empty());
+    }
+
+    #[rstest]
+    #[case::no_columns(r#"{"name":"u"}"#, None)]
+    #[case::visible_range_excludes_column(r#"{"name":"u","columns":[{"name":"id","type":"integer","primary_key":true}],"constraints":[{"type":"check","name":"chk","expr":"id > 0"}]}"#, Some(0))]
+    #[case::check_expr_unknown_column(r#"{"name":"u","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk","expr":"unknown_col > 0"}]}"#, None)]
+    fn inlay_hints_empty_cases(#[case] src: &str, #[case] visible_end: Option<usize>) {
+        let tree = parse(src);
+        let hints = compute(src, Some(&tree), 0..visible_end.unwrap_or(src.len()));
+
+        assert!(hints.is_empty(), "expected no hints, got: {hints:?}");
+    }
+
+    #[test]
+    fn check_expr_complex_type_column_uses_kind_label() {
+        let src = r#"{"name":"u","columns":[{"name":"code","type":{"kind":"varchar","length":10}}],"constraints":[{"type":"check","name":"chk","expr":"code = 'X'"}]}"#;
+        let tree = parse(src);
+        let hints = compute(src, Some(&tree), 0..src.len());
+
+        assert!(
+            hints.iter().any(|h| h.label.contains("varchar")),
+            "complex-type label should appear, got: {hints:?}"
+        );
+    }
+
+    #[test]
+    fn yaml_check_expr_type_annotation_is_emitted() {
+        let src = "name: u\ncolumns:\n  - name: age\n    type: integer\n    nullable: false\nconstraints:\n  - type: check\n    name: chk\n    expr: \"age > 0\"\n";
+        let tree = parse_yaml(src);
+        let hints = compute(src, Some(&tree), 0..src.len());
+
+        assert!(
+            hints.iter().any(|h| h.label.contains("integer")),
+            "expected `: integer` hint inside YAML CHECK, got: {hints:?}"
+        );
+    }
+
+    #[test]
+    fn constraints_value_that_is_not_sequence_skips_check_expr_hints() {
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"integer","primary_key":true}],"constraints":"not an array"}"#;
+        let tree = parse(src);
+        let hints = compute(src, Some(&tree), 0..src.len());
+
+        assert!(hints.iter().any(|h| h.label.contains("PK")));
+        assert!(
+            hints.iter().all(|h| !h.label.contains(": integer")),
+            "malformed constraints should skip CHECK hints, got: {hints:?}"
         );
     }
 }

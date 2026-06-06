@@ -17,7 +17,7 @@ const CUSTOM_OFFSET_LABEL: &str = "Custom UTC offset (±HH:MM)";
 /// input order) on successful completion. Returns `Ok(None)` when the user
 /// explicitly declines via the trailing Confirm or the validation loop fails
 /// repeatedly (after 3 attempts).
-#[cfg(not(tarpaulin_include))]
+#[cfg(not(tarpaulin_include))] // reason: interactive stdin/dialoguer prompt, not unit-testable
 pub(in crate::commands::revision) fn prompt_timezone_conversions(
     warnings: &[TimezoneConversionWarning],
 ) -> Result<Option<Vec<String>>> {
@@ -46,7 +46,7 @@ pub(in crate::commands::revision) fn prompt_timezone_conversions(
             idx + 1,
             warnings.len(),
             format!("{}.{}", w.table, w.column).bright_white().bold(),
-            w.direction.label().bright_yellow().bold(),
+            w.direction.label().bright_yellow().bold()
         );
         match w.direction {
             vespertide_planner::TimezoneConversionDirection::NaiveToAware => println!(
@@ -102,7 +102,7 @@ pub(in crate::commands::revision) fn prompt_timezone_conversions(
     Ok(Some(choices))
 }
 
-#[cfg(not(tarpaulin_include))]
+#[cfg(not(tarpaulin_include))] // reason: interactive stdin/dialoguer prompt, not unit-testable
 fn prompt_custom_timezone_with_retry(label: &str, max_attempts: u8) -> Result<Option<String>> {
     for attempt in 1..=max_attempts {
         let raw: String = Input::new()
@@ -132,7 +132,7 @@ fn prompt_custom_timezone_with_retry(label: &str, max_attempts: u8) -> Result<Op
 /// determined by the model diff; the user's only choice is proceed /
 /// cancel. Cancelling lets them revisit the model (e.g. revert the value
 /// change, or coordinate with downstream consumers first).
-#[cfg(not(tarpaulin_include))]
+#[cfg(not(tarpaulin_include))] // reason: interactive stdin/dialoguer prompt, not unit-testable
 pub(in crate::commands::revision) fn prompt_remap_enum_values(
     plan: &vespertide_core::MigrationPlan,
 ) -> Result<bool> {
@@ -207,5 +207,76 @@ pub(in crate::commands::revision) fn apply_timezone_choices_to_plan(
         {
             *timezone = Some(choice.clone());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vespertide_core::{ColumnName, ColumnType, MigrationPlan, SimpleColumnType, TableName};
+    use vespertide_planner::TimezoneConversionDirection;
+
+    fn warning(idx: usize) -> TimezoneConversionWarning {
+        TimezoneConversionWarning {
+            action_index: idx,
+            table: "events".into(),
+            column: "at".into(),
+            direction: TimezoneConversionDirection::NaiveToAware,
+            current_timezone: None,
+        }
+    }
+
+    fn plan_with_modify() -> MigrationPlan {
+        MigrationPlan {
+            id: String::new(),
+            comment: None,
+            created_at: None,
+            version: 1,
+            actions: vec![MigrationAction::ModifyColumnType {
+                table: TableName::from("events"),
+                column: ColumnName::from("at"),
+                new_type: ColumnType::Simple(SimpleColumnType::Timestamptz),
+                fill_with: None,
+                narrowing_strategy: None,
+                timezone: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn apply_timezone_choices_writes_chosen_tz_to_matching_action() {
+        let mut plan = plan_with_modify();
+        apply_timezone_choices_to_plan(&mut plan, &[warning(0)], &["America/New_York".to_string()]);
+        let MigrationAction::ModifyColumnType { timezone, .. } = &plan.actions[0] else {
+            panic!()
+        };
+        assert_eq!(timezone.as_deref(), Some("America/New_York"));
+    }
+
+    #[test]
+    fn apply_timezone_choices_ignores_out_of_range_and_wrong_variant() {
+        let mut plan = plan_with_modify();
+        apply_timezone_choices_to_plan(&mut plan, &[warning(99)], &["UTC".into()]);
+        let MigrationAction::ModifyColumnType { timezone, .. } = &plan.actions[0] else {
+            panic!()
+        };
+        assert_eq!(*timezone, None);
+
+        let mut plan2 = MigrationPlan {
+            id: String::new(),
+            comment: None,
+            created_at: None,
+            version: 1,
+            actions: vec![MigrationAction::RawSql { sql: "x".into() }],
+        };
+        apply_timezone_choices_to_plan(&mut plan2, &[warning(0)], &["UTC".into()]);
+        assert!(matches!(plan2.actions[0], MigrationAction::RawSql { .. }));
+    }
+
+    #[test]
+    fn apply_timezone_choices_zip_stops_at_shorter_slice() {
+        let mut plan = plan_with_modify();
+        // Two warnings, one choice → only first applied.
+        apply_timezone_choices_to_plan(&mut plan, &[warning(0), warning(0)], &["UTC".into()]);
     }
 }

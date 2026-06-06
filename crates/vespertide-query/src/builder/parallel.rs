@@ -101,3 +101,105 @@ fn build_prepared_action_queries(prepared: &PreparedAction) -> Result<PlanQuerie
         sqlite: sqlite_queries,
     })
 }
+
+#[cfg(test)]
+#[expect(
+    unsafe_code,
+    reason = "tests that drive the parallel builder path must set/unset VESPERTIDE_PLAN_QUERY_PAR_THRESHOLD via std::env::{set_var, remove_var}; serialized via #[serial] to avoid cross-test races"
+)]
+mod tests {
+    use super::*;
+    use crate::builder::build_plan_queries;
+    use crate::sql::types::DatabaseBackend as _Backend;
+    use serial_test::serial;
+    use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType};
+
+    fn nn_col(name: &str, ty: SimpleColumnType) -> ColumnDef {
+        ColumnDef::new(name, ColumnType::Simple(ty), false)
+    }
+
+    /// The parallel `build_plan_queries_in_parallel` path activates when the
+    /// plan size meets `VESPERTIDE_PLAN_QUERY_PAR_THRESHOLD`. The env override is
+    /// process-wide so this test is `#[serial]` to avoid colliding with other
+    /// builder tests.
+    #[test]
+    #[serial]
+    fn build_plan_queries_uses_parallel_path_under_threshold_override() {
+        // SAFETY: serialized via #[serial]; this is a per-process env var that
+        // the parallel_config helper re-reads on every call.
+        unsafe {
+            std::env::set_var("VESPERTIDE_PLAN_QUERY_PAR_THRESHOLD", "1");
+        }
+
+        let plan = MigrationPlan {
+            id: String::new(),
+            comment: None,
+            created_at: None,
+            version: 1,
+            actions: vec![
+                MigrationAction::CreateTable {
+                    table: "a".into(),
+                    columns: vec![nn_col("id", SimpleColumnType::Integer)],
+                    constraints: vec![],
+                },
+                MigrationAction::CreateTable {
+                    table: "b".into(),
+                    columns: vec![nn_col("id", SimpleColumnType::Integer)],
+                    constraints: vec![],
+                },
+                MigrationAction::AddConstraint {
+                    table: "a".into(),
+                    constraint: TableConstraint::Index {
+                        name: None,
+                        columns: vec!["id".into()],
+                    },
+                },
+            ],
+        };
+        let result = build_plan_queries(&plan, &[]).unwrap();
+        assert_eq!(result.len(), 3);
+
+        // SAFETY: same as above - serialized via #[serial].
+        unsafe {
+            std::env::remove_var("VESPERTIDE_PLAN_QUERY_PAR_THRESHOLD");
+        }
+    }
+
+    /// The parallel preparer must skip pending-constraint collection for actions
+    /// without a target table (RawSql / RenameTable). Drives the
+    /// `action_target_table -> None` branch inside `pending_constraints_for_action`.
+    #[test]
+    #[serial]
+    fn build_plan_queries_parallel_path_skips_no_target_actions() {
+        // SAFETY: serialized via #[serial].
+        unsafe {
+            std::env::set_var("VESPERTIDE_PLAN_QUERY_PAR_THRESHOLD", "1");
+        }
+
+        let plan = MigrationPlan {
+            id: String::new(),
+            comment: None,
+            created_at: None,
+            version: 1,
+            actions: vec![
+                MigrationAction::RawSql {
+                    sql: "SELECT 1;".into(),
+                },
+                MigrationAction::RenameTable {
+                    from: "a".into(),
+                    to: "b".into(),
+                },
+            ],
+        };
+        let result = build_plan_queries(&plan, &[]).unwrap();
+        assert_eq!(result.len(), 2);
+
+        // SAFETY: same as above.
+        unsafe {
+            std::env::remove_var("VESPERTIDE_PLAN_QUERY_PAR_THRESHOLD");
+        }
+
+        // touch the parallel-imported alias to keep the `use` warning-free
+        let _ = _Backend::Postgres;
+    }
+}

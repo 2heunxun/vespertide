@@ -289,3 +289,41 @@ fn validate_modify_column_type_fill_with_valid_replacement() {
     let result = validate_migration_plan(&plan);
     assert!(result.is_ok());
 }
+
+#[test]
+fn find_missing_enum_fill_with_parallel_path_sorts_by_action_index() {
+    let mut actions: Vec<MigrationAction> = (0..10_000)
+        .map(|idx| MigrationAction::DeleteColumn {
+            table: "noop".into(),
+            column: format!("old_{idx}").into(),
+        })
+        .collect();
+    actions.push(MigrationAction::ModifyColumnType {
+        table: "orders".into(),
+        column: "status".into(),
+        new_type: string_enum("order_status", vec!["pending"]),
+        fill_with: None,
+        narrowing_strategy: None,
+        timezone: None,
+    });
+    let plan = MigrationPlan {
+        id: String::new(),
+        comment: None,
+        created_at: None,
+        version: 2,
+        actions,
+    };
+    let baseline = vec![table(
+        "orders",
+        vec![col(
+            "status",
+            string_enum("order_status", vec!["pending", "cancelled"]),
+        )],
+        vec![],
+    )];
+
+    let missing = find_missing_enum_fill_with(&plan, &baseline);
+    assert_eq!(missing.len(), 1);
+    assert_eq!(missing[0].action_index, 10_000);
+    assert_eq!(missing[0].removed_values, vec!["cancelled"]);
+}

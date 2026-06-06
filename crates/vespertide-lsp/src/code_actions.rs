@@ -44,23 +44,23 @@ pub fn compute(
     if format != DocumentFormat::Json {
         return Vec::new();
     }
-    let Some(tree) = tree else {
-        return Vec::new();
-    };
-    let source_bytes = source.as_bytes();
     let mut actions = Vec::new();
-    // Column-scoped actions fire only when the cursor sits inside a column
-    // object (the `columns` array). CHECK constraints live in the
-    // table-level `constraints` array, so their actions are gated
-    // separately below.
-    if let Some(column) = enclosing_column_object(tree.root_node(), source_bytes, byte_range.start)
-    {
-        actions.extend(flag_toggles(column, source_bytes));
-        actions.extend(type_conversions(column, source_bytes));
-        actions.extend(enum_extraction(column, source_bytes));
-        actions.extend(fk_skeleton(column, source_bytes));
+    if let Some(tree) = tree {
+        let source_bytes = source.as_bytes();
+        // Column-scoped actions fire only when the cursor sits inside a column
+        // object (the `columns` array). CHECK constraints live in the
+        // table-level `constraints` array, so their actions are gated
+        // separately below.
+        if let Some(column) =
+            enclosing_column_object(tree.root_node(), source_bytes, byte_range.start)
+        {
+            actions.extend(flag_toggles(column, source_bytes));
+            actions.extend(type_conversions(column, source_bytes));
+            actions.extend(enum_extraction(column, source_bytes));
+            actions.extend(fk_skeleton(column, source_bytes));
+        }
+        actions.extend(check_expr_actions(tree, source_bytes, byte_range.start));
     }
-    actions.extend(check_expr_actions(tree, source_bytes, byte_range.start));
     actions
 }
 
@@ -73,13 +73,15 @@ fn check_expr_actions(
     source: &[u8],
     byte_offset: usize,
 ) -> Vec<DomainCodeAction> {
-    let Some(ctx) = crate::check_expr_locate::find_check_expr_at(tree, source, byte_offset) else {
-        return Vec::new();
-    };
-    let Some(expr_text) = std::str::from_utf8(&source[ctx.inner.clone()]).ok() else {
-        return Vec::new();
-    };
-    swap_reversed_between(expr_text, ctx.inner.start)
+    if let Some(ctx) = crate::check_expr_locate::find_check_expr_at(tree, source, byte_offset)
+        && let Some(expr_text) = source
+            .get(ctx.inner.clone())
+            .and_then(|bytes| std::str::from_utf8(bytes).ok())
+    {
+        swap_reversed_between(expr_text, ctx.inner.start)
+    } else {
+        Vec::new()
+    }
 }
 
 /// Scan the CHECK expression's token stream for `BETWEEN low AND high`
@@ -112,43 +114,34 @@ fn swap_reversed_between(expr_text: &str, base: usize) -> Vec<DomainCodeAction> 
             continue;
         }
         // Expect: low literal, AND keyword, high literal.
-        let (Some(low), Some(andt), Some(high)) =
+        if let (Some(low), Some(andt), Some(high)) =
             (tokens.get(i + 1), tokens.get(i + 2), tokens.get(i + 3))
-        else {
-            continue;
-        };
-        if !is_literal(low.kind)
-            || andt.kind != CheckTokenKind::Keyword
-            || !token_text(expr_text, andt).is_some_and(|t| t.eq_ignore_ascii_case("and"))
-            || !is_literal(high.kind)
+            && is_literal(low.kind)
+            && andt.kind == CheckTokenKind::Keyword
+            && token_text(expr_text, andt).is_some_and(|t| t.eq_ignore_ascii_case("and"))
+            && is_literal(high.kind)
+            // Boundary-safe: `token_text` uses `str::get`, so a span that is not
+            // on a UTF-8 char boundary (defensive — the lexer emits ASCII-aligned
+            // spans today) yields `None` and we simply skip rather than panic.
+            && let (Some(low_text), Some(high_text)) =
+                (token_text(expr_text, low), token_text(expr_text, high))
+            && literal_greater(low_text, high_text)
         {
-            continue;
+            out.push(DomainCodeAction {
+                title: "Swap reversed BETWEEN bounds".to_string(),
+                kind: CodeActionKind::Refactor,
+                edits: vec![
+                    DomainTextEdit {
+                        byte_range: (base + low.span.start)..(base + low.span.end),
+                        new_text: high_text.to_string(),
+                    },
+                    DomainTextEdit {
+                        byte_range: (base + high.span.start)..(base + high.span.end),
+                        new_text: low_text.to_string(),
+                    },
+                ],
+            });
         }
-        // Boundary-safe: `token_text` uses `str::get`, so a span that is not
-        // on a UTF-8 char boundary (defensive — the lexer emits ASCII-aligned
-        // spans today) yields `None` and we simply skip rather than panic.
-        let (Some(low_text), Some(high_text)) =
-            (token_text(expr_text, low), token_text(expr_text, high))
-        else {
-            continue;
-        };
-        if !literal_greater(low_text, high_text) {
-            continue;
-        }
-        out.push(DomainCodeAction {
-            title: "Swap reversed BETWEEN bounds".to_string(),
-            kind: CodeActionKind::Refactor,
-            edits: vec![
-                DomainTextEdit {
-                    byte_range: (base + low.span.start)..(base + low.span.end),
-                    new_text: high_text.to_string(),
-                },
-                DomainTextEdit {
-                    byte_range: (base + high.span.start)..(base + high.span.end),
-                    new_text: low_text.to_string(),
-                },
-            ],
-        });
     }
     out
 }
@@ -226,40 +219,34 @@ fn flag_toggles(column: tree_sitter::Node<'_>, source: &[u8]) -> Vec<DomainCodeA
 /// parametrised, so offering the conversion again would just clobber
 /// the user's `length` / `precision`.
 fn type_conversions(column: tree_sitter::Node<'_>, source: &[u8]) -> Vec<DomainCodeAction> {
-    let Some(type_pair) = find_pair(column, source, "type") else {
-        return Vec::new();
-    };
-    let Some(type_value) = type_pair.named_child(1) else {
-        return Vec::new();
-    };
-    // Only operate on a simple string type; object types are already
-    // parametric.
-    if type_value.kind() != "string" {
-        return Vec::new();
-    }
-    let Some(text) = std::str::from_utf8(&source[type_value.byte_range()]).ok() else {
-        return Vec::new();
-    };
-    let kind = strip_quotes(text);
     let mut out = Vec::new();
-    match kind {
-        // Variable-width strings: offer varchar(255).
-        "text" | "varchar" | "char" => {
-            out.push(replace_type_action(
-                "Convert to varchar(255)",
-                type_value,
-                r#"{"kind":"varchar","length":255}"#,
-            ));
+    if let Some(type_value) = find_pair(column, source, "type").and_then(|pair| pair.named_child(1))
+        // Only operate on a simple string type; object types are already
+        // parametric.
+        && type_value.kind() == "string"
+        && let Some(text) = source
+            .get(type_value.byte_range())
+            .and_then(|bytes| std::str::from_utf8(bytes).ok())
+    {
+        match strip_quotes(text) {
+            // Variable-width strings: offer varchar(255).
+            "text" | "varchar" | "char" => {
+                out.push(replace_type_action(
+                    "Convert to varchar(255)",
+                    type_value,
+                    r#"{"kind":"varchar","length":255}"#,
+                ));
+            }
+            // Whole-number numeric types: offer numeric(10,2) — typical money-ish default.
+            "integer" | "big_int" | "small_int" | "real" | "double_precision" => {
+                out.push(replace_type_action(
+                    "Convert to numeric(10,2)",
+                    type_value,
+                    r#"{"kind":"numeric","precision":10,"scale":2}"#,
+                ));
+            }
+            _ => {}
         }
-        // Whole-number numeric types: offer numeric(10,2) — typical money-ish default.
-        "integer" | "big_int" | "small_int" | "real" | "double_precision" => {
-            out.push(replace_type_action(
-                "Convert to numeric(10,2)",
-                type_value,
-                r#"{"kind":"numeric","precision":10,"scale":2}"#,
-            ));
-        }
-        _ => {}
     }
     out
 }
@@ -288,56 +275,46 @@ fn replace_type_action(
 ///   * default isn't a SQL string literal of the form `'…'`,
 ///   * column type isn't a simple string (we'd be clobbering object type).
 fn enum_extraction(column: tree_sitter::Node<'_>, source: &[u8]) -> Vec<DomainCodeAction> {
-    let Some(default_pair) = find_pair(column, source, "default") else {
-        return Vec::new();
-    };
-    let Some(default_value) = default_pair.named_child(1) else {
-        return Vec::new();
-    };
-    if default_value.kind() != "string" {
-        return Vec::new();
+    let default_inner = find_pair(column, source, "default")
+        .and_then(|pair| pair.named_child(1))
+        .filter(|default_value| default_value.kind() == "string")
+        .and_then(|default_value| source.get(default_value.byte_range()))
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+        .map(strip_quotes)
+        // Look for `'literal'` pattern — SQL single-quote literal inside JSON string.
+        .and_then(|default_text| {
+            default_text
+                .strip_prefix('\'')
+                .and_then(|s| s.strip_suffix('\''))
+                .filter(|s| !s.is_empty())
+        });
+    let type_value = find_pair(column, source, "type")
+        .and_then(|pair| pair.named_child(1))
+        .filter(|type_value| type_value.kind() == "string");
+
+    if let Some(inner) = default_inner
+        && let Some(type_value) = type_value
+    {
+        let column_name = find_pair(column, source, "name")
+            .and_then(|p| p.named_child(1))
+            .and_then(|v| source.get(v.byte_range()))
+            .and_then(|bytes| std::str::from_utf8(bytes).ok())
+            .map_or("status", strip_quotes)
+            .to_string();
+
+        let enum_name = format!("{column_name}_kind");
+        let new_type = format!(r#"{{"kind":"enum","name":"{enum_name}","values":["{inner}"]}}"#);
+        vec![DomainCodeAction {
+            title: format!("Extract default into enum `{enum_name}`"),
+            kind: CodeActionKind::Refactor,
+            edits: vec![DomainTextEdit {
+                byte_range: type_value.byte_range(),
+                new_text: new_type,
+            }],
+        }]
+    } else {
+        Vec::new()
     }
-    let Some(raw) = std::str::from_utf8(&source[default_value.byte_range()]).ok() else {
-        return Vec::new();
-    };
-    let default_text = strip_quotes(raw);
-    // Look for `'literal'` pattern — SQL single-quote literal inside JSON string.
-    let inner = default_text
-        .strip_prefix('\'')
-        .and_then(|s| s.strip_suffix('\''))
-        .filter(|s| !s.is_empty());
-    let Some(inner) = inner else {
-        return Vec::new();
-    };
-
-    // Type must currently be a simple string; otherwise the user has
-    // already shaped it (varchar / numeric / existing enum).
-    let Some(type_pair) = find_pair(column, source, "type") else {
-        return Vec::new();
-    };
-    let Some(type_value) = type_pair.named_child(1) else {
-        return Vec::new();
-    };
-    if type_value.kind() != "string" {
-        return Vec::new();
-    }
-
-    let column_name = find_pair(column, source, "name")
-        .and_then(|p| p.named_child(1))
-        .and_then(|v| std::str::from_utf8(&source[v.byte_range()]).ok())
-        .map_or("status", strip_quotes)
-        .to_string();
-
-    let enum_name = format!("{column_name}_kind");
-    let new_type = format!(r#"{{"kind":"enum","name":"{enum_name}","values":["{inner}"]}}"#);
-    vec![DomainCodeAction {
-        title: format!("Extract default into enum `{enum_name}`"),
-        kind: CodeActionKind::Refactor,
-        edits: vec![DomainTextEdit {
-            byte_range: type_value.byte_range(),
-            new_text: new_type,
-        }],
-    }]
 }
 
 /// Insert a `foreign_key` skeleton when the column doesn't yet have one.
@@ -347,19 +324,20 @@ fn fk_skeleton(column: tree_sitter::Node<'_>, source: &[u8]) -> Vec<DomainCodeAc
     if find_pair(column, source, "foreign_key").is_some() {
         return Vec::new();
     }
-    let Some(edit) = insert_pair_edit(
+    if let Some(edit) = insert_pair_edit(
         column,
         source,
         "foreign_key",
         r#"{"ref_table":"","ref_columns":["id"],"on_delete":"cascade"}"#,
-    ) else {
-        return Vec::new();
-    };
-    vec![DomainCodeAction {
-        title: "Add foreign_key skeleton".to_string(),
-        kind: CodeActionKind::Refactor,
-        edits: vec![edit],
-    }]
+    ) {
+        vec![DomainCodeAction {
+            title: "Add foreign_key skeleton".to_string(),
+            kind: CodeActionKind::Refactor,
+            edits: vec![edit],
+        }]
+    } else {
+        Vec::new()
+    }
 }
 
 fn toggle_bool_flag(
@@ -432,15 +410,8 @@ fn enclosing_column_object<'tree>(
     byte_offset: usize,
 ) -> Option<tree_sitter::Node<'tree>> {
     let mut current = root;
-    'outer: loop {
-        let mut cursor = current.walk();
-        for child in current.children(&mut cursor) {
-            if child.byte_range().contains(&byte_offset) {
-                current = child;
-                continue 'outer;
-            }
-        }
-        break;
+    while let Some(child) = child_containing_byte(current, byte_offset) {
+        current = child;
     }
     // Walk back up to the smallest enclosing JSON object whose ancestor is
     // a `columns` array.
@@ -452,6 +423,15 @@ fn enclosing_column_object<'tree>(
         node = candidate.parent();
     }
     None
+}
+
+fn child_containing_byte(
+    node: tree_sitter::Node<'_>,
+    byte_offset: usize,
+) -> Option<tree_sitter::Node<'_>> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .find(|child| child.byte_range().contains(&byte_offset))
 }
 
 fn is_inside_columns_array(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
@@ -561,10 +541,7 @@ fn strip_quotes(text: &str) -> &str {
 mod tests {
     use super::*;
     use crate::parser::{DocumentFormat, ParserPool};
-
-    fn parse(src: &str) -> tree_sitter::Tree {
-        ParserPool::new().parse(src, DocumentFormat::Json).unwrap()
-    }
+    use crate::test_support::parse_json as parse;
 
     #[test]
     fn add_primary_key_when_absent() {
@@ -913,5 +890,227 @@ mod tests {
             after.contains("age > 0 AND age BETWEEN 18 AND 150"),
             "nested bounds must be swapped, got: {after}"
         );
+    }
+
+    #[rstest::rstest]
+    #[case::missing_literal("age BETWEEN")]
+    #[case::missing_and_keyword("age BETWEEN 5 OR 1")]
+    fn malformed_between_shapes_offer_no_swap(#[case] expr: &str) {
+        let src = format!(
+            r#"{{"name":"u","columns":[{{"name":"age","type":"integer"}}],"constraints":[{{"type":"check","name":"chk","expr":"{expr}"}}]}}"#
+        );
+        let tree = parse(&src);
+        let cursor = src.find("BETWEEN").unwrap() + 2;
+        let actions = compute(&src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        assert!(
+            actions
+                .iter()
+                .all(|a| a.title != "Swap reversed BETWEEN bounds"),
+            "malformed BETWEEN must not offer swap, got: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn malformed_column_shapes_exercise_missing_value_branches() {
+        for src in [
+            r#"{"name":"u","columns":[{"name":"x"}]}"#,
+            r#"{"name":"u","columns":[{"name":"x","type":}]}"#,
+            r#"{"name":"u","columns":[{"name":"x","type":"text","default":}]}"#,
+            r#"{"name":"u","columns":[{"name":"x","type":,"default":"'x'"}]}"#,
+        ] {
+            let tree = parse(src);
+            let cursor = src.find('x').unwrap();
+            let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+            assert!(
+                actions.iter().all(|a| !a.title.is_empty()),
+                "malformed/missing-value column shapes must be handled without panic and any offered action must have a title: {actions:?}"
+            );
+        }
+    }
+
+    fn with_enclosing_column<R>(
+        src: &str,
+        needle: &str,
+        f: impl FnOnce(tree_sitter::Node<'_>, &[u8]) -> R,
+    ) -> R {
+        let tree = parse(src);
+        let cursor = src.find(needle).unwrap();
+        let column = enclosing_column_object(tree.root_node(), src.as_bytes(), cursor)
+            .expect("cursor should sit inside a column object");
+        f(column, src.as_bytes())
+    }
+
+    #[rstest::rstest]
+    #[case::type_value_missing(r#"{"name":"u","columns":[{"name":"x","type":}]}"#)]
+    #[case::type_value_missing_before_default(
+        r#"{"name":"u","columns":[{"name":"x","type":,"default":"'pending'"}]}"#
+    )]
+    fn direct_type_conversion_skips_missing_type_values(#[case] src: &str) {
+        with_enclosing_column(src, "type", |column, bytes| {
+            assert!(type_conversions(column, bytes).is_empty());
+        });
+    }
+
+    #[rstest::rstest]
+    #[case::default_value_missing(
+        r#"{"name":"u","columns":[{"name":"x","type":"text","default":}]}"#
+    )]
+    #[case::type_pair_missing(r#"{"name":"u","columns":[{"name":"x","default":"'pending'"}]}"#)]
+    #[case::type_value_missing(
+        r#"{"name":"u","columns":[{"name":"x","default":"'pending'","type":}]}"#
+    )]
+    fn direct_enum_extraction_skips_malformed_column_shapes(#[case] src: &str) {
+        with_enclosing_column(src, "x", |column, bytes| {
+            assert!(enum_extraction(column, bytes).is_empty());
+        });
+    }
+
+    #[test]
+    fn enclosing_column_object_descends_to_deep_cursor() {
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"integer","foreign_key":{"ref_table":"user","ref_columns":["id"]}}]}"#;
+        let tree = parse(src);
+        let cursor = src.find(r#""integer""#).unwrap() + 2;
+        let column = enclosing_column_object(tree.root_node(), src.as_bytes(), cursor)
+            .expect("nested cursor should resolve to enclosing column");
+        let name_pair = find_pair(column, src.as_bytes(), "name").expect("column name pair");
+        let name_value = name_pair.named_child(1).expect("column name value");
+        assert_eq!(&src[name_value.byte_range()], r#""id""#);
+    }
+
+    #[test]
+    fn enum_extraction_skips_when_type_is_already_object() {
+        let src = r#"{"name":"u","columns":[{"name":"status","type":{"kind":"enum","name":"s","values":["pending"]},"default":"'pending'"}]}"#;
+        let tree = parse(src);
+        let cursor = src.find("status").unwrap();
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        assert!(
+            actions
+                .iter()
+                .all(|a| !a.title.starts_with("Extract default")),
+            "object type should skip enum extraction, got: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn false_flags_flip_to_true_and_weird_nullable_is_ignored() {
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"integer","primary_key":false,"nullable":null}]}"#;
+        let tree = parse(src);
+        let cursor = src.find("id").unwrap();
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        let pk = actions
+            .iter()
+            .find(|a| a.title == "Mark column as primary key")
+            .expect("false primary_key should flip to true");
+        assert_eq!(pk.edits[0].new_text, "true");
+        assert!(
+            actions
+                .iter()
+                .all(|a| a.title != "Allow NULL" && a.title != "Make column NOT NULL"),
+            "nullable:null should not produce nullable toggle, got: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn remove_pair_edit_handles_first_and_only_pair_shapes() {
+        let first_src =
+            r#"{"name":"u","columns":[{"primary_key":true,"name":"id","type":"integer"}]}"#;
+        let first_tree = parse(first_src);
+        let first_cursor = first_src.find("id").unwrap();
+        let first_actions = compute(
+            first_src,
+            DocumentFormat::Json,
+            Some(&first_tree),
+            first_cursor..first_cursor,
+        );
+        let first = first_actions
+            .iter()
+            .find(|a| a.title == "Unmark primary key")
+            .expect("remove first pair action");
+        serde_json::from_str::<serde_json::Value>(&apply(first_src, first))
+            .expect("removing first pair leaves valid JSON");
+        let only_src = r#"{"name":"u","columns":[{"primary_key":true}]}"#;
+        let only_tree = parse(only_src);
+        let only_cursor = only_src.find("primary_key").unwrap();
+        let only_actions = compute(
+            only_src,
+            DocumentFormat::Json,
+            Some(&only_tree),
+            only_cursor..only_cursor,
+        );
+        let only = only_actions
+            .iter()
+            .find(|a| a.title == "Unmark primary key")
+            .expect("remove only pair action");
+        let after = apply(only_src, only);
+        assert!(
+            after.contains("{}"),
+            "single-pair removal should leave an empty object, got: {after}"
+        );
+    }
+
+    #[test]
+    fn float_literal_between_swap_transposes_bounds() {
+        let src = r#"{"name":"u","columns":[{"name":"score","type":"real"}],"constraints":[{"type":"check","name":"chk","expr":"score BETWEEN 9.5 AND 1.5"}]}"#;
+        let tree = parse(src);
+        let cursor = src.find("BETWEEN").unwrap() + 2;
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        let swap = actions
+            .iter()
+            .find(|a| a.title == "Swap reversed BETWEEN bounds")
+            .expect("float BETWEEN swap action");
+
+        assert!(apply(src, swap).contains("score BETWEEN 1.5 AND 9.5"));
+    }
+
+    #[test]
+    fn no_tree_returns_empty_actions() {
+        assert!(compute("anything", DocumentFormat::Json, None, 0..0).is_empty());
+    }
+
+    #[rstest::rstest]
+    #[case::unknown_simple_type(
+        r#"{"name":"u","columns":[{"name":"active","type":"boolean"}]}"#,
+        "active",
+        "Convert to"
+    )]
+    #[case::default_non_string(
+        r#"{"name":"u","columns":[{"name":"n","type":"integer","default":0}]}"#,
+        "n",
+        "Extract default"
+    )]
+    #[case::default_non_quote_string(
+        r#"{"name":"u","columns":[{"name":"x","type":"text","default":"NOW()"}]}"#,
+        "x",
+        "Extract default"
+    )]
+    fn code_actions_do_not_offer_inapplicable_titles(
+        #[case] src: &str,
+        #[case] cursor_needle: &str,
+        #[case] forbidden_title_prefix: &str,
+    ) {
+        let tree = parse(src);
+        let cursor = src.find(cursor_needle).unwrap() + 1;
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+
+        assert!(
+            actions
+                .iter()
+                .all(|a| !a.title.starts_with(forbidden_title_prefix)),
+            "unexpected `{forbidden_title_prefix}` action in {actions:?}"
+        );
+    }
+
+    #[test]
+    fn nullable_true_offers_not_null_edit() {
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"integer","nullable":true}]}"#;
+        let tree = parse(src);
+        let cursor = src.find(r#""id""#).unwrap() + 1;
+        let actions = compute(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+        let not_null = actions
+            .iter()
+            .find(|a| a.title == "Make column NOT NULL")
+            .expect("nullable: true → false action");
+
+        assert_eq!(not_null.edits[0].new_text, "false");
     }
 }

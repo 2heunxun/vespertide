@@ -5,10 +5,6 @@ use vespertide_planner::schema_from_plans;
 use crate::utils::{load_config, load_migrations, load_models};
 use std::collections::HashSet;
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "status command output is a single linear report"
-)]
 pub async fn cmd_status() -> Result<()> {
     let config = load_config()?;
     let current_models = load_models(&config)?;
@@ -53,10 +49,7 @@ pub async fn cmd_status() -> Result<()> {
         "Applied migrations:".bright_cyan().bold(),
         applied_plans.len().to_string().bright_yellow()
     );
-    if !applied_plans.is_empty() {
-        let Some(latest) = applied_plans.last() else {
-            return Ok(());
-        };
+    if let Some(latest) = applied_plans.last() {
         println!(
             "  {} {}",
             "Latest version:".cyan(),
@@ -168,6 +161,7 @@ pub async fn cmd_status() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::CwdGuard;
     use serial_test::serial;
     use std::{fs, path::PathBuf};
     use tempfile::tempdir;
@@ -176,24 +170,6 @@ mod tests {
         ColumnDef, ColumnType, MigrationAction, MigrationPlan, SimpleColumnType, TableConstraint,
         TableDef,
     };
-
-    struct CwdGuard {
-        original: PathBuf,
-    }
-
-    impl CwdGuard {
-        fn new(dir: &PathBuf) -> Self {
-            let original = std::env::current_dir().unwrap();
-            std::env::set_current_dir(dir).unwrap();
-            Self { original }
-        }
-    }
-
-    impl Drop for CwdGuard {
-        fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.original);
-        }
-    }
 
     fn write_config() -> VespertideConfig {
         let cfg = VespertideConfig::default();

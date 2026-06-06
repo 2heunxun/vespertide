@@ -146,13 +146,10 @@ pub fn build_modify_column_nullable(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::col_n as col;
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType, TableConstraint};
-
-    fn col(name: &str, ty: ColumnType, nullable: bool) -> ColumnDef {
-        ColumnDef::new(name, ty, nullable)
-    }
 
     fn table_def(
         name: &str,

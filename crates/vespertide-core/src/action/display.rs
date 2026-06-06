@@ -159,3 +159,92 @@ fn write_named_constraint(
         write!(f, "{action}: {table}.{fallback}")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Coverage-closure tests for the `ModifyColumnDefault` Display match arm.
+    //! Targets `uncovered-detail.json` lines 35, 36, 37 (the field bindings
+    //! `column`, `new_default`, `..` inside the `ModifyColumnDefault` pattern).
+    use crate::action::MigrationAction;
+
+    #[test]
+    fn modify_column_default_some_format() {
+        // Hits lines 33-38 (ModifyColumnDefault pattern with new_default = Some).
+        let action = MigrationAction::ModifyColumnDefault {
+            table: "user".into(),
+            column: "status".into(),
+            new_default: Some("'active'".to_string()),
+            backfill: None,
+        };
+        assert_eq!(
+            format!("{action}"),
+            "ModifyColumnDefault: user.status -> 'active'"
+        );
+    }
+
+    #[test]
+    fn modify_column_default_none_format() {
+        // Re-exercises the ModifyColumnDefault arm with new_default = None.
+        let action = MigrationAction::ModifyColumnDefault {
+            table: "user".into(),
+            column: "status".into(),
+            new_default: None,
+            backfill: None,
+        };
+        assert_eq!(
+            format!("{action}"),
+            "ModifyColumnDefault: user.status -> (none)"
+        );
+    }
+
+    #[test]
+    fn remap_enum_values_format_single_mapping() {
+        // Drives lines 35, 36, 37 — the RemapEnumValues match arm: the
+        // pattern binding (`table`, `column`, `mapping`), the iterator that
+        // joins `old->new` pairs into the summary, and the `write!` call
+        // that emits the bracketed summary.
+        let action = MigrationAction::RemapEnumValues {
+            table: "user".into(),
+            column: "status".into(),
+            mapping: vec![(1_i64, 2_i64)].into_iter().collect(),
+        };
+        assert_eq!(format!("{action}"), "RemapEnumValues: user.status [1->2]");
+    }
+
+    #[test]
+    fn remap_enum_values_format_multiple_mappings_joined() {
+        // Re-exercises the same arm with a multi-entry BTreeMap so the
+        // `.join(", ")` in line 36 produces a non-trivial summary. BTreeMap
+        // iteration is sorted, so the resulting order is deterministic.
+        let action = MigrationAction::RemapEnumValues {
+            table: "order".into(),
+            column: "state".into(),
+            mapping: vec![(1_i64, 10_i64), (2_i64, 20_i64)].into_iter().collect(),
+        };
+        assert_eq!(
+            format!("{action}"),
+            "RemapEnumValues: order.state [1->10, 2->20]"
+        );
+    }
+
+    /// Migrated INLINE from `crates/vespertide-core/tests/utf8_safety.rs`:
+    /// the `MigrationAction::RawSql` Display+Debug impls must never panic on
+    /// arbitrary Unicode input. This is a single-module proptest of the
+    /// Display impl that lives in this file — it belongs inline.
+    mod utf8 {
+        use crate::MigrationAction;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn action_display_does_not_panic_on_unicode(
+                s in proptest::collection::vec(any::<char>(), 0..100)
+                    .prop_map(|v| v.into_iter().collect::<String>())
+            ) {
+                let action = MigrationAction::RawSql { sql: s };
+                let _ = format!("{action:?}");
+                let _ = format!("{action}");
+            }
+        }
+    }
+}

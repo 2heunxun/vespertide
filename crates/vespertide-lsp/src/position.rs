@@ -121,6 +121,9 @@ fn has_windows_drive_prefix(path: &str) -> bool {
 mod tests {
     use super::*;
     use lsp_textdocument::FullTextDocument;
+    use rstest::rstest;
+    use std::str::FromStr;
+    use tower_lsp_server::ls_types::Uri;
 
     fn doc(text: &str) -> FullTextDocument {
         FullTextDocument::new("json".to_string(), 1, text.to_string())
@@ -248,5 +251,45 @@ mod tests {
         let text = path.to_string_lossy();
         assert!(text.contains("with space"), "got: {text}");
         assert!(text.contains("한글.json"), "got: {text}");
+    }
+
+    #[test]
+    fn percent_decode_leaves_invalid_triplets_intact() {
+        assert_eq!(
+            percent_decode("/tmp/bad%2Gname.json"),
+            "/tmp/bad%2Gname.json"
+        );
+    }
+
+    #[rstest]
+    #[case::unencoded("file:///plain/path/file.json", &["plain", "file.json"])]
+    #[case::lowercase_hex_drive("file:///c%3a/Users/test", &["Users"])]
+    fn uri_to_path_decodes_file_uris(#[case] raw_uri: &str, #[case] expected_parts: &[&str]) {
+        let uri = Uri::from_str(raw_uri).unwrap();
+        let path = uri_to_path(&uri).expect("file URI should become a path");
+        let text = path.to_string_lossy();
+
+        for part in expected_parts {
+            assert!(text.contains(part), "expected `{part}` in {text}");
+        }
+    }
+
+    #[test]
+    fn uri_to_path_returns_none_for_non_file_uri() {
+        let uri = Uri::from_str("https://example.com/x").unwrap();
+
+        assert!(uri_to_path(&uri).is_none());
+    }
+
+    #[test]
+    fn position_lsp_to_byte_round_trip_on_second_line() {
+        let doc = FullTextDocument::new("json".to_string(), 1, "ab\ncd".to_string());
+        let pos = lsp_types::Position {
+            line: 1,
+            character: 1,
+        };
+        let byte = lsp_position_to_byte(&doc, pos);
+
+        assert_eq!(byte_to_lsp_position(&doc, byte), pos);
     }
 }

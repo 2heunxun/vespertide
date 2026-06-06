@@ -257,3 +257,39 @@ fn empty_plan_returns_empty_warnings() {
     let warnings = find_constraint_drops_without_replacement(&plan);
     assert!(warnings.is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// Coverage-closure: anonymous FK, anonymous PK label paths
+// ---------------------------------------------------------------------------
+
+/// FK without a name → `constraint_label` falls through to the unnamed
+/// arm (`format!("FK ({}) -> {ref_table}", ...)`).
+#[test]
+fn foreign_key_drop_without_name_uses_anonymous_label() {
+    let plan = plan_with(vec![remove(
+        "orders",
+        fk_constraint(None, vec!["user_id"], "users", vec!["id"]),
+    )]);
+    let warnings = find_constraint_drops_without_replacement(&plan);
+
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].kind, ConstraintKind::ForeignKey);
+    assert_eq!(warnings[0].label, "FK (user_id) -> users");
+    assert_eq!(warnings[0].columns, vec!["user_id"]);
+}
+
+/// Index drops are filtered before `constraint_label` runs — exercise the
+/// `kind == Index` early-return alongside a real PK drop in the same plan.
+#[test]
+fn index_drop_alongside_pk_drop_only_emits_pk_warning() {
+    let plan = plan_with(vec![
+        remove(
+            "users",
+            index_constraint("ix_users__created", vec!["created"]),
+        ),
+        remove("users", pk_constraint(vec!["id"])),
+    ]);
+    let warnings = find_constraint_drops_without_replacement(&plan);
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].kind, ConstraintKind::PrimaryKey);
+}

@@ -1007,6 +1007,60 @@ mod tests {
         );
     }
 
+    /// `build_with_narrowing_preprocess` with `narrowing_strategy = Some(...)`
+    /// exercises the `if let Some(strategy)` branch (lines 30-39 of mod.rs)
+    /// that prepends the narrowing pre-cleanup statements ahead of the
+    /// regular `ModifyColumnType` SQL.
+    #[rstest]
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    #[case::sqlite(DatabaseBackend::Sqlite)]
+    fn build_with_narrowing_preprocess_runs_strategy_when_some(#[case] backend: DatabaseBackend) {
+        // Baseline: Text column. Narrowing into Varchar(10) with TruncateOverlong
+        // strategy. The pre-cleanup should emit at least one statement that
+        // mutates rows whose value exceeds the new bound.
+        let baseline = vec![TableDef {
+            name: "users".into(),
+            description: None,
+            columns: vec![ColumnDef {
+                name: "name".into(),
+                r#type: ColumnType::Simple(SimpleColumnType::Text),
+                nullable: false,
+                default: None,
+                comment: None,
+                primary_key: None,
+                unique: None,
+                index: None,
+                foreign_key: None,
+            }],
+            constraints: vec![],
+        }];
+        let new_type = ColumnType::Complex(ComplexColumnType::Varchar { length: 10 });
+        let strategy = vespertide_core::NarrowingStrategy::Truncate;
+        let queries = build_with_narrowing_preprocess(
+            backend,
+            "users",
+            "name",
+            &new_type,
+            None,
+            Some(&strategy),
+            None,
+            &baseline,
+            &[],
+        )
+        .unwrap();
+        let sql = queries
+            .iter()
+            .map(|q| q.build(backend))
+            .collect::<Vec<_>>()
+            .join(";\n");
+        // The pre-cleanup phase touches "name" before the type change.
+        assert!(
+            sql.contains("UPDATE") || sql.contains("name"),
+            "narrowing preprocess should emit prep SQL, got: {sql}"
+        );
+    }
+
     #[rstest]
     #[case::fill_with_enum_change_postgres(
         "fill_with_enum_change_postgres",

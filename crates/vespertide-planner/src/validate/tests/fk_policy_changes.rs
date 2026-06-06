@@ -420,3 +420,90 @@ fn render_reference_action_covers_all_known_variants() {
     );
     assert_eq!(render_reference_action(None), "NO ACTION");
 }
+
+// ---------------------------------------------------------------------------
+// Coverage-closure: identity-field selection from `to` side
+// ---------------------------------------------------------------------------
+
+/// `to_ref_cols` non-empty path (line 126-130 `if to_ref_cols.is_empty() { from_ref_cols } else { to_ref_cols }`).
+/// Both sides have non-empty ref_columns — the warning surfaces the `to`
+/// side's ref_columns since it's non-empty.
+#[test]
+fn ref_columns_preserved_from_to_side_when_non_empty() {
+    let plan = plan_with(vec![replace(
+        "orders",
+        fk(
+            Some("fk"),
+            vec!["uid"],
+            "users",
+            vec!["id"],
+            Some(ReferenceAction::Cascade),
+            None,
+        ),
+        fk(
+            Some("fk"),
+            vec!["uid"],
+            "users",
+            vec!["id", "tenant_id"],
+            Some(ReferenceAction::Restrict),
+            None,
+        ),
+    )]);
+
+    let warnings = find_fk_policy_changes(&plan);
+    assert_eq!(warnings.len(), 1);
+    // Warning surfaces the `to` side's ref_columns (non-empty).
+    assert_eq!(warnings[0].ref_columns, vec!["id", "tenant_id"]);
+}
+
+/// `to_cols.is_empty()` path: when the replacement FK shape has an empty
+/// column list, the warning falls back to the `from_cols` declaration
+/// (line 116-120). Same for `to_ref_table` empty (line 121-125) and
+/// `to_ref_cols` empty (line 126-130). Constructs a degenerate but
+/// legal `ReplaceConstraint` to exercise those defensive arms.
+#[test]
+fn to_side_empty_identity_fields_fall_back_to_from_side() {
+    let plan = plan_with(vec![replace(
+        "orders",
+        // `from`: has policy=Cascade + filled identity.
+        fk(
+            Some("fk"),
+            vec!["uid"],
+            "users",
+            vec!["id"],
+            Some(ReferenceAction::Cascade),
+            None,
+        ),
+        // `to`: triggers the empty-`to` branches. Constraint name is
+        // None too so the warning falls back to `from_name`.
+        fk(
+            None,
+            vec![], // to_cols empty -> from_cols used
+            "",     // to_ref_table empty -> from_ref_table used
+            vec![], // to_ref_cols empty -> from_ref_cols used
+            Some(ReferenceAction::Restrict),
+            None,
+        ),
+    )]);
+
+    let warnings = find_fk_policy_changes(&plan);
+    assert_eq!(warnings.len(), 1);
+    let w = &warnings[0];
+    // All three identity fields surfaced from the `from` side.
+    assert_eq!(w.columns, vec!["uid"]);
+    assert_eq!(w.ref_table, "users");
+    assert_eq!(w.ref_columns, vec!["id"]);
+    // `constraint_name` fell back to from_name.
+    assert_eq!(w.constraint_name.as_deref(), Some("fk"));
+}
+
+/// `render_reference_action(None)` arm + the explicit `Some(NoAction)`
+/// arm both render as "NO ACTION" (shared output line 179).
+#[test]
+fn render_reference_action_none_and_no_action_both_render_no_action() {
+    assert_eq!(render_reference_action(None), "NO ACTION");
+    assert_eq!(
+        render_reference_action(Some(&ReferenceAction::NoAction)),
+        "NO ACTION"
+    );
+}

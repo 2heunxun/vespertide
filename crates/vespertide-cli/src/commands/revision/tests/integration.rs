@@ -165,101 +165,51 @@ async fn cmd_revision_core_handles_delete_null_rows_for_fk_column() {
             enum_bare: enum_bare_prompt,
             // F30 / FK policy change is irrelevant to these scenarios:
             // assert via panic so any unexpected detection breaks the test.
-            fk_policy_change: |_: &[vespertide_planner::FkPolicyChangeWarning]| -> Result<bool> {
-                panic!("fk_policy_change prompt should not be called")
-            },
+            fk_policy_change: |_: &[vespertide_planner::FkPolicyChangeWarning]| -> Result<bool> { panic!("fk_policy_change prompt should not be called") },
             // F6 / type narrowing is irrelevant to these scenarios: assert
             // via panic so any unexpected detection breaks the test.
-            type_narrowing: |_: &[vespertide_planner::TypeNarrowingWarning]|
-                -> Result<Option<Vec<vespertide_core::NarrowingStrategy>>> {
-                panic!("type_narrowing prompt should not be called")
-            },
+            type_narrowing: |_: &[vespertide_planner::TypeNarrowingWarning]| -> Result<Option<Vec<vespertide_core::NarrowingStrategy>>> { panic!("type_narrowing prompt should not be called") },
             // F20 / timezone conversion likewise must not fire here.
-            timezone_conversion: |_: &[vespertide_planner::TimezoneConversionWarning]|
-                -> Result<Option<Vec<String>>> {
-                panic!("timezone_conversion prompt should not be called")
-            },
+            timezone_conversion: |_: &[vespertide_planner::TimezoneConversionWarning]| -> Result<Option<Vec<String>>> { panic!("timezone_conversion prompt should not be called") },
             // F7-(b) / RemapEnumValues likewise: integer enum value drift
             // is not in scope for these scenarios. Auto-approve so the
             // existing flow proceeds unchanged when no remap action exists.
-            remap_enum_values: |_: &vespertide_core::MigrationPlan| -> Result<bool> {
-                Ok(true)
-            },
+            remap_enum_values: |_: &vespertide_core::MigrationPlan| -> Result<bool> { Ok(true) },
             // F10/F8/F22 drop resolution: these scenarios add columns only,
             // so no DeleteColumn / DeleteTable actions exist and the prompt
             // should never fire. Panic guards against silent flow drift.
-            drop_resolution: |_: &vespertide_planner::DropResolution| -> Result<
-                Option<vespertide_planner::DropChoice>,
-            > {
-                panic!("drop_resolution prompt should not be called")
-            },
+            drop_resolution: |_: &vespertide_planner::DropResolution| -> Result<Option<vespertide_planner::DropChoice>> { panic!("drop_resolution prompt should not be called") },
             // F15 default-change resolution: these scenarios touch new
             // columns only, never `ModifyColumnDefault`, so the prompt
             // should never fire. Panic guards against silent flow drift.
-            default_change: |_: &vespertide_planner::DefaultChangeWarning| -> Result<
-                Option<crate::commands::revision::prompts::DefaultChoice>,
-            > {
-                panic!("default_change prompt should not be called")
-            },
+            default_change: |_: &vespertide_planner::DefaultChangeWarning| -> Result<Option<crate::commands::revision::prompts::DefaultChoice>> { panic!("default_change prompt should not be called") },
             // F2 unique-addition resolution: these scenarios add columns or
             // create tables only, never `AddConstraint(Unique)` on an
             // existing column, so the prompt should never fire. Panic
             // guards against silent flow drift.
-            unique_addition: |_: &vespertide_planner::UniqueAdditionWarning| -> Result<
-                Option<crate::commands::revision::prompts::UniqueAdditionChoice>,
-            > {
-                panic!("unique_addition prompt should not be called")
-            },
+            unique_addition: |_: &vespertide_planner::UniqueAdditionWarning| -> Result<Option<crate::commands::revision::prompts::UniqueAdditionChoice>> { panic!("unique_addition prompt should not be called") },
             // F3 fk-orphan resolution: these scenarios add columns or
             // create tables only, never `AddConstraint(ForeignKey)` on an
             // existing column, so the prompt should never fire. Panic
             // guards against silent flow drift.
-            fk_orphan_addition: |_: &vespertide_planner::FkOrphanAdditionWarning| -> Result<
-                Option<crate::commands::revision::prompts::FkOrphanChoice>,
-            > {
-                panic!("fk_orphan_addition prompt should not be called")
-            },
+            fk_orphan_addition: |_: &vespertide_planner::FkOrphanAdditionWarning| -> Result<Option<crate::commands::revision::prompts::FkOrphanChoice>> { panic!("fk_orphan_addition prompt should not be called") },
             // F4 check-addition resolution: these scenarios add columns or
             // create tables only, never `AddConstraint(Check)` on an
             // existing column, so the prompt should never fire. Panic
             // guards against silent flow drift.
-            check_addition: |_: &vespertide_planner::CheckAdditionWarning| -> Result<
-                Option<crate::commands::revision::prompts::CheckViolationChoice>,
-            > {
-                panic!("check_addition prompt should not be called")
-            },
+            check_addition: |_: &vespertide_planner::CheckAdditionWarning| -> Result<Option<crate::commands::revision::prompts::CheckViolationChoice>> { panic!("check_addition prompt should not be called") },
             // F5 pk-addition resolution: same scope guarantee.
-            pk_addition: |_: &vespertide_planner::PrimaryKeyAdditionWarning| -> Result<
-                Option<crate::commands::revision::prompts::PrimaryKeyAdditionChoice>,
-            > {
-                panic!("pk_addition prompt should not be called")
-            },
+            pk_addition: |_: &vespertide_planner::PrimaryKeyAdditionWarning| -> Result<Option<crate::commands::revision::prompts::PrimaryKeyAdditionChoice>> { panic!("pk_addition prompt should not be called") },
             // F96 cascade-reach analysis: these scenarios do not add
             // new CASCADE foreign keys, so the prompt should never
             // fire. Panic guards against silent flow drift.
-            cascade_reach: |_: &vespertide_planner::CascadeReachWarning| -> Result<
-                Option<crate::commands::revision::prompts::CascadeReachChoice>,
-            > {
-                panic!("cascade_reach prompt should not be called")
-            },
+            cascade_reach: |_: &vespertide_planner::CascadeReachWarning| -> Result<Option<crate::commands::revision::prompts::CascadeReachChoice>> { panic!("cascade_reach prompt should not be called") },
             // F76 sequence-exhaustion: same scope guarantee.
-            sequence_exhaustion: |_: &vespertide_planner::SequenceExhaustionWarning| -> Result<
-                Option<crate::commands::revision::prompts::SequenceExhaustionChoice>,
-            > {
-                panic!("sequence_exhaustion prompt should not be called")
-            },
+            sequence_exhaustion: |_: &vespertide_planner::SequenceExhaustionWarning| -> Result<Option<crate::commands::revision::prompts::SequenceExhaustionChoice>> { panic!("sequence_exhaustion prompt should not be called") },
             // F29 check-strengthening: same scope guarantee.
-            check_strengthening: |_: &vespertide_planner::CheckStrengtheningWarning| -> Result<
-                Option<crate::commands::revision::prompts::CheckStrengtheningChoice>,
-            > {
-                panic!("check_strengthening prompt should not be called")
-            },
+            check_strengthening: |_: &vespertide_planner::CheckStrengtheningWarning| -> Result<Option<crate::commands::revision::prompts::CheckStrengtheningChoice>> { panic!("check_strengthening prompt should not be called") },
             // F-novel-4 check-type-mismatch: same scope guarantee.
-            check_type_mismatch: |_: &vespertide_planner::CheckTypeMismatchWarning| -> Result<
-                Option<crate::commands::revision::prompts::CheckTypeMismatchChoice>,
-            > {
-                panic!("check_type_mismatch prompt should not be called")
-            },
+            check_type_mismatch: |_: &vespertide_planner::CheckTypeMismatchWarning| -> Result<Option<crate::commands::revision::prompts::CheckTypeMismatchChoice>> { panic!("check_type_mismatch prompt should not be called") },
         },
     )
     .await;
@@ -398,101 +348,51 @@ async fn cmd_revision_core_handles_fill_with_for_non_fk_column() {
             enum_bare: enum_bare_prompt,
             // F30 / FK policy change is irrelevant to these scenarios:
             // assert via panic so any unexpected detection breaks the test.
-            fk_policy_change: |_: &[vespertide_planner::FkPolicyChangeWarning]| -> Result<bool> {
-                panic!("fk_policy_change prompt should not be called")
-            },
+            fk_policy_change: |_: &[vespertide_planner::FkPolicyChangeWarning]| -> Result<bool> { panic!("fk_policy_change prompt should not be called") },
             // F6 / type narrowing is irrelevant to these scenarios: assert
             // via panic so any unexpected detection breaks the test.
-            type_narrowing: |_: &[vespertide_planner::TypeNarrowingWarning]|
-                -> Result<Option<Vec<vespertide_core::NarrowingStrategy>>> {
-                panic!("type_narrowing prompt should not be called")
-            },
+            type_narrowing: |_: &[vespertide_planner::TypeNarrowingWarning]| -> Result<Option<Vec<vespertide_core::NarrowingStrategy>>> { panic!("type_narrowing prompt should not be called") },
             // F20 / timezone conversion likewise must not fire here.
-            timezone_conversion: |_: &[vespertide_planner::TimezoneConversionWarning]|
-                -> Result<Option<Vec<String>>> {
-                panic!("timezone_conversion prompt should not be called")
-            },
+            timezone_conversion: |_: &[vespertide_planner::TimezoneConversionWarning]| -> Result<Option<Vec<String>>> { panic!("timezone_conversion prompt should not be called") },
             // F7-(b) / RemapEnumValues likewise: integer enum value drift
             // is not in scope for these scenarios. Auto-approve so the
             // existing flow proceeds unchanged when no remap action exists.
-            remap_enum_values: |_: &vespertide_core::MigrationPlan| -> Result<bool> {
-                Ok(true)
-            },
+            remap_enum_values: |_: &vespertide_core::MigrationPlan| -> Result<bool> { Ok(true) },
             // F10/F8/F22 drop resolution: these scenarios add columns only,
             // so no DeleteColumn / DeleteTable actions exist and the prompt
             // should never fire. Panic guards against silent flow drift.
-            drop_resolution: |_: &vespertide_planner::DropResolution| -> Result<
-                Option<vespertide_planner::DropChoice>,
-            > {
-                panic!("drop_resolution prompt should not be called")
-            },
+            drop_resolution: |_: &vespertide_planner::DropResolution| -> Result<Option<vespertide_planner::DropChoice>> { panic!("drop_resolution prompt should not be called") },
             // F15 default-change resolution: these scenarios touch new
             // columns only, never `ModifyColumnDefault`, so the prompt
             // should never fire. Panic guards against silent flow drift.
-            default_change: |_: &vespertide_planner::DefaultChangeWarning| -> Result<
-                Option<crate::commands::revision::prompts::DefaultChoice>,
-            > {
-                panic!("default_change prompt should not be called")
-            },
+            default_change: |_: &vespertide_planner::DefaultChangeWarning| -> Result<Option<crate::commands::revision::prompts::DefaultChoice>> { panic!("default_change prompt should not be called") },
             // F2 unique-addition resolution: these scenarios add columns or
             // create tables only, never `AddConstraint(Unique)` on an
             // existing column, so the prompt should never fire. Panic
             // guards against silent flow drift.
-            unique_addition: |_: &vespertide_planner::UniqueAdditionWarning| -> Result<
-                Option<crate::commands::revision::prompts::UniqueAdditionChoice>,
-            > {
-                panic!("unique_addition prompt should not be called")
-            },
+            unique_addition: |_: &vespertide_planner::UniqueAdditionWarning| -> Result<Option<crate::commands::revision::prompts::UniqueAdditionChoice>> { panic!("unique_addition prompt should not be called") },
             // F3 fk-orphan resolution: these scenarios add columns or
             // create tables only, never `AddConstraint(ForeignKey)` on an
             // existing column, so the prompt should never fire. Panic
             // guards against silent flow drift.
-            fk_orphan_addition: |_: &vespertide_planner::FkOrphanAdditionWarning| -> Result<
-                Option<crate::commands::revision::prompts::FkOrphanChoice>,
-            > {
-                panic!("fk_orphan_addition prompt should not be called")
-            },
+            fk_orphan_addition: |_: &vespertide_planner::FkOrphanAdditionWarning| -> Result<Option<crate::commands::revision::prompts::FkOrphanChoice>> { panic!("fk_orphan_addition prompt should not be called") },
             // F4 check-addition resolution: these scenarios add columns or
             // create tables only, never `AddConstraint(Check)` on an
             // existing column, so the prompt should never fire. Panic
             // guards against silent flow drift.
-            check_addition: |_: &vespertide_planner::CheckAdditionWarning| -> Result<
-                Option<crate::commands::revision::prompts::CheckViolationChoice>,
-            > {
-                panic!("check_addition prompt should not be called")
-            },
+            check_addition: |_: &vespertide_planner::CheckAdditionWarning| -> Result<Option<crate::commands::revision::prompts::CheckViolationChoice>> { panic!("check_addition prompt should not be called") },
             // F5 pk-addition resolution: same scope guarantee.
-            pk_addition: |_: &vespertide_planner::PrimaryKeyAdditionWarning| -> Result<
-                Option<crate::commands::revision::prompts::PrimaryKeyAdditionChoice>,
-            > {
-                panic!("pk_addition prompt should not be called")
-            },
+            pk_addition: |_: &vespertide_planner::PrimaryKeyAdditionWarning| -> Result<Option<crate::commands::revision::prompts::PrimaryKeyAdditionChoice>> { panic!("pk_addition prompt should not be called") },
             // F96 cascade-reach analysis: these scenarios do not add
             // new CASCADE foreign keys, so the prompt should never
             // fire. Panic guards against silent flow drift.
-            cascade_reach: |_: &vespertide_planner::CascadeReachWarning| -> Result<
-                Option<crate::commands::revision::prompts::CascadeReachChoice>,
-            > {
-                panic!("cascade_reach prompt should not be called")
-            },
+            cascade_reach: |_: &vespertide_planner::CascadeReachWarning| -> Result<Option<crate::commands::revision::prompts::CascadeReachChoice>> { panic!("cascade_reach prompt should not be called") },
             // F76 sequence-exhaustion: same scope guarantee.
-            sequence_exhaustion: |_: &vespertide_planner::SequenceExhaustionWarning| -> Result<
-                Option<crate::commands::revision::prompts::SequenceExhaustionChoice>,
-            > {
-                panic!("sequence_exhaustion prompt should not be called")
-            },
+            sequence_exhaustion: |_: &vespertide_planner::SequenceExhaustionWarning| -> Result<Option<crate::commands::revision::prompts::SequenceExhaustionChoice>> { panic!("sequence_exhaustion prompt should not be called") },
             // F29 check-strengthening: same scope guarantee.
-            check_strengthening: |_: &vespertide_planner::CheckStrengtheningWarning| -> Result<
-                Option<crate::commands::revision::prompts::CheckStrengtheningChoice>,
-            > {
-                panic!("check_strengthening prompt should not be called")
-            },
+            check_strengthening: |_: &vespertide_planner::CheckStrengtheningWarning| -> Result<Option<crate::commands::revision::prompts::CheckStrengtheningChoice>> { panic!("check_strengthening prompt should not be called") },
             // F-novel-4 check-type-mismatch: same scope guarantee.
-            check_type_mismatch: |_: &vespertide_planner::CheckTypeMismatchWarning| -> Result<
-                Option<crate::commands::revision::prompts::CheckTypeMismatchChoice>,
-            > {
-                panic!("check_type_mismatch prompt should not be called")
-            },
+            check_type_mismatch: |_: &vespertide_planner::CheckTypeMismatchWarning| -> Result<Option<crate::commands::revision::prompts::CheckTypeMismatchChoice>> { panic!("check_type_mismatch prompt should not be called") },
         },
     )
     .await;
@@ -726,77 +626,5 @@ where
         &vespertide_planner::CheckTypeMismatchWarning,
     ) -> Result<Option<crate::commands::revision::prompts::CheckTypeMismatchChoice>>,
 {
-    RevisionPromptFns {
-        recreate: |_: &[RecreateTableRequired]| -> Result<bool> { Ok(true) },
-        delete_null_rows: |_: &str, _: &str| -> Result<bool> { Ok(false) },
-        fill_with: |_: &str, _: &str| -> Result<String> {
-            panic!("fill_with prompt should not be called")
-        },
-        enum_quoted: |_: &str, _: &[String]| -> Result<String> {
-            panic!("enum prompt should not be called")
-        },
-        enum_bare: |_: &str, _: &[String]| -> Result<String> {
-            panic!("enum bare prompt should not be called")
-        },
-        fk_policy_change: |_: &[vespertide_planner::FkPolicyChangeWarning]| -> Result<bool> {
-            panic!("fk_policy_change prompt should not be called")
-        },
-        type_narrowing: |_: &[vespertide_planner::TypeNarrowingWarning]| -> Result<
-            Option<Vec<vespertide_core::NarrowingStrategy>>,
-        > {
-            panic!("type_narrowing prompt should not be called")
-        },
-        timezone_conversion: |_: &[vespertide_planner::TimezoneConversionWarning]| -> Result<
-            Option<Vec<String>>,
-        > {
-            panic!("timezone_conversion prompt should not be called")
-        },
-        remap_enum_values: |_: &vespertide_core::MigrationPlan| -> Result<bool> { Ok(true) },
-        drop_resolution: |_: &vespertide_planner::DropResolution| -> Result<
-            Option<vespertide_planner::DropChoice>,
-        > {
-            panic!("drop_resolution prompt should not be called")
-        },
-        default_change: |_: &vespertide_planner::DefaultChangeWarning| -> Result<
-            Option<crate::commands::revision::prompts::DefaultChoice>,
-        > {
-            panic!("default_change prompt should not be called")
-        },
-        unique_addition: |_: &vespertide_planner::UniqueAdditionWarning| -> Result<
-            Option<crate::commands::revision::prompts::UniqueAdditionChoice>,
-        > {
-            panic!("unique_addition prompt should not be called")
-        },
-        fk_orphan_addition: |_: &vespertide_planner::FkOrphanAdditionWarning| -> Result<
-            Option<crate::commands::revision::prompts::FkOrphanChoice>,
-        > {
-            panic!("fk_orphan_addition prompt should not be called")
-        },
-        check_addition: |_: &vespertide_planner::CheckAdditionWarning| -> Result<
-            Option<crate::commands::revision::prompts::CheckViolationChoice>,
-        > {
-            panic!("check_addition prompt should not be called")
-        },
-        pk_addition: |_: &vespertide_planner::PrimaryKeyAdditionWarning| -> Result<
-            Option<crate::commands::revision::prompts::PrimaryKeyAdditionChoice>,
-        > {
-            panic!("pk_addition prompt should not be called")
-        },
-        cascade_reach: |_: &vespertide_planner::CascadeReachWarning| -> Result<
-            Option<crate::commands::revision::prompts::CascadeReachChoice>,
-        > {
-            panic!("cascade_reach prompt should not be called")
-        },
-        sequence_exhaustion: |_: &vespertide_planner::SequenceExhaustionWarning| -> Result<
-            Option<crate::commands::revision::prompts::SequenceExhaustionChoice>,
-        > {
-            panic!("sequence_exhaustion prompt should not be called")
-        },
-        check_strengthening: |_: &vespertide_planner::CheckStrengtheningWarning| -> Result<
-            Option<crate::commands::revision::prompts::CheckStrengtheningChoice>,
-        > {
-            panic!("check_strengthening prompt should not be called")
-        },
-        check_type_mismatch,
-    }
+    RevisionPromptFns { recreate: |_: &[RecreateTableRequired]| -> Result<bool> { Ok(true) }, delete_null_rows: |_: &str, _: &str| -> Result<bool> { Ok(false) }, fill_with: |_: &str, _: &str| -> Result<String> { panic!("fill_with prompt should not be called") }, enum_quoted: |_: &str, _: &[String]| -> Result<String> { panic!("enum prompt should not be called") }, enum_bare: |_: &str, _: &[String]| -> Result<String> { panic!("enum bare prompt should not be called") }, fk_policy_change: |_: &[vespertide_planner::FkPolicyChangeWarning]| -> Result<bool> { panic!("fk_policy_change prompt should not be called") }, type_narrowing: |_: &[vespertide_planner::TypeNarrowingWarning]| -> Result<Option<Vec<vespertide_core::NarrowingStrategy>>> { panic!("type_narrowing prompt should not be called") }, timezone_conversion: |_: &[vespertide_planner::TimezoneConversionWarning]| -> Result<Option<Vec<String>>> { panic!("timezone_conversion prompt should not be called") }, remap_enum_values: |_: &vespertide_core::MigrationPlan| -> Result<bool> { Ok(true) }, drop_resolution: |_: &vespertide_planner::DropResolution| -> Result<Option<vespertide_planner::DropChoice>> { panic!("drop_resolution prompt should not be called") }, default_change: |_: &vespertide_planner::DefaultChangeWarning| -> Result<Option<crate::commands::revision::prompts::DefaultChoice>> { panic!("default_change prompt should not be called") }, unique_addition: |_: &vespertide_planner::UniqueAdditionWarning| -> Result<Option<crate::commands::revision::prompts::UniqueAdditionChoice>> { panic!("unique_addition prompt should not be called") }, fk_orphan_addition: |_: &vespertide_planner::FkOrphanAdditionWarning| -> Result<Option<crate::commands::revision::prompts::FkOrphanChoice>> { panic!("fk_orphan_addition prompt should not be called") }, check_addition: |_: &vespertide_planner::CheckAdditionWarning| -> Result<Option<crate::commands::revision::prompts::CheckViolationChoice>> { panic!("check_addition prompt should not be called") }, pk_addition: |_: &vespertide_planner::PrimaryKeyAdditionWarning| -> Result<Option<crate::commands::revision::prompts::PrimaryKeyAdditionChoice>> { panic!("pk_addition prompt should not be called") }, cascade_reach: |_: &vespertide_planner::CascadeReachWarning| -> Result<Option<crate::commands::revision::prompts::CascadeReachChoice>> { panic!("cascade_reach prompt should not be called") }, sequence_exhaustion: |_: &vespertide_planner::SequenceExhaustionWarning| -> Result<Option<crate::commands::revision::prompts::SequenceExhaustionChoice>> { panic!("sequence_exhaustion prompt should not be called") }, check_strengthening: |_: &vespertide_planner::CheckStrengtheningWarning| -> Result<Option<crate::commands::revision::prompts::CheckStrengtheningChoice>> { panic!("check_strengthening prompt should not be called") }, check_type_mismatch }
 }

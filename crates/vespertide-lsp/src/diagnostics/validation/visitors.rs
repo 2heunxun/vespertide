@@ -20,13 +20,11 @@ pub(in crate::diagnostics) fn collect_all(
     out.append(&mut collector.unknown_types);
     out.append(&mut collector.complex_types);
 
-    let Some(columns_raw) = collector.columns else {
-        return;
-    };
-
-    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    for column in direct_column_objects(columns_raw) {
-        inspect_column_name(column, source_bytes, &mut seen, out);
+    if let Some(columns_raw) = collector.columns {
+        let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for column in direct_column_objects(columns_raw) {
+            inspect_column_name(column, source_bytes, &mut seen, out);
+        }
     }
 }
 
@@ -155,51 +153,38 @@ fn inspect_column_type(
     source: &[u8],
     out: &mut Vec<DomainDiagnostic>,
 ) {
-    let Some(type_pair) = find_pair_with_key(column, source, "type") else {
-        return;
-    };
-    let Some(type_value_raw) = type_pair.named_child(1) else {
-        return;
-    };
-    // tree-sitter-yaml wraps every value in a `flow_node` / `block_node`.
-    // Peel those wrappers so we see the real scalar or mapping underneath.
-    let type_value = unwrap_yaml_node(type_value_raw);
+    if let Some(type_pair) = find_pair_with_key(column, source, "type")
+        && let Some(type_value_raw) = type_pair.named_child(1)
+    {
+        // tree-sitter-yaml wraps every value in a `flow_node` / `block_node`.
+        // Peel those wrappers so we see the real scalar or mapping underneath.
+        let type_value = unwrap_yaml_node(type_value_raw);
 
-    // Object form (`{kind: ...}`) is checked by serde + planner — skip here.
-    if matches!(
-        type_value.kind(),
-        "object" | "block_mapping" | "flow_mapping"
-    ) {
-        return;
+        // Object form (`{kind: ...}`) is checked by serde + planner — skip here.
+        if !matches!(
+            type_value.kind(),
+            "object" | "block_mapping" | "flow_mapping"
+        ) && let Some(text) = source
+            .get(type_value.byte_range())
+            .and_then(|bytes| std::str::from_utf8(bytes).ok())
+        {
+            let stripped = strip_quotes_str(text);
+
+            // Skip empty placeholder while the user is typing.
+            if !stripped.is_empty() && !KNOWN_SIMPLE_TYPES.contains(&stripped) {
+                out.push(DomainDiagnostic {
+                    byte_range: type_pair.byte_range(),
+                    severity: Severity::Error,
+                    message: format!(
+                        "Unknown column type `{stripped}`. Expected one of: {} \
+                         — or a complex type object such as {{\"kind\":\"varchar\",\"length\":255}}",
+                        KNOWN_SIMPLE_TYPES.join(", ")
+                    ),
+                    code: "unknown-type".to_string(),
+                });
+            }
+        }
     }
-
-    let Some(text) = source.get(type_value.byte_range()) else {
-        return;
-    };
-    let Ok(text) = std::str::from_utf8(text) else {
-        return;
-    };
-    let stripped = strip_quotes_str(text);
-
-    // Skip empty placeholder while the user is typing.
-    if stripped.is_empty() {
-        return;
-    }
-
-    if KNOWN_SIMPLE_TYPES.contains(&stripped) {
-        return;
-    }
-
-    out.push(DomainDiagnostic {
-        byte_range: type_pair.byte_range(),
-        severity: Severity::Error,
-        message: format!(
-            "Unknown column type `{stripped}`. Expected one of: {} \
-             — or a complex type object such as {{\"kind\":\"varchar\",\"length\":255}}",
-            KNOWN_SIMPLE_TYPES.join(", ")
-        ),
-        code: "unknown-type".to_string(),
-    });
 }
 
 /// Tree-sitter-based pre-pass that flags two columns sharing a `name`.
@@ -265,30 +250,24 @@ fn inspect_column_name(
     seen: &mut std::collections::BTreeSet<String>,
     out: &mut Vec<DomainDiagnostic>,
 ) {
-    let Some(name_pair) = find_pair_with_key(column, source, "name") else {
-        return;
-    };
-    let Some(name_value_raw) = name_pair.named_child(1) else {
-        return;
-    };
-    let name_value = unwrap_yaml_node(name_value_raw);
-    let Some(text) = source.get(name_value.byte_range()) else {
-        return;
-    };
-    let Ok(text) = std::str::from_utf8(text) else {
-        return;
-    };
-    let name = strip_quotes_str(text).to_string();
-    if name.is_empty() {
-        return;
-    }
-    if !seen.insert(name.clone()) {
-        out.push(DomainDiagnostic {
-            byte_range: name_value.byte_range(),
-            severity: Severity::Error,
-            message: format!("Duplicate column name `{name}` in this table"),
-            code: "duplicate-column".to_string(),
-        });
+    if let Some(name_pair) = find_pair_with_key(column, source, "name")
+        && let Some(name_value_raw) = name_pair.named_child(1)
+    {
+        let name_value = unwrap_yaml_node(name_value_raw);
+        if let Some(text) = source
+            .get(name_value.byte_range())
+            .and_then(|bytes| std::str::from_utf8(bytes).ok())
+        {
+            let name = strip_quotes_str(text).to_string();
+            if !name.is_empty() && !seen.insert(name.clone()) {
+                out.push(DomainDiagnostic {
+                    byte_range: name_value.byte_range(),
+                    severity: Severity::Error,
+                    message: format!("Duplicate column name `{name}` in this table"),
+                    code: "duplicate-column".to_string(),
+                });
+            }
+        }
     }
 }
 
@@ -341,51 +320,50 @@ fn inspect_complex_type(
     let Some(type_pair) = find_pair_with_key(column, source, "type") else {
         return;
     };
-    let Some(type_value_raw) = type_pair.named_child(1) else {
-        return;
-    };
-    let type_value = unwrap_yaml_node(type_value_raw);
-    if !matches!(
-        type_value.kind(),
-        "object" | "block_mapping" | "flow_mapping"
-    ) {
-        return;
-    }
-
-    // `kind` is mandatory.
-    let Some(kind_pair) = find_pair_with_key(type_value, source, "kind") else {
-        push_complex(
-            out,
-            type_pair.byte_range(),
-            "Type object requires a `kind` field (varchar, char, numeric, enum, custom)",
-        );
-        return;
-    };
-    let kind = match scalar_text(kind_pair, source) {
-        Some(text) if !text.is_empty() => text.to_string(),
-        _ => {
-            push_complex(
-                out,
-                kind_pair.byte_range(),
-                "`kind` must be a non-empty string",
-            );
+    if let Some(type_value_raw) = type_pair.named_child(1) {
+        let type_value = unwrap_yaml_node(type_value_raw);
+        if !matches!(
+            type_value.kind(),
+            "object" | "block_mapping" | "flow_mapping"
+        ) {
             return;
         }
-    };
 
-    match kind.as_str() {
-        "varchar" | "char" => check_length_required(type_value, type_pair, &kind, source, out),
-        "numeric" => check_numeric_precision_scale(type_value, type_pair, source, out),
-        "enum" => check_enum_shape(type_value, type_pair, source, out),
-        "custom" => check_custom_type(type_value, type_pair, source, out),
-        other => {
+        // `kind` is mandatory.
+        let Some(kind_pair) = find_pair_with_key(type_value, source, "kind") else {
             push_complex(
                 out,
-                kind_pair.byte_range(),
-                &format!(
-                    "Unknown type kind `{other}`. Expected: varchar, char, numeric, enum, custom"
-                ),
+                type_pair.byte_range(),
+                "Type object requires a `kind` field (varchar, char, numeric, enum, custom)",
             );
+            return;
+        };
+        let kind = match scalar_text(kind_pair, source) {
+            Some(text) if !text.is_empty() => text.to_string(),
+            _ => {
+                push_complex(
+                    out,
+                    kind_pair.byte_range(),
+                    "`kind` must be a non-empty string",
+                );
+                return;
+            }
+        };
+
+        match kind.as_str() {
+            "varchar" | "char" => check_length_required(type_value, type_pair, &kind, source, out),
+            "numeric" => check_numeric_precision_scale(type_value, type_pair, source, out),
+            "enum" => check_enum_shape(type_value, type_pair, source, out),
+            "custom" => check_custom_type(type_value, type_pair, source, out),
+            other => {
+                push_complex(
+                    out,
+                    kind_pair.byte_range(),
+                    &format!(
+                        "Unknown type kind `{other}`. Expected: varchar, char, numeric, enum, custom"
+                    ),
+                );
+            }
         }
     }
 }
@@ -462,33 +440,32 @@ fn check_enum_shape(
     }
 
     let values_pair = values_pair.unwrap();
-    let Some(values_value_raw) = values_pair.named_child(1) else {
-        return;
-    };
-    let values_value = unwrap_yaml_node(values_value_raw);
-    if !matches!(
-        values_value.kind(),
-        "array" | "block_sequence" | "flow_sequence"
-    ) {
-        push_complex(
-            out,
-            values_pair.byte_range(),
-            "`values` must be a non-empty array",
-        );
-        return;
-    }
+    if let Some(values_value_raw) = values_pair.named_child(1) {
+        let values_value = unwrap_yaml_node(values_value_raw);
+        if !matches!(
+            values_value.kind(),
+            "array" | "block_sequence" | "flow_sequence"
+        ) {
+            push_complex(
+                out,
+                values_pair.byte_range(),
+                "`values` must be a non-empty array",
+            );
+            return;
+        }
 
-    let elements = collect_enum_value_descriptors(values_value, source);
-    if elements.is_empty() {
-        push_complex(
-            out,
-            values_pair.byte_range(),
-            "`enum` requires a non-empty `values` array",
-        );
-        return;
-    }
+        let elements = collect_enum_value_descriptors(values_value, source);
+        if elements.is_empty() {
+            push_complex(
+                out,
+                values_pair.byte_range(),
+                "`enum` requires a non-empty `values` array",
+            );
+            return;
+        }
 
-    check_duplicate_enum_values(&elements, out);
+        check_duplicate_enum_values(&elements, out);
+    }
 }
 
 fn check_custom_type(
@@ -576,5 +553,190 @@ fn walk_for_errors(node: tree_sitter::Node<'_>, out: &mut Vec<DomainDiagnostic>)
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         walk_for_errors(child, out);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::parse_json as parse;
+
+    fn first_column<'tree>(
+        tree: &'tree tree_sitter::Tree,
+        source: &[u8],
+    ) -> tree_sitter::Node<'tree> {
+        let columns =
+            find_value_for_key(tree.root_node(), source, "columns").expect("columns value");
+        direct_column_objects(columns)
+            .into_iter()
+            .next()
+            .expect("column object")
+    }
+
+    #[test]
+    fn collectors_return_when_columns_are_missing() {
+        let tree = parse(r#"{"name":"u"}"#);
+        let mut out = Vec::new();
+
+        collect_unknown_column_types(&tree, r#"{"name":"u"}"#, &mut out);
+        collect_duplicate_column_names(&tree, r#"{"name":"u"}"#, &mut out);
+        collect_complex_type_violations(&tree, r#"{"name":"u"}"#, &mut out);
+
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn recursive_column_walks_visit_nested_objects_without_panicking() {
+        let src = r#"{"name":"u","columns":[[{"type":"bogus"}]]}"#;
+        let tree = parse(src);
+        let mut out = Vec::new();
+
+        collect_unknown_column_types(&tree, src, &mut out);
+        collect_complex_type_violations(&tree, src, &mut out);
+
+        assert!(
+            out.iter().any(|diag| diag.code == "unknown-type"),
+            "got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn inspect_column_type_handles_missing_value_empty_value_and_bad_source() {
+        let malformed = r#"{"columns":[{"type":}]}"#;
+        let tree = parse(malformed);
+        let mut out = Vec::new();
+        collect_unknown_column_types(&tree, malformed, &mut out);
+
+        let empty = r#"{"columns":[{"type":""}]}"#;
+        let tree = parse(empty);
+        collect_unknown_column_types(&tree, empty, &mut out);
+
+        let valid = r#"{"columns":[{"type":"bogus"}]}"#;
+        let tree = parse(valid);
+        let column = first_column(&tree, valid.as_bytes());
+        let type_value_start = find_pair_with_key(column, valid.as_bytes(), "type")
+            .unwrap()
+            .named_child(1)
+            .unwrap()
+            .start_byte();
+        inspect_column_type(column, &valid.as_bytes()[..type_value_start], &mut out);
+        let mut bad = valid.as_bytes().to_vec();
+        let idx = valid.find("bogus").unwrap();
+        bad[idx] = 0xff;
+        inspect_column_type(column, &bad, &mut out);
+        inspect_column_type(column, valid.as_bytes(), &mut out);
+
+        assert!(out.iter().any(|diag| diag.code == "unknown-type"));
+    }
+
+    #[test]
+    fn direct_column_objects_returns_empty_for_non_array_columns() {
+        let src = r#"{"name":"u","columns":"oops"}"#;
+        let tree = parse(src);
+        let mut out = Vec::new();
+
+        collect_all(&tree, src, &mut out);
+
+        assert!(out.iter().all(|diag| diag.code != "duplicate-column"));
+    }
+
+    #[test]
+    fn inspect_column_name_handles_missing_empty_and_bad_source() {
+        let missing = r#"{"columns":[{"type":"integer"}]}"#;
+        let tree = parse(missing);
+        let column = first_column(&tree, missing.as_bytes());
+        let mut seen = std::collections::BTreeSet::new();
+        let mut out = Vec::new();
+        inspect_column_name(column, missing.as_bytes(), &mut seen, &mut out);
+
+        let malformed = r#"{"columns":[{"name":}]}"#;
+        let tree = parse(malformed);
+        let column = first_column(&tree, malformed.as_bytes());
+        inspect_column_name(column, malformed.as_bytes(), &mut seen, &mut out);
+
+        let empty = r#"{"columns":[{"name":""}]}"#;
+        let tree = parse(empty);
+        let column = first_column(&tree, empty.as_bytes());
+        inspect_column_name(column, empty.as_bytes(), &mut seen, &mut out);
+
+        let valid = r#"{"columns":[{"name":"id"}]}"#;
+        let tree = parse(valid);
+        let column = first_column(&tree, valid.as_bytes());
+        let name_value_start = find_pair_with_key(column, valid.as_bytes(), "name")
+            .unwrap()
+            .named_child(1)
+            .unwrap()
+            .start_byte();
+        inspect_column_name(
+            column,
+            &valid.as_bytes()[..name_value_start],
+            &mut seen,
+            &mut out,
+        );
+        let mut bad = valid.as_bytes().to_vec();
+        let idx = valid.find("id").unwrap();
+        bad[idx] = 0xff;
+        inspect_column_name(column, &bad, &mut seen, &mut out);
+
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn complex_type_shape_branches_emit_expected_diagnostics() {
+        let src = r#"{"columns":[{"type":{"kind":""}},{"type":{"kind":"enum","name":"status","values":"bad"}},{"type":{"kind":"custom"}}]}"#;
+        let tree = parse(src);
+        let mut out = Vec::new();
+
+        collect_complex_type_violations(&tree, src, &mut out);
+
+        assert!(
+            out.iter().any(|diag| diag.message.contains("non-empty")),
+            "got: {out:?}"
+        );
+        assert!(
+            out.iter().any(|diag| diag.message.contains("values` must")),
+            "got: {out:?}"
+        );
+        assert!(
+            out.iter().any(|diag| diag.message.contains("custom_type")),
+            "got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn complex_type_handles_missing_type_value_and_missing_values_value() {
+        let src = r#"{"columns":[{"type":},{"type":{"kind":"enum","name":"status","values":}}]}"#;
+        let tree = parse(src);
+        let mut out = Vec::new();
+
+        collect_complex_type_violations(&tree, src, &mut out);
+
+        let _ = out;
+    }
+
+    #[test]
+    fn complex_enum_missing_name_reports_field_specific_diagnostic() {
+        let src = r#"{"columns":[{"type":{"kind":"enum","values":["active"]}}]}"#;
+        let tree = parse(src);
+        let mut out = Vec::new();
+
+        collect_complex_type_violations(&tree, src, &mut out);
+
+        assert!(
+            out.iter()
+                .any(|diag| diag.message.contains("requires field: name")),
+            "got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn collect_syntax_errors_recurses_into_children() {
+        let src = r#"{"columns":[{"name":"id",}]}"#;
+        let tree = parse(src);
+        let mut out = Vec::new();
+
+        collect_syntax_errors(&tree, &mut out);
+
+        assert!(!out.is_empty());
     }
 }

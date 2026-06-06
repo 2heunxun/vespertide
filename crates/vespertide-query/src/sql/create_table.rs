@@ -324,23 +324,10 @@ pub fn build_create_table(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::col;
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{ColumnType, EnumValues, SimpleColumnType};
-
-    fn col(name: &str, ty: ColumnType) -> ColumnDef {
-        ColumnDef {
-            name: name.into(),
-            r#type: ty,
-            nullable: true,
-            default: None,
-            comment: None,
-            primary_key: None,
-            unique: None,
-            index: None,
-            foreign_key: None,
-        }
-    }
 
     fn join_queries(queries: &[BuiltQuery], backend: DatabaseBackend, separator: &str) -> String {
         let mut sql = String::new();
@@ -701,6 +688,79 @@ mod tests {
     #[case::timestamp_now_default_postgres(DatabaseBackend::Postgres)]
     #[case::timestamp_now_default_mysql(DatabaseBackend::MySql)]
     #[case::timestamp_now_default_sqlite(DatabaseBackend::Sqlite)]
+    /// CREATE TABLE with `Check` + `Index` constraints exercises the
+    /// `TableConstraint::Check` and `TableConstraint::Index` arms of
+    /// `add_create_table_constraints` (both silently skip - the
+    /// constraints are emitted in separate ALTER statements outside
+    /// this builder, but the match arms still execute on every call).
+    #[rstest]
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    #[case::sqlite(DatabaseBackend::Sqlite)]
+    fn test_create_table_check_and_index_constraints_are_skipped(#[case] backend: DatabaseBackend) {
+        // Mix CHECK + INDEX + PrimaryKey so the match dispatcher walks the
+        // Check and Index arms (currently no-op) alongside a real PK arm.
+        let constraints = vec![
+            TableConstraint::PrimaryKey {
+                columns: vec!["id".into()],
+                auto_increment: false,
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+            },
+            TableConstraint::Check {
+                name: "chk_age".into(),
+                expr: "age > 0".into(),
+                strategy: vespertide_core::CheckViolationStrategy::default(),
+            },
+            TableConstraint::Index {
+                name: Some("idx_age".into()),
+                columns: vec!["age".into()],
+            },
+        ];
+        let columns = vec![
+            ColumnDef {
+                name: "id".into(),
+                r#type: ColumnType::Simple(SimpleColumnType::Integer),
+                nullable: false,
+                default: None,
+                comment: None,
+                primary_key: None,
+                unique: None,
+                index: None,
+                foreign_key: None,
+            },
+            ColumnDef {
+                name: "age".into(),
+                r#type: ColumnType::Simple(SimpleColumnType::Integer),
+                nullable: false,
+                default: None,
+                comment: None,
+                primary_key: None,
+                unique: None,
+                index: None,
+                foreign_key: None,
+            },
+        ];
+        let queries = build_create_table(backend, "users", &columns, &constraints).unwrap();
+        let sql = queries
+            .iter()
+            .map(|q| q.build(backend))
+            .collect::<Vec<_>>()
+            .join("\n");
+        // The CHECK arm in `add_create_table_constraints` is a documented
+        // no-op (CHECK appears in a separate ALTER ADD CONSTRAINT statement,
+        // not in CREATE TABLE itself). We assert the dispatch ran (PK lands)
+        // and the CHECK predicate is NOT inlined in the CREATE TABLE.
+        assert!(sql.contains("PRIMARY KEY"));
+        assert!(!sql.contains("CHECK (age > 0)"));
+        // Index constraints fan out as separate CREATE INDEX statements,
+        // which is the documented behaviour of build_create_table.
+        assert!(sql.contains("CREATE INDEX") || sql.contains("idx_age"));
+    }
+
+    #[rstest]
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    #[case::sqlite(DatabaseBackend::Sqlite)]
     fn test_create_table_with_timestamp_now_default(#[case] backend: DatabaseBackend) {
         let columns = vec![
             ColumnDef {

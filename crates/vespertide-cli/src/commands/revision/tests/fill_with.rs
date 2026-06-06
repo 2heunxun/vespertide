@@ -261,6 +261,63 @@ fn test_apply_fill_with_to_plan_multiple_actions() {
 }
 
 #[test]
+fn test_collect_enum_fill_with_values_with_suggestion_emits_suggested_prompt() {
+    // F23 rename heuristic: 'cancelled' → 'canceled' is within Levenshtein 3,
+    // so the prompt MUST be rewritten with the "(suggested: 'canceled' is
+    // new — likely rename)" hint. Exercises fill_with.rs:218.
+    use crate::commands::revision::prompts::collect_enum_fill_with_values;
+    use std::cell::RefCell;
+    use vespertide_planner::EnumFillWithRequired;
+
+    let item = EnumFillWithRequired {
+        action_index: 0,
+        table: "orders".into(),
+        column: "status".into(),
+        removed_values: vec!["cancelled".into()],
+        remaining_values: vec!["active".into(), "canceled".into(), "done".into()],
+    };
+    let captured: RefCell<Vec<String>> = RefCell::new(Vec::new());
+    let enum_prompt = |prompt: &str, _values: &[String]| -> Result<String> {
+        captured.borrow_mut().push(prompt.to_string());
+        Ok("canceled".into())
+    };
+    let res = collect_enum_fill_with_values(&[item], enum_prompt).unwrap();
+    assert_eq!(res.len(), 1);
+    assert_eq!(res[0].1.get("cancelled"), Some(&"canceled".to_string()));
+    let prompts = captured.borrow();
+    assert!(
+        prompts[0].contains("likely rename"),
+        "expected rename hint in prompt; got: {}",
+        prompts[0]
+    );
+}
+
+#[test]
+fn test_collect_enum_fill_with_values_no_suggestion_omits_hint() {
+    // Removed value 'banned' has no close match in {active, deleted} (Lev > 3),
+    // so the prompt MUST NOT include the rename suggestion line.
+    use crate::commands::revision::prompts::collect_enum_fill_with_values;
+    use std::cell::RefCell;
+    use vespertide_planner::EnumFillWithRequired;
+
+    let item = EnumFillWithRequired {
+        action_index: 0,
+        table: "orders".into(),
+        column: "status".into(),
+        removed_values: vec!["banned".into()],
+        remaining_values: vec!["active".into(), "deleted".into()],
+    };
+    let captured: RefCell<Vec<String>> = RefCell::new(Vec::new());
+    let enum_prompt = |prompt: &str, _values: &[String]| -> Result<String> {
+        captured.borrow_mut().push(prompt.to_string());
+        Ok("deleted".into())
+    };
+    collect_enum_fill_with_values(&[item], enum_prompt).unwrap();
+    let prompts = captured.borrow();
+    assert!(!prompts[0].contains("likely rename"));
+}
+
+#[test]
 fn test_apply_fill_with_to_plan_other_actions_ignored() {
     use vespertide_core::MigrationPlan;
 

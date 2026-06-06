@@ -2,10 +2,6 @@ use vespertide_core::{ColumnDef, SimpleColumnType, TableConstraint, TableDef};
 
 use super::{fk, pk, simple, table};
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "shared scenario dispatch keeps FK fixture names co-located for snapshot matrix readability"
-)]
 pub(crate) fn schema_scenario(name: &str) -> (TableDef, Vec<TableDef>) {
     use SimpleColumnType::{BigInt, Integer, Text, Uuid};
     match name {

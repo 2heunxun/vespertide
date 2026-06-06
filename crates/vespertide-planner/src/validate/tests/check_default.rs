@@ -320,3 +320,432 @@ fn error_message_includes_all_context() {
     assert!(msg.contains("amount > 0"));
     assert!(msg.contains('0'));
 }
+
+// =====================================================================
+// COVERAGE-CLOSURE: exhaustively exercise every apply_op_* arm and
+// literal_equals branch through the public validate_schema entry point.
+// Each test crafts a (default, CHECK expr) pair such that the F86
+// classifier reaches one of:
+//   - apply_op_i64 (Eq/Ne/Lt/Le/Gt/Ge)        — L104-112
+//   - apply_op_f64 (all six ops)              — L115-125
+//   - apply_op_str (all six ops)              — L127-136
+//   - apply_op_bool (Eq, Ne, ordering pass)   — L138-145
+//   - literal_equals (Float/Int/Bool/String)  — L148-157
+//   - check_satisfied SimpleColumnCheck::In   — L71-72
+// =====================================================================
+
+// -- apply_op_i64: cover Le explicitly (Eq/Ne/Lt/Gt/Ge handled by
+//    existing tests). --------------------------------------------------
+
+#[test]
+fn integer_default_5_satisfies_le_check() {
+    let table = table_with(
+        "orders",
+        col_with_default(
+            "amount",
+            ColumnType::Simple(SimpleColumnType::Integer),
+            DefaultValue::Integer(5),
+        ),
+        vec![check_constraint("chk_le", "amount <= 10")],
+    );
+    assert!(validate_one(table).is_ok());
+}
+
+#[test]
+fn integer_default_zero_violates_eq_one() {
+    let table = table_with(
+        "orders",
+        col_with_default(
+            "amount",
+            ColumnType::Simple(SimpleColumnType::Integer),
+            DefaultValue::Integer(0),
+        ),
+        vec![check_constraint("chk_eq_one", "amount = 1")],
+    );
+    assert!(is_default_violates_check(&validate_one(table).unwrap_err()));
+}
+
+#[test]
+fn integer_default_zero_satisfies_le_one() {
+    let table = table_with(
+        "orders",
+        col_with_default(
+            "amount",
+            ColumnType::Simple(SimpleColumnType::Integer),
+            DefaultValue::Integer(0),
+        ),
+        vec![check_constraint("chk_le_one", "amount <= 1")],
+    );
+    assert!(validate_one(table).is_ok());
+}
+
+#[test]
+fn integer_default_ge_violates_check() {
+    let table = table_with(
+        "orders",
+        col_with_default(
+            "amount",
+            ColumnType::Simple(SimpleColumnType::Integer),
+            DefaultValue::Integer(0),
+        ),
+        vec![check_constraint("chk_ge_one", "amount >= 1")],
+    );
+    assert!(is_default_violates_check(&validate_one(table).unwrap_err()));
+}
+
+// -- apply_op_f64: Float default vs Float / Integer literals;
+//    also Integer default vs Float literal (cross-kind). --------------
+
+#[test]
+fn float_default_violates_gt_check() {
+    let table = table_with(
+        "rates",
+        col_with_default(
+            "ratio",
+            ColumnType::Simple(SimpleColumnType::Real),
+            DefaultValue::Float(0.1),
+        ),
+        vec![check_constraint("chk_gt_half", "ratio > 0.5")],
+    );
+    assert!(is_default_violates_check(&validate_one(table).unwrap_err()));
+}
+
+#[test]
+fn float_default_satisfies_lt_check() {
+    let table = table_with(
+        "rates",
+        col_with_default(
+            "ratio",
+            ColumnType::Simple(SimpleColumnType::Real),
+            DefaultValue::Float(0.1),
+        ),
+        vec![check_constraint("chk_lt_one", "ratio < 1.0")],
+    );
+    assert!(validate_one(table).is_ok());
+}
+
+#[test]
+fn float_default_violates_eq_check() {
+    let table = table_with(
+        "rates",
+        col_with_default(
+            "ratio",
+            ColumnType::Simple(SimpleColumnType::Real),
+            DefaultValue::Float(0.1),
+        ),
+        vec![check_constraint("chk_eq_pt5", "ratio = 0.5")],
+    );
+    assert!(is_default_violates_check(&validate_one(table).unwrap_err()));
+}
+
+#[test]
+fn float_default_satisfies_ne_check() {
+    let table = table_with(
+        "rates",
+        col_with_default(
+            "ratio",
+            ColumnType::Simple(SimpleColumnType::Real),
+            DefaultValue::Float(0.1),
+        ),
+        vec![check_constraint("chk_ne_zero", "ratio <> 0.0")],
+    );
+    assert!(validate_one(table).is_ok());
+}
+
+#[test]
+fn float_default_violates_le_check() {
+    let table = table_with(
+        "rates",
+        col_with_default(
+            "ratio",
+            ColumnType::Simple(SimpleColumnType::Real),
+            DefaultValue::Float(1.5),
+        ),
+        vec![check_constraint("chk_le_one", "ratio <= 1.0")],
+    );
+    assert!(is_default_violates_check(&validate_one(table).unwrap_err()));
+}
+
+#[test]
+fn float_default_satisfies_ge_check() {
+    let table = table_with(
+        "rates",
+        col_with_default(
+            "ratio",
+            ColumnType::Simple(SimpleColumnType::Real),
+            DefaultValue::Float(2.0),
+        ),
+        vec![check_constraint("chk_ge_one", "ratio >= 1.0")],
+    );
+    assert!(validate_one(table).is_ok());
+}
+
+// Integer default vs Float literal (i64_to_f64 promotion).
+#[test]
+fn integer_default_against_float_literal_violates() {
+    let table = table_with(
+        "orders",
+        col_with_default(
+            "amount",
+            ColumnType::Simple(SimpleColumnType::Integer),
+            DefaultValue::Integer(0),
+        ),
+        vec![check_constraint("chk_gt_half", "amount > 0.5")],
+    );
+    assert!(is_default_violates_check(&validate_one(table).unwrap_err()));
+}
+
+// Float default vs Integer literal (i64_to_f64 promotion on RHS).
+#[test]
+fn float_default_against_integer_literal_satisfies() {
+    let table = table_with(
+        "rates",
+        col_with_default(
+            "ratio",
+            ColumnType::Simple(SimpleColumnType::Real),
+            DefaultValue::Float(2.5),
+        ),
+        vec![check_constraint("chk_gt_int", "ratio > 1")],
+    );
+    assert!(validate_one(table).is_ok());
+}
+
+// -- apply_op_str: every op on a String default + String literal. ----
+
+#[test]
+fn string_default_violates_lt_check() {
+    let table = table_with(
+        "items",
+        col_with_default(
+            "code",
+            ColumnType::Simple(SimpleColumnType::Text),
+            DefaultValue::String("'zz'".into()),
+        ),
+        vec![check_constraint("chk_lt", "code < 'aa'")],
+    );
+    assert!(is_default_violates_check(&validate_one(table).unwrap_err()));
+}
+
+#[test]
+fn string_default_satisfies_gt_check() {
+    let table = table_with(
+        "items",
+        col_with_default(
+            "code",
+            ColumnType::Simple(SimpleColumnType::Text),
+            DefaultValue::String("'zz'".into()),
+        ),
+        vec![check_constraint("chk_gt", "code > 'aa'")],
+    );
+    assert!(validate_one(table).is_ok());
+}
+
+#[test]
+fn string_default_satisfies_le_check() {
+    let table = table_with(
+        "items",
+        col_with_default(
+            "code",
+            ColumnType::Simple(SimpleColumnType::Text),
+            DefaultValue::String("'aa'".into()),
+        ),
+        vec![check_constraint("chk_le", "code <= 'zz'")],
+    );
+    assert!(validate_one(table).is_ok());
+}
+
+#[test]
+fn string_default_satisfies_ge_check() {
+    let table = table_with(
+        "items",
+        col_with_default(
+            "code",
+            ColumnType::Simple(SimpleColumnType::Text),
+            DefaultValue::String("'zz'".into()),
+        ),
+        vec![check_constraint("chk_ge", "code >= 'aa'")],
+    );
+    assert!(validate_one(table).is_ok());
+}
+
+#[test]
+fn string_default_satisfies_ne_check() {
+    let table = table_with(
+        "items",
+        col_with_default(
+            "code",
+            ColumnType::Simple(SimpleColumnType::Text),
+            DefaultValue::String("'aa'".into()),
+        ),
+        vec![check_constraint("chk_ne", "code <> 'bb'")],
+    );
+    assert!(validate_one(table).is_ok());
+}
+
+// -- apply_op_bool: Ne arm + ordering-fallthrough (Lt/Le/Gt/Ge return
+//    true — boolean comparisons aren't judged). ----------------------
+
+#[test]
+fn bool_default_satisfies_ne_check() {
+    let table = table_with(
+        "flags",
+        col_with_default(
+            "enabled",
+            ColumnType::Simple(SimpleColumnType::Boolean),
+            DefaultValue::Bool(true),
+        ),
+        vec![check_constraint("chk_ne", "enabled <> false")],
+    );
+    assert!(validate_one(table).is_ok());
+}
+
+#[test]
+fn bool_default_violates_eq_check() {
+    let table = table_with(
+        "flags",
+        col_with_default(
+            "enabled",
+            ColumnType::Simple(SimpleColumnType::Boolean),
+            DefaultValue::Bool(false),
+        ),
+        vec![check_constraint("chk_eq", "enabled = true")],
+    );
+    assert!(is_default_violates_check(&validate_one(table).unwrap_err()));
+}
+
+#[test]
+fn bool_default_silent_pass_on_ordering_check() {
+    // Booleans don't compare with `<` semantically; the helper
+    // intentionally returns true (satisfied) so the migration is
+    // allowed through.
+    let table = table_with(
+        "flags",
+        col_with_default(
+            "enabled",
+            ColumnType::Simple(SimpleColumnType::Boolean),
+            DefaultValue::Bool(true),
+        ),
+        vec![check_constraint("chk_lt", "enabled < true")],
+    );
+    assert!(validate_one(table).is_ok());
+}
+
+// -- literal_equals: cover every typed pair through `IN` lists. ------
+
+#[test]
+fn integer_default_violates_int_in_list() {
+    let table = table_with(
+        "orders",
+        col_with_default(
+            "qty",
+            ColumnType::Simple(SimpleColumnType::Integer),
+            DefaultValue::Integer(99),
+        ),
+        vec![check_constraint("chk_in", "qty IN (1, 2, 3)")],
+    );
+    assert!(is_default_violates_check(&validate_one(table).unwrap_err()));
+}
+
+#[test]
+fn float_default_satisfies_float_in_list() {
+    let table = table_with(
+        "rates",
+        col_with_default(
+            "ratio",
+            ColumnType::Simple(SimpleColumnType::Real),
+            DefaultValue::Float(1.5),
+        ),
+        vec![check_constraint("chk_in", "ratio IN (1.5, 2.5)")],
+    );
+    assert!(validate_one(table).is_ok());
+}
+
+#[test]
+fn integer_default_satisfies_float_in_list_via_promotion() {
+    let table = table_with(
+        "rates",
+        col_with_default(
+            "qty",
+            ColumnType::Simple(SimpleColumnType::Integer),
+            DefaultValue::Integer(2),
+        ),
+        vec![check_constraint("chk_in", "qty IN (1.0, 2.0, 3.0)")],
+    );
+    assert!(validate_one(table).is_ok());
+}
+
+#[test]
+fn float_default_satisfies_int_in_list_via_promotion() {
+    let table = table_with(
+        "rates",
+        col_with_default(
+            "ratio",
+            ColumnType::Simple(SimpleColumnType::Real),
+            DefaultValue::Float(2.0),
+        ),
+        vec![check_constraint("chk_in", "ratio IN (1, 2, 3)")],
+    );
+    assert!(validate_one(table).is_ok());
+}
+
+#[test]
+fn bool_default_satisfies_bool_in_list() {
+    let table = table_with(
+        "flags",
+        col_with_default(
+            "enabled",
+            ColumnType::Simple(SimpleColumnType::Boolean),
+            DefaultValue::Bool(true),
+        ),
+        vec![check_constraint("chk_in", "enabled IN (true, false)")],
+    );
+    assert!(validate_one(table).is_ok());
+}
+
+#[test]
+fn string_default_satisfies_string_in_list() {
+    let table = table_with(
+        "users",
+        col_with_default(
+            "role",
+            ColumnType::Simple(SimpleColumnType::Text),
+            DefaultValue::String("'admin'".into()),
+        ),
+        vec![check_constraint(
+            "chk_in",
+            "role IN ('admin', 'user', 'guest')",
+        )],
+    );
+    assert!(validate_one(table).is_ok());
+}
+
+// Type-mismatched default vs literal (string default vs integer
+// literal etc.) falls through the wildcard arms in evaluate_op and
+// literal_equals to silently pass.
+#[test]
+fn string_default_against_integer_check_silent_pass() {
+    let table = table_with(
+        "users",
+        col_with_default(
+            "role",
+            ColumnType::Simple(SimpleColumnType::Text),
+            DefaultValue::String("'admin'".into()),
+        ),
+        vec![check_constraint("chk_gt", "role > 0")],
+    );
+    assert!(validate_one(table).is_ok());
+}
+
+#[test]
+fn string_default_against_integer_in_list_violates_after_literal_mismatch() {
+    let table = table_with(
+        "users",
+        col_with_default(
+            "role",
+            ColumnType::Simple(SimpleColumnType::Text),
+            DefaultValue::String("'admin'".into()),
+        ),
+        vec![check_constraint("chk_in", "role IN (1, 2)")],
+    );
+    assert!(is_default_violates_check(&validate_one(table).unwrap_err()));
+}

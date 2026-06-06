@@ -181,3 +181,58 @@ macro_rules! impl_name_newtype {
 impl_name_newtype!(TableName);
 impl_name_newtype!(ColumnName);
 impl_name_newtype!(IndexName);
+
+#[cfg(test)]
+mod tests {
+    //! Coverage-closure tests for the `impl_name_newtype!` expansions.
+    //! Tarpaulin attributes hits at the macro definition lines (91, 92 for
+    //! `new`, 119, 120 for `From<$ty> for String`). Doctests do not run
+    //! under tarpaulin, so we exercise the same paths from real `#[test]`s.
+    use super::*;
+
+    #[test]
+    fn table_name_new_constructs_from_str_literal() {
+        // Covers lines 91, 92 via TableName::new.
+        let name = TableName::new("user");
+        assert_eq!(name.as_str(), "user");
+    }
+
+    #[test]
+    fn column_name_new_constructs_from_owned_string() {
+        // Covers lines 91, 92 via ColumnName::new (different newtype).
+        let name = ColumnName::new(String::from("email"));
+        assert_eq!(name.as_str(), "email");
+    }
+
+    #[test]
+    fn index_name_new_constructs_from_str_ref() {
+        // Covers lines 91, 92 via IndexName::new.
+        let owned = "ix_user__email".to_string();
+        let name = IndexName::new(&*owned);
+        assert_eq!(name.as_str(), "ix_user__email");
+    }
+
+    #[test]
+    fn table_name_into_string_via_from() {
+        // Covers lines 119, 120 (`From<TableName> for String`).
+        let name = TableName::new("orders");
+        let s: String = String::from(name);
+        assert_eq!(s, "orders");
+    }
+
+    #[test]
+    fn column_name_into_string_via_from() {
+        // Covers lines 119, 120 (`From<ColumnName> for String`).
+        let name = ColumnName::new("created_at");
+        let s: String = String::from(name);
+        assert_eq!(s, "created_at");
+    }
+
+    #[test]
+    fn index_name_into_string_via_from() {
+        // Covers lines 119, 120 (`From<IndexName> for String`).
+        let name = IndexName::new("ix_orders__id");
+        let s: String = String::from(name);
+        assert_eq!(s, "ix_orders__id");
+    }
+}

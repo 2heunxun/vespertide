@@ -229,7 +229,7 @@ fn test_collect_fill_with_values_prompt_error() {
 fn test_prompt_fill_with_value_function_exists() {
     // This test verifies that prompt_fill_with_value has the correct signature.
     // We cannot actually call it in tests because dialoguer::Input blocks waiting for terminal input.
-    // The function is excluded from coverage with #[cfg_attr(coverage_nightly, coverage(off))].
+    // The function is excluded from coverage with #[cfg(not(tarpaulin_include))].
     let _: fn(&str, &str) -> Result<String> = prompt_fill_with_value;
 }
 

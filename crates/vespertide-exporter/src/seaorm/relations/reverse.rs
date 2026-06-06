@@ -164,10 +164,6 @@ struct ReverseRelationFieldCtx<'a> {
     crate_prefix: &'a str,
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "relation rendering keeps collection and emission logic together"
-)]
 fn reverse_relation_field_defs_inner(ctx: ReverseRelationFieldCtx<'_>) -> Vec<String> {
     let ReverseRelationFieldCtx {
         table,

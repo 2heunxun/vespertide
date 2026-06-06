@@ -1,12 +1,5 @@
 use super::*;
-
-fn pk(columns: Vec<&str>) -> TableConstraint {
-    TableConstraint::PrimaryKey {
-        auto_increment: false,
-        columns: columns.into_iter().map(Into::into).collect(),
-        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-    }
-}
+use crate::test_support::pk;
 
 #[test]
 fn add_column_to_composite_pk() {

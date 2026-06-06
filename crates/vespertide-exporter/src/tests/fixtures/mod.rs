@@ -863,6 +863,53 @@ pub(crate) fn integer_enum_with_default() -> TableDef {
     )
 }
 
+/// Integer enum column whose `default` is a **variant name** (not a numeric
+/// literal), exercising the `else` branch inside the
+/// `EnumValues::Integer(int_values) =>` arm of
+/// `vespertide-exporter::seaorm::types::format_default_value` (lines 47-60
+/// of `seaorm/types.rs`). Existing `integer_enum_with_default` covers the
+/// numeric-literal `if` branch via `default("1")`; this fixture covers the
+/// variant-name lookup branch via `default("Completed")` → value `100`.
+pub(crate) fn integer_enum_with_variant_default() -> TableDef {
+    table(
+        "task_runs",
+        vec![
+            simple("id", SimpleColumnType::Integer).primary_key(PrimaryKeySyntax::Bool(true)),
+            col(
+                "status",
+                ColumnType::Complex(ComplexColumnType::Enum {
+                    name: "task_run_status".into(),
+                    values: EnumValues::Integer(vec![
+                        NumValue {
+                            name: "Pending".into(),
+                            value: 0,
+                        },
+                        NumValue {
+                            name: "Completed".into(),
+                            value: 100,
+                        },
+                    ]),
+                }),
+            )
+            .default("Completed".into()),
+        ],
+        vec![],
+    )
+}
+
+/// Small (< 50-table) multi-table schema for exercising the **sequential**
+/// branch of the multi-table entry points:
+/// * `vespertide-exporter::sqlalchemy::render::export` lines 21-29
+/// * `vespertide-exporter::sqlmodel::render::render_entities` lines 62-65, 94-100
+/// * `vespertide-exporter::seaorm::export` sequential arm
+/// * `vespertide-exporter::jpa::render_entities` sequential arm
+///
+/// The existing `tests/parallel_consolidated.rs` test uses a 100-table schema
+/// to exercise the parallel arm; this fixture covers the sequential arm.
+pub(crate) fn small_multi_schema() -> Vec<TableDef> {
+    vec![basic_single_pk(), table_with_fk()]
+}
+
 pub(crate) fn integer_enum_all_variant_types() -> TableDef {
     let raw = TableDef {
         name: "workflow_runs".into(),

@@ -21,14 +21,14 @@ pub(in crate::commands::revision) fn format_fk_policy_change_line(
         deltas.push(format!(
             "ON DELETE {} -> {}",
             render_reference_action(d.before.as_ref()),
-            render_reference_action(d.after.as_ref()),
+            render_reference_action(d.after.as_ref())
         ));
     }
     if let Some(d) = &w.on_update_change {
         deltas.push(format!(
             "ON UPDATE {} -> {}",
             render_reference_action(d.before.as_ref()),
-            render_reference_action(d.after.as_ref()),
+            render_reference_action(d.after.as_ref())
         ));
     }
     format!("{fk_label} {from} -> {to} :: {}", deltas.join(" / "))
@@ -41,7 +41,7 @@ pub(in crate::commands::revision) fn format_fk_policy_change_line(
 ///
 /// Returns `Ok(true)` when the user confirms, `Ok(false)` when they
 /// decline (which the caller turns into a `revision` abort).
-#[cfg(not(tarpaulin_include))]
+#[cfg(not(tarpaulin_include))] // reason: interactive stdin/dialoguer prompt, not unit-testable
 pub(in crate::commands::revision) fn prompt_fk_policy_changes(
     warnings: &[FkPolicyChangeWarning],
 ) -> Result<bool> {
@@ -77,7 +77,7 @@ pub(in crate::commands::revision) fn prompt_fk_policy_changes(
 
 /// Prompt the user to confirm table recreation.
 /// Returns true if the user confirms, false otherwise.
-#[cfg(not(tarpaulin_include))]
+#[cfg(not(tarpaulin_include))] // reason: interactive stdin/dialoguer prompt, not unit-testable
 pub(in crate::commands::revision) fn prompt_recreate_tables(
     tables: &[RecreateTableRequired],
 ) -> Result<bool> {
@@ -129,6 +129,7 @@ pub(in crate::commands::revision) fn prompt_recreate_tables(
 /// When the user picks `Drop permanently` a second `Confirm` is shown with
 /// a backup-recommendation hint (F10 strong confirm); declining the confirm
 /// falls back to `Ok(None)` so the user can pick a different option.
+#[cfg(not(tarpaulin_include))] // reason: interactive stdin/dialoguer prompt, not unit-testable
 pub(in crate::commands::revision) fn prompt_drop_resolution(
     resolution: &DropResolution,
 ) -> Result<Option<DropChoice>> {
@@ -186,7 +187,7 @@ fn format_drop_header(target: &DropTarget) -> String {
         DropTarget::Table { name } => format!(
             "  {} Resolve drop: table `{}`",
             "\u{26a0}".bright_yellow(),
-            name.bright_white().bold(),
+            name.bright_white().bold()
         ),
     }
 }
@@ -204,6 +205,7 @@ fn format_candidate_label(c: &vespertide_planner::RenameCandidate) -> String {
     format!("{marker}Rename \u{2192} {}{}", c.target_name, diff)
 }
 
+#[cfg(not(tarpaulin_include))] // reason: interactive stdin/dialoguer prompt, not unit-testable
 fn confirm_permanent_drop(target: &DropTarget) -> Result<Option<DropChoice>> {
     println!();
     let (what, backup_hint) = match target {
@@ -234,5 +236,100 @@ fn confirm_permanent_drop(target: &DropTarget) -> Result<Option<DropChoice>> {
         Ok(Some(DropChoice::Drop))
     } else {
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vespertide_planner::{Match, PolicyDelta, RenameCandidate};
+
+    #[test]
+    fn fmt_fk_policy_change_line_renders_both_deltas_and_names() {
+        let w = FkPolicyChangeWarning {
+            action_index: 0,
+            table: "post".into(),
+            constraint_name: Some("fk_user".into()),
+            columns: vec!["user_id".into()],
+            ref_table: "user".into(),
+            ref_columns: vec!["id".into()],
+            on_delete_change: Some(PolicyDelta {
+                before: Some(vespertide_core::ReferenceAction::Cascade),
+                after: Some(vespertide_core::ReferenceAction::Restrict),
+            }),
+            on_update_change: Some(PolicyDelta {
+                before: None,
+                after: Some(vespertide_core::ReferenceAction::SetNull),
+            }),
+        };
+        let s = format_fk_policy_change_line(&w);
+        assert!(s.contains("fk_user"));
+        assert!(s.contains("post(user_id)"));
+        assert!(s.contains("user(id)"));
+        assert!(s.contains("ON DELETE"));
+        assert!(s.contains("ON UPDATE"));
+    }
+
+    #[test]
+    fn fmt_fk_policy_change_line_uses_unnamed_for_no_constraint_name() {
+        let w = FkPolicyChangeWarning {
+            action_index: 0,
+            table: "post".into(),
+            constraint_name: None,
+            columns: vec!["user_id".into()],
+            ref_table: "user".into(),
+            ref_columns: vec!["id".into()],
+            on_delete_change: Some(PolicyDelta {
+                before: None,
+                after: Some(vespertide_core::ReferenceAction::Cascade),
+            }),
+            on_update_change: None,
+        };
+        assert!(format_fk_policy_change_line(&w).contains("(unnamed)"));
+    }
+
+    #[test]
+    fn fmt_drop_header_column_and_table_variants() {
+        let h_col = format_drop_header(&DropTarget::Column {
+            table: "users".into(),
+            column: "email".into(),
+            column_type: "text".into(),
+        });
+        assert!(h_col.contains("Resolve drop: column"));
+        assert!(h_col.contains("users") && h_col.contains("email"));
+
+        let h_tbl = format_drop_header(&DropTarget::Table {
+            name: "audit".into(),
+        });
+        assert!(h_tbl.contains("Resolve drop: table"));
+        assert!(h_tbl.contains("audit"));
+    }
+
+    #[test]
+    fn fmt_candidate_label_branches_on_match_and_differences() {
+        let exact_no_diff = RenameCandidate {
+            target_name: "new_name".into(),
+            match_quality: Match::Exact,
+            differences: vec![],
+        };
+        let s_exact = format_candidate_label(&exact_no_diff);
+        assert!(s_exact.contains("Rename"));
+        assert!(s_exact.contains("new_name"));
+
+        let same_type_with_diffs = RenameCandidate {
+            target_name: "other".into(),
+            match_quality: Match::SameType,
+            differences: vec!["nullability".into(), "default".into()],
+        };
+        let s_diff = format_candidate_label(&same_type_with_diffs);
+        assert!(s_diff.contains("nullability"));
+        assert!(s_diff.contains("default"));
+
+        let different = RenameCandidate {
+            target_name: "z".into(),
+            match_quality: Match::Different,
+            differences: vec![],
+        };
+        assert!(format_candidate_label(&different).contains('z'));
     }
 }

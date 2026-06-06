@@ -631,3 +631,92 @@ fn parse_table(text: &str) -> Option<vespertide_core::TableDef> {
         .ok()
         .or_else(|| serde_yaml::from_str(text).ok())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    fn completion_labels(items: &[DomainCompletion]) -> Vec<&str> {
+        items.iter().map(|item| item.label.as_str()).collect()
+    }
+
+    #[rstest]
+    #[case::complex_enum(Some("enum"), &["alpha", "beta"], &["'alpha'", "'beta'"], &["now()"])]
+    #[case::unknown_complex_kind(Some("custom"), &[], &["null"], &[])]
+    #[case::jsonb(Some("jsonb"), &[], &["'{}'", "'[]'"], &[])]
+    #[case::date(Some("date"), &[], &["CURRENT_DATE"], &[])]
+    #[case::time(Some("time"), &[], &["CURRENT_TIME"], &[])]
+    #[case::text(Some("text"), &[], &["''", "'${1:value}'"], &[])]
+    #[case::integer_enum_member_names(Some("enum"), &["low", "high"], &["'low'", "'high'"], &["now()"])]
+    fn default_value_candidate_cases(
+        #[case] type_kind: Option<&str>,
+        #[case] enum_values: &[&str],
+        #[case] expected_present: &[&str],
+        #[case] expected_absent: &[&str],
+    ) {
+        let enum_values = enum_values
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect::<Vec<_>>();
+        let items = default_values(type_kind, &enum_values, None);
+        let labels = completion_labels(&items);
+
+        for &expected in expected_present {
+            assert!(
+                labels.contains(&expected),
+                "expected `{expected}` in labels: {labels:?}"
+            );
+        }
+        for &unexpected in expected_absent {
+            assert!(
+                !labels.contains(&unexpected),
+                "unexpected `{unexpected}` in labels: {labels:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn type_kind_value_at_bare_slot_carries_quoted_insert_text() {
+        let items = type_kind_values(None);
+        let varchar = items.iter().find(|item| item.label == "varchar").unwrap();
+
+        assert!(varchar.replace_range_bytes.is_none());
+        assert_eq!(varchar.insert_text.as_deref(), Some("\"varchar\""));
+    }
+
+    #[test]
+    fn numeric_default_candidates_are_json_literals() {
+        let items = default_values(Some("integer"), &[], None);
+        let labels = completion_labels(&items);
+
+        assert!(labels.contains(&"0"));
+        assert!(labels.contains(&"1"));
+        assert!(labels.contains(&"-1"));
+    }
+
+    #[test]
+    fn sql_default_candidates_are_quoted_outside_strings() {
+        let items = default_values(Some("timestamp"), &[], None);
+        let now = items
+            .iter()
+            .find(|item| item.label == "now()")
+            .expect("now completion");
+
+        assert_eq!(now.insert_text.as_deref(), Some("\"now()\""));
+    }
+
+    #[test]
+    fn sql_default_candidates_replace_inner_range_inside_strings() {
+        let string_range = 10..12;
+        let items = default_values(Some("text"), &[], Some(&string_range));
+        let snippet = items
+            .iter()
+            .find(|item| item.label == "'${1:value}'")
+            .expect("snippet completion");
+
+        assert_eq!(snippet.kind, CompletionItemKind::Snippet);
+        assert_eq!(snippet.insert_text.as_deref(), Some("'${1:value}'"));
+        assert_eq!(snippet.replace_range_bytes, Some(11..11));
+    }
+}

@@ -263,3 +263,98 @@ pub struct InvalidEnumDefaultError {
     pub value: String,
     pub allowed: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Coverage-closure: `DanglingForeignKeyAfterDrop` Display formatting
+    /// across all four `(dropped_column, referencing_constraint)` quadrants.
+    /// Exercises both arms of `format_dropped` (column vs whole-table) and
+    /// `format_fk` (named vs unnamed FK) so every doc-line / format-string
+    /// slice inside the `#[error(...)]` attribute is reached.
+    #[test]
+    fn dangling_fk_after_drop_column_drop_named_fk_displays_full_message() {
+        let err = PlannerError::DanglingForeignKeyAfterDrop {
+            dropped_table: "user".to_string(),
+            dropped_column: Some("id".to_string()),
+            referencing_table: "post".to_string(),
+            referencing_constraint: Some("fk_post_user".to_string()),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("column `user.id`"), "msg: {msg}");
+        assert!(msg.contains("`fk_post_user`"), "msg: {msg}");
+        assert!(msg.contains("on table `post`"), "msg: {msg}");
+    }
+
+    #[test]
+    fn dangling_fk_after_drop_table_drop_unnamed_fk_displays_unnamed_marker() {
+        let err = PlannerError::DanglingForeignKeyAfterDrop {
+            dropped_table: "parent".to_string(),
+            dropped_column: None,
+            referencing_table: "child".to_string(),
+            referencing_constraint: None,
+        };
+        let msg = err.to_string();
+        // format_dropped(None) → "table `parent`"; format_fk(None) → "(unnamed)"
+        assert!(msg.contains("table `parent`"), "msg: {msg}");
+        assert!(msg.contains("(unnamed)"), "msg: {msg}");
+        assert!(msg.contains("on table `child`"), "msg: {msg}");
+    }
+
+    #[test]
+    fn dangling_fk_after_drop_column_drop_unnamed_fk_combines_both_arms() {
+        let err = PlannerError::DanglingForeignKeyAfterDrop {
+            dropped_table: "user".to_string(),
+            dropped_column: Some("email".to_string()),
+            referencing_table: "log".to_string(),
+            referencing_constraint: None,
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("column `user.email`"), "msg: {msg}");
+        assert!(msg.contains("(unnamed)"), "msg: {msg}");
+    }
+
+    #[test]
+    fn dangling_fk_after_drop_table_drop_named_fk_combines_both_arms() {
+        let err = PlannerError::DanglingForeignKeyAfterDrop {
+            dropped_table: "parent".to_string(),
+            dropped_column: None,
+            referencing_table: "child".to_string(),
+            referencing_constraint: Some("fk_child_parent".to_string()),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("table `parent`"), "msg: {msg}");
+        assert!(msg.contains("`fk_child_parent`"), "msg: {msg}");
+    }
+
+    /// Verify the helper free functions directly so both match arms are
+    /// reached even if the macro-expanded Display path skips one.
+    #[test]
+    fn format_dropped_helpers_both_arms() {
+        assert_eq!(format_dropped("user", Some("id")), "column `user.id`");
+        assert_eq!(format_dropped("user", None), "table `user`");
+    }
+
+    #[test]
+    fn format_fk_helpers_both_arms() {
+        assert_eq!(format_fk(Some("fk_a")), "`fk_a`");
+        assert_eq!(format_fk(None), "(unnamed)");
+    }
+
+    /// Coverage-closure: `MultipleErrors` Display path with several
+    /// nested errors. Ensures the `for (idx, err)` numbered-list arm
+    /// in `MultipleErrors::fmt` is reached.
+    #[test]
+    fn multiple_errors_renders_numbered_list() {
+        let multi = MultipleErrors(vec![
+            PlannerError::TableExists("user".to_string()),
+            PlannerError::ColumnNotFound("user".to_string(), "email".to_string()),
+        ]);
+        let s = multi.to_string();
+        assert!(s.contains("2 validation violation(s):"), "{s}");
+        assert!(s.contains("1. table already exists: user"), "{s}");
+        assert!(s.contains("2. column not found: user.email"), "{s}");
+        assert!(s.contains("Fix all of the above"), "{s}");
+    }
+}

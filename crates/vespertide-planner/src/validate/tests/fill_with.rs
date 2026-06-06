@@ -345,6 +345,37 @@ fn find_missing_fill_with_other_actions_ignored() {
 }
 
 #[test]
+fn find_missing_fill_with_parallel_path_sorts_by_action_index() {
+    let mut actions: Vec<MigrationAction> = (0..10_000)
+        .map(|idx| MigrationAction::DeleteColumn {
+            table: "noop".into(),
+            column: format!("old_{idx}").into(),
+        })
+        .collect();
+    actions.push(MigrationAction::AddColumn {
+        table: "users".into(),
+        column: Box::new(ColumnDef::new(
+            "email",
+            ColumnType::Simple(SimpleColumnType::Text),
+            false,
+        )),
+        fill_with: None,
+    });
+    let plan = MigrationPlan {
+        id: String::new(),
+        comment: None,
+        created_at: None,
+        version: 1,
+        actions,
+    };
+
+    let missing = find_missing_fill_with(&plan, &[]);
+    assert_eq!(missing.len(), 1);
+    assert_eq!(missing[0].action_index, 10_000);
+    assert_eq!(missing[0].column, "email");
+}
+
+#[test]
 fn validate_auto_increment_on_text_column_fails() {
     let table_def = table(
         "users",

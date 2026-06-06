@@ -128,13 +128,7 @@ fn build_postgres_enum_migration(queries: &mut Vec<BuiltQuery>, context: &Direct
         }
 
         // 3. ALTER TABLE ... ALTER COLUMN ... TYPE target_type USING col::text::target_type.
-        queries.push(BuiltQuery::Raw(RawSql::per_backend(
-            format!(
-                "ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} TYPE {quoted_target_type} USING {quoted_column}::text::{quoted_target_type}"
-            ),
-            String::new(),
-            String::new(),
-        )));
+        queries.push(BuiltQuery::Raw(RawSql::per_backend(format!("ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} TYPE {quoted_target_type} USING {quoted_column}::text::{quoted_target_type}"), String::new(), String::new())));
 
         // 4. DROP old enum type.
         queries.push(BuiltQuery::Raw(RawSql::per_backend(
@@ -156,13 +150,7 @@ fn build_postgres_enum_migration(queries: &mut Vec<BuiltQuery>, context: &Direct
         if let Some(default_value) = column_default {
             let normalized_default =
                 normalize_enum_default(context.new_type, &default_value.to_sql());
-            queries.push(BuiltQuery::Raw(RawSql::per_backend(
-                format!(
-                    "ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} SET DEFAULT {normalized_default}"
-                ),
-                String::new(),
-                String::new(),
-            )));
+            queries.push(BuiltQuery::Raw(RawSql::per_backend(format!("ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} SET DEFAULT {normalized_default}"), String::new(), String::new())));
         }
     }
 }

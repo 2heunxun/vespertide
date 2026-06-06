@@ -173,6 +173,96 @@ fn test_sort_enum_default_dependencies_swaps_when_old_default_removed() {
     );
 }
 
+/// L71-74: drive the rayon parallel branch of `diff_schemas` so the
+/// per-table closure `diff_existing_table(name, &from_map, to_tbl)` is
+/// invoked. The branch fires when `to_map.len() >= diff_par_table_threshold()`
+/// (default 10_000). Force the threshold to 1 via the documented
+/// `VESPERTIDE_DIFF_PAR_THRESHOLD` env-var override so a 2-table
+/// schema is enough to exercise it.
+#[test]
+fn diff_existing_table_invoked_via_parallel_branch() {
+    use serial_test::serial;
+    // serial_test guards the env-var mutation against parallel test
+    // races; opt in via the macro on the wrapping closure.
+    #[serial(vespertide_diff_par_threshold)]
+    #[expect(
+        unsafe_code,
+        reason = "std::env::set_var/remove_var are unsafe in edition 2024; serial_test gates concurrent races and the prior value is restored below"
+    )]
+    fn body() {
+        // Snapshot prior env so unrelated tests are unaffected.
+        let prior = std::env::var("VESPERTIDE_DIFF_PAR_THRESHOLD").ok();
+        // SAFETY: env mutation gated by `#[serial]`; restored below.
+        unsafe {
+            std::env::set_var("VESPERTIDE_DIFF_PAR_THRESHOLD", "1");
+        }
+
+        // Two-table schema with one structural change on each existing
+        // table → parallel path runs diff_existing_table for each.
+        let from = vec![
+            table(
+                "a",
+                vec![
+                    col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+                    col("name", ColumnType::Simple(SimpleColumnType::Text)),
+                ],
+                vec![],
+            ),
+            table(
+                "b",
+                vec![
+                    col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+                    col("email", ColumnType::Simple(SimpleColumnType::Text)),
+                ],
+                vec![],
+            ),
+        ];
+        let to = vec![
+            table(
+                "a",
+                vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
+                vec![],
+            ), // drop `name`
+            table(
+                "b",
+                vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
+                vec![],
+            ), // drop `email`
+        ];
+
+        let plan = diff_schemas(&from, &to).expect("parallel diff path produces a plan");
+        let deleted: BTreeSet<&str> = plan
+            .actions
+            .iter()
+            .filter_map(|a| match a {
+                MigrationAction::DeleteColumn { column, .. } => Some(column.as_str()),
+                _ => None,
+            })
+            .collect();
+        // diff_existing_table closure ran for both tables → both
+        // `DeleteColumn` actions are emitted.
+        assert!(
+            deleted.contains("name"),
+            "missing DeleteColumn for name; got {:?}",
+            plan.actions
+        );
+        assert!(
+            deleted.contains("email"),
+            "missing DeleteColumn for email; got {:?}",
+            plan.actions
+        );
+
+        // Restore previous env to avoid leaking into other tests.
+        unsafe {
+            match prior {
+                Some(v) => std::env::set_var("VESPERTIDE_DIFF_PAR_THRESHOLD", v),
+                None => std::env::remove_var("VESPERTIDE_DIFF_PAR_THRESHOLD"),
+            }
+        }
+    }
+    body();
+}
+
 #[test]
 fn test_delete_column_from_existing_table() {
     // Simple column deletion to cover diff.rs line 339

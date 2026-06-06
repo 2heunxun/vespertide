@@ -244,16 +244,8 @@ mod tests {
         let tmp = tempdir().unwrap();
         let models_dir = tmp.path().join("models");
         fs::create_dir_all(&models_dir).unwrap();
-        fs::write(
-            tmp.path().join("vespertide.json"),
-            r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#,
-        )
-        .unwrap();
-        fs::write(
-            models_dir.join("user.json"),
-            r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#,
-        )
-        .unwrap();
+        fs::write(tmp.path().join("vespertide.json"), r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#).unwrap();
+        fs::write(models_dir.join("user.json"), r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#).unwrap();
 
         let disk = WorkspaceTables::new();
         assert!(disk.refresh(tmp.path()));

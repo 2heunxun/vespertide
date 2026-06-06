@@ -401,18 +401,20 @@ fn is_definitely_mismatch(col_type: &ColumnType, lit: &Literal) -> bool {
 fn column_type_label(col_type: &ColumnType) -> String {
     match col_type {
         ColumnType::Simple(simple) => format!("{simple:?}").to_lowercase(),
-        ColumnType::Complex(complex) => match complex {
-            ComplexColumnType::Varchar { length } => format!("varchar({length})"),
-            ComplexColumnType::Char { length } => format!("char({length})"),
-            ComplexColumnType::Numeric { precision, scale } => {
-                format!("numeric({precision}, {scale})")
-            }
-            ComplexColumnType::Custom { custom_type } => format!("custom({custom_type})"),
-            ComplexColumnType::Enum { name, .. } => format!("enum({name})"),
-            // ComplexColumnType is #[non_exhaustive]; future variants
-            // fall back to a generic label rather than panic.
-            _ => "complex".to_string(),
-        },
+        ColumnType::Complex(complex) => complex_type_label(complex),
+    }
+}
+
+fn complex_type_label(complex: &ComplexColumnType) -> String {
+    match complex {
+        ComplexColumnType::Varchar { length } => format!("varchar({length})"),
+        ComplexColumnType::Char { length } => format!("char({length})"),
+        ComplexColumnType::Numeric { precision, scale } => format!("numeric({precision}, {scale})"),
+        ComplexColumnType::Custom { custom_type } => format!("custom({custom_type})"),
+        ComplexColumnType::Enum { name, .. } => format!("enum({name})"),
+        // reason: unreachable - exhaustive over current ComplexColumnType variants; fallback required only for #[non_exhaustive] future variants
+        #[cfg(not(tarpaulin_include))]
+        _ => "complex".to_string(),
     }
 }
 
@@ -771,5 +773,242 @@ mod tests {
         let warnings = find_check_type_mismatches(&p, &[]);
         assert_eq!(warnings.len(), 1);
         assert_eq!(warnings[0].column_type_label, "integer");
+    }
+
+    // ── Coverage-closure: ReplaceConstraint(Check), AddColumn / ModifyColumnType
+    // type-map paths, plus remaining sub-arms of is_definitely_mismatch ──
+
+    use rstest::rstest;
+
+    /// `ReplaceConstraint { to: Check { .. }, .. }` triggers `scan_check`
+    /// on the replacement expression. Exercises the `ReplaceConstraint`
+    /// arm in `find_check_type_mismatches` (line 117-123).
+    #[rstest]
+    fn replace_constraint_check_is_scanned() {
+        let baseline = vec![baseline_table(
+            "t",
+            vec![col("age", ColumnType::Simple(SimpleColumnType::Integer))],
+        )];
+        let p = plan(vec![MigrationAction::ReplaceConstraint {
+            table: "t".into(),
+            from: check("old", "age > 0"),
+            to: check("new", "age = 'bad'"),
+        }]);
+        let warnings = find_check_type_mismatches(&p, &baseline);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].constraint_name, "new");
+    }
+
+    /// `MigrationAction::AddColumn` feeds its column into the type-map so
+    /// a downstream `AddConstraint(Check)` referencing the freshly-added
+    /// column resolves correctly. Covers `build_column_type_map` AddColumn
+    /// arm (line 287-292).
+    #[rstest]
+    fn add_column_then_check_on_same_column_uses_plan_type_map() {
+        let baseline = vec![baseline_table("t", vec![])];
+        let new_col = col("status", ColumnType::Simple(SimpleColumnType::Boolean));
+        let p = plan(vec![
+            MigrationAction::AddColumn {
+                table: "t".into(),
+                column: Box::new(new_col),
+                fill_with: None,
+            },
+            MigrationAction::AddConstraint {
+                table: "t".into(),
+                constraint: check("chk_status", "status = 'x'"),
+            },
+        ]);
+        let warnings = find_check_type_mismatches(&p, &baseline);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].column, "status");
+    }
+
+    /// `MigrationAction::ModifyColumnType` updates the type-map so a
+    /// CHECK in the same plan compares against the new type. Covers
+    /// `build_column_type_map` ModifyColumnType arm (line 293-300).
+    #[rstest]
+    fn modify_column_type_updates_type_map_for_check() {
+        let baseline = vec![baseline_table(
+            "t",
+            vec![col("v", ColumnType::Simple(SimpleColumnType::Integer))],
+        )];
+        let p = plan(vec![
+            MigrationAction::ModifyColumnType {
+                table: "t".into(),
+                column: "v".into(),
+                new_type: ColumnType::Simple(SimpleColumnType::Text),
+                fill_with: None,
+                narrowing_strategy: None,
+                timezone: None,
+            },
+            MigrationAction::AddConstraint {
+                table: "t".into(),
+                constraint: check("chk_v", "v > 42"),
+            },
+        ]);
+        // Post-modify type is Text → integer literal 42 mismatches.
+        let warnings = find_check_type_mismatches(&p, &baseline);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].column_type_label, "text");
+        assert_eq!(warnings[0].literal_kind, "Integer");
+    }
+
+    /// `Real` / `DoublePrecision` column + non-numeric literal → mismatch
+    /// (line 319-326).
+    #[rstest]
+    #[case::real(SimpleColumnType::Real)]
+    #[case::double(SimpleColumnType::DoublePrecision)]
+    fn real_family_column_with_string_literal_is_mismatch(#[case] ty: SimpleColumnType) {
+        let baseline = vec![baseline_table("t", vec![col("v", ColumnType::Simple(ty))])];
+        let p = plan(vec![add_check("t", "chk", "v = 'abc'")]);
+        let warnings = find_check_type_mismatches(&p, &baseline);
+        assert_eq!(warnings.len(), 1);
+    }
+
+    /// `Bytea` + `Bool` literal → mismatch (line 354-355).
+    #[rstest]
+    fn bytea_column_with_bool_literal_is_mismatch() {
+        let baseline = vec![baseline_table(
+            "t",
+            vec![col("blob", ColumnType::Simple(SimpleColumnType::Bytea))],
+        )];
+        let p = plan(vec![add_check("t", "chk", "blob = TRUE")]);
+        let warnings = find_check_type_mismatches(&p, &baseline);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].literal_kind, "Bool");
+    }
+
+    /// Network / XML column families + non-string literal → mismatch
+    /// (lines 357-363). Exercises Inet / Cidr / Macaddr / Xml.
+    #[rstest]
+    #[case::inet(SimpleColumnType::Inet)]
+    #[case::cidr(SimpleColumnType::Cidr)]
+    #[case::macaddr(SimpleColumnType::Macaddr)]
+    #[case::xml(SimpleColumnType::Xml)]
+    fn network_xml_column_with_integer_literal_is_mismatch(#[case] ty: SimpleColumnType) {
+        let baseline = vec![baseline_table("t", vec![col("v", ColumnType::Simple(ty))])];
+        let p = plan(vec![add_check("t", "chk", "v = 42")]);
+        let warnings = find_check_type_mismatches(&p, &baseline);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].literal_kind, "Integer");
+    }
+
+    /// `Char` complex column + numeric literal → mismatch (line 372-375).
+    #[rstest]
+    fn char_column_with_integer_literal_is_mismatch() {
+        let baseline = vec![baseline_table(
+            "t",
+            vec![col(
+                "code",
+                ColumnType::Complex(ComplexColumnType::Char { length: 2 }),
+            )],
+        )];
+        let p = plan(vec![add_check("t", "chk", "code = 99")]);
+        let warnings = find_check_type_mismatches(&p, &baseline);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].column_type_label, "char(2)");
+    }
+
+    /// `Integer enum` complex column + string literal → mismatch
+    /// (line 387-393).
+    #[rstest]
+    fn integer_enum_column_with_string_literal_is_mismatch() {
+        let baseline = vec![baseline_table(
+            "t",
+            vec![col(
+                "priority",
+                ColumnType::Complex(ComplexColumnType::Enum {
+                    name: "priority_level".into(),
+                    values: EnumValues::Integer(vec![
+                        vespertide_core::NumValue {
+                            name: "low".into(),
+                            value: 0,
+                        },
+                        vespertide_core::NumValue {
+                            name: "high".into(),
+                            value: 10,
+                        },
+                    ]),
+                }),
+            )],
+        )];
+        let p = plan(vec![add_check("t", "chk", "priority = 'low'")]);
+        let warnings = find_check_type_mismatches(&p, &baseline);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].literal_kind, "String");
+        assert_eq!(warnings[0].column_type_label, "enum(priority_level)");
+    }
+
+    /// Numeric column + numeric literal → passes (Complex `_ => false`
+    /// fallthrough at line 396).
+    #[rstest]
+    fn numeric_column_with_integer_literal_passes() {
+        let baseline = vec![baseline_table(
+            "t",
+            vec![col(
+                "amount",
+                ColumnType::Complex(ComplexColumnType::Numeric {
+                    precision: 10,
+                    scale: 2,
+                }),
+            )],
+        )];
+        let p = plan(vec![add_check("t", "chk", "amount > 100")]);
+        assert!(find_check_type_mismatches(&p, &baseline).is_empty());
+    }
+
+    /// Varchar column + string literal → passes (Complex `_ => false`
+    /// fallthrough at line 396, via the (Varchar, _) shape that does NOT
+    /// match the explicit "Varchar/Char + non-string" arm).
+    #[rstest]
+    fn varchar_column_with_string_literal_passes() {
+        let baseline = vec![baseline_table(
+            "t",
+            vec![col(
+                "name",
+                ColumnType::Complex(ComplexColumnType::Varchar { length: 50 }),
+            )],
+        )];
+        let p = plan(vec![add_check("t", "chk", "name = 'alice'")]);
+        assert!(find_check_type_mismatches(&p, &baseline).is_empty());
+    }
+
+    /// Direct unit test for `literal_kind_name` Null arm (line 425) and
+    /// `format_literal` Null arm (line 435): these arms are unreachable
+    /// from the public flow because `is_definitely_mismatch` returns
+    /// false for `Null` literals before the formatters run.
+    #[rstest]
+    fn literal_kind_name_and_format_literal_cover_null_and_float_arms() {
+        assert_eq!(literal_kind_name(&Literal::Integer(1)), "Integer");
+        assert_eq!(literal_kind_name(&Literal::Float(1.0)), "Float");
+        assert_eq!(literal_kind_name(&Literal::String("x".into())), "String");
+        assert_eq!(literal_kind_name(&Literal::Bool(true)), "Bool");
+        assert_eq!(literal_kind_name(&Literal::Null), "Null");
+
+        assert_eq!(format_literal(&Literal::Integer(7)), "7");
+        assert_eq!(format_literal(&Literal::Float(1.5)), "1.5");
+        assert_eq!(format_literal(&Literal::String("alice".into())), "alice");
+        assert_eq!(format_literal(&Literal::Bool(false)), "false");
+        assert_eq!(format_literal(&Literal::Null), "NULL");
+    }
+
+    #[rstest]
+    fn not_wrapped_check_expression_is_recursed() {
+        let baseline = vec![baseline_table(
+            "t",
+            vec![col("age", ColumnType::Simple(SimpleColumnType::Integer))],
+        )];
+        let p = plan(vec![add_check("t", "chk", "NOT (age = 'bad')")]);
+        let warnings = find_check_type_mismatches(&p, &baseline);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].expr, "NOT (age = 'bad')");
+    }
+
+    #[rstest]
+    fn column_type_label_custom_renders_type_name() {
+        let label = column_type_label(&ColumnType::Complex(ComplexColumnType::Custom {
+            custom_type: "TSVECTOR".into(),
+        }));
+        assert_eq!(label, "custom(TSVECTOR)");
     }
 }

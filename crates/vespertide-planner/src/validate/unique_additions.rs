@@ -209,30 +209,13 @@ fn collect_fk_references(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vespertide_core::{
-        ColumnDef, ColumnType, SimpleColumnType, TableName, UniqueConstraintStrategy,
-    };
+    use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType, UniqueConstraintStrategy};
 
     fn col_nn(name: &str) -> ColumnDef {
         ColumnDef::new(name, ColumnType::Simple(SimpleColumnType::Text), false)
     }
 
-    fn table(name: &str, columns: Vec<ColumnDef>, constraints: Vec<TableConstraint>) -> TableDef {
-        TableDef {
-            name: TableName::from(name),
-            description: None,
-            columns,
-            constraints,
-        }
-    }
-
-    fn pk(columns: Vec<&str>) -> TableConstraint {
-        TableConstraint::PrimaryKey {
-            auto_increment: false,
-            columns: columns.into_iter().map(Into::into).collect(),
-            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-        }
-    }
+    use crate::test_support::{pk, table};
 
     fn unique(name: Option<&str>, columns: Vec<&str>) -> TableConstraint {
         TableConstraint::Unique {
@@ -418,5 +401,100 @@ mod tests {
             fill_with: None,
         }]);
         assert!(find_unique_additions(&p, &baseline).is_empty());
+    }
+
+    // ── Coverage-closure ──────────────────────────────────────────────
+
+    /// Case 9: `AddConstraint(Unique)` whose target table is not in the
+    /// baseline at all (e.g. created later in the plan) — the early
+    /// `Some(table_def) else continue` guard fires.
+    #[test]
+    fn case_09_target_table_not_in_baseline_skipped() {
+        let baseline: Vec<TableDef> = vec![];
+        let p = plan(vec![add_unique(
+            "user",
+            unique(Some("uq_user_email"), vec!["email"]),
+        )]);
+        assert!(find_unique_additions(&p, &baseline).is_empty());
+    }
+
+    /// Case 10: Table has no table-level PK constraint but has an inline
+    /// `primary_key` on a column — exercises the
+    /// `or_else(|| { let inline = ...; ... })` fallback in
+    /// `resolve_pk_kind` (lines 147-155).
+    #[test]
+    fn case_10_inline_primary_key_resolves_to_single_auto_cleanup() {
+        let mut id = col_nn("id");
+        id.primary_key = Some(vespertide_core::schema::primary_key::PrimaryKeySyntax::Bool(true));
+        let baseline = vec![table("user", vec![id, col_nn("email")], vec![])];
+        let p = plan(vec![add_unique(
+            "user",
+            unique(Some("uq_user_email"), vec!["email"]),
+        )]);
+
+        let w = find_unique_additions(&p, &baseline);
+        assert_eq!(w.len(), 1);
+        // inline PK on `id` ⇒ SingleAutoCleanupCapable { column: "id" }.
+        assert!(matches!(
+            w[0].pk_kind,
+            PkKind::SingleAutoCleanupCapable { ref column } if column == "id"
+        ));
+    }
+
+    /// Case 11: Table without any PK at all (table-level OR inline) →
+    /// `PkKind::None` (the final fallback in `resolve_pk_kind`).
+    #[test]
+    fn case_11_no_pk_at_all_returns_none_kind() {
+        let baseline = vec![table("user", vec![col_nn("email")], vec![])];
+        let p = plan(vec![add_unique("user", unique(Some("uq"), vec!["email"]))]);
+
+        let w = find_unique_additions(&p, &baseline);
+        assert_eq!(w.len(), 1);
+        assert!(matches!(w[0].pk_kind, PkKind::None));
+    }
+
+    #[test]
+    fn case_12_fk_references_ignore_other_tables_and_column_sets() {
+        let baseline = vec![
+            table(
+                "user",
+                vec![col_nn("id"), col_nn("email")],
+                vec![pk(vec!["id"])],
+            ),
+            table("other", vec![col_nn("id")], vec![pk(vec!["id"])]),
+            table(
+                "session",
+                vec![col_nn("id"), col_nn("other_id"), col_nn("user_id")],
+                vec![
+                    pk(vec!["id"]),
+                    TableConstraint::ForeignKey {
+                        name: Some("fk_other".into()),
+                        columns: vec!["other_id".into()],
+                        ref_table: "other".into(),
+                        ref_columns: vec!["id".into()],
+                        on_delete: None,
+                        on_update: None,
+                        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
+                    },
+                    TableConstraint::ForeignKey {
+                        name: Some("fk_user_id".into()),
+                        columns: vec!["user_id".into()],
+                        ref_table: "user".into(),
+                        ref_columns: vec!["id".into()],
+                        on_delete: None,
+                        on_update: None,
+                        orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
+                    },
+                ],
+            ),
+        ];
+        let p = plan(vec![add_unique(
+            "user",
+            unique(Some("uq_user_email"), vec!["email"]),
+        )]);
+
+        let w = find_unique_additions(&p, &baseline);
+        assert_eq!(w.len(), 1);
+        assert!(w[0].fk_references.is_empty());
     }
 }

@@ -354,10 +354,6 @@ fn test_exporter_without_prefix() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "fixture-heavy relation regression test"
-)]
 fn test_junction_relation_enum_without_via_when_entity_appears_multiple_times() {
     use vespertide_core::schema::primary_key::PrimaryKeySyntax;
 

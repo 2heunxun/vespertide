@@ -759,4 +759,289 @@ mod tests {
         let warnings = find_check_strengthenings(&p, &baseline);
         assert_eq!(warnings[0].kind, CheckStrengtheningKind::BoundaryTightened);
     }
+
+    // ── Coverage-closure: BETWEEN / OR / AND deeper paths ──────────────
+
+    /// Both BETWEEN boundaries narrowed via in-plan Remove+Add (covers
+    /// `between_is_narrower` true path under remove_then_add source).
+    #[test]
+    fn between_narrowed_via_remove_then_add_warns() {
+        let p = plan(vec![
+            remove_check("t", "chk_r", "x BETWEEN 0 AND 100"),
+            add_check("t", "chk_r", "x BETWEEN 10 AND 90"),
+        ]);
+        let warnings = find_check_strengthenings(&p, &[]);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::BetweenNarrowed);
+    }
+
+    /// `between_is_narrower` returns false when only the low boundary is
+    /// loosened (new_low < old_low) — silent pass.
+    #[test]
+    fn between_with_loosened_low_emits_no_warning() {
+        let baseline = baseline_with_check("t", "c", "x BETWEEN 10 AND 100");
+        let p = plan(vec![add_check("t", "c", "x BETWEEN 0 AND 100")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    /// IN list strict subset via Replace path (covers IN arm under
+    /// ReplaceConstraint).
+    #[test]
+    fn in_list_shrunk_via_replace() {
+        let p = plan(vec![replace_check(
+            "t",
+            "c",
+            "s IN ('a', 'b', 'c')",
+            "s IN ('a', 'b')",
+        )]);
+        let warnings = find_check_strengthenings(&p, &[]);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::InListShrunk);
+    }
+
+    /// `OR` shrinks via Replace — covers DisjunctRemoved arm via
+    /// ReplaceConstraint.
+    #[test]
+    fn or_disjunct_removed_via_replace() {
+        let p = plan(vec![replace_check(
+            "t",
+            "c",
+            "s = 'a' OR s = 'b' OR s = 'c'",
+            "s = 'a' OR s = 'b'",
+        )]);
+        let warnings = find_check_strengthenings(&p, &[]);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::DisjunctRemoved);
+    }
+
+    /// AND-to-AND conjunct addition via Replace — exercises the
+    /// `CheckExpr::And(old_parts), CheckExpr::And(new_parts)` arm.
+    #[test]
+    fn and_to_and_conjunct_added_via_replace() {
+        let p = plan(vec![replace_check(
+            "t",
+            "c",
+            "age > 0 AND age < 150",
+            "age > 0 AND age < 150 AND age <> 42",
+        )]);
+        let warnings = find_check_strengthenings(&p, &[]);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::ConjunctAdded);
+    }
+
+    /// `OperatorTightened` via remove+add path with `<= → <` form.
+    #[test]
+    fn operator_tightened_le_to_lt_via_remove_add() {
+        let p = plan(vec![
+            remove_check("t", "c", "x <= 100"),
+            add_check("t", "c", "x < 100"),
+        ]);
+        let warnings = find_check_strengthenings(&p, &[]);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::OperatorTightened);
+    }
+
+    /// IN list reduced to empty — guard at `subset.is_empty()` in
+    /// `in_is_strict_subset` returns false (silent pass).
+    /// SQL doesn't allow empty IN, so we approximate via a single-value
+    /// IN that's not a strict subset under our semantics.
+    #[test]
+    fn in_list_singleton_to_disjoint_singleton_does_not_warn() {
+        let baseline = baseline_with_check("t", "c", "s IN ('a')");
+        let p = plan(vec![add_check("t", "c", "s IN ('b')")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    /// Equal expressions after trim — early return at `old.trim() ==
+    /// new.trim()` in classify_strengthening.
+    #[test]
+    fn whitespace_only_difference_emits_no_warning() {
+        let baseline = baseline_with_check("t", "c", "age > 0");
+        let p = plan(vec![add_check("t", "c", "  age > 0  ")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    /// Old single-atom → new AND that does NOT contain the old atom
+    /// (no warning, conservative).
+    #[test]
+    fn single_predicate_to_unrelated_and_emits_no_warning() {
+        let baseline = baseline_with_check("t", "c", "age > 0");
+        let p = plan(vec![add_check("t", "c", "weight > 100 AND height < 200")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    /// `OR` shrunk to empty — guard `!new_parts.is_empty()` defends.
+    /// Reproduce by going OR-to-single-atom: not detected as DisjunctRemoved
+    /// because the new shape is no longer an OR.
+    #[test]
+    fn or_collapsed_to_single_atom_emits_no_warning() {
+        let baseline = baseline_with_check("t", "c", "s = 'a' OR s = 'b'");
+        let p = plan(vec![add_check("t", "c", "s = 'a'")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    // ── Coverage-closure W3 (final 15 uncovered lines) ────────────────
+
+    /// L184: `if old == new { return None; }` — exprs differ textually
+    /// (so the L175 trim short-circuit doesn't fire) but parse to the
+    /// SAME `CheckExpr` tree. `"age > 0"` and `"age>0"` trim to
+    /// different strings yet parse identically.
+    #[test]
+    fn whitespace_internal_difference_parses_equal_no_warning() {
+        let baseline = baseline_with_check("t", "c", "age > 0");
+        let p = plan(vec![add_check("t", "c", "age>0")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    /// L212: `if op1 == op2 && literal_equals(v1, v2) { return None; }`
+    /// — same op, derived `!=` on Literal but `literal_equals` returns
+    /// true via the epsilon/cross-numeric arms. `Integer(0)` vs
+    /// `Float(0.0)` satisfies both conditions.
+    #[test]
+    fn int_vs_float_literal_equal_no_warning() {
+        let baseline = baseline_with_check("t", "c", "x > 0");
+        let p = plan(vec![add_check("t", "c", "x > 0.0")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    /// L222: `_ => false,` in compare_strictness same-op match —
+    /// `Eq`/`Ne` ops do not satisfy the boundary tightening rule even
+    /// when the literal ordering is `Less`/`Greater`.
+    #[test]
+    fn eq_with_different_literals_does_not_warn() {
+        let baseline = baseline_with_check("t", "c", "x = 5");
+        let p = plan(vec![add_check("t", "c", "x = 10")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    /// L259: `let Some(lo_cmp) = literal_compare(...) else { return false; }`
+    /// — BETWEEN low boundary literal is incomparable (mixed type).
+    #[test]
+    fn between_with_incomparable_low_boundary_no_warning() {
+        // new low boundary is Bool — literal_compare(Int, Bool) → None.
+        let baseline = baseline_with_check("t", "c", "x BETWEEN 0 AND 100");
+        let p = plan(vec![add_check("t", "c", "x BETWEEN TRUE AND 90")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    /// L262: `let Some(hi_cmp) = literal_compare(...) else { return false; }`
+    /// — BETWEEN high boundary literal is incomparable.
+    #[test]
+    fn between_with_incomparable_high_boundary_no_warning() {
+        let baseline = baseline_with_check("t", "c", "x BETWEEN 0 AND 100");
+        let p = plan(vec![add_check("t", "c", "x BETWEEN 10 AND TRUE")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert!(warnings.is_empty());
+    }
+
+    /// L289-291: literal_compare reachable arms — exercised via a
+    /// string-literal boundary tightening (String/String, L291) and a
+    /// cross-numeric range tightening (Int/Float L289, Float/Int L290).
+    #[test]
+    fn string_boundary_tightening_warns() {
+        let baseline = baseline_with_check("t", "c", "s > 'aaa'");
+        let p = plan(vec![add_check("t", "c", "s > 'bbb'")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::BoundaryTightened);
+    }
+
+    #[test]
+    fn cross_numeric_int_to_float_boundary_tightening_warns() {
+        // old: ratio > 0 (Integer), new: ratio > 0.5 (Float)
+        // — literal_compare(Int 0, Float 0.5) at L289 → Less → tighter.
+        let baseline = baseline_with_check("t", "c", "ratio > 0");
+        let p = plan(vec![add_check("t", "c", "ratio > 0.5")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::BoundaryTightened);
+    }
+
+    #[test]
+    fn cross_numeric_float_to_int_boundary_tightening_warns() {
+        // old: ratio > 0.5 (Float), new: ratio > 1 (Integer)
+        // — literal_compare(Float 0.5, Int 1) at L290 → Less → tighter.
+        let baseline = baseline_with_check("t", "c", "ratio > 0.5");
+        let p = plan(vec![add_check("t", "c", "ratio > 1")]);
+        let warnings = find_check_strengthenings(&p, &baseline);
+        assert_eq!(warnings[0].kind, CheckStrengtheningKind::BoundaryTightened);
+    }
+
+    /// L276-280: literal_equals — direct unit test pinning every
+    /// reachable arm including Bool/Bool (L279) and Null/Null (L280).
+    /// L297-298 `i64_to_f64` is exercised via L276-277 (Int/Float
+    /// cross-arms).
+    #[test]
+    fn literal_equals_covers_all_reachable_arms() {
+        assert!(literal_equals(&Literal::Integer(5), &Literal::Integer(5)));
+        assert!(literal_equals(&Literal::Float(1.5), &Literal::Float(1.5)));
+        // Cross-numeric arms (L276-277) exercise i64_to_f64 (L297-298).
+        assert!(literal_equals(&Literal::Integer(5), &Literal::Float(5.0)));
+        assert!(literal_equals(&Literal::Float(5.0), &Literal::Integer(5)));
+        assert!(literal_equals(
+            &Literal::String("a".into()),
+            &Literal::String("a".into())
+        ));
+        assert!(literal_equals(&Literal::Bool(true), &Literal::Bool(true)));
+        assert!(literal_equals(&Literal::Null, &Literal::Null));
+        // Mixed-type fallthrough returns false.
+        assert!(!literal_equals(
+            &Literal::Integer(1),
+            &Literal::String("1".into())
+        ));
+        assert!(!literal_equals(&Literal::Bool(true), &Literal::Null));
+    }
+
+    /// L249: `if subset.is_empty() { return false; }` is a defensive
+    /// guard — the CHECK parser already rejects empty `IN ()` lists
+    /// (see `check_expr_parser::parse_predicate`'s IN branch which
+    /// returns `Unparseable` when `values.is_empty()`). Reaching L249
+    /// in production is therefore impossible. Direct unit-test pins
+    /// the guard's contract regardless.
+    #[test]
+    fn in_is_strict_subset_empty_subset_returns_false_defensively() {
+        // empty subset vs non-empty superset: false (defensive guard).
+        let empty: Vec<Literal> = vec![];
+        let superset = vec![Literal::Integer(1), Literal::Integer(2)];
+        assert!(!in_is_strict_subset(&empty, &superset));
+        // Subset larger than superset: false (size check).
+        assert!(!in_is_strict_subset(
+            &vec![
+                Literal::Integer(1),
+                Literal::Integer(2),
+                Literal::Integer(3)
+            ],
+            &vec![Literal::Integer(1)]
+        ));
+        // Proper strict subset: true.
+        assert!(in_is_strict_subset(
+            &vec![Literal::Integer(1)],
+            &vec![Literal::Integer(1), Literal::Integer(2)]
+        ));
+    }
+
+    #[test]
+    fn classify_strengthening_skips_semantically_equal_parenthesized_expr() {
+        assert!(classify_strengthening("age > 0", "(age > 0)").is_none());
+    }
+
+    #[test]
+    fn between_narrower_rejects_incomparable_bounds() {
+        assert!(!between_is_narrower(
+            &Literal::String("a".into()),
+            &Literal::Integer(10),
+            &Literal::Integer(1),
+            &Literal::Integer(9)
+        ));
+        assert!(!between_is_narrower(
+            &Literal::Integer(0),
+            &Literal::String("z".into()),
+            &Literal::Integer(1),
+            &Literal::Integer(9)
+        ));
+    }
 }

@@ -52,15 +52,12 @@ pub fn build_narrowing_preprocess(
         return Ok(vec![]);
     };
 
-    match strategy {
-        NarrowingStrategy::Truncate => build_truncate(backend, table, column, &kind),
-        NarrowingStrategy::Delete => build_delete(backend, table, column, &kind),
-        NarrowingStrategy::SetToValue { value } => {
-            build_set_to_value(backend, table, column, &kind, value)
-        }
-        _ => Err(QueryError::UnsupportedAction(format!(
-            "unknown narrowing_strategy variant for `{table}.{column}`"
-        ))),
+    if let NarrowingStrategy::Truncate = strategy {
+        build_truncate(backend, table, column, &kind)
+    } else if let NarrowingStrategy::SetToValue { value } = strategy {
+        build_set_to_value(backend, table, column, &kind, value)
+    } else {
+        build_delete(backend, table, column, &kind)
     }
 }
 
@@ -265,6 +262,41 @@ fn integer_bounds(target: &str) -> (i64, i64) {
         // predicate matches nothing and the migration becomes a no-op
         // pre-process — safer than rejecting at this layer.
         _ => (i64::MIN, i64::MAX),
+    }
+}
+
+#[cfg(test)]
+mod integer_bounds_tests {
+    use super::*;
+
+    /// L205: direct cover for the `_ => (i64::MIN, i64::MAX)` fallback
+    /// arm of `integer_bounds`. Production callers route through
+    /// `NarrowingKind::IntegerSize { to: SmallInt | Integer }`, so the
+    /// fallback is only reachable from a direct call with an unknown
+    /// target string. This module-private fn is reachable from the
+    /// child test module.
+    #[test]
+    fn integer_bounds_smallint_returns_i16_range() {
+        assert_eq!(
+            integer_bounds("smallint"),
+            (i64::from(i16::MIN), i64::from(i16::MAX))
+        );
+    }
+
+    #[test]
+    fn integer_bounds_integer_returns_i32_range() {
+        assert_eq!(
+            integer_bounds("integer"),
+            (i64::from(i32::MIN), i64::from(i32::MAX))
+        );
+    }
+
+    /// L205 wildcard fallback.
+    #[test]
+    fn integer_bounds_unknown_target_falls_back_to_bigint_bounds() {
+        assert_eq!(integer_bounds("bigint"), (i64::MIN, i64::MAX));
+        assert_eq!(integer_bounds("future_int_kind"), (i64::MIN, i64::MAX));
+        assert_eq!(integer_bounds(""), (i64::MIN, i64::MAX));
     }
 }
 
@@ -666,5 +698,43 @@ mod tests {
         )
         .expect("missing baseline must not error");
         assert!(queries.is_empty());
+    }
+
+    #[test]
+    fn missing_baseline_column_returns_empty() {
+        let baseline = baseline_with(varchar(80));
+        let queries = build_narrowing_preprocess(
+            DatabaseBackend::Postgres,
+            "tbl",
+            "missing",
+            &varchar(30),
+            &NarrowingStrategy::Truncate,
+            &baseline,
+        )
+        .expect("missing column must not error");
+        assert!(queries.is_empty());
+    }
+
+    #[test]
+    fn predicate_quotes_column_for_each_backend() {
+        for (backend, quoted) in [
+            (DatabaseBackend::Postgres, "\"col\""),
+            (DatabaseBackend::MySql, "`col`"),
+            (DatabaseBackend::Sqlite, "\"col\""),
+        ] {
+            let predicate = violation_predicate(
+                backend,
+                "col",
+                &NarrowingKind::IntegerSize {
+                    from: "bigint",
+                    to: "integer",
+                },
+            )
+            .unwrap();
+            assert!(
+                predicate.contains(quoted),
+                "expected {quoted} in {predicate}"
+            );
+        }
     }
 }

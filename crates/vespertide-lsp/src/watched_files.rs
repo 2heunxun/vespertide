@@ -137,4 +137,31 @@ mod tests {
         fs::write(&changed, "{}").unwrap();
         assert!(should_refresh_for(root, &models, &migrations, &changed));
     }
+
+    #[test]
+    fn build_registration_has_expected_shape() {
+        let reg = build_registration();
+
+        assert_eq!(reg.id, "vespertide/watched-files");
+        assert_eq!(reg.method, "workspace/didChangeWatchedFiles");
+        let opts = reg.register_options.expect("register_options present");
+        let opts_str = opts.to_string();
+        assert!(
+            opts_str.contains("models") && opts_str.contains("migrations"),
+            "expected glob to include both dirs, got: {opts_str}"
+        );
+    }
+
+    #[test]
+    fn should_refresh_handles_missing_tracked_dirs() {
+        let tmp = tempdir().unwrap();
+        let unrelated = tmp.path().join("other.txt");
+
+        assert!(!should_refresh_for(
+            tmp.path(),
+            &tmp.path().join("models"),
+            &tmp.path().join("migrations"),
+            &unrelated
+        ));
+    }
 }

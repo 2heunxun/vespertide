@@ -213,10 +213,6 @@ pub fn compute(
         true, // rename ALWAYS includes the declaration.
     );
 
-    if refs.is_empty() {
-        return None;
-    }
-
     let mut edits: BTreeMap<Uri, Vec<DomainTextEdit>> = BTreeMap::new();
     for reference in refs {
         edits
@@ -238,7 +234,7 @@ pub fn compute(
         file_edits.dedup_by(|a, b| a.byte_range == b.byte_range && a.new_text == b.new_text);
     }
 
-    Some(DomainRename {
+    (!edits.is_empty()).then_some(DomainRename {
         edits,
         symbol: Some(symbol),
     })
@@ -262,11 +258,7 @@ fn is_valid_identifier(name: &str) -> bool {
 mod tests {
     use super::*;
     use crate::parser::ParserPool;
-    use std::str::FromStr;
-
-    fn uri(p: &str) -> Uri {
-        Uri::from_str(&format!("file:///{p}")).unwrap()
-    }
+    use crate::test_support::uri;
 
     #[test]
     fn rejects_empty_or_whitespace_or_same_name() {
@@ -709,5 +701,110 @@ mod tests {
             "age",
             "prepare must select only the column identifier, not the whole expr"
         );
+    }
+
+    #[test]
+    fn enclosing_string_stops_at_structural_boundaries() {
+        let pool = ParserPool::new();
+        let src = r#"{"name":"user"}"#;
+        let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+
+        assert!(enclosing_string(tree.root_node()).is_none());
+    }
+
+    #[test]
+    fn prepare_yaml_quoted_and_plain_scalars_use_inner_ranges() {
+        let pool = ParserPool::new();
+        let quoted = "name: \"user\"\ncolumns: []\n";
+        let quoted_tree = pool.parse(quoted, DocumentFormat::Yaml).unwrap();
+        let quoted_pos = quoted.find("user").unwrap();
+        let quoted_result = prepare(
+            quoted,
+            DocumentFormat::Yaml,
+            Some(&quoted_tree),
+            &uri("user.yaml"),
+            quoted_pos,
+        )
+        .expect("quoted YAML name");
+        assert_eq!(&quoted[quoted_result.byte_range.clone()], "user");
+
+        let plain = "name: user\ncolumns: []\n";
+        let plain_tree = pool.parse(plain, DocumentFormat::Yaml).unwrap();
+        let plain_pos = plain.find("user").unwrap();
+        let plain_result = prepare(
+            plain,
+            DocumentFormat::Yaml,
+            Some(&plain_tree),
+            &uri("user.yaml"),
+            plain_pos,
+        )
+        .expect("plain YAML name");
+        assert_eq!(&plain[plain_result.byte_range.clone()], "user");
+    }
+
+    #[test]
+    fn trim_one_byte_leaves_short_ranges_unchanged() {
+        assert_eq!(trim_one_byte(&(3..3)), 3..3);
+        assert_eq!(trim_one_byte(&(4..5)), 4..5);
+    }
+
+    #[test]
+    fn rename_rejects_when_old_equals_new() {
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let docs = DocumentStore::new();
+        let src = r#"{"name":"user","columns":[{"name":"id","type":"integer"}]}"#;
+        let u = uri("user.json");
+        let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+        idx.upsert(&u, src, &tree);
+        docs.open(u.clone(), "json".to_string(), 1, src.to_string());
+        let pos = src.find(r#""name":"user""#).unwrap() + 9;
+
+        assert!(
+            compute(
+                src,
+                DocumentFormat::Json,
+                Some(&tree),
+                &u,
+                &idx,
+                &docs,
+                None,
+                pos,
+                "user"
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn rename_returns_none_for_non_symbol_position() {
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let docs = DocumentStore::new();
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"integer"}]}"#;
+        let u = uri("u.json");
+        let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+        idx.upsert(&u, src, &tree);
+        docs.open(u.clone(), "json".to_string(), 1, src.to_string());
+
+        assert!(
+            compute(
+                src,
+                DocumentFormat::Json,
+                Some(&tree),
+                &u,
+                &idx,
+                &docs,
+                None,
+                0,
+                "new"
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn prepare_returns_none_when_tree_missing() {
+        assert!(prepare("x", DocumentFormat::Json, None, &uri("x.json"), 0).is_none());
     }
 }

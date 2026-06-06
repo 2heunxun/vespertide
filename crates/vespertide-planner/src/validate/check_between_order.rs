@@ -364,6 +364,55 @@ mod tests {
         ));
     }
 
+    // ── Coverage-closure ──────────────────────────────────────────────
+
+    /// `collect_reversed_between` walks `CheckExpr::Or` by recursing into
+    /// each disjunct (line 99 — `for part in parts`). Multiple BETWEENs
+    /// inside an OR yield one error per reversed branch.
+    #[test]
+    fn or_with_two_reversed_betweens_collects_both() {
+        let table = TableDef {
+            name: "t".into(),
+            description: None,
+            columns: vec![ColumnDef {
+                name: "id".into(),
+                r#type: ColumnType::Simple(SimpleColumnType::Integer),
+                nullable: false,
+                default: None,
+                comment: None,
+                primary_key: Some(
+                    vespertide_core::schema::primary_key::PrimaryKeySyntax::Bool(true),
+                ),
+                unique: None,
+                index: None,
+                foreign_key: None,
+            }],
+            constraints: vec![check_constraint(
+                "chk_or_both",
+                "age BETWEEN 100 AND 0 OR score BETWEEN 50 AND 10",
+            )],
+        };
+
+        let errors = find_between_boundary_reversals(&table);
+        assert_eq!(errors.len(), 2, "{errors:?}");
+    }
+
+    /// `literal_compare` returns `None` on Bool literals (line 117 default
+    /// arm) — `BETWEEN TRUE AND FALSE` silently passes because the
+    /// comparator cannot order booleans.
+    #[test]
+    fn bool_between_silently_passes_via_literal_compare_none() {
+        let table = table_with_check("t", "flag BETWEEN TRUE AND FALSE");
+        assert!(validate_between_boundary_order(&table).is_ok());
+    }
+
+    /// `literal_compare` returns `None` when one side is Null — silent pass.
+    #[test]
+    fn null_between_silently_passes() {
+        let table = table_with_check("t", "x BETWEEN NULL AND 100");
+        assert!(validate_between_boundary_order(&table).is_ok());
+    }
+
     #[test]
     fn finder_collects_one_reversed_among_valid_constraints() {
         let table = TableDef {
@@ -394,5 +443,30 @@ mod tests {
             &errors[0],
             PlannerError::BetweenBoundaryReversed { check_name, .. } if check_name == "chk_reversed"
         ));
+    }
+
+    #[test]
+    fn literal_formatting_covers_bool_and_null_labels() {
+        assert_eq!(format_literal(&Literal::Bool(true)), "true");
+        assert_eq!(format_literal(&Literal::Null), "NULL");
+    }
+
+    /// L99: `literal_compare(Float, Integer)` arm. Existing tests
+    /// cover the `(Integer, Float)` arm via `BETWEEN 100 AND 0.5`;
+    /// this case writes the boundaries in `Float AND Integer` order
+    /// so the parser yields `Literal::Float` for `low` and
+    /// `Literal::Integer` for `high`, hitting the L99 cross arm.
+    #[test]
+    fn reversed_float_then_integer_between_is_error() {
+        // Float (100.5) > Integer (0) → reversed → error.
+        let table = table_with_check("t", "x BETWEEN 100.5 AND 0");
+        assert!(validate_between_boundary_order(&table).is_err());
+    }
+
+    #[test]
+    fn correctly_ordered_float_then_integer_between_passes() {
+        // Float (0.5) < Integer (100) → in order → ok.
+        let table = table_with_check("t", "x BETWEEN 0.5 AND 100");
+        assert!(validate_between_boundary_order(&table).is_ok());
     }
 }

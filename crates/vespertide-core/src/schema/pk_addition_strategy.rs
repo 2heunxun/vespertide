@@ -74,7 +74,7 @@ mod tests {
         assert_eq!(
             PrimaryKeyAdditionStrategy::default(),
             PrimaryKeyAdditionStrategy::DeleteDuplicates {
-                keep: KeepPolicy::First,
+                keep: KeepPolicy::First
             }
         );
     }

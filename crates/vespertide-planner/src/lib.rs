@@ -11,6 +11,8 @@ pub mod error;
 mod parallel_config;
 pub mod plan;
 pub mod schema;
+#[cfg(test)]
+mod test_support;
 pub mod validate;
 
 pub use apply::apply_action;

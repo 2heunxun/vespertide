@@ -18,10 +18,6 @@ use crate::diagnostics::{
 
 use super::types::{DriftKind, DriftRecord};
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "exhaustive MigrationAction match: one arm per variant, each delegating to a small per-action drift builder; splitting would scatter the dispatch table"
-)]
 pub(super) fn action_to_drift(
     action: &MigrationAction,
     baseline: &[TableDef],
@@ -356,5 +352,66 @@ fn constraint_name(constraint: &TableConstraint) -> Option<&str> {
         | TableConstraint::Index { name, .. } => name.as_deref(),
         TableConstraint::Check { name, .. } => Some(name.as_str()),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    use vespertide_core::{ColumnDef, ComplexColumnType, SimpleColumnType};
+
+    #[test]
+    fn unsupported_remap_enum_values_action_has_no_drift_record() {
+        let action = MigrationAction::RemapEnumValues {
+            table: "users".into(),
+            column: "status".into(),
+            mapping: BTreeMap::from([(1, 2)]),
+        };
+
+        assert!(action_to_drift(&action, &[], "", None).is_none());
+    }
+
+    #[test]
+    fn render_column_type_covers_complex_types() {
+        let rendered = render_column_type(&ColumnType::Complex(ComplexColumnType::Varchar {
+            length: 32,
+        }));
+
+        assert!(rendered.contains("Varchar"));
+    }
+
+    #[test]
+    fn constraint_name_covers_check_and_unnamed_constraints() {
+        let check = TableConstraint::Check {
+            name: "chk_age".into(),
+            expr: "age > 0".into(),
+            strategy: vespertide_core::CheckViolationStrategy::default(),
+        };
+        let pk = TableConstraint::PrimaryKey {
+            columns: vec!["id".into()],
+            auto_increment: false,
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+        };
+
+        assert_eq!(constraint_name(&check), Some("chk_age"));
+        assert_eq!(constraint_name(&pk), None);
+    }
+
+    #[test]
+    fn lookup_baseline_column_finds_matching_column() {
+        let table = TableDef {
+            name: "users".into(),
+            description: None,
+            columns: vec![ColumnDef::new(
+                "id",
+                ColumnType::Simple(SimpleColumnType::Integer),
+                false,
+            )],
+            constraints: Vec::new(),
+        };
+
+        assert!(lookup_baseline_column(&[table], "users", "id").is_some());
     }
 }

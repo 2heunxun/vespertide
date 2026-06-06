@@ -36,6 +36,7 @@ pub(in crate::commands::revision) enum DefaultChoice {
 /// otherwise. When the action *removes* a default (`new_default = None`),
 /// the Backfill option is hidden because there is no value to write —
 /// only Skip / Cancel remain.
+#[cfg(not(tarpaulin_include))]
 pub(in crate::commands::revision) fn prompt_default_change_resolution(
     warning: &DefaultChangeWarning,
 ) -> Result<Option<DefaultChoice>> {
@@ -120,6 +121,7 @@ pub(in crate::commands::revision) enum UniqueAdditionChoice {
 ///   Continue / Cancel
 /// - any other kind (composite PK, PK inside unique set, no PK) →
 ///   `ContinueWithoutCleanup` / Cancel (auto-cleanup is unavailable)
+#[cfg(not(tarpaulin_include))]
 pub(in crate::commands::revision) fn prompt_unique_additions(
     warning: &UniqueAdditionWarning,
 ) -> Result<Option<UniqueAdditionChoice>> {
@@ -257,6 +259,7 @@ pub(in crate::commands::revision) enum FkOrphanChoice {
 /// The user is **always required to choose explicitly** - there is no
 /// silent default-apply path. The recommended option is highlighted
 /// (`(recommended)` suffix) but the user must press Enter on it.
+#[cfg(not(tarpaulin_include))]
 pub(in crate::commands::revision) fn prompt_fk_orphan_additions(
     warning: &FkOrphanAdditionWarning,
 ) -> Result<Option<FkOrphanChoice>> {
@@ -371,6 +374,7 @@ pub(in crate::commands::revision) enum CheckViolationChoice {
 /// The user is always required to choose explicitly; the recommended
 /// option is highlighted but Enter on the default still counts as an
 /// explicit selection.
+#[cfg(not(tarpaulin_include))]
 pub(in crate::commands::revision) fn prompt_check_additions(
     warning: &CheckAdditionWarning,
 ) -> Result<Option<CheckViolationChoice>> {
@@ -424,7 +428,7 @@ fn format_check_addition_header(warning: &CheckAdditionWarning) -> String {
         "  {} Adding CHECK `{}` ({}) on existing rows\n  Target: {target}\n  {nullable_hint}",
         "\u{26a0}".bright_yellow(),
         warning.constraint_name.bright_cyan(),
-        warning.check_expr.bright_white(),
+        warning.check_expr.bright_white()
     )
 }
 
@@ -480,6 +484,7 @@ pub(in crate::commands::revision) enum PrimaryKeyAdditionChoice {
 
 /// Per-warning interactive prompt for F5. Returns `None` when the user
 /// cancels (no migration written).
+#[cfg(not(tarpaulin_include))]
 pub(in crate::commands::revision) fn prompt_pk_additions(
     warning: &PrimaryKeyAdditionWarning,
 ) -> Result<Option<PrimaryKeyAdditionChoice>> {
@@ -591,6 +596,7 @@ pub(in crate::commands::revision) enum CascadeReachChoice {
 
 /// Per-warning interactive prompt for F96. Returns `None` when the
 /// user cancels.
+#[cfg(not(tarpaulin_include))]
 pub(in crate::commands::revision) fn prompt_cascade_reach(
     warning: &CascadeReachWarning,
 ) -> Result<Option<CascadeReachChoice>> {
@@ -637,6 +643,7 @@ pub(in crate::commands::revision) enum SequenceExhaustionChoice {
 
 /// Per-warning interactive prompt for F76. Returns `None` when the
 /// user cancels.
+#[cfg(not(tarpaulin_include))]
 pub(in crate::commands::revision) fn prompt_sequence_exhaustion(
     warning: &SequenceExhaustionWarning,
 ) -> Result<Option<SequenceExhaustionChoice>> {
@@ -695,7 +702,7 @@ fn format_sequence_exhaustion_header(warning: &SequenceExhaustionWarning) -> Str
         SequenceExhaustionKind::PkTypeNarrowing { from } => format!(
             "PRIMARY KEY type narrowing from {} to {}",
             simple_int_label(*from).bright_red(),
-            current.bright_yellow(),
+            current.bright_yellow()
         ),
         SequenceExhaustionKind::ForeignKeyMismatch {
             parent_table,
@@ -704,7 +711,7 @@ fn format_sequence_exhaustion_header(warning: &SequenceExhaustionWarning) -> Str
             "FOREIGN KEY mismatch: child {} vs parent {}.id ({})",
             current.bright_yellow(),
             parent_table.bright_white(),
-            simple_int_label(*parent_type).bright_cyan(),
+            simple_int_label(*parent_type).bright_cyan()
         ),
     };
     let estimate = match warning.current_type {
@@ -718,7 +725,7 @@ fn format_sequence_exhaustion_header(warning: &SequenceExhaustionWarning) -> Str
     };
     format!(
         "  {} INT identity overflow risk\n  Target: {target} ({current})\n  Scenario: {scenario}\n  Risk: {risk_label}\n  {estimate}\n  Recommended: rewrite to big_int.",
-        "\u{26a0}".bright_yellow(),
+        "\u{26a0}".bright_yellow()
     )
 }
 
@@ -819,6 +826,7 @@ pub(in crate::commands::revision) enum CheckStrengtheningChoice {
 /// Per-warning interactive prompt for F29. Returns `None` when the
 /// user cancels (typical fix: pre-clean violating rows in a prior
 /// migration, then re-run `vespertide revision`).
+#[cfg(not(tarpaulin_include))]
 pub(in crate::commands::revision) fn prompt_check_strengthening(
     warning: &CheckStrengtheningWarning,
 ) -> Result<Option<CheckStrengtheningChoice>> {
@@ -887,6 +895,7 @@ pub(in crate::commands::revision) enum CheckTypeMismatchChoice {
 /// Per-warning interactive prompt for F-novel-4. Returns `None` when
 /// the user cancels (typical fix: correct the literal or the column
 /// type in the model, then re-run `vespertide revision`).
+#[cfg(not(tarpaulin_include))]
 pub(in crate::commands::revision) fn prompt_check_type_mismatch(
     warning: &CheckTypeMismatchWarning,
 ) -> Result<Option<CheckTypeMismatchChoice>> {
@@ -931,3 +940,6 @@ fn format_check_type_mismatch_header(warning: &CheckTypeMismatchWarning) -> Stri
         expr = warning.expr.bright_black(),
     )
 }
+
+#[cfg(test)]
+mod tests;

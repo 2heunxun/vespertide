@@ -1,8 +1,9 @@
 use super::*;
+pub(super) use crate::test_support::CwdGuard;
 pub(super) use anyhow::Result;
 pub(super) use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    env, fs as std_fs,
+    fs as std_fs,
     path::PathBuf,
 };
 pub(super) use tempfile::tempdir;
@@ -11,24 +12,6 @@ pub(super) use vespertide_core::{
     ColumnDef, ColumnType, MigrationAction, MigrationPlan, SimpleColumnType, TableConstraint,
     TableDef,
 };
-
-struct CwdGuard {
-    original: PathBuf,
-}
-
-impl CwdGuard {
-    fn new(dir: &PathBuf) -> Self {
-        let original = env::current_dir().unwrap();
-        env::set_current_dir(dir).unwrap();
-        Self { original }
-    }
-}
-
-impl Drop for CwdGuard {
-    fn drop(&mut self) {
-        let _ = env::set_current_dir(&self.original);
-    }
-}
 
 fn write_config() -> VespertideConfig {
     write_config_with_format(None)
@@ -71,6 +54,9 @@ fn write_model(name: &str) {
     std_fs::write(path, serde_json::to_string_pretty(&table).unwrap()).unwrap();
 }
 
+mod branches;
+mod branches_more;
+mod choices_apply;
 mod delete_null_rows;
 mod fill_with;
 mod integration;

@@ -1,19 +1,7 @@
 use super::*;
+use crate::test_support::{col_nullable as col, idx, table};
 use rstest::rstest;
 use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType, TableConstraint};
-
-fn col(name: &str, ty: ColumnType) -> ColumnDef {
-    ColumnDef::new(name, ty, true)
-}
-
-fn table(name: &str, columns: Vec<ColumnDef>, constraints: Vec<TableConstraint>) -> TableDef {
-    TableDef {
-        name: name.into(),
-        description: None,
-        columns,
-        constraints,
-    }
-}
 
 #[derive(Debug, Clone, Copy)]
 enum ErrKind {
@@ -106,13 +94,6 @@ fn apply_action_reports_errors(
 ) {
     let err = apply_action(&mut schema, &action).unwrap_err();
     assert_err_kind(&err, expected);
-}
-
-fn idx(name: &str, columns: Vec<&str>) -> TableConstraint {
-    TableConstraint::Index {
-        name: Some(name.to_string()),
-        columns: columns.into_iter().map(Into::into).collect(),
-    }
 }
 
 #[derive(Clone)]

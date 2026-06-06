@@ -465,29 +465,12 @@ async fn walk_models(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::CwdGuard;
     use rstest::rstest;
     use serial_test::serial;
     use std::fs as std_fs;
     use tempfile::tempdir;
     use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType, TableConstraint};
-
-    struct CwdGuard {
-        original: PathBuf,
-    }
-
-    impl CwdGuard {
-        fn new(dir: &PathBuf) -> Self {
-            let original = std::env::current_dir().unwrap();
-            std::env::set_current_dir(dir).unwrap();
-            Self { original }
-        }
-    }
-
-    impl Drop for CwdGuard {
-        fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.original);
-        }
-    }
 
     fn write_config() {
         let cfg = VespertideConfig::default();

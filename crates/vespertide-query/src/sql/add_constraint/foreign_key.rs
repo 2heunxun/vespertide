@@ -164,37 +164,457 @@ fn build_fk_orphan_cleanup<T: AsRef<str>, U: AsRef<str>>(
 
     let not_exists = format!("NOT EXISTS (SELECT 1 FROM {quoted_ref} WHERE {join_cond})");
 
-    let sql = match &strategy {
-        ForeignKeyOrphanStrategy::NullifyOrphans => {
-            // SET <col_i> = NULL, ...
-            let set_clause: Vec<String> = child_columns
-                .iter()
-                .map(|c| {
-                    let qc = quote_ident(c.as_ref(), backend);
-                    format!("{qc} = NULL")
-                })
-                .collect();
-            let set_clause = set_clause.join(", ");
+    let sql = if strategy == ForeignKeyOrphanStrategy::NullifyOrphans {
+        // SET <col_i> = NULL, ...
+        let set_clause: Vec<String> = child_columns
+            .iter()
+            .map(|c| {
+                let qc = quote_ident(c.as_ref(), backend);
+                format!("{qc} = NULL")
+            })
+            .collect();
+        let set_clause = set_clause.join(", ");
 
-            // NULL row guard: skip rows whose FK columns are all NULL.
-            // Composite FK uses `<col_i> IS NOT NULL OR ...`; single-column FK collapses to one term.
-            let null_guard: Vec<String> = child_columns
-                .iter()
-                .map(|c| format!("{} IS NOT NULL", quote_ident(c.as_ref(), backend)))
-                .collect();
-            let null_guard = null_guard.join(" OR ");
+        // NULL row guard: skip rows whose FK columns are all NULL.
+        // Composite FK uses `<col_i> IS NOT NULL OR ...`; single-column FK collapses to one term.
+        let null_guard: Vec<String> = child_columns
+            .iter()
+            .map(|c| format!("{} IS NOT NULL", quote_ident(c.as_ref(), backend)))
+            .collect();
+        let null_guard = null_guard.join(" OR ");
 
-            format!("UPDATE {quoted_child} SET {set_clause} WHERE ({null_guard}) AND {not_exists}")
-        }
-        ForeignKeyOrphanStrategy::DeleteOrphans => {
-            format!("DELETE FROM {quoted_child} WHERE {not_exists}")
-        }
-        _ => {
-            return Err(QueryError::UnsupportedAction(format!(
-                "AddConstraint(ForeignKey) on '{child_table}': unsupported orphan_strategy variant"
-            )));
-        }
+        format!("UPDATE {quoted_child} SET {set_clause} WHERE ({null_guard}) AND {not_exists}")
+    } else {
+        format!("DELETE FROM {quoted_child} WHERE {not_exists}")
     };
 
     Ok(vec![BuiltQuery::Raw(RawSql::uniform(sql))])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use rstest::rstest;
+    use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType};
+
+    fn nn_col(name: &str, ty: SimpleColumnType) -> ColumnDef {
+        ColumnDef::new(name, ColumnType::Simple(ty), false)
+    }
+
+    fn fk_constraint(strategy: ForeignKeyOrphanStrategy) -> TableConstraint {
+        TableConstraint::ForeignKey {
+            name: Some("fk_user".into()),
+            columns: vec!["user_id".into()],
+            ref_table: "users".into(),
+            ref_columns: vec!["id".into()],
+            on_delete: None,
+            on_update: None,
+            orphan_strategy: strategy,
+        }
+    }
+
+    fn parent_child_schema() -> Vec<TableDef> {
+        vec![
+            TableDef {
+                name: "users".into(),
+                description: None,
+                columns: vec![nn_col("id", SimpleColumnType::Integer)],
+                constraints: vec![],
+            },
+            TableDef {
+                name: "posts".into(),
+                description: None,
+                columns: vec![
+                    nn_col("id", SimpleColumnType::Integer),
+                    ColumnDef::new(
+                        "user_id",
+                        ColumnType::Simple(SimpleColumnType::Integer),
+                        true,
+                    ),
+                ],
+                constraints: vec![],
+            },
+        ]
+    }
+
+    fn sqlite_schema_with(constraints: Vec<TableConstraint>) -> Vec<TableDef> {
+        vec![TableDef {
+            name: "posts".into(),
+            description: None,
+            columns: vec![ColumnDef::new(
+                "user_id",
+                ColumnType::Simple(SimpleColumnType::Integer),
+                true,
+            )],
+            constraints,
+        }]
+    }
+
+    #[test]
+    fn sqlite_table_not_found_returns_error() {
+        let constraint = fk_constraint(ForeignKeyOrphanStrategy::default());
+        let result = build_foreign_key(
+            DatabaseBackend::Sqlite,
+            "posts",
+            Some("fk_user"),
+            &["user_id"],
+            "users",
+            &["id"],
+            None,
+            None,
+            ForeignKeyOrphanStrategy::default(),
+            &constraint,
+            &[],
+            &[],
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Table 'posts' not found in current schema")
+        );
+    }
+
+    #[test]
+    fn sqlite_rebuild_preserves_check_constraints() {
+        let constraint = fk_constraint(ForeignKeyOrphanStrategy::default());
+        let schema = sqlite_schema_with(vec![TableConstraint::Check {
+            name: "chk_user_id".into(),
+            expr: "user_id > 0".into(),
+            strategy: vespertide_core::CheckViolationStrategy::default(),
+        }]);
+        let queries = build_foreign_key(
+            DatabaseBackend::Sqlite,
+            "posts",
+            Some("fk_user"),
+            &["user_id"],
+            "users",
+            &["id"],
+            None,
+            None,
+            ForeignKeyOrphanStrategy::default(),
+            &constraint,
+            &schema,
+            &[],
+        )
+        .unwrap();
+        let sql = queries
+            .iter()
+            .map(|q| q.build(DatabaseBackend::Sqlite))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(sql.contains("CONSTRAINT \"chk_user_id\" CHECK"));
+    }
+
+    #[test]
+    fn sqlite_rebuild_recreates_indexes() {
+        let constraint = fk_constraint(ForeignKeyOrphanStrategy::default());
+        let schema = sqlite_schema_with(vec![TableConstraint::Index {
+            name: Some("idx_user_id".into()),
+            columns: vec!["user_id".into()],
+        }]);
+        let queries = build_foreign_key(
+            DatabaseBackend::Sqlite,
+            "posts",
+            Some("fk_user"),
+            &["user_id"],
+            "users",
+            &["id"],
+            None,
+            None,
+            ForeignKeyOrphanStrategy::default(),
+            &constraint,
+            &schema,
+            &[],
+        )
+        .unwrap();
+        let sql = queries
+            .iter()
+            .map(|q| q.build(DatabaseBackend::Sqlite))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(sql.contains("CREATE INDEX"));
+        assert!(sql.contains("idx_user_id"));
+    }
+
+    #[test]
+    fn sqlite_rebuild_handles_unique_constraint() {
+        let constraint = fk_constraint(ForeignKeyOrphanStrategy::default());
+        let schema = sqlite_schema_with(vec![TableConstraint::Unique {
+            name: Some("uq_user_id".into()),
+            columns: vec!["user_id".into()],
+            strategy: vespertide_core::UniqueConstraintStrategy::default(),
+        }]);
+        let queries = build_foreign_key(
+            DatabaseBackend::Sqlite,
+            "posts",
+            Some("fk_user"),
+            &["user_id"],
+            "users",
+            &["id"],
+            None,
+            None,
+            ForeignKeyOrphanStrategy::default(),
+            &constraint,
+            &schema,
+            &[],
+        )
+        .unwrap();
+        assert!(
+            queries
+                .iter()
+                .map(|q| q.build(DatabaseBackend::Sqlite))
+                .collect::<Vec<_>>()
+                .join("\n")
+                .contains("CREATE TABLE")
+        );
+    }
+
+    #[test]
+    fn sqlite_rebuild_without_existing_check_adds_foreign_key() {
+        let constraint = fk_constraint(ForeignKeyOrphanStrategy::default());
+        let queries = build_foreign_key(
+            DatabaseBackend::Sqlite,
+            "posts",
+            Some("fk_user"),
+            &["user_id"],
+            "users",
+            &["id"],
+            None,
+            None,
+            ForeignKeyOrphanStrategy::default(),
+            &constraint,
+            &sqlite_schema_with(vec![]),
+            &[],
+        )
+        .unwrap();
+        let sql = queries
+            .iter()
+            .map(|q| q.build(DatabaseBackend::Sqlite))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(sql.contains("CREATE TABLE"));
+        assert!(sql.contains("FOREIGN KEY"));
+    }
+
+    #[rstest]
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    #[case::sqlite(DatabaseBackend::Sqlite)]
+    fn mismatched_column_counts_return_schema_error(#[case] backend: DatabaseBackend) {
+        let result = build_fk_orphan_cleanup(
+            backend,
+            "posts",
+            &["user_id", "tenant_id"],
+            "users",
+            &["id"],
+            ForeignKeyOrphanStrategy::DeleteOrphans,
+        );
+        assert!(matches!(result, Err(QueryError::SchemaError(_))));
+    }
+
+    #[test]
+    fn postgres_emits_not_valid_validate_pair() {
+        let constraint = TableConstraint::ForeignKey {
+            name: Some("fk_user".into()),
+            columns: vec!["user_id".into()],
+            ref_table: "users".into(),
+            ref_columns: vec!["id".into()],
+            on_delete: Some(ReferenceAction::Cascade),
+            on_update: Some(ReferenceAction::Restrict),
+            orphan_strategy: ForeignKeyOrphanStrategy::NullifyOrphans,
+        };
+        let queries = build_foreign_key(
+            DatabaseBackend::Postgres,
+            "posts",
+            Some("fk_user"),
+            &["user_id"],
+            "users",
+            &["id"],
+            Some(&ReferenceAction::Cascade),
+            Some(&ReferenceAction::Restrict),
+            ForeignKeyOrphanStrategy::NullifyOrphans,
+            &constraint,
+            &parent_child_schema(),
+            &[],
+        )
+        .unwrap();
+        let sql = queries
+            .iter()
+            .map(|q| q.build(DatabaseBackend::Postgres))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(sql.contains("NOT VALID"));
+        assert!(sql.contains("VALIDATE CONSTRAINT"));
+        assert!(sql.contains("ON DELETE CASCADE") && sql.contains("ON UPDATE RESTRICT"));
+    }
+
+    #[rstest]
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    #[case::sqlite(DatabaseBackend::Sqlite)]
+    fn nullify_orphans_emits_update_set_null(#[case] backend: DatabaseBackend) {
+        let queries = build_fk_orphan_cleanup(
+            backend,
+            "posts",
+            &["user_id"],
+            "users",
+            &["id"],
+            ForeignKeyOrphanStrategy::NullifyOrphans,
+        )
+        .unwrap();
+        let sql = queries[0].build(backend);
+        assert!(sql.contains("UPDATE"));
+        assert!(sql.contains("= NULL"));
+        assert!(sql.contains("IS NOT NULL"));
+        assert!(sql.contains("NOT EXISTS"));
+    }
+
+    #[rstest]
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    #[case::sqlite(DatabaseBackend::Sqlite)]
+    fn delete_orphans_emits_delete_from(#[case] backend: DatabaseBackend) {
+        let queries = build_fk_orphan_cleanup(
+            backend,
+            "posts",
+            &["user_id"],
+            "users",
+            &["id"],
+            ForeignKeyOrphanStrategy::DeleteOrphans,
+        )
+        .unwrap();
+        let sql = queries[0].build(backend);
+        assert!(sql.contains("DELETE FROM"));
+        assert!(sql.contains("NOT EXISTS"));
+    }
+
+    #[rstest]
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    #[case::sqlite(DatabaseBackend::Sqlite)]
+    fn empty_columns_return_empty_cleanup(#[case] backend: DatabaseBackend) {
+        assert!(
+            build_fk_orphan_cleanup::<&str, &str>(
+                backend,
+                "posts",
+                &[],
+                "users",
+                &[],
+                ForeignKeyOrphanStrategy::DeleteOrphans
+            )
+            .unwrap()
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn composite_nullify_orphans_pg_emits_composite_null_guard() {
+        let queries = build_fk_orphan_cleanup(
+            DatabaseBackend::Postgres,
+            "posts",
+            &["user_id", "tenant_id"],
+            "users",
+            &["id", "tenant_id"],
+            ForeignKeyOrphanStrategy::NullifyOrphans,
+        )
+        .unwrap();
+        let sql = queries[0].build(DatabaseBackend::Postgres);
+        assert!(sql.contains("UPDATE \"posts\" SET"));
+        assert!(sql.contains("\"user_id\" = NULL"));
+        assert!(sql.contains("\"tenant_id\" = NULL"));
+        assert!(sql.contains("\"user_id\" IS NOT NULL OR \"tenant_id\" IS NOT NULL"));
+    }
+
+    #[rstest]
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    #[case::sqlite(DatabaseBackend::Sqlite)]
+    fn build_foreign_key_nullify_path_runs_cleanup_then_constraint(
+        #[case] backend: DatabaseBackend,
+    ) {
+        let constraint = TableConstraint::ForeignKey {
+            name: Some("fk_user".into()),
+            columns: vec!["user_id".into()],
+            ref_table: "users".into(),
+            ref_columns: vec!["id".into()],
+            on_delete: Some(ReferenceAction::Cascade),
+            on_update: Some(ReferenceAction::Restrict),
+            orphan_strategy: ForeignKeyOrphanStrategy::NullifyOrphans,
+        };
+        let queries = build_foreign_key(
+            backend,
+            "posts",
+            Some("fk_user"),
+            &["user_id"],
+            "users",
+            &["id"],
+            Some(&ReferenceAction::Cascade),
+            Some(&ReferenceAction::Restrict),
+            ForeignKeyOrphanStrategy::NullifyOrphans,
+            &constraint,
+            &parent_child_schema(),
+            &[],
+        )
+        .unwrap();
+        let sql = queries
+            .iter()
+            .map(|q| q.build(backend))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(sql.contains("UPDATE"));
+        assert!(sql.contains("= NULL"));
+        assert!(sql.contains("NOT EXISTS"));
+        assert!(
+            sql.contains("FOREIGN KEY")
+                || sql.contains("VALIDATE CONSTRAINT")
+                || sql.contains("CREATE TABLE")
+        );
+    }
+
+    #[rstest]
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    #[case::sqlite(DatabaseBackend::Sqlite)]
+    fn build_foreign_key_delete_path_runs_cleanup_then_constraint(
+        #[case] backend: DatabaseBackend,
+    ) {
+        let constraint = TableConstraint::ForeignKey {
+            name: Some("fk_user".into()),
+            columns: vec!["user_id".into()],
+            ref_table: "users".into(),
+            ref_columns: vec!["id".into()],
+            on_delete: None,
+            on_update: None,
+            orphan_strategy: ForeignKeyOrphanStrategy::DeleteOrphans,
+        };
+        let queries = build_foreign_key(
+            backend,
+            "posts",
+            Some("fk_user"),
+            &["user_id"],
+            "users",
+            &["id"],
+            None,
+            None,
+            ForeignKeyOrphanStrategy::DeleteOrphans,
+            &constraint,
+            &parent_child_schema(),
+            &[],
+        )
+        .unwrap();
+        let sql = queries
+            .iter()
+            .map(|q| q.build(backend))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(sql.contains("DELETE FROM"));
+        assert!(sql.contains("NOT EXISTS"));
+        assert!(
+            sql.contains("FOREIGN KEY")
+                || sql.contains("VALIDATE CONSTRAINT")
+                || sql.contains("CREATE TABLE")
+        );
+    }
 }

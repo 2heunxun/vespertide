@@ -651,4 +651,47 @@ mod tests {
             assert_snapshot!(sql);
         });
     }
+
+    /// Test that `backfill = Some(value)` emits the trailing `UPDATE` that
+    /// rewrites every existing row. Covers the post-ALTER backfill block
+    /// (the `if let Some(value) = backfill { ... }` body) for all backends.
+    #[rstest]
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    #[case::sqlite(DatabaseBackend::Sqlite)]
+    fn build_modify_column_default_with_backfill_emits_update_statement(
+        #[case] backend: DatabaseBackend,
+    ) {
+        let schema = vec![table_def(
+            "users",
+            vec![
+                col("id", ColumnType::Simple(SimpleColumnType::Integer), false),
+                col("status", ColumnType::Simple(SimpleColumnType::Text), false),
+            ],
+            vec![],
+        )];
+
+        let queries = build_modify_column_default(
+            backend,
+            "users",
+            "status",
+            Some("'active'"),
+            Some("'active'"),
+            &schema,
+            &[],
+        )
+        .expect("backfill path should succeed");
+        let sql = queries
+            .iter()
+            .map(|q| q.build(backend))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        // The trailing UPDATE was emitted exactly once.
+        let update_count = sql.matches("UPDATE").count();
+        assert!(update_count >= 1, "expected backfill UPDATE in: {sql}");
+        assert!(sql.contains("SET"));
+        assert!(sql.contains("status"));
+        assert!(sql.contains("'active'"));
+    }
 }

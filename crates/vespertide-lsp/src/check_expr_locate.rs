@@ -90,22 +90,20 @@ pub(crate) fn owning_table_name(source: &[u8], node: Node<'_>) -> Option<String>
     let outer = outer?;
     let mut cursor = outer.walk();
     for child in outer.children(&mut cursor) {
-        if !matches!(child.kind(), "pair" | "block_mapping_pair") {
-            continue;
+        if matches!(child.kind(), "pair" | "block_mapping_pair")
+            && let Some(key) = child.named_child(0)
+            && let Some(key_text) = source
+                .get(key.byte_range())
+                .and_then(|bytes| std::str::from_utf8(bytes).ok())
+            && strip_quotes(key_text) == "name"
+        {
+            let value = child.named_child(1)?;
+            let actual = peel_wrapper(value);
+            let text = source
+                .get(actual.byte_range())
+                .and_then(|bytes| std::str::from_utf8(bytes).ok())?;
+            return Some(strip_quotes(text).to_string());
         }
-        let Some(key) = child.named_child(0) else {
-            continue;
-        };
-        let Some(key_text) = std::str::from_utf8(source.get(key.byte_range())?).ok() else {
-            continue;
-        };
-        if strip_quotes(key_text) != "name" {
-            continue;
-        }
-        let value = child.named_child(1)?;
-        let actual = peel_wrapper(value);
-        let text = std::str::from_utf8(source.get(actual.byte_range())?).ok()?;
-        return Some(strip_quotes(text).to_string());
     }
     None
 }
@@ -121,22 +119,20 @@ fn sibling_value(source: &[u8], pair: Node<'_>, target_key: &str) -> Option<Stri
     let object = peel_wrapper(object_raw);
     let mut cursor = object.walk();
     for child in object.children(&mut cursor) {
-        if !matches!(child.kind(), "pair" | "block_mapping_pair") {
-            continue;
+        if matches!(child.kind(), "pair" | "block_mapping_pair")
+            && let Some(key) = child.named_child(0)
+            && let Some(key_text) = source
+                .get(key.byte_range())
+                .and_then(|bytes| std::str::from_utf8(bytes).ok())
+            && strip_quotes(key_text) == target_key
+        {
+            let value = child.named_child(1)?;
+            let actual = peel_wrapper(value);
+            let text = source
+                .get(actual.byte_range())
+                .and_then(|bytes| std::str::from_utf8(bytes).ok())?;
+            return Some(strip_quotes(text).to_string());
         }
-        let Some(key) = child.named_child(0) else {
-            continue;
-        };
-        let Some(key_text) = std::str::from_utf8(source.get(key.byte_range())?).ok() else {
-            continue;
-        };
-        if strip_quotes(key_text) != target_key {
-            continue;
-        }
-        let value = child.named_child(1)?;
-        let actual = peel_wrapper(value);
-        let text = std::str::from_utf8(source.get(actual.byte_range())?).ok()?;
-        return Some(strip_quotes(text).to_string());
     }
     None
 }
@@ -201,5 +197,103 @@ fn node_at_byte(tree: &Tree, byte_offset: usize) -> Option<Node<'_>> {
             }
         }
         return Some(current);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::code_actions::compute as compute_code_actions;
+    use crate::parser::DocumentFormat;
+    use crate::test_support::parse_json as parse;
+
+    fn find_pair<'tree>(node: Node<'tree>, source: &[u8], key_name: &str) -> Option<Node<'tree>> {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if matches!(child.kind(), "pair" | "block_mapping_pair")
+                && let Some(key) = child.named_child(0)
+                && let Ok(text) = std::str::from_utf8(&source[key.byte_range()])
+                && strip_quotes(text) == key_name
+            {
+                return Some(child);
+            }
+            if let Some(found) = find_pair(child, source, key_name) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn find_check_expr_rejects_key_side_and_non_check_constraint() {
+        let src = r#"{"name":"u","constraints":[{"type":"check","name":"c","expr":"age > 0"}]}"#;
+        let tree = parse(src);
+        let key_pos = src.find(r#""expr""#).unwrap() + 2;
+        assert!(find_check_expr_at(&tree, src.as_bytes(), key_pos).is_none());
+
+        let non_check =
+            r#"{"name":"u","constraints":[{"type":"unique","name":"c","expr":"age > 0"}]}"#;
+        let tree = parse(non_check);
+        let expr_pos = non_check.find("age > 0").unwrap();
+        assert!(find_check_expr_at(&tree, non_check.as_bytes(), expr_pos).is_none());
+    }
+
+    #[test]
+    fn owning_table_name_skips_non_name_keys_and_returns_none_without_name() {
+        let src = r#"{"comment":"x","constraints":[{"type":"check","expr":"age > 0"}]}"#;
+        let tree = parse(src);
+        let expr_pair = find_pair(tree.root_node(), src.as_bytes(), "expr").unwrap();
+
+        assert!(owning_table_name(src.as_bytes(), expr_pair).is_none());
+    }
+
+    #[test]
+    fn owning_table_name_and_sibling_value_skip_invalid_utf8_keys() {
+        let src = r#"{"name":"u","constraints":[{"type":"check","expr":"age > 0"}]}"#;
+        let tree = parse(src);
+        let expr_pair = find_pair(tree.root_node(), src.as_bytes(), "expr").unwrap();
+        let mut bad = src.as_bytes().to_vec();
+        let name_key = src.find("name").unwrap();
+        bad[name_key] = 0xff;
+
+        assert!(owning_table_name(&bad, expr_pair).is_none());
+
+        let type_key = src.find("type").unwrap();
+        let mut bad_type = src.as_bytes().to_vec();
+        bad_type[type_key] = 0xff;
+        assert!(sibling_value(&bad_type, expr_pair, "type").is_none());
+    }
+
+    #[test]
+    fn sibling_value_returns_none_for_missing_target_key() {
+        let src = r#"{"name":"u","constraints":[{"type":"check","expr":"age > 0"}]}"#;
+        let tree = parse(src);
+        let expr_pair = find_pair(tree.root_node(), src.as_bytes(), "expr").unwrap();
+
+        assert!(sibling_value(src.as_bytes(), expr_pair, "missing").is_none());
+    }
+
+    #[test]
+    fn enclosing_helpers_return_none_at_structural_root() {
+        let tree = parse(r#"{"name":"u"}"#);
+        let root = tree.root_node();
+
+        assert!(enclosing_pair(root).is_none());
+        assert!(enclosing_string(root).is_none());
+    }
+
+    #[test]
+    fn cursor_on_non_check_pair_offers_no_between_swap() {
+        let src = r#"{"name":"u","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk","expr":"age BETWEEN 100 AND 0"}]}"#;
+        let tree = parse(src);
+        let cursor = src.find(r#""name":"chk""#).unwrap() + 9;
+
+        let actions = compute_code_actions(src, DocumentFormat::Json, Some(&tree), cursor..cursor);
+
+        assert!(
+            actions
+                .iter()
+                .all(|a| a.title != "Swap reversed BETWEEN bounds")
+        );
     }
 }

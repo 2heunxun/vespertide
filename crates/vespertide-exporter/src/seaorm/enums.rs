@@ -45,9 +45,7 @@ pub(super) fn render_enum(
         }
         EnumValues::String(_) => {
             // String enum: #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "...")]
-            lines.push(format!(
-                "#[sea_orm(rs_type = \"String\", db_type = \"Enum\", enum_name = \"{db_enum_name}\")]"
-            ));
+            lines.push(format!("#[sea_orm(rs_type = \"String\", db_type = \"Enum\", enum_name = \"{db_enum_name}\")]"));
         }
     }
 

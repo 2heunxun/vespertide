@@ -30,6 +30,28 @@ fn validate_schema_error_order_matches_across_thread_counts() {
     }
 }
 
+#[test]
+#[serial]
+fn env_guard_restores_previous_validate_schema_threshold() {
+    // SAFETY: this test is `#[serial]`, so the environment mutation cannot race
+    // with another test in this binary.
+    unsafe { std::env::set_var(VALIDATE_SCHEMA_THRESHOLD_ENV, "123") };
+    {
+        let _threshold = EnvVarGuard::set(VALIDATE_SCHEMA_THRESHOLD_ENV, TEST_PAR_THRESHOLD);
+        assert_eq!(
+            std::env::var(VALIDATE_SCHEMA_THRESHOLD_ENV).as_deref(),
+            Ok(TEST_PAR_THRESHOLD)
+        );
+    }
+    assert_eq!(
+        std::env::var(VALIDATE_SCHEMA_THRESHOLD_ENV).as_deref(),
+        Ok("123")
+    );
+    // SAFETY: this test is `#[serial]`, so the environment mutation cannot race
+    // with another test in this binary.
+    unsafe { std::env::remove_var(VALIDATE_SCHEMA_THRESHOLD_ENV) };
+}
+
 fn schema_with_tables(table_count: usize) -> Vec<TableDef> {
     (0..table_count).map(table_for_index).collect()
 }

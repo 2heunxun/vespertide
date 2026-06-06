@@ -52,3 +52,57 @@ impl std::fmt::Display for TableValidationError {
 }
 
 impl std::error::Error for TableValidationError {}
+
+#[cfg(test)]
+mod tests {
+    //! Coverage-closure tests for the `InvalidForeignKeyFormat` Display arm.
+    //! Targets `uncovered-detail.json` lines 35, 36
+    //! (the multi-line `write!` body for `DuplicateIndexColumn` / `InvalidForeignKeyFormat`).
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::duplicate_index(
+        TableValidationError::DuplicateIndexColumn {
+            index_name: "ix_user__email".into(),
+            column_name: "email".into(),
+        },
+        "Duplicate index 'ix_user__email' on column 'email'",
+    )]
+    #[case::invalid_fk(
+        TableValidationError::InvalidForeignKeyFormat {
+            column_name: "author_id".into(),
+            value: "broken".into(),
+        },
+        "Invalid foreign key format 'broken' on column 'author_id'",
+    )]
+    fn display_emits_descriptive_messages(#[case] err: TableValidationError, #[case] needle: &str) {
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains(needle),
+            "expected `{needle}` to appear in `{rendered}`"
+        );
+    }
+
+    #[test]
+    fn display_duplicate_column_name() {
+        // Pre-existing covered arm; included so the file's `mod tests` also
+        // documents the canonical case.
+        let err = TableValidationError::DuplicateColumnName {
+            table: "user".into(),
+            column: "email".into(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "table 'user' has duplicate column name 'email'",
+        );
+    }
+
+    #[test]
+    fn display_invariant_violation() {
+        let err = TableValidationError::InvariantViolation {
+            context: "normalize() collapsed two unique constraints".into(),
+        };
+        assert!(err.to_string().contains("normalize()"));
+    }
+}

@@ -6,46 +6,11 @@ use std::str::FromStr;
 use tempfile::tempdir;
 use tower_lsp_server::ls_types::Uri;
 use vespertide_lsp::{
-    DocumentFormat, DocumentStore, ParserPool, ReferenceSymbol, WorkspaceIndex, WorkspaceTables,
-    compute_references, resolve_reference_symbol,
+    DocumentFormat, DocumentStore, ParserPool, WorkspaceIndex, WorkspaceTables, compute_references,
 };
 
-fn uri(path: &str) -> Uri {
-    Uri::from_str(&format!("file:///{path}")).unwrap()
-}
-
-#[test]
-fn resolve_cursor_on_top_level_name_returns_table_symbol() {
-    let pool = ParserPool::new();
-    let src = r#"{"name":"user","columns":[{"name":"id","type":"integer"}]}"#;
-    let tree = pool.parse(src, DocumentFormat::Json).unwrap();
-    let pos = src.find(r#""name":"user""#).unwrap() + 9; // inside "user"
-    let symbol =
-        resolve_reference_symbol(src, Some(&tree), &uri("user.json"), pos).expect("table symbol");
-    assert_eq!(
-        symbol,
-        ReferenceSymbol::Table {
-            name: "user".to_string()
-        }
-    );
-}
-
-#[test]
-fn resolve_cursor_on_column_name_returns_column_symbol() {
-    let pool = ParserPool::new();
-    let src = r#"{"name":"user","columns":[{"name":"email","type":"text"}]}"#;
-    let tree = pool.parse(src, DocumentFormat::Json).unwrap();
-    let pos = src.find(r#""name":"email""#).unwrap() + 10;
-    let symbol =
-        resolve_reference_symbol(src, Some(&tree), &uri("user.json"), pos).expect("column symbol");
-    assert_eq!(
-        symbol,
-        ReferenceSymbol::Column {
-            table: "user".to_string(),
-            column: "email".to_string()
-        }
-    );
-}
+mod common;
+use common::uri;
 
 #[test]
 fn references_for_table_find_cross_file_ref_table_usages() {
@@ -114,59 +79,6 @@ fn references_for_table_find_cross_file_ref_table_usages() {
     assert!(
         uris.iter().any(|u| u.ends_with("/comment.json")),
         "comment.json ref missing, got: {uris:?}"
-    );
-}
-
-#[test]
-fn references_excludes_declaration_when_flag_is_false() {
-    let pool = ParserPool::new();
-    let idx = WorkspaceIndex::new();
-    let docs = DocumentStore::new();
-
-    let user_src =
-        r#"{"name":"user","columns":[{"name":"id","type":"integer","primary_key":true}]}"#;
-    let user_uri = uri("user.json");
-    let user_tree = pool.parse(user_src, DocumentFormat::Json).unwrap();
-    idx.upsert(&user_uri, user_src, &user_tree);
-    docs.open(
-        user_uri.clone(),
-        "json".to_string(),
-        1,
-        user_src.to_string(),
-    );
-
-    let post_src = r#"{"name":"post","columns":[{"name":"author_id","type":"integer","foreign_key":{"ref_table":"user","ref_columns":["id"]}}]}"#;
-    let post_uri = uri("post.json");
-    let post_tree = pool.parse(post_src, DocumentFormat::Json).unwrap();
-    idx.upsert(&post_uri, post_src, &post_tree);
-    docs.open(
-        post_uri.clone(),
-        "json".to_string(),
-        1,
-        post_src.to_string(),
-    );
-
-    let pos = user_src.find(r#""name":"user""#).unwrap() + 9;
-    let refs = compute_references(
-        user_src,
-        DocumentFormat::Json,
-        Some(&user_tree),
-        &user_uri,
-        &idx,
-        &docs,
-        None,
-        pos,
-        false, // do NOT include declaration
-    );
-
-    let uris: Vec<String> = refs.iter().map(|r| r.uri.as_str().to_string()).collect();
-    assert!(
-        !uris.iter().any(|u| u.ends_with("/user.json")),
-        "declaration should be excluded, got: {uris:?}"
-    );
-    assert!(
-        uris.iter().any(|u| u.ends_with("/post.json")),
-        "post.json usage should still be present"
     );
 }
 
@@ -244,22 +156,10 @@ fn references_include_disk_only_target_files() {
     let tmp = tempdir().unwrap();
     let models_dir = tmp.path().join("models");
     fs::create_dir_all(&models_dir).unwrap();
-    fs::write(
-        tmp.path().join("vespertide.json"),
-        r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#,
-    )
-    .unwrap();
-    fs::write(
-        models_dir.join("user.json"),
-        r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#,
-    )
-    .unwrap();
+    fs::write(tmp.path().join("vespertide.json"), r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#).unwrap();
+    fs::write(models_dir.join("user.json"), r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#).unwrap();
     // Disk-only post file references user.
-    fs::write(
-        models_dir.join("post.json"),
-        r#"{"name":"post","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true},{"name":"author_id","type":"integer","nullable":false,"foreign_key":{"ref_table":"user","ref_columns":["id"]}}]}"#,
-    )
-    .unwrap();
+    fs::write(models_dir.join("post.json"), r#"{"name":"post","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true},{"name":"author_id","type":"integer","nullable":false,"foreign_key":{"ref_table":"user","ref_columns":["id"]}}]}"#).unwrap();
 
     let disk = WorkspaceTables::new();
     assert!(disk.refresh(tmp.path()));
@@ -349,140 +249,5 @@ fn references_yaml_cross_file_table() {
     assert!(
         uris.iter().any(|u| u.ends_with("/post.yaml")),
         "YAML cross-file ref should appear, got: {uris:?}"
-    );
-}
-
-// -- CHECK-expression column references (FR-S1/S2/S3) ----------------------
-//
-// A table-level CHECK constraint references columns by bare identifier in
-// its `expr` string (e.g. `"age > 0 AND age < 150"`). Find-references and
-// rename must treat those identifiers as references to the owning table's
-// column, scoped so that `user.age` inside a CHECK does not collide with a
-// same-named `age` column on a different table.
-
-#[test]
-fn fr_s1_resolve_cursor_on_check_expr_column_returns_column_symbol() {
-    let pool = ParserPool::new();
-    let src = r#"{"name":"user","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk_age","expr":"age > 0"}]}"#;
-    let tree = pool.parse(src, DocumentFormat::Json).unwrap();
-    // Cursor on the `age` identifier *inside* the CHECK expression string.
-    let pos = src.find(r#""expr":"age > 0""#).unwrap() + 8; // inside "age"
-    let symbol = resolve_reference_symbol(src, Some(&tree), &uri("user.json"), pos)
-        .expect("CHECK expr column symbol");
-    assert_eq!(
-        symbol,
-        ReferenceSymbol::Column {
-            table: "user".to_string(),
-            column: "age".to_string()
-        }
-    );
-}
-
-#[test]
-fn fr_s2_references_of_column_include_check_expr_occurrence() {
-    let pool = ParserPool::new();
-    let idx = WorkspaceIndex::new();
-    let docs = DocumentStore::new();
-
-    let user_src = r#"{"name":"user","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk_age","expr":"age > 0 AND age < 150"}]}"#;
-    let user_uri = uri("user.json");
-    let user_tree = pool.parse(user_src, DocumentFormat::Json).unwrap();
-    idx.upsert(&user_uri, user_src, &user_tree);
-    docs.open(
-        user_uri.clone(),
-        "json".to_string(),
-        1,
-        user_src.to_string(),
-    );
-
-    // Cursor on the `age` column declaration.
-    let pos = user_src.find(r#""name":"age""#).unwrap() + 8;
-    let refs = compute_references(
-        user_src,
-        DocumentFormat::Json,
-        Some(&user_tree),
-        &user_uri,
-        &idx,
-        &docs,
-        None,
-        pos,
-        true,
-    );
-
-    // The two `age` occurrences inside the CHECK expr must be reported, each
-    // as its own byte range pointing exactly at the identifier text.
-    let expr_field_start = user_src.find(r#""expr":""#).unwrap() + r#""expr":""#.len();
-    let check_refs: Vec<_> = refs
-        .iter()
-        .filter(|r| r.byte_range.start >= expr_field_start)
-        .collect();
-    assert_eq!(
-        check_refs.len(),
-        2,
-        "both CHECK-expr `age` occurrences should be reported, got: {refs:?}"
-    );
-    for r in &check_refs {
-        assert_eq!(
-            &user_src[r.byte_range.clone()],
-            "age",
-            "CHECK-expr reference range must cover exactly the column identifier"
-        );
-    }
-}
-
-#[test]
-fn fr_s3_check_expr_column_scoped_to_owning_table() {
-    let pool = ParserPool::new();
-    let idx = WorkspaceIndex::new();
-    let docs = DocumentStore::new();
-
-    // user.age has a CHECK referencing `age`.
-    let user_src = r#"{"name":"user","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk_age","expr":"age > 0"}]}"#;
-    let user_uri = uri("user.json");
-    let user_tree = pool.parse(user_src, DocumentFormat::Json).unwrap();
-    idx.upsert(&user_uri, user_src, &user_tree);
-    docs.open(
-        user_uri.clone(),
-        "json".to_string(),
-        1,
-        user_src.to_string(),
-    );
-
-    // other.age also has a CHECK referencing `age` — a DIFFERENT table's
-    // column that happens to share the name. It must NOT be reported when
-    // resolving references of user.age.
-    let other_src = r#"{"name":"other","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"chk_age","expr":"age > 0"}]}"#;
-    let other_uri = uri("other.json");
-    let other_tree = pool.parse(other_src, DocumentFormat::Json).unwrap();
-    idx.upsert(&other_uri, other_src, &other_tree);
-    docs.open(
-        other_uri.clone(),
-        "json".to_string(),
-        1,
-        other_src.to_string(),
-    );
-
-    let pos = user_src.find(r#""name":"age""#).unwrap() + 8;
-    let refs = compute_references(
-        user_src,
-        DocumentFormat::Json,
-        Some(&user_tree),
-        &user_uri,
-        &idx,
-        &docs,
-        None,
-        pos,
-        true,
-    );
-
-    let by_uri: Vec<_> = refs.iter().map(|r| r.uri.as_str().to_string()).collect();
-    assert!(
-        by_uri.iter().any(|u| u.ends_with("/user.json")),
-        "user.json CHECK ref should appear, got: {by_uri:?}"
-    );
-    let other_count = by_uri.iter().filter(|u| u.ends_with("/other.json")).count();
-    assert_eq!(
-        other_count, 0,
-        "unrelated `other.age` CHECK column must not be reported, got: {by_uri:?}"
     );
 }

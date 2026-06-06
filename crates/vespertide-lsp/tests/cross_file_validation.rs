@@ -1,14 +1,10 @@
 //! Cross-file validation tests for workspace-aware diagnostics.
 
-use std::str::FromStr;
-
-use tower_lsp_server::ls_types::Uri;
 use vespertide_lsp::diagnostics::validation::WorkspaceTable;
 use vespertide_lsp::{DocumentFormat, ParserPool, compute_workspace_diagnostics};
 
-fn uri(path: &str) -> Uri {
-    Uri::from_str(&format!("file:///{path}")).unwrap()
-}
+mod common;
+use common::uri;
 
 fn build_yaml_workspace_entry(
     src: &'static str,

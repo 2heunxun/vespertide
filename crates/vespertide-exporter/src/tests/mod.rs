@@ -1,11 +1,28 @@
 use insta::{assert_snapshot, with_settings};
 use rstest::rstest;
+use vespertide_core::TableDef;
 
 use crate::orm::{Orm, render_entity, render_entity_with_schema};
 
 pub(crate) mod fixtures;
 
+/// Dispatch the per-ORM **multi-table** entry point so the cross-ORM
+/// `orm_cases!(multi ...)` arm renders a `Vec<TableDef>` schema for all four
+/// ORMs through a single call. JPA's `render_entities` returns `Vec<String>`
+/// (one entry per entity); we join with `"\n"` to match the
+/// `String`-returning shape of the other three.
+fn render_schema(orm: Orm, schema: &[TableDef]) -> Result<String, String> {
+    match orm {
+        Orm::SeaOrm => crate::seaorm::export(schema),
+        Orm::SqlAlchemy => crate::sqlalchemy::export(schema),
+        Orm::SqlModel => crate::sqlmodel::render_entities(schema),
+        Orm::Jpa => crate::jpa::render_entities(schema).map(|entities| entities.join("\n")),
+    }
+}
+
 macro_rules! orm_cases {
+    // Single-table variant — fixture returns one `TableDef`; renders via
+    // `render_entity(orm, &table)`.
     ($test_name:ident, $scenario:literal, $fixture:path) => {
         #[rstest]
         #[case::seaorm(Orm::SeaOrm)]
@@ -15,6 +32,22 @@ macro_rules! orm_cases {
         fn $test_name(#[case] orm: Orm) {
             let table = $fixture();
             let rendered = render_entity(orm, &table).unwrap();
+            with_settings!({ snapshot_suffix => format!("{}_{:?}", $scenario, orm) }, {
+                assert_snapshot!(rendered);
+            });
+        }
+    };
+    // Multi-table variant — fixture returns `Vec<TableDef>`; renders via the
+    // per-ORM multi-table entry point dispatched by `render_schema`.
+    (multi $test_name:ident, $scenario:literal, $fixture:path) => {
+        #[rstest]
+        #[case::seaorm(Orm::SeaOrm)]
+        #[case::sqlalchemy(Orm::SqlAlchemy)]
+        #[case::sqlmodel(Orm::SqlModel)]
+        #[case::jpa(Orm::Jpa)]
+        fn $test_name(#[case] orm: Orm) {
+            let schema: Vec<TableDef> = $fixture();
+            let rendered = render_schema(orm, &schema).unwrap();
             with_settings!({ snapshot_suffix => format!("{}_{:?}", $scenario, orm) }, {
                 assert_snapshot!(rendered);
             });
@@ -229,6 +262,32 @@ orm_cases!(
     integer_enum_with_default_snapshot,
     "integer_enum_with_default",
     fixtures::integer_enum_with_default
+);
+// Cross-ORM coverage closure for the variant-name branch of
+// `seaorm/types.rs` `format_default_value` (the `else` arm inside
+// `EnumValues::Integer(int_values) =>`, lines 47-60). The existing
+// `integer_enum_with_default` fixture covers the numeric-literal `if` arm via
+// `default("1")`; this fixture exercises the lookup arm via
+// `default("Completed")` → resolves to value `100`.
+orm_cases!(
+    integer_enum_with_variant_default_snapshot,
+    "integer_enum_with_variant_default",
+    fixtures::integer_enum_with_variant_default
+);
+// Cross-ORM coverage closure for the **sequential** branch of every per-ORM
+// multi-table entry point:
+// * `sqlalchemy/render.rs` lines 21-29 (`pub fn export`)
+// * `sqlmodel/render.rs` lines 62-65, 84-92, 94-100
+//   (`pub fn render_entities` + `render_entities_sequential`)
+// * `seaorm::export` + `jpa::render_entities` sequential arms
+// The existing `tests/parallel_consolidated.rs` integration test exercises
+// the parallel branch with a 100-table schema; this scenario completes the
+// matrix by exercising the < 50-table sequential branch through the shared
+// `orm_cases!` macro (multi-table variant).
+orm_cases!(
+    multi small_multi_schema_sequential_snapshot,
+    "small_multi_schema_sequential",
+    fixtures::small_multi_schema
 );
 
 /// Dispatch the per-ORM `to_pascal_case` helper from a single entry point so

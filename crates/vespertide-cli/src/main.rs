@@ -3,6 +3,8 @@ use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 
 mod commands;
 mod parallel_config;
+#[cfg(test)]
+mod test_support;
 mod utils;
 use crate::commands::erd::ErdFormat;
 use crate::commands::export::OrmArg;

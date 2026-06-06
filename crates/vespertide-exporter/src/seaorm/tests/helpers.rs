@@ -2,8 +2,8 @@ use super::*;
 use rstest::rstest;
 use std::collections::HashSet;
 use vespertide_core::{
-    ColumnDef, ColumnType, ComplexColumnType, EnumValues, NumValue, SimpleColumnType,
-    TableConstraint, TableDef,
+    ColumnDef, ColumnType, ComplexColumnType, EnumValues, SimpleColumnType, TableConstraint,
+    TableDef,
 };
 
 #[test]
@@ -315,82 +315,29 @@ fn test_screaming_snake_to_pascal_case_all_empty_segments_returns_identifier(#[c
     assert_eq!(screaming_snake_to_pascal_case(input), "Value");
 }
 
-fn string_enum_order_status() -> (&'static str, EnumValues) {
-    (
-        "order_status",
-        EnumValues::String(vec!["pending".into(), "shipped".into(), "delivered".into()]),
-    )
-}
-
-fn string_enum_numeric_prefix() -> (&'static str, EnumValues) {
-    (
-        "priority",
-        EnumValues::String(vec!["1_high".into(), "2_medium".into(), "3_low".into()]),
-    )
-}
-
-fn integer_enum_color() -> (&'static str, EnumValues) {
-    (
-        "color",
-        EnumValues::Integer(vec![
-            NumValue {
-                name: "Black".into(),
-                value: 0,
-            },
-            NumValue {
-                name: "White".into(),
-                value: 1,
-            },
-            NumValue {
-                name: "Red".into(),
-                value: 2,
-            },
-        ]),
-    )
-}
-
-fn integer_enum_status() -> (&'static str, EnumValues) {
-    (
-        "task_status",
-        EnumValues::Integer(vec![
-            NumValue {
-                name: "Pending".into(),
-                value: 0,
-            },
-            NumValue {
-                name: "InProgress".into(),
-                value: 1,
-            },
-            NumValue {
-                name: "Completed".into(),
-                value: 100,
-            },
-        ]),
-    )
-}
-
-#[rstest]
-#[case::string_enum("string_order_status", "orders", string_enum_order_status())]
-#[case::string_numeric_prefix("string_numeric_prefix", "tasks", string_enum_numeric_prefix())]
-#[case::integer_color("integer_color", "products", integer_enum_color())]
-#[case::integer_status("integer_status", "tasks", integer_enum_status())]
-fn test_render_enum_snapshots(
-    #[case] name: &str,
-    #[case] table_name: &str,
-    #[case] input: (&str, EnumValues),
-) {
-    use insta::with_settings;
-
-    let (enum_name, values) = input;
-    let mut lines = Vec::new();
-    let config = SeaOrmConfig::default();
-    render_enum(&mut lines, table_name, enum_name, &values, &config);
-    let result = lines.join("\n");
-
-    with_settings!({ snapshot_suffix => name }, {
-        insta::assert_snapshot!(result);
-    });
-}
+// `render_enum` line/branch coverage is provided by:
+//   * Every cross-ORM `orm_cases!` enum scenario in `crate::tests::mod`
+//     (e.g. `table_with_enum`, `enum_special_values`, `enum_with_default`,
+//     `table_with_integer_enum`, `integer_enum_with_default`,
+//     `integer_enum_with_variant_default`, `integer_enum_all_variant_types`,
+//     `nullable_enum`, `enum_multiple_columns`, `enum_shared`). Each renders
+//     a `TableDef` with an enum column via `SeaOrmExporter::render_entity`,
+//     which calls `seaorm::enums::render_enum` and emits the rendered enum
+//     lines into the cross-ORM snapshot — so every code path inside
+//     `render_enum` is exercised AND locked under
+//     `src/tests/snapshots/<scenario>_SeaOrm.snap`.
+//   * The substring-asserting unit test
+//     `test_render_enum_uses_screaming_snake_serde_for_uppercase_values`
+//     (kept below) for the SCREAMING_SNAKE serde-rename path.
+//   * The parametric helper tests `test_enum_variant_name`,
+//     `test_to_pascal_case`, `test_to_snake_case`,
+//     `test_is_screaming_snake_value_rejects_invalid_symbol`, and
+//     `test_screaming_snake_to_pascal_case_*` for the per-branch helpers
+//     `render_enum` calls into.
+// The previous SeaORM-only `test_render_enum_snapshots` rstest (4 cases →
+// 4 `.snap` files under `src/seaorm/tests/snapshots/`) was redundant with
+// the cross-ORM matrix and violated the "ALL exporter snapshots in
+// `src/tests/snapshots/`" rule — it has been removed.
 
 #[test]
 fn test_resolve_fk_target_no_schema() {
@@ -545,10 +492,6 @@ fn test_resolve_fk_target_composite_fk() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "fixture-heavy relation regression test"
-)]
 fn test_render_entity_with_schema_fk_chain() {
     use vespertide_core::{ColumnType, SimpleColumnType};
 
@@ -791,10 +734,6 @@ fn test_resolve_fk_target_deep_chain() {
     assert_eq!(columns, vec!["id"]);
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "F3 wire-format change added one line per ForeignKey literal; fixture is otherwise atomic"
-)]
 #[test]
 fn test_render_entity_with_schema_cyclic_fk_chain_returns_current_target() {
     use vespertide_core::{ColumnType, SimpleColumnType};

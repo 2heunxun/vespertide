@@ -38,13 +38,14 @@ pub(super) struct EnumValueDescriptor {
 pub(super) fn unwrap_yaml_node(node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
     let mut current = node;
     while matches!(current.kind(), "flow_node" | "block_node") {
-        let Some(inner) = current.named_child(0) else {
-            break;
-        };
-        if inner.id() == current.id() {
-            break;
+        if let Some(inner) = current
+            .named_child(0)
+            .filter(|inner| inner.id() != current.id())
+        {
+            current = inner;
+        } else {
+            return current;
         }
-        current = inner;
     }
     current
 }
@@ -75,32 +76,22 @@ pub(super) fn collect_enum_value_descriptors(
             "object" | "block_mapping" | "flow_mapping" => {
                 let name_pair = find_pair_with_key(child, source, "name");
                 let value_pair = find_pair_with_key(child, source, "value");
-                let Some(name_pair) = name_pair else {
-                    continue;
-                };
-                let Some(name_value_raw) = name_pair.named_child(1) else {
-                    continue;
-                };
-                let name_value = unwrap_yaml_node(name_value_raw);
-                let Some(name) = scalar_string(name_value, source) else {
-                    continue;
-                };
-                let (integer_value, integer_range) = match value_pair {
-                    Some(pair) => {
-                        let v = pair.named_child(1).map(unwrap_yaml_node);
-                        match v {
-                            Some(node) => (scalar_string(node, source), node.byte_range()),
-                            None => (None, 0..0),
-                        }
-                    }
-                    None => (None, 0..0),
-                };
-                out.push(EnumValueDescriptor {
-                    name,
-                    byte_range: child.byte_range(),
-                    integer_value,
-                    integer_value_range: integer_range,
-                });
+                if let Some(name_pair) = name_pair
+                    && let Some(name_value_raw) = name_pair.named_child(1)
+                    && let Some(name) = scalar_string(unwrap_yaml_node(name_value_raw), source)
+                {
+                    let value_node =
+                        value_pair.and_then(|pair| pair.named_child(1).map(unwrap_yaml_node));
+                    let (integer_value, integer_range) = value_node.map_or((None, 0..0), |node| {
+                        (scalar_string(node, source), node.byte_range())
+                    });
+                    out.push(EnumValueDescriptor {
+                        name,
+                        byte_range: child.byte_range(),
+                        integer_value,
+                        integer_value_range: integer_range,
+                    });
+                }
             }
             // YAML block_sequence_item wraps the actual element.
             "block_sequence_item" => {
@@ -135,12 +126,16 @@ pub(super) fn collect_enum_value_descriptors(
 pub(super) fn scalar_text<'a>(pair: tree_sitter::Node<'_>, source: &'a [u8]) -> Option<&'a str> {
     let value_raw = pair.named_child(1)?;
     let value = unwrap_yaml_node(value_raw);
-    let text = std::str::from_utf8(&source[value.byte_range()]).ok()?;
+    let text = source
+        .get(value.byte_range())
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())?;
     Some(strip_quotes_str(text))
 }
 
 pub(super) fn scalar_string(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let text = std::str::from_utf8(&source[node.byte_range()]).ok()?;
+    let text = source
+        .get(node.byte_range())
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())?;
     Some(strip_quotes_str(text).to_string())
 }
 
@@ -182,7 +177,9 @@ pub(super) fn is_pair_node(node: tree_sitter::Node<'_>) -> bool {
 
 pub(super) fn pair_key_text<'a>(pair: tree_sitter::Node<'_>, source: &'a [u8]) -> Option<&'a str> {
     let key = pair.named_child(0)?;
-    let text = std::str::from_utf8(&source[key.byte_range()]).ok()?;
+    let text = source
+        .get(key.byte_range())
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())?;
     Some(strip_quotes_str(text))
 }
 
@@ -197,4 +194,123 @@ pub(super) fn strip_quotes_str(s: &str) -> &str {
                 .and_then(|w| w.strip_suffix('\''))
         })
         .unwrap_or(trimmed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::DocumentFormat;
+    use crate::test_support::parse;
+
+    fn values_node<'tree>(
+        tree: &'tree tree_sitter::Tree,
+        source: &[u8],
+    ) -> tree_sitter::Node<'tree> {
+        unwrap_yaml_node(
+            find_value_for_key(tree.root_node(), source, "values").expect("values node"),
+        )
+    }
+
+    fn find_kind<'tree>(
+        node: tree_sitter::Node<'tree>,
+        kind: &str,
+        no_named_child: bool,
+    ) -> Option<tree_sitter::Node<'tree>> {
+        if node.kind() == kind && (!no_named_child || node.named_child(0).is_none()) {
+            return Some(node);
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if let Some(found) = find_kind(child, kind, no_named_child) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn unwrap_yaml_node_stops_on_empty_wrapper() {
+        let src = "values:\n  -\n";
+        let tree = parse(src, DocumentFormat::Yaml);
+        if let Some(wrapper) = find_kind(tree.root_node(), "block_node", true) {
+            assert_eq!(unwrap_yaml_node(wrapper).id(), wrapper.id());
+        }
+    }
+
+    #[test]
+    fn enum_descriptor_skips_objects_missing_name_or_value_fields() {
+        let src = r#"{"values":[{"value":1},{"name":"low"},{"name":"high","value":2}]}"#;
+        let tree = parse(src, DocumentFormat::Json);
+        let descriptors =
+            collect_enum_value_descriptors(values_node(&tree, src.as_bytes()), src.as_bytes());
+
+        assert_eq!(
+            descriptors
+                .iter()
+                .map(|d| d.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["low", "high"]
+        );
+        assert_eq!(descriptors[0].integer_value, None);
+        assert_eq!(descriptors[1].integer_value.as_deref(), Some("2"));
+    }
+
+    #[test]
+    fn enum_descriptor_skips_object_name_when_value_is_missing_or_not_utf8() {
+        let malformed = r#"{"values":[{"name":},{"name":"ok"}]}"#;
+        let tree = parse(malformed, DocumentFormat::Json);
+        let _ = collect_enum_value_descriptors(
+            values_node(&tree, malformed.as_bytes()),
+            malformed.as_bytes(),
+        );
+
+        let valid = r#"{"values":[{"name":"bad"}]}"#;
+        let tree = parse(valid, DocumentFormat::Json);
+        let mut bytes = valid.as_bytes().to_vec();
+        let start = valid.find("bad").unwrap();
+        bytes[start] = 0xff;
+        let descriptors = collect_enum_value_descriptors(values_node(&tree, &bytes), &bytes);
+
+        assert!(descriptors.is_empty());
+    }
+
+    #[test]
+    fn enum_descriptor_handles_yaml_block_sequence_items() {
+        let src = "values:\n  - active\n  - name: low\n    value: 1\n";
+        let tree = parse(src, DocumentFormat::Yaml);
+        let descriptors =
+            collect_enum_value_descriptors(values_node(&tree, src.as_bytes()), src.as_bytes());
+
+        assert!(
+            descriptors.iter().any(|d| d.name == "active"),
+            "got: {:?}",
+            descriptors
+                .iter()
+                .map(|d| d.name.as_str())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn json_integer_enum_value_members_capture_name_and_integer_value() {
+        let src = r#"{"values":[{"name":"low","value":0},{"name":"low","value":10}]}"#;
+        let tree = parse(src, DocumentFormat::Json);
+        let descriptors =
+            collect_enum_value_descriptors(values_node(&tree, src.as_bytes()), src.as_bytes());
+
+        assert_eq!(
+            descriptors
+                .iter()
+                .map(|d| d.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["low", "low"]
+        );
+        assert_eq!(
+            descriptors
+                .iter()
+                .map(|d| d.integer_value.as_deref())
+                .collect::<Vec<_>>(),
+            vec![Some("0"), Some("10")]
+        );
+    }
 }

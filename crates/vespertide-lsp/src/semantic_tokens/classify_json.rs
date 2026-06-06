@@ -87,95 +87,90 @@ fn walk(node: tree_sitter::Node<'_>, source: &[u8], ctx: Ctx, out: &mut Vec<RawT
 }
 
 fn classify_pair(pair: tree_sitter::Node<'_>, source: &[u8], ctx: Ctx, out: &mut Vec<RawToken>) {
-    let Some(key) = pair.named_child(0) else {
-        return;
-    };
-    let Some(value) = pair.named_child(1) else {
-        return;
-    };
-    let Some(key_text) = scalar_text(key, source) else {
-        return;
-    };
+    if let Some(key) = pair.named_child(0)
+        && let Some(value) = pair.named_child(1)
+        && let Some(key_text) = scalar_text(key, source)
+    {
+        match key_text {
+            // Top-level table identifier — `object_depth == 1` distinguishes
+            // it from nested `name` keys (column.name, enum member.name).
+            "name" if ctx.object_depth == 1 && !ctx.inside_columns => {
+                push_string_inner(value, TokenIdx::Class, ModIdx::Declaration as u32, out);
+            }
+            "name" if ctx.inside_column && !ctx.inside_complex_type_object => {
+                push_string_inner(value, TokenIdx::Property, ModIdx::Declaration as u32, out);
+            }
+            "name" if ctx.inside_enum_values_array => {
+                // integer-enum member `{"name":"low", "value":0}` — the name
+                // is the enum-member identifier.
+                push_string_inner(value, TokenIdx::EnumMember, 0, out);
+            }
+            "columns" => {
+                let new_ctx = Ctx {
+                    inside_columns: true,
+                    ..ctx
+                };
+                recurse_into_value(value, source, new_ctx, out);
+                return;
+            }
+            "constraints" => {
+                let new_ctx = Ctx {
+                    inside_constraints: true,
+                    ..ctx
+                };
+                recurse_into_value(value, source, new_ctx, out);
+                return;
+            }
+            "expr" if ctx.inside_constraints && value.kind() == "string" => {
+                emit_json_check_expr_tokens(value, source, out);
+                return;
+            }
+            "type" if ctx.inside_columns => {
+                classify_type_value(value, source, ctx, out);
+                return;
+            }
+            "kind" if ctx.inside_complex_type_object => {
+                push_string_inner(value, TokenIdx::EnumMember, 0, out);
+            }
+            "values" if ctx.inside_complex_type_object => {
+                let new_ctx = Ctx {
+                    inside_enum_values_array: true,
+                    ..ctx
+                };
+                recurse_into_value(value, source, new_ctx, out);
+                return;
+            }
+            "foreign_key" => {
+                let new_ctx = Ctx {
+                    inside_foreign_key: true,
+                    ..ctx
+                };
+                recurse_into_value(value, source, new_ctx, out);
+                return;
+            }
+            "ref_table" if ctx.inside_foreign_key => {
+                push_string_inner(value, TokenIdx::Class, ModIdx::Definition as u32, out);
+            }
+            "ref_columns" if ctx.inside_foreign_key => {
+                let new_ctx = Ctx {
+                    inside_ref_columns: true,
+                    ..ctx
+                };
+                recurse_into_value(value, source, new_ctx, out);
+                return;
+            }
+            "on_delete" | "on_update" if ctx.inside_foreign_key => {
+                push_string_inner(value, TokenIdx::EnumMember, 0, out);
+            }
+            "default" if ctx.inside_column => {
+                classify_default_value(value, out);
+            }
+            _ => {}
+        }
 
-    match key_text {
-        // Top-level table identifier — `object_depth == 1` distinguishes
-        // it from nested `name` keys (column.name, enum member.name).
-        "name" if ctx.object_depth == 1 && !ctx.inside_columns => {
-            push_string_inner(value, TokenIdx::Class, ModIdx::Declaration as u32, out);
-        }
-        "name" if ctx.inside_column && !ctx.inside_complex_type_object => {
-            push_string_inner(value, TokenIdx::Property, ModIdx::Declaration as u32, out);
-        }
-        "name" if ctx.inside_enum_values_array => {
-            // integer-enum member `{"name":"low", "value":0}` — the name
-            // is the enum-member identifier.
-            push_string_inner(value, TokenIdx::EnumMember, 0, out);
-        }
-        "columns" => {
-            let new_ctx = Ctx {
-                inside_columns: true,
-                ..ctx
-            };
-            recurse_into_value(value, source, new_ctx, out);
-            return;
-        }
-        "constraints" => {
-            let new_ctx = Ctx {
-                inside_constraints: true,
-                ..ctx
-            };
-            recurse_into_value(value, source, new_ctx, out);
-            return;
-        }
-        "expr" if ctx.inside_constraints && value.kind() == "string" => {
-            emit_json_check_expr_tokens(value, source, out);
-            return;
-        }
-        "type" if ctx.inside_columns => {
-            classify_type_value(value, source, ctx, out);
-            return;
-        }
-        "kind" if ctx.inside_complex_type_object => {
-            push_string_inner(value, TokenIdx::EnumMember, 0, out);
-        }
-        "values" if ctx.inside_complex_type_object => {
-            let new_ctx = Ctx {
-                inside_enum_values_array: true,
-                ..ctx
-            };
-            recurse_into_value(value, source, new_ctx, out);
-            return;
-        }
-        "foreign_key" => {
-            let new_ctx = Ctx {
-                inside_foreign_key: true,
-                ..ctx
-            };
-            recurse_into_value(value, source, new_ctx, out);
-            return;
-        }
-        "ref_table" if ctx.inside_foreign_key => {
-            push_string_inner(value, TokenIdx::Class, ModIdx::Definition as u32, out);
-        }
-        "ref_columns" if ctx.inside_foreign_key => {
-            let new_ctx = Ctx {
-                inside_ref_columns: true,
-                ..ctx
-            };
-            recurse_into_value(value, source, new_ctx, out);
-            return;
-        }
-        "on_delete" | "on_update" if ctx.inside_foreign_key => {
-            push_string_inner(value, TokenIdx::EnumMember, 0, out);
-        }
-        "default" if ctx.inside_column => {
-            classify_default_value(value, out);
-        }
-        _ => {}
+        // Recurse into the value so we still surface nested literals.
+        recurse_into_value(value, source, ctx, out);
     }
-
-    // Recurse into the value so we still surface nested literals.
-    recurse_into_value(value, source, ctx, out);
 }
 
 /// Recurse into the value of a pair, propagating context updates we may
@@ -283,23 +278,17 @@ fn emit_json_check_expr_tokens(
     out: &mut Vec<RawToken>,
 ) {
     let raw = string_node.byte_range();
-    if raw.end.saturating_sub(raw.start) < 2 {
-        return;
+    if raw.end.saturating_sub(raw.start) >= 2 {
+        let inner_start = raw.start + 1;
+        let inner_end = raw.end - 1;
+        if inner_end > inner_start
+            && let Some(expr_text) = source
+                .get(inner_start..inner_end)
+                .and_then(|bytes| std::str::from_utf8(bytes).ok())
+        {
+            check_expr_tokens::emit_check_expr_tokens(expr_text, inner_start, out);
+        }
     }
-
-    let inner_start = raw.start + 1;
-    let inner_end = raw.end - 1;
-    if inner_end <= inner_start {
-        return;
-    }
-
-    let Some(bytes) = source.get(inner_start..inner_end) else {
-        return;
-    };
-    let Ok(expr_text) = std::str::from_utf8(bytes) else {
-        return;
-    };
-    check_expr_tokens::emit_check_expr_tokens(expr_text, inner_start, out);
 }
 
 /// Emit a token covering only the INNER content of a JSON string node
@@ -345,11 +334,17 @@ fn scalar_text<'a>(node: tree_sitter::Node<'_>, source: &'a [u8]) -> Option<&'a 
 mod tests {
     use super::*;
     use crate::parser::{DocumentFormat, ParserPool};
+    use crate::test_support::*;
+    use rstest::rstest;
 
     fn classify_src(src: &str) -> Vec<RawToken> {
-        let tree = ParserPool::new()
-            .parse(src, DocumentFormat::Json)
-            .expect("parse");
+        if src.is_empty() {
+            return ParserPool::new()
+                .parse(src, DocumentFormat::Json)
+                .as_ref()
+                .map_or_else(Vec::new, |tree| classify(src, tree));
+        }
+        let tree = parse_json(src);
         classify(src, &tree)
     }
 
@@ -476,6 +471,110 @@ mod tests {
             .find(|t| t.byte_range.start == true_start)
             .expect("keyword token");
         assert_eq!(tok.token_type, TokenIdx::Keyword as u32);
+    }
+
+    #[rstest]
+    #[case::true_literal(
+        r#"{"name":"u","columns":[{"name":"x","type":"boolean","default":true}]}"#,
+        r#""default":true"#,
+        10,
+        Some(TokenIdx::Keyword)
+    )]
+    #[case::false_literal(
+        r#"{"name":"u","columns":[{"name":"x","type":"boolean","default":false}]}"#,
+        r#""default":false"#,
+        10,
+        Some(TokenIdx::Keyword)
+    )]
+    #[case::null_literal(
+        r#"{"name":"u","columns":[{"name":"x","type":"integer","default":null}]}"#,
+        r#""default":null"#,
+        10,
+        Some(TokenIdx::Keyword)
+    )]
+    #[case::number_literal(
+        r#"{"name":"u","columns":[{"name":"x","type":"integer","default":42}]}"#,
+        r#""default":42"#,
+        10,
+        Some(TokenIdx::Number)
+    )]
+    #[case::string_literal(
+        r#"{"name":"u","columns":[{"name":"x","type":"text","default":"abc"}]}"#,
+        r#""default":"abc""#,
+        11,
+        Some(TokenIdx::String)
+    )]
+    #[case::array_literal(
+        r#"{"name":"u","columns":[{"name":"x","type":"integer","default":[]}]}"#,
+        r#""default":[]"#,
+        10,
+        None
+    )]
+    fn json_default_literal_cases(
+        #[case] src: &str,
+        #[case] needle: &str,
+        #[case] offset: usize,
+        #[case] expected_type: Option<TokenIdx>,
+    ) {
+        let tokens = classify_src(src);
+        let start = src.find(needle).unwrap() + offset;
+        let token = tokens.iter().find(|token| token.byte_range.start == start);
+
+        if let Some(token_type) = expected_type {
+            assert_eq!(
+                token.expect("default literal token").token_type,
+                token_type as u32
+            );
+        } else {
+            assert!(
+                token.is_none(),
+                "no token expected at array default literal"
+            );
+        }
+    }
+
+    #[rstest]
+    #[case::complex_type_object(
+        r#"{"name":"u","columns":[{"name":"x","type":{"kind":"varchar","length":255}}]}"#,
+        true
+    )]
+    #[case::array_type_value(r#"{"name":"u","columns":[{"name":"x","type":[1,2]}]}"#, false)]
+    fn json_type_value_cases(#[case] src: &str, #[case] expected_enum_member: bool) {
+        let tokens = classify_src(src);
+        assert_eq!(
+            tokens
+                .iter()
+                .any(|token| token.token_type == TokenIdx::EnumMember as u32),
+            expected_enum_member
+        );
+    }
+
+    #[rstest]
+    #[case::array_at_document_root(r#"[{"name":"x"}]"#, None)]
+    #[case::pair_with_missing_value(r#"{"name":}"#, None)]
+    #[case::top_level_name(r#"{"name":"top_user"}"#, Some((r#""name":"top_user""#, 8, TokenIdx::Class, ModIdx::Declaration as u32)))]
+    #[case::columns_array_non_object(r#"{"name":"u","columns":[42]}"#, None)]
+    #[case::columns_before_name(r#"{"columns":[],"name":"second_name"}"#, Some((r#""name":"second_name""#, 8, TokenIdx::Class, ModIdx::Declaration as u32)))]
+    fn json_walk_cases(
+        #[case] src: &str,
+        #[case] expected_token: Option<(&str, usize, TokenIdx, u32)>,
+    ) {
+        let tokens = classify_src(src);
+
+        if let Some((needle, offset, token_type, token_modifiers)) = expected_token {
+            let start = src.find(needle).unwrap() + offset;
+            let token = tokens
+                .iter()
+                .find(|token| token.byte_range.start == start)
+                .expect("expected semantic token");
+            assert_eq!(token.token_type, token_type as u32);
+            assert_eq!(token.token_modifiers, token_modifiers);
+        }
+    }
+
+    #[test]
+    fn json_classifier_on_empty_document_emits_no_tokens() {
+        assert!(classify_src("").is_empty());
     }
 
     #[test]
@@ -663,5 +762,115 @@ mod tests {
             3,
             "CHECK expression tokens should be additive and not replace existing tokens: {check_tokens:?}"
         );
+    }
+
+    fn first_node<'tree>(
+        node: tree_sitter::Node<'tree>,
+        kind: &str,
+    ) -> Option<tree_sitter::Node<'tree>> {
+        if node.kind() == kind {
+            return Some(node);
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if let Some(found) = first_node(child, kind) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    fn first_pair<'tree>(tree: &'tree tree_sitter::Tree, src: &str) -> tree_sitter::Node<'tree> {
+        first_node(tree.root_node(), "pair").unwrap_or_else(|| panic!("pair missing in {src}"))
+    }
+
+    #[test]
+    fn classify_pair_early_returns_for_missing_key_value_and_bad_key_text() {
+        let root_src = r#"{"name":"u"}"#;
+        let tree = ParserPool::new()
+            .parse(root_src, DocumentFormat::Json)
+            .unwrap();
+        let mut out = Vec::new();
+        classify_pair(
+            tree.root_node(),
+            root_src.as_bytes(),
+            Ctx::default(),
+            &mut out,
+        );
+
+        let missing_value = r#"{"name":}"#;
+        let tree = ParserPool::new()
+            .parse(missing_value, DocumentFormat::Json)
+            .unwrap();
+        classify_pair(
+            first_pair(&tree, missing_value),
+            missing_value.as_bytes(),
+            Ctx::default(),
+            &mut out,
+        );
+
+        let valid = r#"{"name":"u"}"#;
+        let tree = ParserPool::new()
+            .parse(valid, DocumentFormat::Json)
+            .unwrap();
+        let pair = first_pair(&tree, valid);
+        let mut bad = valid.as_bytes().to_vec();
+        let key_start = valid.find("name").unwrap();
+        bad[key_start] = 0xff;
+        classify_pair(pair, &bad, Ctx::default(), &mut out);
+
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn integer_enum_member_name_is_classified() {
+        let src = r#"{"name":"u","columns":[{"name":"priority","type":{"kind":"enum","name":"priority_level","values":[{"name":"low","value":0}]}}]}"#;
+        let tokens = classify_src(src);
+        let low_start = src.find(r#""name":"low""#).unwrap() + 8;
+        let tok = tokens
+            .iter()
+            .find(|token| token.byte_range.start == low_start)
+            .expect("integer enum member name token");
+
+        assert_eq!(tok.token_type, TokenIdx::EnumMember as u32);
+    }
+
+    #[test]
+    fn check_expr_emitter_defensively_returns_for_invalid_ranges_and_bytes() {
+        let punct_src = r#"{"name":"u"}"#;
+        let tree = ParserPool::new()
+            .parse(punct_src, DocumentFormat::Json)
+            .unwrap();
+        let punctuation = tree.root_node().child(0).unwrap();
+        let mut out = Vec::new();
+        emit_json_check_expr_tokens(punctuation, punct_src.as_bytes(), &mut out);
+
+        let empty = r#"{"expr":""}"#;
+        let tree = ParserPool::new()
+            .parse(empty, DocumentFormat::Json)
+            .unwrap();
+        let string_node = first_pair(&tree, empty).named_child(1).unwrap();
+        emit_json_check_expr_tokens(string_node, empty.as_bytes(), &mut out);
+        emit_json_check_expr_tokens(string_node, b"", &mut out);
+
+        let valid = r#"{"expr":"age"}"#;
+        let tree = ParserPool::new()
+            .parse(valid, DocumentFormat::Json)
+            .unwrap();
+        let string_node = first_pair(&tree, valid).named_child(1).unwrap();
+        emit_json_check_expr_tokens(string_node, b"{}", &mut out);
+        let mut bad = valid.as_bytes().to_vec();
+        let age = valid.find("age").unwrap();
+        bad[age] = 0xff;
+        emit_json_check_expr_tokens(string_node, &bad, &mut out);
+
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn empty_json_string_value_does_not_emit_zero_length_token() {
+        let tokens = classify_src(r#"{"name":""}"#);
+
+        assert!(tokens.is_empty());
     }
 }

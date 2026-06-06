@@ -43,3 +43,28 @@ impl ReferenceAction {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Coverage-closure tests for `ReferenceAction::to_sql_keyword`.
+    //! Targets `uncovered-detail.json` lines 40, 41, 42
+    //! (`SetNull` / `SetDefault` / `NoAction` match arms).
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::cascade(ReferenceAction::Cascade, "CASCADE")]
+    #[case::restrict(ReferenceAction::Restrict, "RESTRICT")]
+    #[case::set_null(ReferenceAction::SetNull, "SET NULL")]
+    #[case::set_default(ReferenceAction::SetDefault, "SET DEFAULT")]
+    #[case::no_action(ReferenceAction::NoAction, "NO ACTION")]
+    fn to_sql_keyword_emits_expected_token(
+        #[case] action: ReferenceAction,
+        #[case] expected: &'static str,
+    ) {
+        // Each rstest case visits one match arm of to_sql_keyword. The
+        // SetNull/SetDefault/NoAction cases cover the previously-uncovered
+        // lines 40, 41, 42.
+        assert_eq!(action.to_sql_keyword(), expected);
+    }
+}

@@ -34,6 +34,25 @@ proptest! {
     }
 }
 
+#[test]
+#[serial]
+fn env_guard_restores_previous_diff_threshold() {
+    // SAFETY: this test is `#[serial]`, so the environment mutation cannot race
+    // with another test in this binary.
+    unsafe { std::env::set_var(DIFF_THRESHOLD_ENV, "123") };
+    {
+        let _threshold = EnvVarGuard::set(DIFF_THRESHOLD_ENV, TEST_PAR_THRESHOLD);
+        assert_eq!(
+            std::env::var(DIFF_THRESHOLD_ENV).as_deref(),
+            Ok(TEST_PAR_THRESHOLD)
+        );
+    }
+    assert_eq!(std::env::var(DIFF_THRESHOLD_ENV).as_deref(), Ok("123"));
+    // SAFETY: this test is `#[serial]`, so the environment mutation cannot race
+    // with another test in this binary.
+    unsafe { std::env::remove_var(DIFF_THRESHOLD_ENV) };
+}
+
 struct EnvVarGuard {
     key: &'static str,
     previous: Option<OsString>,

@@ -22,6 +22,8 @@ use tracing_subscriber::fmt::MakeWriter;
 
 /// Initialize tracing for the LSP binary. Returns the log file path that
 /// was opened (if any) so the caller can print it on startup.
+#[cfg(not(tarpaulin_include))]
+// reason: global logging/telemetry init, non-deterministic under cargo test
 pub fn init() -> Option<PathBuf> {
     let path = resolved_log_path();
     let file = path

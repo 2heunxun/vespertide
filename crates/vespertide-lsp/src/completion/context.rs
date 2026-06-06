@@ -81,10 +81,7 @@ pub(super) enum CheckExprPos {
 }
 
 pub(super) fn detect(tree: &tree_sitter::Tree, source: &str, byte_offset: usize) -> Context {
-    let Some(node) = node_at_byte(tree, byte_offset) else {
-        return Context::None;
-    };
-
+    let node = node_at_byte(tree, byte_offset);
     // KEY position completions take priority over VALUE position logic so
     // that typing `"` at an object boundary offers the right key set.
     if let Some(ctx) = classify_key_context(node, source) {
@@ -188,25 +185,25 @@ fn classify_check_expr_position(
     }
 
     let tokens = lex_check_expr(prefix);
-    let Some(last) = tokens.last() else {
-        return (CheckExprPos::Operand, None);
-    };
+    if let Some(last) = tokens.last() {
+        if let Some((typed_prefix, replace_range)) =
+            partial_column_at_cursor(prefix, last, cursor_rel, inner_start, table_columns)
+        {
+            return (
+                CheckExprPos::PartialColumn {
+                    prefix: typed_prefix,
+                },
+                Some(replace_range),
+            );
+        }
 
-    if let Some((typed_prefix, replace_range)) =
-        partial_column_at_cursor(prefix, last, cursor_rel, inner_start, table_columns)
-    {
-        return (
-            CheckExprPos::PartialColumn {
-                prefix: typed_prefix,
-            },
-            Some(replace_range),
-        );
-    }
-
-    if token_expects_operand(last, prefix) {
-        (CheckExprPos::Operand, None)
+        if token_expects_operand(last, prefix) {
+            (CheckExprPos::Operand, None)
+        } else {
+            (CheckExprPos::Operator, None)
+        }
     } else {
-        (CheckExprPos::Operator, None)
+        (CheckExprPos::Operand, None)
     }
 }
 
@@ -259,14 +256,13 @@ fn is_inside_constraints(node: tree_sitter::Node<'_>, source: &str) -> bool {
 
 fn current_table_columns(node: tree_sitter::Node<'_>, source: &str) -> Vec<String> {
     let root = document_value(node);
-    let Some(columns_pair) = find_pair_with_key(root, source, "columns") else {
-        return Vec::new();
-    };
-    let Some(columns_value_raw) = columns_pair.named_child(1) else {
-        return Vec::new();
-    };
-
-    collect_column_names(unwrap_flow_node(columns_value_raw), source)
+    if let Some(columns_value_raw) = find_pair_with_key(root, source, "columns")
+        .and_then(|columns_pair| columns_pair.named_child(1))
+    {
+        collect_column_names(unwrap_flow_node(columns_value_raw), source)
+    } else {
+        Vec::new()
+    }
 }
 
 fn document_value(mut node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
@@ -278,24 +274,20 @@ fn document_value(mut node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
 }
 
 fn collect_column_names(columns_value: tree_sitter::Node<'_>, source: &str) -> Vec<String> {
-    if !matches!(
+    let mut out = Vec::new();
+    if matches!(
         columns_value.kind(),
         "array" | "block_sequence" | "flow_sequence"
     ) {
-        return Vec::new();
-    }
-
-    let mut out = Vec::new();
-    let mut cursor = columns_value.walk();
-    for raw_child in columns_value.children(&mut cursor) {
-        let child = unwrap_flow_node(raw_child);
-        let Some(column_object) = column_object_from_sequence_child(child) else {
-            continue;
-        };
-        if let Some(name) = string_value_for_key(column_object, source, "name")
-            && !name.is_empty()
-        {
-            out.push(name.to_string());
+        let mut cursor = columns_value.walk();
+        for raw_child in columns_value.children(&mut cursor) {
+            let child = unwrap_flow_node(raw_child);
+            if let Some(column_object) = column_object_from_sequence_child(child)
+                && let Some(name) = string_value_for_key(column_object, source, "name")
+                && !name.is_empty()
+            {
+                out.push(name.to_string());
+            }
         }
     }
     out
@@ -342,41 +334,38 @@ fn analyze_sibling_type(
     cursor: tree_sitter::Node<'_>,
     source: &str,
 ) -> (Option<String>, Vec<String>) {
-    let Some(column_object) = enclosing_column_object(cursor) else {
-        return (None, Vec::new());
-    };
-    let Some(type_pair) = find_pair_with_key(column_object, source, "type") else {
-        return (None, Vec::new());
-    };
-    let Some(type_value) = type_pair.named_child(1) else {
-        return (None, Vec::new());
-    };
-    let effective = unwrap_flow_node(type_value);
+    if let Some(type_value) = enclosing_column_object(cursor)
+        .and_then(|column_object| find_pair_with_key(column_object, source, "type"))
+        .and_then(|type_pair| type_pair.named_child(1))
+    {
+        let effective = unwrap_flow_node(type_value);
+        match effective.kind() {
+            "string"
+            | "double_quote_scalar"
+            | "single_quote_scalar"
+            | "string_scalar"
+            | "plain_scalar" => {
+                let raw = source.get(effective.byte_range()).unwrap_or("");
+                (Some(strip_quotes(raw).to_string()), Vec::new())
+            }
+            "object" | "block_mapping" | "flow_mapping" => {
+                let kind = find_pair_with_key(effective, source, "kind")
+                    .and_then(|pair| pair.named_child(1))
+                    .map(unwrap_flow_node)
+                    .and_then(|node| source.get(node.byte_range()))
+                    .map(|raw| strip_quotes(raw).to_string());
 
-    match effective.kind() {
-        "string"
-        | "double_quote_scalar"
-        | "single_quote_scalar"
-        | "string_scalar"
-        | "plain_scalar" => {
-            let raw = source.get(effective.byte_range()).unwrap_or("");
-            (Some(strip_quotes(raw).to_string()), Vec::new())
+                let enum_values = if kind.as_deref() == Some("enum") {
+                    collect_enum_values(effective, source)
+                } else {
+                    Vec::new()
+                };
+                (kind, enum_values)
+            }
+            _ => (None, Vec::new()),
         }
-        "object" | "block_mapping" | "flow_mapping" => {
-            let kind = find_pair_with_key(effective, source, "kind")
-                .and_then(|pair| pair.named_child(1))
-                .map(unwrap_flow_node)
-                .and_then(|node| source.get(node.byte_range()))
-                .map(|raw| strip_quotes(raw).to_string());
-
-            let enum_values = if kind.as_deref() == Some("enum") {
-                collect_enum_values(effective, source)
-            } else {
-                Vec::new()
-            };
-            (kind, enum_values)
-        }
-        _ => (None, Vec::new()),
+    } else {
+        (None, Vec::new())
     }
 }
 
@@ -386,14 +375,15 @@ fn analyze_sibling_type(
 /// the real kind. We loop to handle the (rare) double-wrapping case.
 /// JSON's grammar has no such wrapper, so this is a no-op there.
 fn unwrap_flow_node(node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
+    // Fused while-let so the empty-wrapper case shares the same exit as the
+    // kind-mismatch case — no defensive `return current` branch dependent on
+    // tree-sitter-yaml producing empty wrappers.
     let mut current = node;
-    while matches!(current.kind(), "flow_node" | "block_node") {
-        let Some(inner) = current.named_child(0) else {
-            break;
-        };
-        if inner.id() == current.id() {
-            break;
-        }
+    while matches!(current.kind(), "flow_node" | "block_node")
+        && let Some(inner) = current
+            .named_child(0)
+            .filter(|inner| inner.id() != current.id())
+    {
         current = inner;
     }
     current
@@ -427,67 +417,63 @@ fn find_pair_with_key<'tree>(
 }
 
 fn collect_enum_values(type_object: tree_sitter::Node<'_>, source: &str) -> Vec<String> {
-    let Some(values_pair) = find_pair_with_key(type_object, source, "values") else {
-        return Vec::new();
-    };
-    let Some(values_array_raw) = values_pair.named_child(1) else {
-        return Vec::new();
-    };
-    let values_array = unwrap_flow_node(values_array_raw);
-    if !matches!(
-        values_array.kind(),
-        "array" | "block_sequence" | "flow_sequence"
-    ) {
-        return Vec::new();
-    }
-
     let mut out = Vec::new();
-    let mut cursor = values_array.walk();
-    for raw_child in values_array.children(&mut cursor) {
-        let child = unwrap_flow_node(raw_child);
-        match child.kind() {
-            "string"
-            | "double_quote_scalar"
-            | "single_quote_scalar"
-            | "string_scalar"
-            | "plain_scalar" => {
-                if let Some(raw) = source.get(child.byte_range()) {
-                    out.push(strip_quotes(raw).to_string());
-                }
-            }
-            // Integer-enum members are objects of the form `{name: "...", value: N}`.
-            "object" | "block_mapping" | "flow_mapping" => {
-                if let Some(name_pair) = find_pair_with_key(child, source, "name")
-                    && let Some(name_value_raw) = name_pair.named_child(1)
-                {
-                    let name_value = unwrap_flow_node(name_value_raw);
-                    if let Some(raw) = source.get(name_value.byte_range()) {
-                        out.push(strip_quotes(raw).to_string());
+    if let Some(values_array_raw) = find_pair_with_key(type_object, source, "values")
+        .and_then(|values_pair| values_pair.named_child(1))
+    {
+        let values_array = unwrap_flow_node(values_array_raw);
+        if matches!(
+            values_array.kind(),
+            "array" | "block_sequence" | "flow_sequence"
+        ) {
+            let mut cursor = values_array.walk();
+            for raw_child in values_array.children(&mut cursor) {
+                let child = unwrap_flow_node(raw_child);
+                match child.kind() {
+                    "string"
+                    | "double_quote_scalar"
+                    | "single_quote_scalar"
+                    | "string_scalar"
+                    | "plain_scalar" => {
+                        if let Some(raw) = source.get(child.byte_range()) {
+                            out.push(strip_quotes(raw).to_string());
+                        }
                     }
-                }
-            }
-            // YAML block sequence items show up as `block_sequence_item` →
-            // `flow_node` or `block_mapping`; recurse one level so they are
-            // not silently skipped.
-            "block_sequence_item" => {
-                let mut inner_cursor = child.walk();
-                for inner in child.children(&mut inner_cursor) {
-                    let inner = unwrap_flow_node(inner);
-                    if let Some(raw) = source.get(inner.byte_range())
-                        && matches!(
-                            inner.kind(),
-                            "string"
-                                | "double_quote_scalar"
-                                | "single_quote_scalar"
-                                | "string_scalar"
-                                | "plain_scalar"
-                        )
-                    {
-                        out.push(strip_quotes(raw).to_string());
+                    // Integer-enum members are objects of the form `{name: "...", value: N}`.
+                    "object" | "block_mapping" | "flow_mapping" => {
+                        if let Some(name_pair) = find_pair_with_key(child, source, "name")
+                            && let Some(name_value_raw) = name_pair.named_child(1)
+                        {
+                            let name_value = unwrap_flow_node(name_value_raw);
+                            if let Some(raw) = source.get(name_value.byte_range()) {
+                                out.push(strip_quotes(raw).to_string());
+                            }
+                        }
                     }
+                    // YAML block sequence items show up as `block_sequence_item` →
+                    // `flow_node` or `block_mapping`; recurse one level so they are
+                    // not silently skipped.
+                    "block_sequence_item" => {
+                        let mut inner_cursor = child.walk();
+                        for inner in child.children(&mut inner_cursor) {
+                            let inner = unwrap_flow_node(inner);
+                            if let Some(raw) = source.get(inner.byte_range())
+                                && matches!(
+                                    inner.kind(),
+                                    "string"
+                                        | "double_quote_scalar"
+                                        | "single_quote_scalar"
+                                        | "string_scalar"
+                                        | "plain_scalar"
+                                )
+                            {
+                                out.push(strip_quotes(raw).to_string());
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
-            _ => {}
         }
     }
     out
@@ -521,11 +507,10 @@ fn is_at_pair_key_position(cursor: tree_sitter::Node<'_>) -> bool {
     let mut current = Some(cursor);
     while let Some(candidate) = current {
         if is_pair(candidate) {
-            if let Some(key) = candidate.named_child(0) {
+            return candidate.named_child(0).is_some_and(|key| {
                 let range = key.byte_range();
-                return cursor_start >= range.start && cursor_end <= range.end;
-            }
-            return false;
+                cursor_start >= range.start && cursor_end <= range.end
+            });
         }
         if matches!(
             candidate.kind(),
@@ -556,19 +541,17 @@ fn enclosing_object_parent_path(cursor: tree_sitter::Node<'_>, source: &str) -> 
             }
         }
     };
-    let Some(object) = object else {
-        return Vec::new();
-    };
-
     let mut path = Vec::new();
-    let mut current = object.parent();
-    while let Some(candidate) = current {
-        if is_pair(candidate)
-            && let Some(key) = key_text(candidate, source)
-        {
-            path.push(key.to_string());
+    if let Some(object) = object {
+        let mut current = object.parent();
+        while let Some(candidate) = current {
+            if is_pair(candidate)
+                && let Some(key) = key_text(candidate, source)
+            {
+                path.push(key.to_string());
+            }
+            current = candidate.parent();
         }
-        current = candidate.parent();
     }
     path.reverse();
     path
@@ -585,12 +568,13 @@ fn enclosing_string_range(node: tree_sitter::Node<'_>) -> Option<std::ops::Range
             // `string_content` is the inner span without quotes — climb one
             // more level so we capture the surrounding quotes too.
             "string_content" => {
-                if let Some(parent) = candidate.parent()
-                    && parent.kind() == "string"
-                {
-                    return Some(parent.byte_range());
-                }
-                return Some(candidate.byte_range());
+                return Some(
+                    candidate
+                        .parent()
+                        .filter(|parent| parent.kind() == "string")
+                        .unwrap_or(candidate)
+                        .byte_range(),
+                );
             }
             // All other scalar variants are returned as-is. Quoted JSON/YAML
             // scalars (`string`, `double_quote_scalar`, `single_quote_scalar`)
@@ -687,19 +671,358 @@ fn value_text<'source>(
     source.get(value.byte_range()).map(strip_quotes)
 }
 
-fn node_at_byte(tree: &tree_sitter::Tree, byte_offset: usize) -> Option<tree_sitter::Node<'_>> {
+fn node_at_byte(tree: &tree_sitter::Tree, byte_offset: usize) -> tree_sitter::Node<'_> {
     let root = tree.root_node();
     if root.end_byte() == 0 {
-        return Some(root);
+        return root;
     }
 
     let start = byte_offset
         .saturating_sub(1)
         .min(root.end_byte().saturating_sub(1));
     let end = byte_offset.min(root.end_byte());
-    root.descendant_for_byte_range(start, end).or(Some(root))
+    root.descendant_for_byte_range(start, end).unwrap_or(root)
 }
 
 fn is_pair(node: tree_sitter::Node<'_>) -> bool {
     matches!(node.kind(), "pair" | "block_mapping_pair")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::DocumentFormat;
+    use crate::store::DocumentStore;
+    use crate::test_support::*;
+    use crate::workspace_index::WorkspaceIndex;
+    use rstest::rstest;
+
+    fn detect_json(src: &str, needle: &str, advance: usize) -> Context {
+        let tree = parse(src, DocumentFormat::Json);
+        let pos = src.find(needle).unwrap() + advance;
+        detect(&tree, src, pos)
+    }
+
+    fn run_completion(
+        src: &str,
+        format: DocumentFormat,
+        pos: usize,
+    ) -> Vec<super::super::DomainCompletion> {
+        let idx = WorkspaceIndex::new();
+        let docs = DocumentStore::new();
+        let tree = parse(src, format);
+        super::super::compute(src, format, Some(&tree), &idx, &docs, pos)
+    }
+
+    fn completion_labels(items: &[super::super::DomainCompletion]) -> Vec<&str> {
+        items.iter().map(|item| item.label.as_str()).collect()
+    }
+
+    fn assert_label_expectations(
+        labels: &[&str],
+        expected_present: &[&str],
+        expected_absent: &[&str],
+        expected_any: &[&str],
+    ) {
+        for &expected in expected_present {
+            assert!(
+                labels.contains(&expected),
+                "expected `{expected}` in labels: {labels:?}"
+            );
+        }
+        for &unexpected in expected_absent {
+            assert!(
+                !labels.contains(&unexpected),
+                "unexpected `{unexpected}` in labels: {labels:?}"
+            );
+        }
+        if !expected_any.is_empty() {
+            assert!(
+                expected_any
+                    .iter()
+                    .any(|expected| labels.contains(expected)),
+                "expected one of {expected_any:?} in labels: {labels:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn classify_path_column_type_uses_ancestor_key_predicate() {
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"integer"}]}"#;
+        let tree = parse(src, DocumentFormat::Json);
+        let pos = src.find("integer").unwrap();
+        let node = node_at_byte(&tree, pos);
+        let path = ["columns".to_string(), "type".to_string()];
+
+        let ctx = classify_path(&path, node, src, pos);
+
+        assert!(
+            matches!(ctx, Context::ColumnTypeInString { .. }),
+            "got: {ctx:?}"
+        );
+    }
+
+    fn find_pair_recursive<'tree>(
+        node: tree_sitter::Node<'tree>,
+        source: &str,
+        key: &str,
+    ) -> Option<tree_sitter::Node<'tree>> {
+        if is_pair(node) && key_text(node, source) == Some(key) {
+            return Some(node);
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if let Some(found) = find_pair_recursive(child, source, key) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    #[rstest]
+    #[case::partial_column_no_match(r#"{"name":"u","columns":[{"name":"id","type":"integer","nullable":false},{"name":"age","type":"integer","nullable":false}],"constraints":[{"type":"check","name":"c","expr":"xy"}]}"#, r#""expr":"xy""#, 9, &[], &["id", "age"], &[])]
+    #[case::after_open_paren_punctuation(r#"{"name":"u","columns":[{"name":"id","type":"integer","nullable":false},{"name":"age","type":"integer","nullable":false}],"constraints":[{"type":"check","name":"c","expr":"(id > 0) AND ("}]}"#, "AND (", 5, &[], &[], &["id", "age"])]
+    #[case::after_keyword_not(r#"{"name":"u","columns":[{"name":"id","type":"integer","nullable":false}],"constraints":[{"type":"check","name":"c","expr":"NOT "}]}"#, r#""expr":"NOT ""#, 12, &["id"], &[], &[])]
+    #[case::after_column(r#"{"name":"u","columns":[{"name":"id","type":"integer","nullable":false}],"constraints":[{"type":"check","name":"c","expr":"id "}]}"#, r#""expr":"id ""#, 11, &["=", "AND", "BETWEEN"], &[], &[])]
+    #[case::after_number(r#"{"name":"u","columns":[{"name":"id","type":"integer","nullable":false}],"constraints":[{"type":"check","name":"c","expr":"id > 5 "}]}"#, r#""expr":"id > 5 ""#, 15, &["AND", "OR"], &[], &[])]
+    #[case::outside_expr_inner(r#"{"name":"u","columns":[{"name":"id","type":"integer","nullable":false}],"constraints":[{"type":"check","name":"c","expr":"id > 0"}]}"#, r#""expr":"id > 0""#, r#""expr":"id > 0""#.len(), &[], &["AND"], &[])]
+    #[case::yaml_block_scalar("name: u\ncolumns:\n  - name: id\n    type: integer\n    nullable: false\nconstraints:\n  - type: check\n    name: c\n    expr: |\n      id > \n", "id > ", "id > ".len(), &[], &[], &["NOT", "("])]
+    fn check_expr_completion_cases(
+        #[case] src: &str,
+        #[case] needle: &str,
+        #[case] advance: usize,
+        #[case] expected_present: &[&str],
+        #[case] expected_absent: &[&str],
+        #[case] expected_any: &[&str],
+    ) {
+        let format = if src.starts_with('{') {
+            DocumentFormat::Json
+        } else {
+            DocumentFormat::Yaml
+        };
+        let pos = src.find(needle).unwrap() + advance;
+        let items = run_completion(src, format, pos);
+        let labels = completion_labels(&items);
+
+        assert_label_expectations(&labels, expected_present, expected_absent, expected_any);
+    }
+
+    #[test]
+    fn empty_document_yields_no_completion() {
+        let items = run_completion("", DocumentFormat::Json, 0);
+
+        assert!(items.is_empty());
+    }
+
+    #[rstest]
+    #[case::unknown_top_level_value(
+        r#"{"unknown_key": ""}"#,
+        r#""unknown_key": """#,
+        16,
+        "integer"
+    )]
+    #[case::unknown_parent_object_key(r#"{"name":"u","columns":[{"name":"s","type":{"kind":"enum","name":"x","values":[{"":""}]}}]}"#, r#"[{"":""#, 3, "primary_key")]
+    fn unhandled_contexts_do_not_offer_standard_completion(
+        #[case] src: &str,
+        #[case] needle: &str,
+        #[case] advance: usize,
+        #[case] unexpected: &str,
+    ) {
+        let pos = src.find(needle).unwrap() + advance;
+        let items = run_completion(src, DocumentFormat::Json, pos);
+
+        assert!(
+            items.iter().all(|item| item.label != unexpected),
+            "unexpected `{unexpected}` completion, got: {:?}",
+            items.iter().map(|item| &item.label).collect::<Vec<_>>()
+        );
+    }
+
+    #[rstest]
+    #[case::without_ref_table(false, r#"{"name":"p","columns":[{"name":"x","type":"integer","foreign_key":{"ref_columns":[""]}}]}"#, &[])]
+    #[case::open_doc_ref_table(true, r#"{"name":"post","columns":[{"name":"x","type":"integer","foreign_key":{"ref_table":"user","ref_columns":[""]}}]}"#, &["id"])]
+    fn ref_columns_completion_cases(
+        #[case] open_user_doc: bool,
+        #[case] post_src: &str,
+        #[case] expected_labels: &[&str],
+    ) {
+        let idx = WorkspaceIndex::new();
+        let docs = DocumentStore::new();
+        if open_user_doc {
+            let user_src = r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#;
+            let user_uri = uri("user.json");
+            let user_tree = parse(user_src, DocumentFormat::Json);
+            idx.upsert(&user_uri, user_src, &user_tree);
+            docs.open(user_uri, "json".to_string(), 1, user_src.to_string());
+        }
+
+        let post_tree = parse(post_src, DocumentFormat::Json);
+        let pos = post_src.find(r#"[""#).unwrap() + 2;
+        let items = super::super::compute(
+            post_src,
+            DocumentFormat::Json,
+            Some(&post_tree),
+            &idx,
+            &docs,
+            pos,
+        );
+        let labels = completion_labels(&items);
+
+        if expected_labels.is_empty() {
+            assert!(
+                items.is_empty(),
+                "expected no ref_columns completions, got: {:?}",
+                items.iter().map(|item| &item.label).collect::<Vec<_>>()
+            );
+        } else {
+            for &expected in expected_labels {
+                assert!(
+                    labels.contains(&expected),
+                    "expected `{expected}` ref column, got: {labels:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn expr_key_outside_constraints_is_not_check_context() {
+        let src = r#"{"name":"u","expr":"id > 0","columns":[{"name":"id","type":"integer"}]}"#;
+        assert_eq!(detect_json(src, "id > 0", 2), Context::None);
+    }
+
+    #[test]
+    fn check_expr_position_handles_unlexable_and_exact_column_prefixes() {
+        let (position, replace) = classify_check_expr_position("@", 10, 1, &["id".to_string()]);
+        assert_eq!(position, CheckExprPos::Operand);
+        assert!(replace.is_none());
+        let (position, replace) = classify_check_expr_position("id", 20, 2, &["id".to_string()]);
+        assert_eq!(position, CheckExprPos::Operator);
+        assert!(replace.is_none());
+        assert_eq!(clamp_to_char_boundary("é", 1), 0);
+    }
+
+    #[test]
+    fn malformed_columns_shapes_return_empty_column_lists() {
+        let missing_value =
+            r#"{"name":"u","columns":,"constraints":[{"type":"check","name":"c","expr":""}]}"#;
+        let tree = parse(missing_value, DocumentFormat::Json);
+        let pos = missing_value.find(r#""expr":""#).unwrap() + 8;
+        let ctx = detect(&tree, missing_value, pos);
+        assert!(
+            matches!(ctx, Context::CheckExpr { table_columns, .. } if table_columns.is_empty())
+        );
+        let not_array =
+            r#"{"name":"u","columns":"bad","constraints":[{"type":"check","name":"c","expr":""}]}"#;
+        let tree = parse(not_array, DocumentFormat::Json);
+        let pos = not_array.find(r#""expr":""#).unwrap() + 8;
+        let ctx = detect(&tree, not_array, pos);
+        assert!(
+            matches!(ctx, Context::CheckExpr { table_columns, .. } if table_columns.is_empty())
+        );
+    }
+
+    #[test]
+    fn yaml_block_sequence_columns_and_enum_values_are_collected() {
+        let src = "name: u\ncolumns:\n  - name: status\n    type:\n      kind: enum\n      name: status_kind\n      values:\n        - pending\n        - active\n    default: \"\"\n";
+        let tree = parse(src, DocumentFormat::Yaml);
+        let pos = src.find("default: \"\"").unwrap() + "default: \"".len();
+        let ctx = detect(&tree, src, pos);
+        assert!(
+            matches!(ctx, Context::DefaultValue { type_kind: Some(kind), enum_values, .. } if kind == "enum" && enum_values == vec!["pending".to_string(), "active".to_string()])
+        );
+    }
+
+    #[test]
+    fn default_context_without_column_or_type_information_is_generic() {
+        let top_default = r#"{"name":"u","default":""}"#;
+        assert_eq!(
+            detect_json(top_default, r#""default":"""#, 11),
+            Context::None
+        );
+        let missing_type_value = r#"{"name":"u","columns":[{"name":"x","type":,"default":""}]}"#;
+        let ctx = detect_json(missing_type_value, r#""default":"""#, 11);
+        assert!(
+            matches!(ctx, Context::DefaultValue { type_kind: None, enum_values, .. } if enum_values.is_empty())
+        );
+        let array_type = r#"{"name":"u","columns":[{"name":"x","type":[],"default":""}]}"#;
+        let ctx = detect_json(array_type, r#""default":"""#, 11);
+        assert!(
+            matches!(ctx, Context::DefaultValue { type_kind: None, enum_values, .. } if enum_values.is_empty())
+        );
+    }
+
+    #[test]
+    fn enum_values_missing_or_not_sequence_are_empty() {
+        let no_values = r#"{"kind":"enum","name":"s"}"#;
+        let tree = parse(no_values, DocumentFormat::Json);
+        let object = tree
+            .root_node()
+            .descendant_for_byte_range(0, no_values.len())
+            .unwrap();
+        assert!(collect_enum_values(document_value(object), no_values).is_empty());
+        let scalar_values = r#"{"kind":"enum","name":"s","values":"pending"}"#;
+        let tree = parse(scalar_values, DocumentFormat::Json);
+        let object = document_value(tree.root_node());
+        assert!(collect_enum_values(object, scalar_values).is_empty());
+        let missing_value = r#"{"kind":"enum","name":"s","values":}"#;
+        let tree = parse(missing_value, DocumentFormat::Json);
+        let object = document_value(tree.root_node());
+        assert!(collect_enum_values(object, missing_value).is_empty());
+    }
+
+    #[test]
+    fn path_and_string_helpers_handle_no_container_cases() {
+        let src = r#"{"name":"u"}"#;
+        let tree = parse(src, DocumentFormat::Json);
+        assert!(enclosing_object_parent_path(tree.root_node(), src).is_empty());
+        assert!(enclosing_string_range(tree.root_node()).is_none());
+        assert!(enclosing_pair_with_key(tree.root_node(), src, "missing").is_none());
+    }
+
+    #[test]
+    fn direct_check_expr_context_rejects_expr_outside_constraints() {
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"integer"}],"expr":"id > 0"}"#;
+        let tree = parse(src, DocumentFormat::Json);
+        let pos = src.find("id > 0").unwrap() + 2;
+        let node = node_at_byte(&tree, pos);
+
+        assert_eq!(check_expr_context(node, src, pos), None);
+    }
+
+    #[test]
+    fn yaml_check_expr_collects_block_sequence_column_names() {
+        let src = "name: u\ncolumns:\n  - name: amount\n    type: integer\nconstraints:\n  - type: check\n    expr: amount > 0\n";
+        let tree = parse(src, DocumentFormat::Yaml);
+        let columns_pair = find_pair_recursive(tree.root_node(), src, "columns").unwrap();
+        let columns_value = unwrap_flow_node(columns_pair.named_child(1).unwrap());
+        let names = collect_column_names(columns_value, src);
+
+        assert_eq!(names, vec!["amount".to_string()]);
+    }
+
+    #[test]
+    fn malformed_yaml_value_shapes_cover_context_defensive_returns() {
+        let missing_columns =
+            "name: u\ncolumns:\nconstraints:\n  - type: check\n    expr: age > 0\n";
+        let tree = parse(missing_columns, DocumentFormat::Yaml);
+        let expr_pair = find_pair_recursive(tree.root_node(), missing_columns, "expr").unwrap();
+        assert!(current_table_columns(expr_pair, missing_columns).is_empty());
+        assert_eq!(
+            analyze_sibling_type(tree.root_node(), missing_columns),
+            (None, Vec::new())
+        );
+
+        let missing_type = "name: u\ncolumns:\n  - name: x\n    type:\n    default: \"\"\n";
+        let tree = parse(missing_type, DocumentFormat::Yaml);
+        let default_pair = find_pair_recursive(tree.root_node(), missing_type, "default").unwrap();
+        assert_eq!(
+            analyze_sibling_type(default_pair, missing_type),
+            (None, Vec::new())
+        );
+
+        let enum_missing_values = "kind: enum\nvalues:\n";
+        let tree = parse(enum_missing_values, DocumentFormat::Yaml);
+        let object = document_value(tree.root_node());
+        assert!(collect_enum_values(object, enum_missing_values).is_empty());
+    }
 }

@@ -417,7 +417,7 @@ mod tests {
         assert_eq!(
             err,
             TableValidationError::InvariantViolation {
-                context: "unique group 'uq_missing' missing during normalize".to_string(),
+                context: "unique group 'uq_missing' missing during normalize".to_string()
             }
         );
     }
@@ -433,7 +433,7 @@ mod tests {
         assert_eq!(
             err,
             TableValidationError::InvariantViolation {
-                context: "index group 'ix_missing' missing during normalize".to_string(),
+                context: "index group 'ix_missing' missing during normalize".to_string()
             }
         );
     }

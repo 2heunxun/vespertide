@@ -139,8 +139,166 @@ fn compute_inner(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
     use crate::parser::ParserPool;
+    use crate::test_support::*;
+    use tempfile::tempdir;
+
+    fn compute_items(src: &str, format: DocumentFormat, pos: usize) -> Vec<DomainCompletion> {
+        let idx = WorkspaceIndex::new();
+        let docs = DocumentStore::new();
+        let tree = parse(src, format);
+        compute(src, format, Some(&tree), &idx, &docs, pos)
+    }
+
+    fn labels(items: &[DomainCompletion]) -> Vec<&str> {
+        items.iter().map(|item| item.label.as_str()).collect()
+    }
+
+    #[test]
+    fn compute_with_no_tree_returns_empty_list() {
+        let idx = WorkspaceIndex::new();
+        let docs = DocumentStore::new();
+        let items = compute("nothing", DocumentFormat::Json, None, &idx, &docs, 0);
+
+        assert!(items.is_empty(), "no tree → empty completion list");
+    }
+
+    #[test]
+    fn compute_with_workspace_tables_propagates_to_inner() {
+        let tmp = tempdir().unwrap();
+        let models_dir = tmp.path().join("models");
+        fs::create_dir_all(&models_dir).unwrap();
+        fs::write(tmp.path().join("vespertide.json"), r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#).unwrap();
+        fs::write(models_dir.join("widget.json"), r#"{"name":"widget","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#).unwrap();
+
+        let disk = WorkspaceTables::new();
+        assert!(disk.refresh(tmp.path()));
+
+        let idx = WorkspaceIndex::new();
+        let docs = DocumentStore::new();
+        let post_src = r#"{"name":"post","columns":[{"name":"x","type":"integer","foreign_key":{"ref_table":""}}]}"#;
+        let post_tree = parse(post_src, DocumentFormat::Json);
+        let pos = post_src.find(r#""ref_table":"""#).unwrap() + 14;
+        let items = compute_with_workspace_tables(
+            post_src,
+            DocumentFormat::Json,
+            Some(&post_tree),
+            &idx,
+            &docs,
+            &disk,
+            pos,
+        );
+
+        assert!(
+            items.iter().any(|item| item.label == "widget"),
+            "disk-discovered table must surface, got: {:?}",
+            items.iter().map(|item| &item.label).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn completion_inside_column_type_string_offers_simple_plus_replacing_snippets() {
+        let src = r#"{"name":"u","columns":[{"name":"id","type":"","nullable":false}]}"#;
+        let pos = src.find(r#""type":"""#).unwrap() + 8;
+        let items = compute_items(src, DocumentFormat::Json, pos);
+
+        let integer = items.iter().find(|item| item.label == "integer").unwrap();
+        assert!(integer.replace_range_bytes.is_none());
+
+        let string_start = src.rfind(r#""""#).unwrap();
+        let string_end = string_start + 2;
+        for label in ["varchar(N)", "char(N)", "numeric(P,S)", "enum"] {
+            let snippet = items
+                .iter()
+                .find(|item| item.label == label)
+                .unwrap_or_else(|| panic!("snippet `{label}` should be offered"));
+            let range = snippet
+                .replace_range_bytes
+                .as_ref()
+                .unwrap_or_else(|| panic!("`{label}` must carry replace_range_bytes"));
+            assert_eq!(range.start, string_start, "{label} start");
+            assert_eq!(range.end, string_end, "{label} end");
+        }
+    }
+
+    #[test]
+    fn completion_at_bare_column_type_value_offers_object_snippets() {
+        let src = r#"{"name":"u","columns":[{"name":"id","type":,"nullable":false}]}"#;
+        let pos = src.find(r#""type":"#).unwrap() + 7;
+        let items = compute_items(src, DocumentFormat::Json, pos);
+
+        assert!(items.iter().any(|item| item.label == "varchar(N)"));
+        assert!(items.iter().any(|item| item.label == "integer"));
+    }
+
+    #[test]
+    fn completion_for_on_delete_returns_actions() {
+        let src = r#"{"name":"p","columns":[{"name":"x","type":"integer","nullable":false,"foreign_key":{"ref_table":"u","ref_columns":["id"],"on_delete":""}}]}"#;
+        let pos = src.find(r#""on_delete":"""#).unwrap() + 14;
+        let items = compute_items(src, DocumentFormat::Json, pos);
+
+        assert!(items.iter().any(|item| item.label == "cascade"));
+        assert!(items.iter().any(|item| item.label == "set_null"));
+    }
+
+    #[test]
+    fn yaml_column_type_in_string_offers_simple_types() {
+        let src = "name: u\ncolumns:\n  - name: id\n    type: \"\"\n    nullable: false\n";
+        let pos = src.find(r#"type: """#).unwrap() + 7;
+        let items = compute_items(src, DocumentFormat::Yaml, pos);
+        let labels = labels(&items);
+
+        assert!(
+            labels.contains(&"integer"),
+            "YAML should offer `integer` for type, got: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"uuid"),
+            "YAML should offer `uuid` for type, got: {labels:?}"
+        );
+    }
+
+    #[test]
+    fn yaml_default_for_timestamp_offers_now() {
+        let src =
+            "name: u\ncolumns:\n  - name: created_at\n    type: timestamp\n    default: \"\"\n";
+        let pos = src.find(r#"default: """#).unwrap() + 10;
+        let items = compute_items(src, DocumentFormat::Yaml, pos);
+        let labels = labels(&items);
+
+        assert!(
+            labels.contains(&"now()"),
+            "YAML default for timestamp should offer now(), got: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"CURRENT_TIMESTAMP"),
+            "YAML default should offer CURRENT_TIMESTAMP, got: {labels:?}"
+        );
+    }
+
+    #[test]
+    fn yaml_default_for_string_enum_offers_only_its_values() {
+        let src = "name: u\ncolumns:\n  - name: status\n    type:\n      kind: enum\n      name: s\n      values: [active, banned]\n    default: \"\"\n";
+        let pos = src.rfind(r#"default: """#).unwrap() + 10;
+        let items = compute_items(src, DocumentFormat::Yaml, pos);
+        let labels = labels(&items);
+
+        assert!(
+            labels.contains(&"'active'"),
+            "YAML enum default must surface 'active', got: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"'banned'"),
+            "YAML enum default must surface 'banned', got: {labels:?}"
+        );
+        assert!(
+            !labels.contains(&"now()"),
+            "enum column must not leak timestamp defaults, got: {labels:?}"
+        );
+    }
 
     #[test]
     fn cmp_s1_check_expr_start_suggests_columns() {

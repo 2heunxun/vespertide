@@ -129,3 +129,15 @@ pub(super) fn view_size(boxes: &[TableBox]) -> (f64, f64) {
     }
     (w + VIEW_PAD, h + VIEW_PAD)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rebalance_groups_empty_is_noop() {
+        let mut groups = Vec::new();
+        rebalance_groups(&mut groups, 0);
+        assert!(groups.is_empty());
+    }
+}

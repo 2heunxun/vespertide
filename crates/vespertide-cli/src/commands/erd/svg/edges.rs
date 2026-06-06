@@ -30,7 +30,7 @@ use super::model::{EdgeSpec, TableBox};
 use super::style::{CARD_BORDER, EDGE_END, EDGE_STROKE, HEADER_H, ROW_H};
 use super::util::escape_xml;
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub(super) enum Side {
     Left,
     Right,
@@ -62,7 +62,7 @@ pub(super) fn render_edge_path(
     // Two-layer stroke: subtle wide halo + crisp narrow stroke for a soft look.
     let _ = writeln!(
         out,
-        "    <path d=\"{path}\" stroke=\"#ffffff\" stroke-width=\"4\" opacity=\"0.7\"/>",
+        "    <path d=\"{path}\" stroke=\"#ffffff\" stroke-width=\"4\" opacity=\"0.7\"/>"
     );
     let _ = writeln!(
         out,
@@ -223,7 +223,7 @@ fn bezier_path(
         cex = ce_x,
         cey = ce_y,
         ex = ex,
-        ey = ey,
+        ey = ey
     )
 }
 
@@ -265,5 +265,75 @@ fn control_point(x: f64, y: f64, side: Side, pull: f64, lateral_offset: f64) -> 
         Side::Right => (x + pull, y + lateral_offset),
         Side::Top => (x + lateral_offset, y - pull),
         Side::Bottom => (x + lateral_offset, y + pull),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn box_at(name: &str, x: f64, y: f64, width: f64, height: f64) -> TableBox {
+        TableBox {
+            name: name.into(),
+            rows: Vec::new(),
+            width,
+            height,
+            x,
+            y,
+            row_index: BTreeMap::new(),
+            pk_row: None,
+        }
+    }
+
+    #[test]
+    fn label_t_parallel_single_and_spread_cases() {
+        assert_eq!(label_t_for_parallel(0, 1), 0.5);
+        assert!((label_t_for_parallel(0, 3) - 0.30).abs() < f64::EPSILON);
+        assert!((label_t_for_parallel(2, 3) - 0.70).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn pick_anchors_covers_right_left_top_and_bottom_routes() {
+        let child = box_at("child", 0.0, 100.0, 80.0, 40.0);
+        let parent_right = box_at("parent", 120.0, 100.0, 80.0, 40.0);
+        let (_, _, _, _, child_side, parent_side) =
+            pick_anchors(&child, &parent_right, 120.0, 120.0);
+        assert_eq!((child_side, parent_side), (Side::Right, Side::Left));
+
+        let parent_left = box_at("parent", -120.0, 100.0, 80.0, 40.0);
+        let (_, _, _, _, child_side, parent_side) =
+            pick_anchors(&child, &parent_left, 120.0, 120.0);
+        assert_eq!((child_side, parent_side), (Side::Left, Side::Right));
+
+        let parent_above = box_at("parent", 0.0, 0.0, 80.0, 40.0);
+        let (_, sy, _, ey, child_side, parent_side) =
+            pick_anchors(&child, &parent_above, 120.0, 20.0);
+        assert_eq!(
+            (sy, ey, child_side, parent_side),
+            (100.0, 40.0, Side::Top, Side::Bottom)
+        );
+
+        let parent_below = box_at("parent", 0.0, 220.0, 80.0, 40.0);
+        let (_, sy, _, ey, child_side, parent_side) =
+            pick_anchors(&child, &parent_below, 120.0, 240.0);
+        assert_eq!(
+            (sy, ey, child_side, parent_side),
+            (140.0, 220.0, Side::Bottom, Side::Top)
+        );
+    }
+
+    #[test]
+    fn control_point_covers_all_sides() {
+        assert_eq!(control_point(10.0, 20.0, Side::Left, 5.0, 2.0), (5.0, 22.0));
+        assert_eq!(
+            control_point(10.0, 20.0, Side::Right, 5.0, 2.0),
+            (15.0, 22.0)
+        );
+        assert_eq!(control_point(10.0, 20.0, Side::Top, 5.0, 2.0), (12.0, 15.0));
+        assert_eq!(
+            control_point(10.0, 20.0, Side::Bottom, 5.0, 2.0),
+            (12.0, 25.0)
+        );
     }
 }

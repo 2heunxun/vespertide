@@ -11,8 +11,10 @@ use tower_lsp_server::{LspService, Server};
 use vespertide_lsp::Backend;
 use vespertide_lsp::logging;
 
+#[cfg(not(tarpaulin_include))]
 #[tokio::main]
 async fn main() {
+    // reason: binary entrypoint - stdio LSP server, not unit-testable
     let log_path = logging::init();
 
     let pid = std::process::id();

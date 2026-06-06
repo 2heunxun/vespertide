@@ -53,39 +53,39 @@ impl WorkspaceTables {
     ///
     /// Returns `true` only when a config was found and at least one table loaded.
     pub fn refresh(&self, start: &Path) -> bool {
-        let Some(root) = find_workspace_root(start) else {
+        if let Some(root) = find_workspace_root(start) {
+            if let Ok(config) =
+                vespertide_loader::load_config_from_path(root.join("vespertide.json"))
+            {
+                let models_dir = root.join(config.models_dir());
+
+                // Walk the models directory ourselves so we capture
+                // (table_name, file_path) — vespertide-loader's public API only
+                // returns the parsed tables and drops the filename.
+                let mut by_name: BTreeMap<String, TableDef> = BTreeMap::new();
+                let mut path_by_name: BTreeMap<String, PathBuf> = BTreeMap::new();
+                collect_models(&models_dir, &mut by_name, &mut path_by_name);
+                let count = by_name.len();
+
+                *self.inner.write().expect(
+                    "workspace_tables lock poisoned — invariant: no panic while holding lock",
+                ) = Inner {
+                    root: Some(root),
+                    by_name,
+                    path_by_name,
+                    tree_cache: BTreeMap::new(),
+                };
+
+                count > 0
+            } else {
+                false
+            }
+        } else {
             *self.inner.write().expect(
                 "workspace_tables lock poisoned — invariant: no panic while holding lock",
             ) = Inner::default();
-            return false;
-        };
-
-        let Ok(config) = vespertide_loader::load_config_from_path(root.join("vespertide.json"))
-        else {
-            return false;
-        };
-        let models_dir = root.join(config.models_dir());
-
-        // Walk the models directory ourselves so we capture
-        // (table_name, file_path) — vespertide-loader's public API only
-        // returns the parsed tables and drops the filename.
-        let mut by_name: BTreeMap<String, TableDef> = BTreeMap::new();
-        let mut path_by_name: BTreeMap<String, PathBuf> = BTreeMap::new();
-        collect_models(&models_dir, &mut by_name, &mut path_by_name);
-        let count = by_name.len();
-
-        *self
-            .inner
-            .write()
-            .expect("workspace_tables lock poisoned — invariant: no panic while holding lock") =
-            Inner {
-                root: Some(root),
-                by_name,
-                path_by_name,
-                tree_cache: BTreeMap::new(),
-            };
-
-        count > 0
+            false
+        }
     }
 
     pub fn get(&self, name: &str) -> Option<TableDef> {
@@ -220,23 +220,15 @@ fn collect_models(
         let path = entry.path();
         if path.is_dir() {
             collect_models(&path, by_name, path_by_name);
-            continue;
+        } else if is_model_file(&path)
+            && let Ok(content) = std::fs::read_to_string(&path)
+            && let Some(table) = parse_table(&path, &content)
+            && let Ok(normalized) = table.normalize()
+        {
+            let name = normalized.name.clone();
+            by_name.insert(name.to_string(), normalized);
+            path_by_name.insert(name.to_string(), path);
         }
-        if !is_model_file(&path) {
-            continue;
-        }
-        let Ok(content) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        let Some(table) = parse_table(&path, &content) else {
-            continue;
-        };
-        let Ok(normalized) = table.normalize() else {
-            continue;
-        };
-        let name = normalized.name.clone();
-        by_name.insert(name.to_string(), normalized);
-        path_by_name.insert(name.to_string(), path);
     }
 }
 
@@ -338,11 +330,7 @@ mod tests {
 
         let tmp = tempdir().unwrap();
         fs::create_dir_all(tmp.path().join("models")).unwrap();
-        fs::write(
-            tmp.path().join("vespertide.json"),
-            r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake"}"#,
-        )
-        .unwrap();
+        fs::write(tmp.path().join("vespertide.json"), r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake"}"#).unwrap();
         fs::write(
             tmp.path().join("models/user.json"),
             r#"{"name":"user","columns":[]}"#,
@@ -402,16 +390,8 @@ mod tests {
         let tmp = tempdir().unwrap();
         let models_dir = tmp.path().join("models");
         fs::create_dir_all(&models_dir).unwrap();
-        fs::write(
-            tmp.path().join("vespertide.json"),
-            r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#,
-        )
-        .unwrap();
-        fs::write(
-            models_dir.join("user.json"),
-            r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#,
-        )
-        .unwrap();
+        fs::write(tmp.path().join("vespertide.json"), r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#).unwrap();
+        fs::write(models_dir.join("user.json"), r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#).unwrap();
 
         let tables = WorkspaceTables::new();
 
@@ -422,6 +402,23 @@ mod tests {
         assert_eq!(
             tables.model_path("user"),
             Some(models_dir.join("user.json"))
+        );
+    }
+
+    #[test]
+    fn refresh_uses_configured_models_dir() {
+        let tmp = tempdir().unwrap();
+        let models_dir = tmp.path().join("schema_models");
+        fs::create_dir_all(&models_dir).unwrap();
+        fs::write(tmp.path().join("vespertide.json"), r#"{"modelsDir":"schema_models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#).unwrap();
+        fs::write(models_dir.join("account.json"), r#"{"name":"account","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#).unwrap();
+
+        let tables = WorkspaceTables::new();
+
+        assert!(tables.refresh(tmp.path()));
+        assert_eq!(
+            tables.model_path("account"),
+            Some(models_dir.join("account.json"))
         );
     }
 
@@ -436,16 +433,8 @@ mod tests {
         let tmp = tempdir().unwrap();
         let models_dir = tmp.path().join("models");
         fs::create_dir_all(&models_dir).unwrap();
-        fs::write(
-            tmp.path().join("vespertide.json"),
-            r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#,
-        )
-        .unwrap();
-        fs::write(
-            models_dir.join("media.vespertide.json"),
-            r#"{"name":"media","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#,
-        )
-        .unwrap();
+        fs::write(tmp.path().join("vespertide.json"), r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#).unwrap();
+        fs::write(models_dir.join("media.vespertide.json"), r#"{"name":"media","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#).unwrap();
 
         let tables = WorkspaceTables::new();
         assert!(tables.refresh(tmp.path()));
@@ -462,17 +451,9 @@ mod tests {
         let tmp = tempdir().unwrap();
         let models_dir = tmp.path().join("models");
         fs::create_dir_all(&models_dir).unwrap();
-        fs::write(
-            tmp.path().join("vespertide.json"),
-            r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#,
-        )
-        .unwrap();
+        fs::write(tmp.path().join("vespertide.json"), r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#).unwrap();
         // Filename `something_weird.json` but the declared name is `user`.
-        fs::write(
-            models_dir.join("something_weird.json"),
-            r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#,
-        )
-        .unwrap();
+        fs::write(models_dir.join("something_weird.json"), r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#).unwrap();
 
         let tables = WorkspaceTables::new();
         assert!(tables.refresh(tmp.path()));
@@ -481,5 +462,99 @@ mod tests {
             Some(models_dir.join("something_weird.json")),
             "model_path must follow the declared `name`, not the filename"
         );
+    }
+
+    #[test]
+    fn collect_models_skips_missing_dir_non_models_bad_utf8_bad_parse_and_bad_normalize() {
+        let tmp = tempdir().unwrap();
+        let missing = tmp.path().join("missing");
+        let mut by_name = BTreeMap::new();
+        let mut path_by_name = BTreeMap::new();
+        collect_models(&missing, &mut by_name, &mut path_by_name);
+        assert!(by_name.is_empty());
+
+        let models = tmp.path().join("models");
+        let nested = models.join("nested");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(models.join("notes.txt"), "not a model").unwrap();
+        fs::write(models.join("bad_utf8.json"), [0xff, 0xfe]).unwrap();
+        fs::write(models.join("bad_parse.json"), "not json").unwrap();
+        fs::write(models.join("bad_normalize.json"), r#"{"name":"bad","columns":[{"name":"id","type":"integer","index":["ix_bad","ix_bad"]}]}"#).unwrap();
+        fs::write(nested.join("user.yaml"), "name: user\ncolumns:\n  - name: id\n    type: integer\n    nullable: false\n    primary_key: true\n").unwrap();
+
+        collect_models(&models, &mut by_name, &mut path_by_name);
+
+        assert!(
+            by_name.contains_key("user"),
+            "valid nested YAML model should load"
+        );
+        assert!(!by_name.contains_key("bad"));
+    }
+
+    #[test]
+    fn parse_table_rejects_unknown_extension() {
+        assert!(parse_table(std::path::Path::new("model.toml"), "name = 'user'").is_none());
+    }
+
+    #[test]
+    fn refresh_with_unreadable_config_returns_false() {
+        let tmp = tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("vespertide.json")).unwrap();
+        let tables = WorkspaceTables::new();
+
+        assert!(!tables.refresh(tmp.path()));
+    }
+
+    #[test]
+    fn get_returns_none_for_unknown_table() {
+        let tables = WorkspaceTables::new();
+
+        assert!(tables.get("unknown").is_none());
+    }
+
+    #[test]
+    fn all_returns_loaded_name_table_pairs() {
+        let tmp = tempdir().unwrap();
+        let models_dir = tmp.path().join("models");
+        fs::create_dir_all(&models_dir).unwrap();
+        fs::write(tmp.path().join("vespertide.json"), r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#).unwrap();
+        fs::write(models_dir.join("user.json"), r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#).unwrap();
+        let tables = WorkspaceTables::new();
+
+        assert!(tables.refresh(tmp.path()));
+        assert!(tables.all().iter().any(|(name, _)| name == "user"));
+    }
+
+    #[test]
+    fn refresh_skips_models_that_fail_normalize() {
+        let tmp = tempdir().unwrap();
+        let models_dir = tmp.path().join("models");
+        fs::create_dir_all(&models_dir).unwrap();
+        fs::write(tmp.path().join("vespertide.json"), r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#).unwrap();
+        fs::write(models_dir.join("bad.json"), r#"{"name":"bad","columns":[{"name":"id","type":"integer"},{"name":"id","type":"text"}]}"#).unwrap();
+        let tables = WorkspaceTables::new();
+
+        assert!(!tables.refresh(tmp.path()));
+        assert!(tables.get("bad").is_none());
+    }
+
+    #[test]
+    fn collect_models_skips_table_when_inline_fk_normalize_fails() {
+        let tmp = tempdir().unwrap();
+        let models_dir = tmp.path().join("models");
+        fs::create_dir_all(&models_dir).unwrap();
+        fs::write(models_dir.join("bad_fk.json"), r#"{"name":"bad_fk","columns":[{"name":"user_id","type":"integer","foreign_key":"users"}]}"#).unwrap();
+        let mut by_name = BTreeMap::new();
+        let mut path_by_name = BTreeMap::new();
+
+        collect_models(&models_dir, &mut by_name, &mut path_by_name);
+
+        assert!(by_name.is_empty());
+        assert!(path_by_name.is_empty());
+    }
+
+    #[test]
+    fn default_constructs_workspace_tables() {
+        let _ = WorkspaceTables::default();
     }
 }

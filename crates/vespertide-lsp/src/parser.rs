@@ -91,6 +91,8 @@ impl std::fmt::Debug for ParserPool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::uri;
+    use rstest::rstest;
 
     #[test]
     fn detect_format_from_extension() {
@@ -149,5 +151,31 @@ mod tests {
         assert!(tree.is_some());
         // tree-sitter returns a tree even on syntax errors; error nodes mark issues.
         assert!(tree.unwrap().root_node().has_error());
+    }
+
+    #[test]
+    fn parser_pool_default_constructs() {
+        let pool = ParserPool::default();
+
+        assert!(pool.parse("{}", DocumentFormat::Json).is_some());
+    }
+
+    #[test]
+    fn parser_pool_debug_repr_mentions_type() {
+        let pool = ParserPool::new();
+
+        assert!(format!("{pool:?}").contains("ParserPool"));
+    }
+
+    #[rstest]
+    #[case::yaml("user.yaml", Some(DocumentFormat::Yaml))]
+    #[case::yml("user.yml", Some(DocumentFormat::Yaml))]
+    #[case::json("user.json", Some(DocumentFormat::Json))]
+    #[case::unknown("user.txt", None)]
+    fn document_format_from_uri_detects_supported_extensions(
+        #[case] path: &str,
+        #[case] expected: Option<DocumentFormat>,
+    ) {
+        assert_eq!(DocumentFormat::from_uri(&uri(path)), expected);
     }
 }

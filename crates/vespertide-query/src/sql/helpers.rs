@@ -180,14 +180,12 @@ fn apply_complex_column_type(
             } else {
                 // Use table-prefixed enum type name to avoid conflicts
                 let type_name = build_enum_type_name(table, name);
-                col.enumeration(
-                    Alias::new(&type_name),
-                    values
-                        .variant_names()
-                        .into_iter()
-                        .map(Alias::new)
-                        .collect::<Vec<Alias>>(),
-                );
+                let variants = values
+                    .variant_names()
+                    .into_iter()
+                    .map(Alias::new)
+                    .collect::<Vec<Alias>>();
+                col.enumeration(Alias::new(&type_name), variants);
             }
         }
         _ => unreachable!("ComplexColumnType is #[non_exhaustive]; all variants are matched above"),
@@ -703,4 +701,36 @@ pub fn quote_idents<T: AsRef<str>>(names: &[T], backend: DatabaseBackend) -> Str
         .map(|n| quote_ident(n.as_ref(), backend))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_query::{Alias, ColumnDef as SeaColDef, Table};
+
+    /// `build_create_with_checks` early-returns a plain `CreateTable` query
+    /// when `check_clauses` is empty (no string-injection round-trip).
+    /// Covers the `if check_clauses.is_empty() { ... }` true-branch.
+    #[test]
+    fn build_create_with_checks_empty_clauses_returns_plain_create_table() {
+        let mut stmt = Table::create();
+        stmt.table(Alias::new("users"))
+            .col(SeaColDef::new(Alias::new("id")).integer().not_null());
+        let query = build_create_with_checks(DatabaseBackend::Postgres, &stmt, &[]);
+        let sql = query.build(DatabaseBackend::Postgres);
+        assert!(
+            sql.contains("CREATE TABLE"),
+            "expected CREATE TABLE in: {sql}"
+        );
+        // No CHECK clauses appended.
+        assert!(
+            !sql.contains("CHECK ("),
+            "no CHECK should be injected: {sql}"
+        );
+        // The empty-branch path returns a `CreateTable` variant (not `Raw`).
+        assert!(
+            matches!(query, BuiltQuery::CreateTable(_)),
+            "empty-checks branch must return BuiltQuery::CreateTable"
+        );
+    }
 }

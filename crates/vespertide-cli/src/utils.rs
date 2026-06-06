@@ -114,34 +114,16 @@ fn render_migration_name(pattern: &str, version: u32, sanitized_comment: &str) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::CwdGuard;
     use rstest::rstest;
     use serial_test::serial;
     use std::fs;
-    use std::path::PathBuf;
     use tempfile::tempdir;
     use vespertide_config::VespertideConfig;
     use vespertide_core::{
         ColumnDef, ColumnType, MigrationPlan, SimpleColumnType, TableConstraint, TableDef,
         schema::foreign_key::ForeignKeySyntax,
     };
-
-    struct CwdGuard {
-        original: PathBuf,
-    }
-
-    impl CwdGuard {
-        fn new(dir: &PathBuf) -> Self {
-            let original = std::env::current_dir().unwrap();
-            std::env::set_current_dir(dir).unwrap();
-            Self { original }
-        }
-    }
-
-    impl Drop for CwdGuard {
-        fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.original);
-        }
-    }
 
     fn write_config() {
         let cfg = VespertideConfig::default();

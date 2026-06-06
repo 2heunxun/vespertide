@@ -40,6 +40,7 @@ fn ensure_trailing_newline(text: &mut String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     #[test]
     fn json_pretty_indents_2_spaces() {
@@ -67,5 +68,17 @@ mod tests {
     #[test]
     fn invalid_json_returns_none() {
         assert!(format_json("{not json}").is_none());
+    }
+
+    #[rstest]
+    #[case::json(r#"{"name":"u","columns":[]}"#, DocumentFormat::Json)]
+    #[case::yaml("name: user\ncolumns: []\n", DocumentFormat::Yaml)]
+    fn format_text_dispatches_by_document_format(
+        #[case] text: &str,
+        #[case] format: DocumentFormat,
+    ) {
+        let formatted = format_text(text, format).expect("format should succeed");
+
+        assert!(formatted.ends_with('\n'));
     }
 }

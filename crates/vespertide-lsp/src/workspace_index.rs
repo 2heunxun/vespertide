@@ -167,8 +167,10 @@ fn find_direct_name_value(mapping: Node<'_>, source: &[u8]) -> Option<String> {
         if is_name_key_node(child, source)
             && let Some(value) = find_value_sibling(child)
         {
-            let text = &source[value.byte_range()];
-            return Some(strip_quotes(std::str::from_utf8(text).ok()?).to_string());
+            return source
+                .get(value.byte_range())
+                .and_then(|text| std::str::from_utf8(text).ok())
+                .map(|text| strip_quotes(text).to_string());
         }
     }
     None
@@ -176,15 +178,12 @@ fn find_direct_name_value(mapping: Node<'_>, source: &[u8]) -> Option<String> {
 
 fn is_name_key_node(node: Node<'_>, source: &[u8]) -> bool {
     let kind = node.kind();
-    if kind != "pair" && kind != "block_mapping_pair" {
-        return false;
-    }
-    let Some(key) = node.named_child(0) else {
-        return false;
-    };
-    let text = &source[key.byte_range()];
-    let key_str = std::str::from_utf8(text).unwrap_or("");
-    strip_quotes(key_str.trim()) == "name"
+    matches!(kind, "pair" | "block_mapping_pair")
+        && node
+            .named_child(0)
+            .and_then(|key| source.get(key.byte_range()))
+            .and_then(|text| std::str::from_utf8(text).ok())
+            .is_some_and(|key_str| strip_quotes(key_str.trim()) == "name")
 }
 
 fn find_value_sibling(pair_node: Node<'_>) -> Option<Node<'_>> {
@@ -202,10 +201,19 @@ fn strip_quotes(s: &str) -> &str {
 mod tests {
     use super::*;
     use crate::parser::{DocumentFormat, ParserPool};
-    use std::str::FromStr;
+    use crate::test_support::uri;
 
-    fn uri(p: &str) -> Uri {
-        Uri::from_str(&format!("file:///{p}")).unwrap()
+    fn find_keyless_pair(node: Node<'_>) -> Option<Node<'_>> {
+        if node.kind() == "pair" && node.named_child(0).is_none() {
+            return Some(node);
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if let Some(found) = find_keyless_pair(child) {
+                return Some(found);
+            }
+        }
+        None
     }
 
     #[test]
@@ -302,5 +310,40 @@ mod tests {
         let tree = pool.parse(src, DocumentFormat::Json).unwrap();
         idx.upsert(&u, src, &tree);
         assert!(idx.is_empty());
+    }
+
+    #[test]
+    fn malformed_pair_without_key_is_not_a_name_key() {
+        let pool = ParserPool::new();
+        let src = r#"{:"user"}"#;
+        let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+        if let Some(pair) = find_keyless_pair(tree.root_node()) {
+            assert!(!is_name_key_node(pair, src.as_bytes()));
+        }
+    }
+
+    #[test]
+    fn yaml_scalar_document_keeps_index_empty() {
+        let idx = WorkspaceIndex::new();
+        let pool = ParserPool::new();
+        let src = "just_a_scalar\n";
+        let tree = pool.parse(src, DocumentFormat::Yaml).unwrap();
+
+        idx.upsert(&uri("scalar.yaml"), src, &tree);
+
+        assert!(idx.is_empty());
+    }
+
+    #[test]
+    fn tables_returns_sorted_names() {
+        let idx = WorkspaceIndex::new();
+        let pool = ParserPool::new();
+        let z_tree = pool.parse(r#"{"name":"z"}"#, DocumentFormat::Json).unwrap();
+        let a_tree = pool.parse(r#"{"name":"a"}"#, DocumentFormat::Json).unwrap();
+
+        idx.upsert(&uri("z.json"), r#"{"name":"z"}"#, &z_tree);
+        idx.upsert(&uri("a.json"), r#"{"name":"a"}"#, &a_tree);
+
+        assert_eq!(idx.tables(), vec!["a".to_string(), "z".to_string()]);
     }
 }

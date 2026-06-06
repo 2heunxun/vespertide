@@ -271,17 +271,9 @@ fn compare_pair_contradicts(
         _ => return None,
     };
     let lower_vs_upper = literal_compare(lower_val, upper_val)?;
-    let unsatisfiable = match (lower_op, upper_op) {
-        // col > N AND col < M : unsatisfiable when N >= M.
-        (Op::Gt, Op::Lt) => matches!(lower_vs_upper, Ordering::Greater | Ordering::Equal),
-        // col > N AND col <= M : unsatisfiable when N >= M.
-        (Op::Gt, Op::Le) => matches!(lower_vs_upper, Ordering::Greater | Ordering::Equal),
-        // col >= N AND col < M : unsatisfiable when N >= M.
-        (Op::Ge, Op::Lt) => matches!(lower_vs_upper, Ordering::Greater | Ordering::Equal),
-        // col >= N AND col <= M : unsatisfiable when N > M.
-        (Op::Ge, Op::Le) => matches!(lower_vs_upper, Ordering::Greater),
-        _ => false,
-    };
+    let strict_boundary = lower_op == Op::Gt || upper_op == Op::Lt;
+    let unsatisfiable = matches!(lower_vs_upper, Ordering::Greater)
+        || strict_boundary && lower_vs_upper == Ordering::Equal;
     if unsatisfiable {
         Some((format_literal(va), format_literal(vb)))
     } else {
@@ -294,21 +286,17 @@ fn compare_pair_contradicts(
 /// labels for the user. Returns `None` otherwise.
 fn is_null_vs_other(column: &str, a: &CheckExpr, b: &CheckExpr) -> Option<(bool, String, String)> {
     // Normalise to (IsNull, Compare) ordering so the body is written once.
-    let (is_null_expr, compare_expr) = match (a, b) {
-        (CheckExpr::IsNull { .. }, CheckExpr::Compare { .. }) => (a, b),
-        (CheckExpr::Compare { .. }, CheckExpr::IsNull { .. }) => (b, a),
+    let (negated, op, value) = match (a, b) {
+        (CheckExpr::IsNull { negated, .. }, CheckExpr::Compare { op, value, .. })
+        | (CheckExpr::Compare { op, value, .. }, CheckExpr::IsNull { negated, .. }) => {
+            (*negated, *op, value)
+        }
         _ => return None,
     };
-    let CheckExpr::IsNull { negated, .. } = is_null_expr else {
-        return None;
-    };
-    let CheckExpr::Compare { op, value, .. } = compare_expr else {
-        return None;
-    };
     Some((
-        *negated,
-        format_is_null(column, *negated),
-        format_compare(column, *op, &format_literal(value)),
+        negated,
+        format_is_null(column, negated),
+        format_compare(column, op, &format_literal(value)),
     ))
 }
 
@@ -610,5 +598,356 @@ mod tests {
             &errors[0],
             PlannerError::CheckSelfContradiction { check_name, .. } if check_name == "chk_impossible"
         ));
+    }
+
+    // ── Coverage-closure: pairwise / grouping / range / IsNull combinations ──
+
+    /// 3-predicate AND on same column — exercises the inner `for j in
+    /// (i + 1)..` loop (line 119) across multiple `j` iterations and the
+    /// grouping `iter_mut().find(...)` path on existing-column hit (line 174).
+    #[test]
+    fn three_same_column_predicates_with_contradiction_in_inner_pair() {
+        // (age > 0, age < 5, age > 5) — pair (0)/(1) is fine, pair (1)/(2) contradicts.
+        let t = table(vec![check("chk", "age > 0 AND age < 5 AND age > 5")]);
+        assert!(validate_self_contradiction(&t).is_err());
+    }
+
+    /// Nested AND under OR — find_contradiction recurses through OR
+    /// branches; the inner AND is flattened via `flatten_and`'s
+    /// `match part { CheckExpr::And(inner) => out.extend(...) }` (line 160).
+    #[test]
+    fn or_branch_with_nested_and_invokes_flatten_and() {
+        let t = table(vec![check(
+            "chk",
+            "(age < 0) OR ((age > 100 AND age < 200) AND age <> 150)",
+        )]);
+        // No contradiction anywhere — but execution reaches the nested
+        // flatten path through the OR branch.
+        assert!(validate_self_contradiction(&t).is_ok());
+    }
+
+    /// `compare_pair_contradicts` Lt-first ordering arm (`(Op::Lt | Op::Le,
+    /// Op::Gt | Op::Ge)` swap, lines 265-269): the literal `(age < 0 AND
+    /// age > 100)` puts upper bound first.
+    #[test]
+    fn lt_first_then_gt_range_impossible() {
+        let t = table(vec![check("chk", "age < 0 AND age > 100")]);
+        assert!(validate_self_contradiction(&t).is_err());
+    }
+
+    /// `Op::Gt` + `Op::Le` boundary mix (`> 5 AND <= 5`) — exercises one
+    /// of the unsatisfiable match arms (lines 277-278).
+    #[test]
+    fn gt_and_le_same_literal_is_impossible() {
+        let t = table(vec![check("chk", "age > 5 AND age <= 5")]);
+        assert!(validate_self_contradiction(&t).is_err());
+    }
+
+    /// `Op::Ge` + `Op::Lt` boundary mix (`>= 5 AND < 5`) — second
+    /// unsatisfiable arm.
+    #[test]
+    fn ge_and_lt_same_literal_is_impossible() {
+        let t = table(vec![check("chk", "age >= 5 AND age < 5")]);
+        assert!(validate_self_contradiction(&t).is_err());
+    }
+
+    /// Strict range that *is* satisfiable: `>= 5 AND <= 10` — exercises
+    /// the unsatisfiable=`false` branch (line 285's `else None`).
+    #[test]
+    fn ge_and_le_valid_range_passes() {
+        let t = table(vec![check("chk", "age >= 5 AND age <= 10")]);
+        assert!(validate_self_contradiction(&t).is_ok());
+    }
+
+    /// `IsNull` vs `Compare` with `IS NOT NULL` form — exercises the
+    /// `is_null_vs_other` early-return when `isnull_neg = true` (line
+    /// 225 area where the IsNull `negated=true` is the expected
+    /// companion and does NOT contradict).
+    #[test]
+    fn is_not_null_with_compare_is_fine() {
+        // `score IS NOT NULL AND score = 5` is sensible — not a contradiction.
+        let t = table(vec![check("chk", "score IS NOT NULL AND score = 5")]);
+        assert!(validate_self_contradiction(&t).is_ok());
+    }
+
+    /// Three-conjunct test with grouping across two distinct columns —
+    /// exercises both branches of `group_predicates_by_column`'s
+    /// `iter_mut().find(...)` (lines 174-178): existing-column hit on
+    /// second `age` predicate, new-column miss on first `score`.
+    #[test]
+    fn predicates_across_columns_group_correctly_no_contradiction() {
+        // Two columns, one predicate each plus a second `age` predicate —
+        // total 3 conjuncts, two columns, exercises both arms of the
+        // groups.iter_mut().find branch (insert + existing append).
+        let t = table(vec![check("chk", "age > 0 AND age < 100 AND score = 5")]);
+        assert!(validate_self_contradiction(&t).is_ok());
+    }
+
+    /// Eq vs Ne contradiction (line 259-262 in compare_pair_contradicts).
+    #[test]
+    fn eq_vs_ne_contradiction_via_integer_literals() {
+        let t = table(vec![check("chk", "age = 5 AND age <> 5")]);
+        assert!(validate_self_contradiction(&t).is_err());
+    }
+
+    /// `check_pair` final `None` return (line 238) — two `In` predicates
+    /// on the same column are skipped by all `if let` guards and fall
+    /// through.
+    #[test]
+    fn in_vs_in_returns_no_contradiction() {
+        // Two `IN (...)` predicates on same column — predicate_column
+        // groups them, but check_pair has no matching arm for In/In, so
+        // returns None via the final fall-through.
+        let t = table(vec![check("chk", "x IN (1, 2) AND x IN (3, 4)")]);
+        assert!(validate_self_contradiction(&t).is_ok());
+    }
+
+    /// BETWEEN decomposed → `>=` + `<=`, paired with another BETWEEN
+    /// on the same column — runs the grouping + pairwise loop with
+    /// `Between` predicates.
+    #[test]
+    fn between_pairs_on_same_column_run_pairwise_loop() {
+        // Two BETWEEN clauses overlap but don't contradict.
+        let t = table(vec![check(
+            "chk",
+            "age BETWEEN 0 AND 100 AND age BETWEEN 10 AND 90",
+        )]);
+        assert!(validate_self_contradiction(&t).is_ok());
+    }
+
+    // ── Coverage-closure W3 (final 16 uncovered lines) ────────────────
+
+    /// L119: `return Some(c);` inside the outer And recursion loop.
+    /// Top-level And whose direct pairwise check finds no contradiction
+    /// but a nested Or branch contains a contradicting And.
+    #[test]
+    fn nested_or_inside_top_level_and_recursion_finds_contradiction() {
+        let t = table(vec![check(
+            "chk",
+            "a > 0 AND (b > 100 OR (c > 5 AND c < 0))",
+        )]);
+        assert!(validate_self_contradiction(&t).is_err());
+    }
+
+    /// L160: `continue;` in group_predicates_by_column when
+    /// predicate_column returns None (NOT-wrapped predicate has no
+    /// direct column). Also covers L174 `_ => None,` in predicate_column.
+    #[test]
+    fn not_wrapped_predicate_skipped_in_grouping() {
+        // `NOT (age > 5) AND age < 0` - Not wrapper has no direct column
+        // → predicate_column returns None → continue at line 160 + the
+        // `_ => None,` fallthrough at line 174.
+        let t = table(vec![check("chk", "NOT (age > 5) AND age < 0")]);
+        assert!(validate_self_contradiction(&t).is_ok());
+    }
+
+    /// L250: `(Compare, IsNull) => (b, a)` swap arm in is_null_vs_other.
+    /// The existing `is_null_and_compare_contradicts` test has IsNull
+    /// first; here Compare is first.
+    #[test]
+    fn compare_then_is_null_swap_arm_is_contradiction() {
+        let t = table(vec![check("chk", "score = 5 AND score IS NULL")]);
+        assert!(validate_self_contradiction(&t).is_err());
+    }
+
+    /// L265: `(Float, Float)` literal comparison via compare_pair.
+    #[test]
+    fn float_vs_float_range_contradiction() {
+        let t = table(vec![check("chk", "ratio > 0.5 AND ratio < 0.1")]);
+        assert!(validate_self_contradiction(&t).is_err());
+    }
+
+    /// L266: `(Integer, Float)` literal comparison.
+    #[test]
+    fn integer_vs_float_range_contradiction() {
+        // age > 100 (int) AND age < 5.5 (float) -> i64_to_f64 used
+        let t = table(vec![check("chk", "age > 100 AND age < 5.5")]);
+        assert!(validate_self_contradiction(&t).is_err());
+    }
+
+    /// L267: `(Float, Integer)` literal comparison.
+    #[test]
+    fn float_vs_integer_range_contradiction() {
+        let t = table(vec![check("chk", "age > 100.5 AND age < 50")]);
+        assert!(validate_self_contradiction(&t).is_err());
+    }
+
+    /// L269: `(Bool, Bool)` literal comparison.
+    #[test]
+    fn bool_vs_bool_equality_contradiction() {
+        let t = table(vec![check("chk", "flag = TRUE AND flag = FALSE")]);
+        assert!(validate_self_contradiction(&t).is_err());
+    }
+
+    /// L276-277, L283, L285, L286: direct unit tests for private
+    /// helpers (`i64_to_f64` reached via 266/267 above; `format_literal`
+    /// Float / Bool / Null arms via direct call).
+    #[test]
+    fn format_literal_covers_all_arms() {
+        assert_eq!(format_literal(&Literal::Integer(7)), "7");
+        assert_eq!(format_literal(&Literal::Float(1.5)), "1.5");
+        assert_eq!(format_literal(&Literal::String("'x'".into())), "'x'");
+        assert_eq!(format_literal(&Literal::Bool(true)), "true");
+        assert_eq!(format_literal(&Literal::Null), "NULL");
+    }
+
+    /// Direct unit test for literal_compare's reachable arms — lock
+    /// the Float/Float, Int/Float, Float/Int, Bool/Bool, String/String
+    /// behaviour and the mixed-type None fallthrough.
+    #[test]
+    fn literal_compare_covers_all_reachable_arms() {
+        use std::cmp::Ordering;
+        assert_eq!(
+            literal_compare(&Literal::Integer(1), &Literal::Integer(2)),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            literal_compare(&Literal::Float(1.0), &Literal::Float(2.0)),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            literal_compare(&Literal::Integer(1), &Literal::Float(2.0)),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            literal_compare(&Literal::Float(2.0), &Literal::Integer(1)),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            literal_compare(&Literal::String("a".into()), &Literal::String("b".into())),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            literal_compare(&Literal::Bool(false), &Literal::Bool(true)),
+            Some(Ordering::Less)
+        );
+        // Mixed-type returns None.
+        assert!(literal_compare(&Literal::Integer(1), &Literal::String("a".into())).is_none());
+        assert!(literal_compare(&Literal::Null, &Literal::Integer(1)).is_none());
+    }
+
+    /// L238: `_ => false,` inside the (lower_op, upper_op) match.
+    /// Provably-unreachable in production (the outer match at L221-226
+    /// guarantees `lower_op ∈ {Gt, Ge}` and `upper_op ∈ {Lt, Le}`, all
+    /// four combinations are covered by L231-237). Direct unit-test
+    /// pinning compare_pair_contradicts behaviour for every reachable
+    /// shape locks the contract; the dead `_ => false` fallback exists
+    /// only to satisfy match exhaustiveness on `Op`.
+    #[test]
+    fn compare_pair_contradicts_all_reachable_shapes() {
+        // Gt-Lt impossible boundary: age > 5 AND age < 5
+        assert!(
+            compare_pair_contradicts(Op::Gt, &Literal::Integer(5), Op::Lt, &Literal::Integer(5))
+                .is_some()
+        );
+        // Gt-Le boundary: age > 5 AND age <= 5
+        assert!(
+            compare_pair_contradicts(Op::Gt, &Literal::Integer(5), Op::Le, &Literal::Integer(5))
+                .is_some()
+        );
+        // Ge-Lt boundary: age >= 5 AND age < 5
+        assert!(
+            compare_pair_contradicts(Op::Ge, &Literal::Integer(5), Op::Lt, &Literal::Integer(5))
+                .is_some()
+        );
+        // Ge-Le strict: age >= 5 AND age <= 5 (singleton, satisfiable)
+        assert!(
+            compare_pair_contradicts(Op::Ge, &Literal::Integer(5), Op::Le, &Literal::Integer(5))
+                .is_none()
+        );
+        // Same-direction pair (Lt, Lt) -> the outer match returns None
+        // at L226 before the inner unsatisfiable match runs.
+        assert!(
+            compare_pair_contradicts(Op::Lt, &Literal::Integer(5), Op::Lt, &Literal::Integer(10))
+                .is_none()
+        );
+    }
+
+    /// L254 / L257 `return None;` `let-else` guards inside
+    /// is_null_vs_other are provably unreachable: the outer match at
+    /// L248-252 already restricts (a, b) to (IsNull, Compare) or
+    /// (Compare, IsNull). After normalisation, the destructuring let
+    /// patterns cannot fail. Direct unit-test pins this invariant.
+    #[test]
+    fn is_null_vs_other_normalises_both_orderings() {
+        let isnull = CheckExpr::IsNull {
+            column: "x".into(),
+            negated: false,
+        };
+        let compare = CheckExpr::Compare {
+            column: "x".into(),
+            op: Op::Eq,
+            value: Literal::Integer(5),
+        };
+        // (IsNull, Compare) order
+        let res = is_null_vs_other("x", &isnull, &compare);
+        assert!(res.is_some());
+        // (Compare, IsNull) order — swap arm at L250
+        let res = is_null_vs_other("x", &compare, &isnull);
+        assert!(res.is_some());
+        // Neither is IsNull/Compare combo — None via the `_ => None` arm
+        let in_expr = CheckExpr::In {
+            column: "x".into(),
+            values: vec![Literal::Integer(1)],
+            negated: false,
+        };
+        assert!(is_null_vs_other("x", &compare, &in_expr).is_none());
+    }
+
+    // ── Coverage-closure: defensive arms in find_contradiction & friends ──
+
+    /// Top-level expression that is neither `And` nor `Or` (e.g. a single
+    /// `IsNull`) — `find_contradiction` falls through to the trailing
+    /// `else { None }` arm (line 139-141).
+    #[test]
+    fn top_level_single_predicate_falls_through_else_none() {
+        let t = table(vec![check("chk", "id IS NOT NULL")]);
+        assert!(validate_self_contradiction(&t).is_ok());
+    }
+
+    /// `predicate_column` `_ => None` arm via an entirely-unparseable
+    /// CHECK expression — the parser yields `CheckExpr::Unparseable`
+    /// which has no column, so `validate_self_contradiction` returns Ok.
+    #[test]
+    fn entirely_unparseable_check_returns_ok() {
+        let t = table(vec![check("chk", "LENGTH(name) > 0 AND age < 0")]);
+        // Either entirely-unparseable or no contradiction detected — either
+        // way the conservative comparator must return Ok.
+        assert!(validate_self_contradiction(&t).is_ok());
+    }
+
+    /// `predicate_column` Compare/In/Between/IsNull arms exhaustively
+    /// pinned via direct calls (locks the contract; arms unreachable
+    /// from the wrapper when the predicate is something else fall to
+    /// `_ => None`).
+    #[test]
+    fn predicate_column_covers_all_directly_columnar_arms() {
+        let cmp = CheckExpr::Compare {
+            column: "a".into(),
+            op: Op::Eq,
+            value: Literal::Integer(1),
+        };
+        let in_e = CheckExpr::In {
+            column: "b".into(),
+            values: vec![Literal::Integer(1)],
+            negated: false,
+        };
+        let bw = CheckExpr::Between {
+            column: "c".into(),
+            low: Literal::Integer(0),
+            high: Literal::Integer(10),
+            negated: false,
+        };
+        let isn = CheckExpr::IsNull {
+            column: "d".into(),
+            negated: false,
+        };
+        assert_eq!(predicate_column(&cmp).as_deref(), Some("a"));
+        assert_eq!(predicate_column(&in_e).as_deref(), Some("b"));
+        assert_eq!(predicate_column(&bw).as_deref(), Some("c"));
+        assert_eq!(predicate_column(&isn).as_deref(), Some("d"));
+        // `_ => None`: And node.
+        let and = CheckExpr::And(vec![cmp.clone()]);
+        assert!(predicate_column(&and).is_none());
     }
 }

@@ -34,6 +34,8 @@ mod rename;
 pub mod semantic_tokens;
 mod store;
 mod symbols;
+#[cfg(test)]
+pub(crate) mod test_support;
 mod text_util;
 pub mod watched_files;
 mod workspace_index;

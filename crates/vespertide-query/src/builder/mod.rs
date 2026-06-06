@@ -87,16 +87,13 @@ pub fn build_plan_queries_with_options(
 mod tests {
     use super::*;
     use crate::sql::{BuiltQuery, DatabaseBackend};
+    use crate::test_support::col;
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{
         ColumnDef, ColumnType, MigrationAction, MigrationPlan, ReferenceAction, SimpleColumnType,
         TableConstraint, TableDef,
     };
-
-    fn col(name: &str, ty: ColumnType) -> ColumnDef {
-        ColumnDef::new(name, ty, true)
-    }
 
     fn build_sql_snapshot(result: &[BuiltQuery], backend: DatabaseBackend) -> String {
         result
