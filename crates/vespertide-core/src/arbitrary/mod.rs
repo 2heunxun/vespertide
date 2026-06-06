@@ -165,7 +165,13 @@ pub fn arb_table_def() -> impl Strategy<Value = TableDef> {
     (
         arb_safe_ident(),
         prop::option::of(arb_comment()),
-        collection::vec(arb_column_def(), 0..=8).prop_filter("unique column names", |columns| {
+        // Every Vespertide-managed table must have a PRIMARY KEY (see
+        // `PlannerError::TableMissingPrimaryKey`), so a real schema table
+        // always has >= 1 column. A zero-column table is not a reachable
+        // input — and it makes `Table::create()` emit bare `CREATE TABLE "x"`
+        // (no column list), which is invalid SQL. Generate 1..=8 columns so
+        // property tests exercise only schemas Vespertide can actually emit.
+        collection::vec(arb_column_def(), 1..=8).prop_filter("unique column names", |columns| {
             names_are_unique(columns.iter().map(|column| column.name.as_str()))
         }),
         collection::vec(arb_table_constraint(), 0..=4),
