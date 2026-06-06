@@ -1069,6 +1069,69 @@ mod tests {
         );
     }
 
+    /// Mutant target: `sqlite_rebuild.rs` line 46 —
+    /// `!expr.contains("\"col\"") && !expr.contains(col)` — the
+    /// CHECK-constraint filter for SQLite temp-table rebuild after the
+    /// referenced column is dropped. Pins BOTH quoted and unquoted shapes.
+    #[rstest]
+    #[case::sqlite_unquoted(DatabaseBackend::Sqlite, "age > 0")]
+    #[case::sqlite_quoted(DatabaseBackend::Sqlite, r#""age" > 0"#)]
+    #[case::postgres_unquoted(DatabaseBackend::Postgres, "age > 0")]
+    #[case::postgres_quoted(DatabaseBackend::Postgres, r#""age" > 0"#)]
+    #[case::mysql_unquoted(DatabaseBackend::MySql, "age > 0")]
+    #[case::mysql_quoted(DatabaseBackend::MySql, r#""age" > 0"#)]
+    fn delete_column_removes_check_constraint_referencing_it(
+        #[case] backend: DatabaseBackend,
+        #[case] check_expr: &str,
+    ) {
+        let schema = vec![TableDef {
+            name: "people".into(),
+            description: None,
+            columns: vec![
+                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+                col("age", ColumnType::Simple(SimpleColumnType::Integer)),
+            ],
+            constraints: vec![TableConstraint::Check {
+                name: "chk_age_positive".into(),
+                expr: check_expr.into(),
+                strategy: vespertide_core::CheckViolationStrategy::default(),
+            }],
+        }];
+
+        let queries = build_delete_column(backend, "people", "age", None, &schema, &[]);
+        let sql = queries
+            .iter()
+            .map(|q| q.build(backend))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        if backend == DatabaseBackend::Sqlite {
+            assert!(
+                !sql.contains("chk_age_positive"),
+                "SQLite rebuild must omit the CHECK '{check_expr}' that \
+                 references the deleted column; got: {sql}"
+            );
+            assert!(
+                !sql.contains(check_expr),
+                "SQLite rebuild must not echo the CHECK expression \
+                 '{check_expr}' (it references the deleted column); got: {sql}"
+            );
+            assert!(
+                sql.contains("people_temp"),
+                "expected SQLite temp-table rebuild for 'people'; got: {sql}"
+            );
+        } else {
+            assert!(
+                !queries.is_empty(),
+                "{backend:?}: expected DROP COLUMN output, got empty"
+            );
+            assert!(
+                sql.contains("DROP COLUMN"),
+                "{backend:?}: expected DROP COLUMN, got: {sql}"
+            );
+        }
+    }
+
     #[test]
     fn test_delete_column_sqlite_with_check_constraint_not_referencing_column() {
         // When a CHECK constraint does NOT reference the column being deleted,
