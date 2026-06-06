@@ -514,6 +514,96 @@ mod tests {
         });
     }
 
+    /// Mutant target: `modify_column_comment.rs` line 54 — the MySQL
+    /// branch `comment: new_comment.map(...)` plus the surrounding emit
+    /// path that hand-appends `COMMENT '...'`. Pins EXACT `'hello'`
+    /// literal so any mutation blanking the comment is caught.
+    #[rstest]
+    #[case::postgres_set(DatabaseBackend::Postgres, Some("hello"))]
+    #[case::postgres_drop(DatabaseBackend::Postgres, None)]
+    #[case::mysql_set(DatabaseBackend::MySql, Some("hello"))]
+    #[case::mysql_drop(DatabaseBackend::MySql, None)]
+    #[case::sqlite_set(DatabaseBackend::Sqlite, Some("hello"))]
+    #[case::sqlite_drop(DatabaseBackend::Sqlite, None)]
+    fn modify_column_comment_emits_exact_literal(
+        #[case] backend: DatabaseBackend,
+        #[case] new_comment: Option<&str>,
+    ) {
+        let schema = vec![table_def(
+            "users",
+            vec![col("email", ColumnType::Simple(SimpleColumnType::Text), false)],
+            vec![],
+        )];
+
+        let queries =
+            build_modify_column_comment(backend, "users", "email", new_comment, &schema)
+                .expect("build_modify_column_comment should succeed");
+        let sql = queries
+            .iter()
+            .map(|q| q.build(backend))
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        match (backend, new_comment) {
+            (DatabaseBackend::Sqlite, _) => {
+                assert!(
+                    queries.is_empty(),
+                    "SQLite does not support column comments; expected no \
+                     emitted SQL, got: {sql}"
+                );
+            }
+            (DatabaseBackend::Postgres, Some(_)) => {
+                assert!(
+                    sql.contains("IS 'hello'"),
+                    "Postgres set-comment must emit exact `IS 'hello'`; got: {sql}"
+                );
+                assert!(
+                    sql.contains("COMMENT ON COLUMN \"users\".\"email\" IS 'hello'"),
+                    "Postgres set-comment must emit the full `COMMENT ON \
+                     COLUMN \"users\".\"email\" IS 'hello'` statement; got: {sql}"
+                );
+            }
+            (DatabaseBackend::Postgres, None) => {
+                assert!(
+                    sql.contains("IS NULL"),
+                    "Postgres drop-comment must emit exact `IS NULL`; got: {sql}"
+                );
+                assert!(
+                    !sql.contains("IS ''"),
+                    "Postgres drop-comment must not emit empty-string literal \
+                     `IS ''`; got: {sql}"
+                );
+            }
+            (DatabaseBackend::MySql, Some(_)) => {
+                assert!(
+                    sql.contains("COMMENT 'hello'"),
+                    "MySQL set-comment must emit exact `COMMENT 'hello'`; got: {sql}"
+                );
+                assert!(
+                    !sql.contains("COMMENT ''"),
+                    "MySQL set-comment must not emit empty-string literal \
+                     `COMMENT ''`; got: {sql}"
+                );
+                assert!(
+                    sql.contains("MODIFY COLUMN"),
+                    "MySQL set-comment must use ALTER TABLE ... MODIFY COLUMN; \
+                     got: {sql}"
+                );
+            }
+            (DatabaseBackend::MySql, None) => {
+                assert!(
+                    !sql.contains("COMMENT '"),
+                    "MySQL drop-comment must not append any `COMMENT '...'` \
+                     clause; got: {sql}"
+                );
+                assert!(
+                    sql.contains("MODIFY COLUMN"),
+                    "MySQL drop-comment must still emit MODIFY COLUMN; got: {sql}"
+                );
+            }
+        }
+    }
+
     /// Test with NOT NULL column
     #[rstest]
     #[case::postgres_not_null_column(DatabaseBackend::Postgres)]
