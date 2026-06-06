@@ -824,6 +824,77 @@ mod tests {
         let result = merge_constraint(&existing, &new_pk);
         assert_eq!(result.len(), 2); // replaced, not added
     }
+    /// Mutant target: `merge_constraint` `if !replaced` dedup guards.
+    /// Mixes a non-overlapping `Index` between two overlapping
+    /// `PrimaryKey`s so inner/outer guard-removal mutations produce
+    /// distinct positional/cardinal results from the original.
+    #[test]
+    fn merge_constraint_dedups_when_multiple_existing_overlap() {
+        let pk = TableConstraint::PrimaryKey {
+            columns: vec!["id".into()],
+            auto_increment: false,
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+        };
+        let idx = TableConstraint::Index {
+            name: Some("idx_email".into()),
+            columns: vec!["email".into()],
+        };
+        let existing = vec![pk.clone(), idx.clone(), pk.clone()];
+        let new_pk = TableConstraint::PrimaryKey {
+            columns: vec!["id".into()],
+            auto_increment: true,
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+        };
+        let result = merge_constraint(&existing, &new_pk);
+
+        // Pins OUTER `if !replaced` guard: without it, the trailing
+        // fallback push adds a duplicate copy of the new PK → len 3.
+        assert_eq!(
+            result.len(),
+            2,
+            "merge_constraint must dedupe (one new PK + one preserved \
+             index); got: {result:?}"
+        );
+
+        // Pins INNER `if !replaced` guard: without it, the new PK is
+        // never pushed inside the loop body; the trailing fallback
+        // pushes it at the END, so result[0] becomes the Index.
+        let TableConstraint::PrimaryKey { auto_increment, .. } = &result[0] else {
+            panic!(
+                "result[0] must be the replacement PrimaryKey (pushed at \
+                 the position of the FIRST overlap), not appended at the \
+                 end via the trailing fallback; got: {:?}",
+                result[0]
+            );
+        };
+        assert!(
+            *auto_increment,
+            "the kept PK must be the new one (auto_increment = true); \
+             got: {result:?}"
+        );
+
+        // Cardinality: exactly one PrimaryKey survives — direct
+        // expression of "the second overlap was deduped".
+        let pk_count = result
+            .iter()
+            .filter(|c| matches!(c, TableConstraint::PrimaryKey { .. }))
+            .count();
+        assert_eq!(
+            pk_count, 1,
+            "exactly one PrimaryKey must remain after merging away two \
+             overlapping existing PKs; got {pk_count} in: {result:?}"
+        );
+
+        // Non-overlapping index must survive the merge.
+        assert!(
+            result.iter().any(|c| matches!(
+                c,
+                TableConstraint::Index { name: Some(n), .. } if n == "idx_email"
+            )),
+            "non-overlapping idx_email must be preserved; got: {result:?}"
+        );
+    }
+
     #[test]
     fn test_merge_constraint_appends_non_overlapping() {
         let existing = vec![TableConstraint::Index {
