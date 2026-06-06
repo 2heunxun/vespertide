@@ -611,4 +611,65 @@ mod tests {
         assert_eq!(queries.len(), 1);
         assert!(queries[0].build(backend).contains("DROP INDEX"));
     }
+
+    /// Mutant target: `sqlite::same_named_or_column_constraint` —
+    /// `candidate_columns.len() == removed_columns.len()` guard and the
+    /// `&&` joining it to the zipped-`all` column comparison. Without
+    /// the guard, an unnamed single-column unique `(email)` is treated
+    /// as "same as" a removed unnamed composite `(email, tenant_id)`
+    /// and is silently dropped from the SQLite temp-table rebuild.
+    #[rstest]
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    #[case::sqlite(DatabaseBackend::Sqlite)]
+    fn remove_composite_unique_preserves_overlapping_single_column_unique(
+        #[case] backend: DatabaseBackend,
+    ) {
+        let single_email = unique(None, &["email"]);
+        let composite = unique(None, &["email", "tenant_id"]);
+        let schema = vec![table(
+            "users",
+            vec![int_col("id"), text_col("email"), int_col("tenant_id")],
+            vec![single_email.clone(), composite.clone()],
+        )];
+
+        let sql = render(backend, "users", &composite, &schema);
+
+        match backend {
+            DatabaseBackend::Sqlite => {
+                assert!(
+                    sql.contains(
+                        "CREATE UNIQUE INDEX \"uq_users__email\" ON \"users\" (\"email\")"
+                    ),
+                    "SQLite rebuild must recreate the (email) unique index \
+                     after removing the composite (email, tenant_id); got: {sql}"
+                );
+                assert!(
+                    !sql.contains("uq_users__email_tenant_id"),
+                    "Composite unique must not appear in the recreated \
+                     index set; got: {sql}"
+                );
+                assert_eq!(
+                    sql.matches("CREATE UNIQUE INDEX").count(),
+                    1,
+                    "Expected exactly one CREATE UNIQUE INDEX (single \
+                     email unique recreated, composite gone); got: {sql}"
+                );
+            }
+            DatabaseBackend::Postgres => {
+                assert!(
+                    sql.contains("DROP INDEX \"uq_users__email_tenant_id\""),
+                    "Postgres must DROP the composite-unique index by its \
+                     auto-derived name; got: {sql}"
+                );
+            }
+            DatabaseBackend::MySql => {
+                assert!(
+                    sql.contains("DROP INDEX `uq_users__email_tenant_id`"),
+                    "MySQL must DROP the composite-unique index by its \
+                     auto-derived name; got: {sql}"
+                );
+            }
+        }
+    }
 }
