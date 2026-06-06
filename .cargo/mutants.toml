@@ -18,6 +18,13 @@ exclude_re = [
     "fn fmt\\(",
     # RawSql is an opaque escape hatch by design
     "MigrationAction::RawSql",
+    # Live-DB migration drivers: require a real Postgres/MySQL/SQLite
+    # connection to exercise, so they are unreachable from unit tests
+    # (already #[cfg(not(tarpaulin_include))] in src/runtime.rs for the same
+    # reason). Mutants here always survive; excluding keeps them out of the
+    # gate. The pure helpers in runtime.rs (timeout SQL, version-id collection,
+    # blob splitting) remain in scope.
+    "run_embedded_migrations",
 ]
 
 # Focus on logic-heavy crates. Exclude:
