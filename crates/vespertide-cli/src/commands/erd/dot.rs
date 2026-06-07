@@ -109,4 +109,18 @@ mod tests {
             "M:N: user_id, tag_id -> id, tenant_id"
         );
     }
+
+    // Covers the escape match arm of `escape_record_field`: every DOT-record
+    // metacharacter (`\ { } | < > "`) must be backslash-escaped, while plain
+    // chars pass through unchanged. Without a value containing these chars the
+    // escaping arm is never exercised.
+    #[test]
+    fn escape_record_field_escapes_all_dot_metacharacters() {
+        assert_eq!(
+            escape_record_field(r#"a\b{c}d|e<f>g"h"#),
+            r#"a\\b\{c\}d\|e\<f\>g\"h"#
+        );
+        // Plain text is returned unchanged (the `_ =>` arm).
+        assert_eq!(escape_record_field("plain_name"), "plain_name");
+    }
 }
