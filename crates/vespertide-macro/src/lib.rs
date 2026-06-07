@@ -320,7 +320,7 @@ pub(crate) fn vespertide_migration_impl(input: TokenStream2) -> syn::Result<Toke
 /// Irreducible proc-macro shell: the `#[proc_macro]` attribute requires the
 /// signature `fn(TokenStream) -> TokenStream` (NOT `TokenStream2`), so this
 /// wrapper can only convert types and dispatch to
-/// [`vespertide_migration_impl`] (which is fully unit-tested via
+/// `vespertide_migration_impl` (which is fully unit-tested via
 /// `proc_macro2::TokenStream` in `tests/mod.rs`). Proc-macro entry fns
 /// cannot run in unit tests (they require the compiler's proc-macro server),
 /// so this shell is excluded from coverage.
