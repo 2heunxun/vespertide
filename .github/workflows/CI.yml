@@ -603,6 +603,18 @@ jobs:
       - name: Install pg_query build deps (libclang + PG C toolchain)
         run: apt-get update && apt-get install -y clang libclang-dev build-essential libreadline-dev zlib1g-dev flex bison
       - name: Coverage
+        # Determinism for the `--fail-under 100` gate: serialise test threads so
+        # the covered-line set is stable across runs/machines (parallel test
+        # execution + LLVM coverage instrumentation otherwise produce slightly
+        # different line attribution). A higher proptest case count makes
+        # property-test-only branches far more likely to be hit on every run.
+        # NOTE: proptest 1.x has NO RNG-seed env var (its seed is random per
+        # run), so true reproducibility of proptest branch coverage must be
+        # enforced at the source level (deterministic unit tests for any branch
+        # that must always be covered), not via env here.
+        env:
+          PROPTEST_CASES: "1024"
+          RUST_TEST_THREADS: "1"
         run: |
           # rust coverage issue
           echo 'max_width = 100000' > .rustfmt.toml
