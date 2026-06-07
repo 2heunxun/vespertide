@@ -165,6 +165,7 @@ mod tests {
     //! Coverage-closure tests for the `ModifyColumnDefault` Display match arm.
     //! Targets `uncovered-detail.json` lines 35, 36, 37 (the field bindings
     //! `column`, `new_default`, `..` inside the `ModifyColumnDefault` pattern).
+    use super::*;
     use crate::action::MigrationAction;
 
     #[test]
@@ -225,6 +226,95 @@ mod tests {
             format!("{action}"),
             "RemapEnumValues: order.state [1->10, 2->20]"
         );
+    }
+
+    // ── truncate_comment / truncate_chars unit tests ─────────────────────
+
+    /// Kills the `> 30` → `>= 30` boundary mutant.
+    ///
+    /// A 30-char string must be returned unchanged; a 31-char string must be
+    /// truncated to 27 chars + "...".
+    #[test]
+    fn truncate_comment_30_char_boundary() {
+        let s30 = "a".repeat(30);
+        assert_eq!(
+            truncate_comment(&s30),
+            s30,
+            "30-char string must be returned unchanged"
+        );
+
+        let s31 = "a".repeat(31);
+        let expected = format!("{}...", "a".repeat(27));
+        assert_eq!(
+            truncate_comment(&s31),
+            expected,
+            "31-char string must be truncated to 27 chars + '...'"
+        );
+    }
+
+    /// Kills the `.chars().count()` → `.len()` mutant.
+    ///
+    /// "é" is 2 bytes but 1 char.  30 × "é" = 30 chars / 60 bytes → unchanged.
+    /// 31 × "é" = 31 chars / 62 bytes → truncated by char count, not byte count.
+    #[test]
+    fn truncate_comment_multibyte_char_count() {
+        let s30 = "é".repeat(30);
+        assert_eq!(
+            truncate_comment(&s30),
+            s30,
+            "30 multibyte chars must be returned unchanged"
+        );
+
+        let s31 = "é".repeat(31);
+        let expected = format!("{}...", "é".repeat(27));
+        assert_eq!(
+            truncate_comment(&s31),
+            expected,
+            "31 multibyte chars must be truncated by char count"
+        );
+    }
+
+    /// Kills the `take(n)` → `take(MAX)` mutant.
+    ///
+    /// `truncate_chars("hi", 0)` must return an empty string.
+    #[test]
+    fn truncate_chars_zero_returns_empty() {
+        assert_eq!(
+            truncate_chars("hi", 0),
+            "",
+            "truncate_chars with max_chars=0 must return empty string"
+        );
+    }
+
+    /// Kills the `.chars()` → `.bytes()` mutant.
+    ///
+    /// "héllo" has 5 chars; taking 3 must yield "hél" (not a byte-split panic).
+    #[test]
+    fn truncate_chars_no_grapheme_panic() {
+        assert_eq!(
+            truncate_chars("héllo", 3),
+            "hél",
+            "truncate_chars must split by chars, not bytes"
+        );
+    }
+
+    // write_raw_sql_action truncates the RawSql preview only when
+    // chars().count() > 50. Pins the `> 50` boundary so a mutation to
+    // `>= 50` (which would truncate an exactly-50-char SQL) is caught.
+    #[test]
+    fn raw_sql_display_50_char_boundary_not_truncated() {
+        let sql50: String = "0123456789".repeat(5); // exactly 50 chars
+        let out = format!("{}", crate::MigrationAction::RawSql { sql: sql50.clone() });
+        assert_eq!(out, format!("RawSql: {sql50}"));
+        assert!(
+            !out.contains("..."),
+            "50-char SQL must NOT be truncated: {out}"
+        );
+
+        let sql51 = format!("{sql50}X"); // 51 chars → truncated to 47 + "..."
+        let out51 = format!("{}", crate::MigrationAction::RawSql { sql: sql51.clone() });
+        let head: String = sql51.chars().take(47).collect();
+        assert_eq!(out51, format!("RawSql: {head}..."));
     }
 
     /// Migrated INLINE from `crates/vespertide-core/tests/utf8_safety.rs`:

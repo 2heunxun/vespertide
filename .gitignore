@@ -26,7 +26,9 @@ perf.data.old
 
 # ─── cargo-mutants output (regenerated per run) ───────────────────────
 mutants-out*/
-mutants.out/
+# `mutants.out/` is the live run dir; cargo-mutants also leaves a
+# `mutants.out.old/` backup of the previous run — the trailing `*` catches both.
+mutants.out*/
 
 # ─── cargo-fuzz (corpus has gitkeep'd subdirs; artifacts are crash dumps) ──
 fuzz/target/
@@ -157,3 +159,13 @@ tests/runtime-sqlite/Cargo.lock
 # tools/* — dev-only out-of-workspace crates (lsp-profile and any future siblings)
 tools/*/target/
 tools/*/Cargo.lock
+
+# --- Frontend (apps/landing Next.js + devup-ui) build artifacts ---
+# Next.js build output
+.next/
+# devup-ui zero-runtime CSS cache: the build plugin regenerates `df/` and
+# writes a self-ignoring `df/.gitignore`; pin it at the repo root (and any
+# nested workspace) too so the cache never leaks regardless of where
+# bun/next is invoked.
+df/
+**/df/

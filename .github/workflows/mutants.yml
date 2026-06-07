@@ -9,7 +9,7 @@ on:
 
 jobs:
   incremental-mutants:
-    name: cargo-mutants (shard ${{ matrix.shard }}/8)
+    name: cargo-mutants (shard ${{ matrix.shard }}/16)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -17,13 +17,15 @@ jobs:
       # picture is reported in a single CI cycle.
       fail-fast: false
       matrix:
-        # cargo-mutants --shard is 0-indexed (k/n, k in 0..n). Measured
-        # throughput on this repo's runners is ~22 mutants/min (~660 per
-        # 30-minute job). A full refactor diff produces ~3120 changed-line
-        # mutants, so >=5 shards are needed; 8 gives ~390 mutants/shard
-        # (~18 min at average) with headroom for slow proptest-backed mutants
-        # in vespertide-query. Empty shards on small PRs exit immediately.
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        # cargo-mutants --shard is 0-indexed (k/n, k in 0..n). A full refactor
+        # diff produces ~3120 changed-line mutants. At 8 shards the slowest
+        # shard hit the 30-min job timeout (measured: shard 4/8 = 30m18s,
+        # 5/8 = 29m55s) because slow proptest-backed mutants in
+        # vespertide-query / vespertide-planner cluster unevenly. 16 shards
+        # gives ~195 mutants/shard (~15 min) with comfortable headroom for
+        # that variance. Empty shards on small PRs exit immediately.
+        shard:
+          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -45,13 +47,13 @@ jobs:
             exit 0
           fi
 
-      - name: Run cargo-mutants on changed lines (shard ${{ matrix.shard }}/8)
+      - name: Run cargo-mutants on changed lines (shard ${{ matrix.shard }}/16)
         run: |
           cargo mutants \
             --in-diff git.diff \
             --in-place \
             --timeout-multiplier 3.0 \
-            --shard ${{ matrix.shard }}/8 \
+            --shard ${{ matrix.shard }}/16 \
             -vV
 
       - uses: actions/upload-artifact@v7

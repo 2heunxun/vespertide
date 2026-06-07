@@ -11,6 +11,11 @@ use super::dot::render_dot;
 use super::mermaid::render_mermaid;
 use super::svg::render_svg;
 
+// SVG / junction mutation-coverage tests live in a sibling file to keep this
+// module under the 1200-line budget. `use super::*;` there reaches the shared
+// fixtures defined below.
+mod svg_coverage;
+
 fn integer() -> ColumnType {
     ColumnType::Simple(SimpleColumnType::Integer)
 }

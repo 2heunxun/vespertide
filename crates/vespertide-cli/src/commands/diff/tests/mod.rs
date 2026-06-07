@@ -180,6 +180,16 @@ fn chk_age() -> TableConstraint {
     MigrationAction::ModifyColumnComment { table: "users".into(), column: "email".into(), new_comment: Some("This is a very long comment that exceeds thirty characters and should be truncated".into()) },
     format!("{} {}.{} {} '{}'", "Modify column comment:".bright_yellow(), "users".bright_cyan(), "email".bright_cyan().bold(), "->".bright_white(), "This is a very long comment...".bright_cyan().bold())
 )]
+// Boundary: EXACTLY 30 chars → NOT truncated (kills `> 30` → `>= 30` mutant).
+#[case(
+    MigrationAction::ModifyColumnComment { table: "users".into(), column: "email".into(), new_comment: Some("012345678901234567890123456789".into()) },
+    format!("{} {}.{} {} '{}'", "Modify column comment:".bright_yellow(), "users".bright_cyan(), "email".bright_cyan().bold(), "->".bright_white(), "012345678901234567890123456789".bright_cyan().bold())
+)]
+// Boundary: 31 chars → truncated to first 27 chars + "..." (kills `> 30` → `>= 30` mutant).
+#[case(
+    MigrationAction::ModifyColumnComment { table: "users".into(), column: "email".into(), new_comment: Some("0123456789012345678901234567890".into()) },
+    format!("{} {}.{} {} '{}'", "Modify column comment:".bright_yellow(), "users".bright_cyan(), "email".bright_cyan().bold(), "->".bright_white(), "012345678901234567890123456...".bright_cyan().bold())
+)]
 #[case(
     MigrationAction::ReplaceConstraint { table: "posts".into(), from: fk_user(Some("fk_user"), None), to: fk_user(Some("fk_user"), Some(ReferenceAction::Cascade)) },
     format!("{} {} {} {} {} {}", "Replace constraint:".bright_yellow(), "fk_user FK (user_id) -> users".bright_cyan().bold(), "->".bright_white(), "fk_user FK (user_id) -> users".bright_cyan().bold(), "on".bright_white(), "posts".bright_cyan())
@@ -348,6 +358,13 @@ fn format_constraint_drop_warning_primary_key_produces_4_lines() {
     assert!(out.contains("users"));
     assert!(out.contains("PRIMARY KEY"));
     assert!(out.contains("PRIMARY KEY (id)"));
+    // The label "PRIMARY KEY (id)" already contains "PRIMARY KEY", so only the
+    // "KIND — " prefix distinguishes the match arm. Asserting it kills the
+    // delete-match-arm mutant on PrimaryKey.
+    assert!(
+        out.contains("PRIMARY KEY — "),
+        "kind_label prefix missing (arm deleted?):\n{out}"
+    );
 }
 
 #[test]
@@ -361,6 +378,12 @@ fn format_constraint_drop_warning_unique_uses_unique_kind_label() {
     let out = format_constraint_drop_warning(&w);
     assert!(out.contains("UNIQUE"));
     assert!(out.contains("uq_users__email"));
+    // Distinguishes the Unique arm from the label substring (kills
+    // delete-match-arm mutant on Unique).
+    assert!(
+        out.contains("UNIQUE — "),
+        "UNIQUE kind_label prefix missing:\n{out}"
+    );
 }
 
 #[test]
@@ -388,6 +411,12 @@ fn format_constraint_drop_warning_check_uses_check_kind_label() {
     let out = format_constraint_drop_warning(&w);
     assert!(out.contains("CHECK"));
     assert!(out.contains("total > 0"));
+    // Distinguishes the Check arm from the label substring (kills
+    // delete-match-arm mutant on Check).
+    assert!(
+        out.contains("CHECK — "),
+        "CHECK kind_label prefix missing:\n{out}"
+    );
 }
 
 fn policy_warning(

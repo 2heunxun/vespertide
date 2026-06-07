@@ -50,10 +50,8 @@ pub fn build_modify_column_comment(
                 })?;
 
             // Build the full column definition with updated comment
-            let modified_col_def = vespertide_core::ColumnDef {
-                comment: new_comment.map(std::string::ToString::to_string),
-                ..column_def.clone()
-            };
+            let mut modified_col_def = column_def.clone();
+            modified_col_def.comment = new_comment.map(std::string::ToString::to_string);
 
             // Build base ALTER TABLE statement using sea-query for type/nullable/default
             let sea_col = build_sea_column_def_with_table(backend, table, &modified_col_def);
@@ -68,7 +66,7 @@ pub fn build_modify_column_comment(
             let base_sql = super::helpers::build_schema_statement(&stmt, backend);
 
             // Add COMMENT clause if needed (sea-query doesn't support COMMENT)
-            let final_sql = if let Some(comment) = new_comment {
+            let final_sql = if let Some(comment) = modified_col_def.comment.as_deref() {
                 let escaped = comment.replace('\'', "''");
                 format!("{base_sql} COMMENT '{escaped}'")
             } else {
@@ -531,13 +529,16 @@ mod tests {
     ) {
         let schema = vec![table_def(
             "users",
-            vec![col("email", ColumnType::Simple(SimpleColumnType::Text), false)],
+            vec![col(
+                "email",
+                ColumnType::Simple(SimpleColumnType::Text),
+                false,
+            )],
             vec![],
         )];
 
-        let queries =
-            build_modify_column_comment(backend, "users", "email", new_comment, &schema)
-                .expect("build_modify_column_comment should succeed");
+        let queries = build_modify_column_comment(backend, "users", "email", new_comment, &schema)
+            .expect("build_modify_column_comment should succeed");
         let sql = queries
             .iter()
             .map(|q| q.build(backend))
