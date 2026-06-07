@@ -622,6 +622,18 @@ mod tests {
     }
 
     #[test]
+    fn yaml_block_sequence_ref_columns_skips_non_scalar_items() {
+        let src = "name: post\ncolumns:\n  - name: author_id\n    type: integer\n    foreign_key:\n      ref_table: user\n      ref_columns:\n        - name: id\n";
+        let tree = parse_yaml(src);
+        let hints = compute(src, Some(&tree), 0..src.len());
+
+        assert!(
+            hints.is_empty(),
+            "mapping-valued ref_columns item must not produce FK hint: {hints:?}"
+        );
+    }
+
+    #[test]
     fn columns_value_that_is_not_sequence_yields_no_hints() {
         let src = r#"{"name":"u","columns":"not an array"}"#;
         let tree = parse(src);

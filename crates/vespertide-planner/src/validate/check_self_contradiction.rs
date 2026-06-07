@@ -950,4 +950,27 @@ mod tests {
         let and = CheckExpr::And(vec![cmp.clone()]);
         assert!(predicate_column(&and).is_none());
     }
+
+    /// Directly covers `flatten_and`'s non-`And` arm. Nested tests above
+    /// exercise recursive extension; this pins the leaf push branch with
+    /// adjacent non-And predicate shapes in deterministic order.
+    #[test]
+    fn flatten_and_pushes_non_and_leaf_predicates_in_order() {
+        let cmp = CheckExpr::Compare {
+            column: "age".into(),
+            op: Op::Gt,
+            value: Literal::Integer(0),
+        };
+        let is_null = CheckExpr::IsNull {
+            column: "deleted_at".into(),
+            negated: true,
+        };
+
+        let parts = [cmp.clone(), is_null.clone()];
+        let leaves = flatten_and(&parts);
+
+        assert_eq!(leaves.len(), 2);
+        assert_eq!(leaves[0], &cmp);
+        assert_eq!(leaves[1], &is_null);
+    }
 }

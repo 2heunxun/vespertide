@@ -196,7 +196,7 @@ mod tests {
     use super::*;
 
     use rstest::rstest;
-    use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType};
+    use vespertide_core::{ColumnDef, ColumnType, MigrationAction, SimpleColumnType};
 
     fn nn_col(name: &str, ty: SimpleColumnType) -> ColumnDef {
         ColumnDef::new(name, ColumnType::Simple(ty), false)
@@ -571,6 +571,38 @@ mod tests {
                 || sql.contains("VALIDATE CONSTRAINT")
                 || sql.contains("CREATE TABLE")
         );
+    }
+
+    #[rstest]
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    #[case::sqlite(DatabaseBackend::Sqlite)]
+    fn add_constraint_foreign_key_emits_delete_and_update_actions(
+        #[case] backend: DatabaseBackend,
+    ) {
+        let constraint = TableConstraint::ForeignKey {
+            name: Some("fk_posts__user_id".into()),
+            columns: vec!["user_id".into()],
+            ref_table: "users".into(),
+            ref_columns: vec!["id".into()],
+            on_delete: Some(ReferenceAction::Cascade),
+            on_update: Some(ReferenceAction::Cascade),
+            orphan_strategy: ForeignKeyOrphanStrategy::NullifyOrphans,
+        };
+        let action = MigrationAction::AddConstraint {
+            table: "posts".into(),
+            constraint,
+        };
+
+        let sql = crate::sql::build_action_queries(backend, &action, &parent_child_schema())
+            .unwrap()
+            .iter()
+            .map(|query| query.build(backend))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(sql.contains("ON DELETE CASCADE"), "{sql}");
+        assert!(sql.contains("ON UPDATE CASCADE"), "{sql}");
     }
 
     #[rstest]

@@ -469,6 +469,16 @@ mod tests {
     }
 
     #[test]
+    fn locate_constraint_fallback_to_top_name_when_constraint_missing() {
+        let pool = ParserPool::new();
+        let src = r#"{"name":"user","constraints":[]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+        let range = locate_constraint(Some(&tree), src, "missing_constraint");
+
+        assert!(src[range].contains("user"));
+    }
+
+    #[test]
     fn locate_column_field_nullable_finds_target() {
         let pool = ParserPool::new();
         let src =

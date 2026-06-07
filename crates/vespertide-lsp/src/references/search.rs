@@ -581,6 +581,33 @@ mod tests {
     }
 
     #[test]
+    fn find_all_sorts_references_by_uri_then_byte_range() {
+        let docs = DocumentStore::new();
+        let current_uri = uri("z_post.json");
+        let other_uri = uri("a_post.json");
+        let src = r#"{"name":"post","columns":[{"name":"user_id","type":"integer","foreign_key":{"ref_table":"user","ref_columns":["id"]}}]}"#;
+        let current_tree = parse_json(src);
+        docs.open(other_uri.clone(), "json".to_string(), 1, src.to_string());
+
+        let refs = find_all(
+            &ReferenceSymbol::Table {
+                name: "user".to_string(),
+            },
+            &current_uri,
+            src,
+            Some(&current_tree),
+            &WorkspaceIndex::new(),
+            &docs,
+            None,
+            false,
+        );
+
+        assert_eq!(refs.len(), 2);
+        assert_eq!(refs[0].uri, other_uri);
+        assert_eq!(refs[1].uri, current_uri);
+    }
+
+    #[test]
     fn helper_false_paths_handle_missing_siblings_and_non_mapping_nodes() {
         let src = r#"{"name":"user","columns":[{"name":"id","type":"integer","foreign_key":{"ref_columns":["id"]}}],"constraints":[{"name":"c","expr":"id > 0"}]}"#;
         let tree = parse_json(src);

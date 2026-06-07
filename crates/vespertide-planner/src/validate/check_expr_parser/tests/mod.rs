@@ -857,6 +857,55 @@ fn lex_close_paren_emits_punctuation_at_byte_span(
     );
 }
 
+/// Directly pins `is_literal_start_slot` for the exact token contexts
+/// that allow a signed literal. This avoids relying on later parser
+/// failure to prove the lexer reached each `Keyword(...)` match arm.
+#[rstest]
+#[case::start(Vec::new())]
+#[case::after_operator(vec![spanned(Token::Op(Op::Eq))])]
+#[case::after_lparen(vec![spanned(Token::LParen)])]
+#[case::after_comma(vec![spanned(Token::Comma)])]
+#[case::after_and(vec![spanned(Token::Keyword(Keyword::And))])]
+#[case::after_or(vec![spanned(Token::Keyword(Keyword::Or))])]
+#[case::after_not(vec![spanned(Token::Keyword(Keyword::Not))])]
+#[case::after_between(vec![spanned(Token::Keyword(Keyword::Between))])]
+#[case::after_in(vec![spanned(Token::Keyword(Keyword::In))])]
+#[case::after_is(vec![spanned(Token::Keyword(Keyword::Is))])]
+fn signed_literal_slot_accepts_all_documented_prefixes(#[case] tokens: Vec<SpannedToken>) {
+    assert!(is_literal_start_slot(&tokens));
+}
+
+#[rstest]
+#[case::after_identifier(vec![spanned(Token::Ident("age".into()))])]
+#[case::after_number(vec![spanned(Token::Integer(1))])]
+#[case::after_rparen(vec![spanned(Token::RParen)])]
+#[case::after_null_keyword(vec![spanned(Token::Keyword(Keyword::Null))])]
+fn signed_literal_slot_rejects_operand_like_prefixes(#[case] tokens: Vec<SpannedToken>) {
+    assert!(!is_literal_start_slot(&tokens));
+}
+
+#[test]
+fn classify_word_and_keyword_direct_branch() {
+    assert_eq!(classify_word("AND"), Token::Keyword(Keyword::And));
+    assert_eq!(classify_word("and"), Token::Keyword(Keyword::And));
+}
+
+#[test]
+fn eat_keyword_false_branch_leaves_position_unchanged() {
+    let mut parser = Parser {
+        tokens: vec![Token::Keyword(Keyword::And)],
+        pos: 0,
+        depth: 0,
+    };
+
+    assert!(!parser.eat_keyword(Keyword::Or));
+    assert_eq!(parser.pos, 0);
+}
+
+fn spanned(token: Token) -> SpannedToken {
+    SpannedToken { token, span: 0..0 }
+}
+
 /// Same arm via the full `parse` pipeline — every parens-balanced
 /// expression must reach the `b')'` branch at least once during
 /// tokenization, and `parse` must NOT fold valid input to Unparseable.

@@ -449,6 +449,19 @@ mod tests {
     }
 
     #[test]
+    fn extract_raw_symbols_emits_table_symbol_with_identifier_range() {
+        let pool = ParserPool::new();
+        let src = r#"{"name":"user","columns":[]}"#;
+        let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+        let symbols = extract_raw_symbols(&tree, src);
+
+        assert_eq!(symbols.len(), 1);
+        assert_eq!(symbols[0].name, "user");
+        assert_eq!(symbols[0].kind, SymbolKind::Table);
+        assert_eq!(&src[symbols[0].byte_range.clone()], "user");
+    }
+
+    #[test]
     fn query_filters_case_insensitively() {
         let docs = DocumentStore::new();
         let src = r#"{"name":"User","columns":[{"name":"emAil","type":"text"}]}"#;
@@ -841,6 +854,26 @@ mod tests {
         let nameless_column_tree = pool.parse(nameless_column, DocumentFormat::Json).unwrap();
         let symbols = extract_raw_symbols(&nameless_column_tree, nameless_column);
         assert_eq!(symbols.len(), 1);
+    }
+
+    #[test]
+    fn extract_raw_symbols_trims_yaml_quoted_identifier_ranges() {
+        let pool = ParserPool::new();
+        let src = "name: \"user\"\ncolumns:\n  - name: 'id'\n    type: integer\n";
+        let tree = pool.parse(src, DocumentFormat::Yaml).unwrap();
+        let symbols = extract_raw_symbols(&tree, src);
+
+        let table = symbols
+            .iter()
+            .find(|symbol| symbol.kind == SymbolKind::Table)
+            .expect("table symbol");
+        let column = symbols
+            .iter()
+            .find(|symbol| symbol.kind == SymbolKind::Column)
+            .expect("column symbol");
+
+        assert_eq!(&src[table.byte_range.clone()], "user");
+        assert_eq!(&src[column.byte_range.clone()], "id");
     }
 
     #[test]

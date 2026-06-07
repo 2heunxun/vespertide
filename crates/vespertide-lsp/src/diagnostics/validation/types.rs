@@ -238,6 +238,13 @@ mod tests {
     }
 
     #[test]
+    fn known_simple_types_include_network_scalars() {
+        assert!(KNOWN_SIMPLE_TYPES.contains(&"inet"));
+        assert!(KNOWN_SIMPLE_TYPES.contains(&"cidr"));
+        assert!(KNOWN_SIMPLE_TYPES.contains(&"macaddr"));
+    }
+
+    #[test]
     fn enum_descriptor_skips_objects_missing_name_or_value_fields() {
         let src = r#"{"values":[{"value":1},{"name":"low"},{"name":"high","value":2}]}"#;
         let tree = parse(src, DocumentFormat::Json);

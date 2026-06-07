@@ -86,3 +86,27 @@ fn escape_record_field(value: &str) -> String {
 
     escaped
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::erd::Cardinality;
+
+    #[test]
+    fn relationship_label_formats_many_to_many_relation_columns() {
+        let relation = ForeignKeyRelation {
+            child_table: "user_tag".to_string(),
+            child_columns: vec!["user_id".to_string(), "tag_id".to_string()],
+            parent_table: "tag".to_string(),
+            parent_columns: vec!["id".to_string(), "tenant_id".to_string()],
+            on_delete: None,
+            on_update: None,
+            cardinality: Cardinality::ManyToMany,
+        };
+
+        assert_eq!(
+            relationship_label(&relation),
+            "M:N: user_id, tag_id -> id, tenant_id"
+        );
+    }
+}

@@ -261,6 +261,11 @@ mod tests {
         );
     }
 
+    #[test]
+    fn percent_decode_consumes_valid_triplets_and_continues_after_them() {
+        assert_eq!(percent_decode("/tmp/%41%2fname.json"), "/tmp/A/name.json");
+    }
+
     #[rstest]
     #[case::unencoded("file:///plain/path/file.json", &["plain", "file.json"])]
     #[case::lowercase_hex_drive("file:///c%3a/Users/test", &["Users"])]

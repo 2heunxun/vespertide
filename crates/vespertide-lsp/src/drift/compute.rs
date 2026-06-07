@@ -262,6 +262,22 @@ mod tests {
     }
 
     #[test]
+    fn compute_returns_empty_when_models_directory_load_fails() {
+        let tmp = tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("migrations")).unwrap();
+        fs::write(tmp.path().join("vespertide.json"), r#"{"modelsDir":"models","migrationsDir":"migrations","tableNamingCase":"snake","columnNamingCase":"snake","modelFormat":"json"}"#).unwrap();
+
+        let out = compute_with_cache(
+            tmp.path(),
+            &WorkspaceIndex::new(),
+            &DocumentStore::new(),
+            &DriftCache::new(),
+        );
+
+        assert!(out.is_empty());
+    }
+
+    #[test]
     fn compute_returns_empty_when_diff_validation_fails() {
         let tmp = tempdir().unwrap();
         write_config(tmp.path());

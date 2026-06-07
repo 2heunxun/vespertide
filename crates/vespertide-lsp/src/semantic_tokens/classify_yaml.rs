@@ -645,6 +645,49 @@ mod tests {
     }
 
     #[test]
+    fn classify_type_value_walks_non_scalar_non_mapping_values() {
+        let pool = ParserPool::new();
+        let src = "name: u\ncolumns:\n  - name: x\n    type:\n      - integer\n";
+        let tree = pool.parse(src, DocumentFormat::Yaml).unwrap();
+        let type_pair = first_node(tree.root_node(), "block_mapping_pair")
+            .and_then(|_| find_type_pair(tree.root_node(), src.as_bytes()))
+            .expect("type pair");
+        let value = type_pair.named_child(1).expect("type value");
+        let mut out = Vec::new();
+
+        classify_type_value(value, src.as_bytes(), Ctx::default(), &mut out);
+
+        assert!(
+            out.is_empty(),
+            "sequence-valued type should be walked without type tokens: {out:?}"
+        );
+    }
+
+    fn find_type_pair<'tree>(
+        node: tree_sitter::Node<'tree>,
+        source: &[u8],
+    ) -> Option<tree_sitter::Node<'tree>> {
+        if matches!(node.kind(), "block_mapping_pair" | "flow_pair")
+            && node
+                .named_child(0)
+                .and_then(|key| source.get(key.byte_range()))
+                .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                .map(|text| text.trim().trim_matches('"').trim_matches('\''))
+                == Some("type")
+        {
+            return Some(node);
+        }
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if let Some(found) = find_type_pair(child, source) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    #[test]
     fn check_expr_emitter_returns_for_non_scalar_empty_and_bad_sources() {
         let pool = ParserPool::new();
         let src = "name: u\n";

@@ -159,6 +159,34 @@ fn validate_schema_rejects_integer_enum_values_outside_i32_range() {
     );
 }
 
+#[test]
+fn validate_schema_accepts_table_level_primary_key_without_inline_pk() {
+    let schema = vec![table(
+        "users",
+        vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
+        vec![TableConstraint::PrimaryKey {
+            auto_increment: false,
+            columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+        }],
+    )];
+
+    assert!(validate_schema(&schema).is_ok());
+}
+
+#[test]
+fn validate_schema_returns_bare_missing_primary_key_for_single_table() {
+    let schema = vec![table(
+        "users",
+        vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
+        vec![],
+    )];
+
+    let err = validate_schema(&schema).unwrap_err();
+
+    assert!(matches!(err, PlannerError::MissingPrimaryKey(table) if table == "users"));
+}
+
 #[rstest]
 #[case::valid_schema(
         vec![table(
