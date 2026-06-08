@@ -247,6 +247,37 @@ mod tests {
         }
     }
 
+    // A 30-char title with no rows makes title width dominate (> the 180px
+    // floor), so the exact value pins every arm of
+    // `chars * TITLE_CH + TABLE_PAD_X * 2.0`: 30*7.9 + 28 = 265 -> rounded up
+    // to the 4px grid = 268. Each `*`/`+` mutant changes the result.
+    #[test]
+    fn measure_table_width_title_dominates_exact_value() {
+        assert_eq!(measure_table_width(&"x".repeat(30), &[]), 268.0);
+    }
+
+    // pk_row records the FIRST primary-key row. With a non-PK column at index 0
+    // and the PK at index 1, pk_row must be Some(1). Pins
+    // `row.is_pk && pk_row.is_none()`: a `||` mutant would latch onto index 0
+    // (the non-PK first row) because pk_row is still None there.
+    #[test]
+    fn build_boxes_pk_row_is_first_primary_key_not_first_column() {
+        let table = TableDef {
+            name: "t".into(),
+            description: None,
+            columns: vec![
+                ColumnDef::new("name", ColumnType::Simple(SimpleColumnType::Text), true),
+                ColumnDef::new("id", ColumnType::Simple(SimpleColumnType::Integer), false)
+                    .primary_key(PrimaryKeySyntax::Bool(true)),
+            ],
+            constraints: vec![],
+        }
+        .normalize()
+        .unwrap();
+        let boxes = build_boxes(&[table]);
+        assert_eq!(boxes[0].pk_row, Some(1));
+    }
+
     #[test]
     fn build_edges_skips_unknown_child_endpoint() {
         // model.rs:120-121 — child_table not in tables -> early continue.

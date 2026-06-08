@@ -186,6 +186,28 @@ mod tests {
         }
     }
 
+    // mm == 59 is the LAST valid minute. Pins `mm > 59` (a `>=` mutant would
+    // reject the legal `:59` boundary).
+    #[test]
+    fn offset_minute_fifty_nine_is_valid() {
+        assert!(validate_offset("+12:59").is_ok());
+    }
+
+    // parse_two_digit's reject guard is `len != 2 || !digit0 || !digit1`. These
+    // pin each `||`: a `&&` mutant would parse a non-two-digit / non-digit slice
+    // (and, on a 1-byte slice, index out of bounds).
+    #[test]
+    fn parse_two_digit_rejects_non_digit_in_each_position() {
+        assert_eq!(parse_two_digit(b"55"), Some(55));
+        assert_eq!(parse_two_digit(b"x5"), None, "non-digit first position");
+        assert_eq!(parse_two_digit(b"5x"), None, "non-digit second position");
+        assert_eq!(
+            parse_two_digit(b"5"),
+            None,
+            "short slice must not be parsed"
+        );
+    }
+
     #[test]
     fn empty_input_rejects_with_explicit_message() {
         let err = validate_timezone("").unwrap_err();

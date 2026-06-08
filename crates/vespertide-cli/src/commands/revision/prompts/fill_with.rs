@@ -424,6 +424,15 @@ mod tests {
         assert_eq!(reorder_with_suggestion(&values, None), values);
     }
 
+    // "already-wrapped" requires BOTH a leading AND trailing quote. A value
+    // that only starts with a quote but contains a space must still be wrapped.
+    // Pins `starts_with('\'') && ends_with('\'')`: a `||` mutant would treat
+    // the half-quoted value as already wrapped and skip the space-wrapping.
+    #[test]
+    fn wrap_if_spaces_wraps_half_quoted_value_with_spaces() {
+        assert_eq!(wrap_if_spaces("'a b".to_string()), "''a b'");
+    }
+
     #[test]
     fn reorder_with_suggestion_missing_still_hoists_inserts_suggestion() {
         let values = vec!["a".to_string(), "b".to_string()];

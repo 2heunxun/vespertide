@@ -142,6 +142,29 @@ exclude_re = [
     "loader/src/migrations[.]rs:65(:[0-9]+)?: replace < with (==|>|<=) in load_migrations_from_dir",
     "loader/src/models[.]rs:43(:[0-9]+)?: replace < with (==|>|<=) in load_models_recursive",
     "loader/src/models[.]rs:145(:[0-9]+)?: replace < with (==|>|<=) in load_models_recursive_internal",
+    # E15: pure `println!` display helpers (revision fill_with header/footer and
+    # narrowing strategy descriptions). No return value or logic; replacing the
+    # body with () or deleting a match arm only changes stdout decoration. Same
+    # category as the E3 emit_*_warnings exclusions.
+    "fill_with[.]rs:[0-9]+:[0-9]+: replace print_fill_with_header with",
+    "fill_with[.]rs:[0-9]+:[0-9]+: replace print_fill_with_footer with",
+    "narrowing[.]rs:[0-9]+:[0-9]+: delete match arm .* in print_strategy_descriptions",
+    # E16: prompt_drop_resolution is an interactive `Select::interact()`
+    # dialoguer shell (TTY-only). Its `selection ==` comparisons and the
+    # candidates-present header guard depend on a live terminal selection and
+    # cannot be exercised by unit tests. Same category as the E4 prompt_*
+    # exclusions. (The pure helpers format_drop_header / format_candidate_label
+    # are tested separately and remain in the gate.)
+    "drop_recreate_fk_policy[.]rs:[0-9]+:[0-9]+: .* in prompt_drop_resolution",
+    # E17: compute_ranks is a break-on-`!changed` fixed point.
+    #  - `candidate > ranks[i]` -> `>=` only adds a redundant same-value
+    #    assignment (ranks[i] = ranks[i]) and one extra loop pass; the final
+    #    ranks are identical -> equivalent.
+    #  - the `0..(n + 1)` iteration cap -> `n - 1`: ERD layouts are DAGs, where
+    #    rank propagation completes in <= n-1 passes (deepest node depth <= n-1),
+    #    so the loop converges and breaks before either cap matters -> equivalent.
+    "layout[.]rs:[0-9]+:[0-9]+: replace > with >= in compute_ranks",
+    "layout[.]rs:[0-9]+:[0-9]+: replace [+] with - in compute_ranks",
 ]
 
 # Focus on logic-heavy crates. Exclude:

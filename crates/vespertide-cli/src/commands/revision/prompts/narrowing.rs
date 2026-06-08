@@ -435,4 +435,14 @@ mod tests {
         ];
         apply_narrowing_strategies_to_plan(&mut plan, &warnings, &[NarrowingStrategy::Truncate]);
     }
+
+    // "already-quoted" requires BOTH a leading AND trailing quote. For a
+    // string target, a half-quoted value (`'a`) must still be quoted/escaped.
+    // Pins `starts_with('\'') && ends_with('\'')`: a `||` mutant would treat
+    // it as already quoted and return it unchanged.
+    #[test]
+    fn quote_value_for_target_quotes_half_quoted_string_value() {
+        let kind = NarrowingKind::VarcharLength { from: 20, to: 10 };
+        assert_eq!(quote_value_for_target("'a", &kind), "'''a'");
+    }
 }

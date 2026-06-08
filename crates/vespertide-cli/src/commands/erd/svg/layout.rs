@@ -140,4 +140,20 @@ mod tests {
         rebalance_groups(&mut groups, 0);
         assert!(groups.is_empty());
     }
+
+    // A group with EXACTLY target_max members must NOT be split. With total=4,
+    // target_max = max(ceil(sqrt(4)), 3) = 3, so a 3-element group is at the
+    // boundary. Pins `groups[i].len() > target_max`: a `>=` mutant would split
+    // it, inserting a spurious (empty) overflow group.
+    #[test]
+    fn rebalance_groups_does_not_split_at_exactly_target_max() {
+        let mut groups = vec![vec![0_usize, 1, 2]];
+        rebalance_groups(&mut groups, 4);
+        assert_eq!(
+            groups.len(),
+            1,
+            "group of exactly target_max must not split"
+        );
+        assert_eq!(groups[0], vec![0, 1, 2]);
+    }
 }

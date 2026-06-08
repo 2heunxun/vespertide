@@ -399,6 +399,14 @@ async fn cmd_revision_core_edge1_single_addcolumn_fk_nonnull_with_default_hard_e
         err.to_lowercase().contains("nullable") || err.to_lowercase().contains("foreign"),
         "expected Edge#1 hard error; got: {err}"
     );
+    // A SINGLE violation must be returned BARE, not wrapped in
+    // PlannerError::Multiple (whose Display renders a "validation violation(s):"
+    // header). Pins the `1 => Some(... next() ...)` match arm: deleting it
+    // would fall through to the `_ => Multiple(...)` arm.
+    assert!(
+        !err.contains("validation violation"),
+        "single Edge#1 error must be bare, not a Multiple list: {err}"
+    );
     assert_eq!(migration_count(&cfg), 1);
 }
 
