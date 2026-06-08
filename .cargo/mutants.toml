@@ -98,6 +98,16 @@ exclude_re = [
     # `< -> <=` therefore has no reachable input that distinguishes it ?
     # equivalent. The `&&` operator on the same line remains in the gate.
     "ordering[.]rs:410(:[0-9]+)?: replace < with <= in sort_enum_default_dependencies",
+    # E9: the `len() < *_par_*_threshold()` seq-vs-parallel DISPATCH comparisons.
+    # Mutating `<` to ==/>/<= only changes which execution path is taken; the
+    # sequential and Rayon paths produce identical results (covered by the
+    # validate/diff/build result tests). Perf-only ? same category as E1.
+    "validate/plan[.]rs:46(:[0-9]+)?: replace < with (==|>|<=) in find_plan_violations",
+    "validate/plan[.]rs:167(:[0-9]+)?: replace < with (==|>|<=) in find_missing_fill_with",
+    "validate/plan[.]rs:280(:[0-9]+)?: replace < with (==|>|<=) in find_missing_enum_fill_with",
+    "validate/schema[.]rs:77(:[0-9]+)?: replace < with (==|>|<=) in find_schema_violations",
+    "diff/mod[.]rs:49(:[0-9]+)?: replace < with (==|>|<=) in diff_schemas",
+    "builder/mod[.]rs:63(:[0-9]+)?: replace < with (==|>|<=) in build_plan_queries",
 ]
 
 # Focus on logic-heavy crates. Exclude:
