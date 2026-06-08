@@ -239,7 +239,11 @@ jobs:
             archive: tar.gz
             use_cross: true
           - target: x86_64-apple-darwin
-            runs-on: macos-13
+            # GitHub retired the Intel `macos-13` runner, so that label now
+            # queues forever. Build the x86_64 binary by cross-compiling on the
+            # ARM `macos-latest` runner - Apple's toolchain targets both arches
+            # natively (no `cross` needed; setup-rust-toolchain adds the target).
+            runs-on: macos-latest
             asset_name: vespertide-lsp-darwin-x86_64
             archive: tar.gz
             use_cross: false
