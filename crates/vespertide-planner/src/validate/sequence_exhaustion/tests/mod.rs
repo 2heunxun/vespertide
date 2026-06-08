@@ -109,6 +109,60 @@ fn case_03_bigint_pk_safe_no_warning() {
     assert!(find_sequence_exhaustion_risks(&p, &[]).is_empty());
 }
 
+// A COMPOSITE (2-column) auto-increment PK must NOT be flagged as a
+// single-sequence exhaustion risk: only a lone `serial`-style column carries
+// that risk. These pin the `columns.len() == 1` guard in both the
+// AddConstraint path (find_sequence_exhaustion_risks) and the CreateTable
+// path (single_pk_with_auto_increment); a `-> true` mutant would flag them.
+fn two_col_auto_inc_pk_add(table: &str, a: &str, b: &str) -> MigrationAction {
+    MigrationAction::AddConstraint {
+        table: TableName::from(table),
+        constraint: TableConstraint::PrimaryKey {
+            auto_increment: true,
+            columns: vec![a.into(), b.into()],
+            strategy: PrimaryKeyAdditionStrategy::default(),
+        },
+    }
+}
+
+#[rstest]
+fn composite_auto_increment_pk_add_constraint_is_not_flagged() {
+    let baseline = vec![table_with_pk(
+        "users",
+        vec![
+            int_col("id", SimpleColumnType::SmallInt),
+            int_col("tenant", SimpleColumnType::SmallInt),
+        ],
+        "id",
+        false,
+    )];
+    let p = plan(vec![two_col_auto_inc_pk_add("users", "id", "tenant")]);
+    assert!(
+        find_sequence_exhaustion_risks(&p, &baseline).is_empty(),
+        "composite auto-inc PK must not be a single-sequence risk"
+    );
+}
+
+#[rstest]
+fn composite_auto_increment_pk_create_table_is_not_flagged() {
+    let p = plan(vec![MigrationAction::CreateTable {
+        table: "users".into(),
+        columns: vec![
+            int_col("id", SimpleColumnType::SmallInt),
+            int_col("tenant", SimpleColumnType::SmallInt),
+        ],
+        constraints: vec![TableConstraint::PrimaryKey {
+            auto_increment: true,
+            columns: vec!["id".into(), "tenant".into()],
+            strategy: PrimaryKeyAdditionStrategy::default(),
+        }],
+    }]);
+    assert!(
+        find_sequence_exhaustion_risks(&p, &[]).is_empty(),
+        "composite auto-inc PK must not be a single-sequence risk"
+    );
+}
+
 #[rstest]
 fn case_04_integer_pk_without_auto_increment_no_warning() {
     let p = plan(vec![create_table_inline_pk(

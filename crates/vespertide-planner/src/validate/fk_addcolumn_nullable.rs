@@ -192,6 +192,25 @@ mod tests {
         ));
     }
 
+    // An out-of-line FK on a DIFFERENT column of the same table must not flag
+    // an unrelated AddColumn. The paired-FK match requires BOTH the table AND
+    // the column to match; a `&& -> ||` mutant would match on the table alone
+    // and wrongly raise a violation.
+    #[rstest]
+    fn paired_fk_on_other_column_does_not_flag_unrelated_addcolumn() {
+        // AddColumn `a` (non-nullable, has fill, NO inline FK) on `posts`,
+        // plus an out-of-line FK that covers a DIFFERENT column `b`.
+        let c = col("a", false);
+        let p = plan(vec![
+            add_column("posts", c, Some("1")),
+            add_constraint_fk("posts", &["b"], "users", &["id"]),
+        ]);
+        assert!(
+            find_addcolumn_fk_nullable_violations(&p).is_empty(),
+            "FK on column `b` must not implicate AddColumn `a`"
+        );
+    }
+
     #[rstest]
     fn case_03_nullable_false_default_inline_fk_violation() {
         // nullable: false + default + inline FK -> violation
