@@ -380,6 +380,87 @@ fn normalize_inline_foreign_key() {
     ));
 }
 
+// foreign_key_constraint_exists looks for a SINGLE-column table-level FK on the
+// inline FK's column. A pre-existing COMPOSITE (2-column) FK whose first column
+// is the same must NOT count as a match, so the inline single-column FK is
+// still materialized. Pins the `columns.len() == 1 &&` guard: a `||` mutant
+// would treat the composite FK as the match and drop the inline FK.
+#[test]
+fn normalize_keeps_inline_fk_despite_composite_fk_on_same_first_column() {
+    let mut a_col = col("a", ColumnType::Simple(SimpleColumnType::Integer));
+    a_col.foreign_key = Some(ForeignKeySyntax::Object(ForeignKeyDef {
+        ref_table: "ref".into(),
+        ref_columns: vec!["id".into()],
+        on_delete: None,
+        on_update: None,
+        orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
+    }));
+
+    let table = TableDef {
+        name: "t".into(),
+        description: None,
+        columns: vec![
+            a_col,
+            col("b", ColumnType::Simple(SimpleColumnType::Integer)),
+        ],
+        constraints: vec![TableConstraint::ForeignKey {
+            name: Some("fk_composite".into()),
+            columns: vec!["a".into(), "b".into()],
+            ref_table: "other".into(),
+            ref_columns: vec!["x".into(), "y".into()],
+            on_delete: None,
+            on_update: None,
+            orphan_strategy: crate::ForeignKeyOrphanStrategy::default(),
+        }],
+    };
+
+    let normalized = table.normalize().unwrap();
+    let has_single_col_fk = normalized.constraints.iter().any(|c| {
+        matches!(c, TableConstraint::ForeignKey { columns, .. }
+            if columns.len() == 1 && columns[0] == "a")
+    });
+    assert!(
+        has_single_col_fk,
+        "inline single-column FK on `a` must be materialized: {:?}",
+        normalized.constraints
+    );
+}
+
+// index_constraint_exists dedups an inline NAMED index against a pre-existing
+// table-level Index of the SAME name. Pins the `(Some, Some) => n1 == n2` arm:
+// deleting the arm (-> `_ => false`) or flipping `==` to `!=` fails to detect
+// the duplicate and emits a SECOND index of the same name.
+#[test]
+fn normalize_dedups_inline_named_index_against_existing_named_index() {
+    let mut name_col = col("name", ColumnType::Simple(SimpleColumnType::Text));
+    name_col.index = Some(StrOrBoolOrArray::Str("ix_name".into()));
+
+    let table = TableDef {
+        name: "users".into(),
+        description: None,
+        columns: vec![
+            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+            name_col,
+        ],
+        constraints: vec![TableConstraint::Index {
+            name: Some("ix_name".into()),
+            columns: vec!["name".into()],
+        }],
+    };
+
+    let normalized = table.normalize().unwrap();
+    let ix_name_count = normalized
+        .constraints
+        .iter()
+        .filter(|c| matches!(c, TableConstraint::Index { name: Some(n), .. } if n == "ix_name"))
+        .count();
+    assert_eq!(
+        ix_name_count, 1,
+        "duplicate named index must be deduped: {:?}",
+        normalized.constraints
+    );
+}
+
 #[test]
 fn normalize_all_inline_constraints() {
     let mut id_col = col("id", ColumnType::Simple(SimpleColumnType::Integer));
