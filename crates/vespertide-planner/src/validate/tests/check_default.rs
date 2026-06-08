@@ -158,6 +158,205 @@ fn integer_default_violates_ne() {
 }
 
 // ---------------------------------------------------------------------------
+// Boundary kills: each comparison op exactly at its threshold so the
+// `<`/`>`/`==` and EPSILON-arithmetic mutations are distinguished.
+// ---------------------------------------------------------------------------
+
+fn boundary_table(ty: SimpleColumnType, default: DefaultValue, expr: &str) -> TableDef {
+    table_with(
+        "t",
+        col_with_default("v", ColumnType::Simple(ty), default),
+        vec![check_constraint("c", expr)],
+    )
+}
+
+#[test]
+fn integer_default_equal_violates_lt_boundary() {
+    // 5 < 5 is false (violates). Kills apply_op_i64 `< -> <=` and `< -> ==`.
+    let t = boundary_table(SimpleColumnType::Integer, DefaultValue::Integer(5), "v < 5");
+    assert!(is_default_violates_check(&validate_one(t).unwrap_err()));
+}
+
+#[test]
+fn float_default_equal_violates_lt_boundary() {
+    // 5.0 < 5.0 is false. Kills apply_op_f64 Lt `< -> <=`.
+    let t = boundary_table(SimpleColumnType::Real, DefaultValue::Float(5.0), "v < 5.0");
+    assert!(is_default_violates_check(&validate_one(t).unwrap_err()));
+}
+
+#[test]
+fn float_default_equal_violates_gt_boundary() {
+    // 5.0 > 5.0 is false. Kills apply_op_f64 Gt `> -> >=`.
+    let t = boundary_table(SimpleColumnType::Real, DefaultValue::Float(5.0), "v > 5.0");
+    assert!(is_default_violates_check(&validate_one(t).unwrap_err()));
+}
+
+#[test]
+fn float_default_equal_satisfies_eq() {
+    // (2-2).abs() < EPS is true. Kills apply_op_f64 Eq `- -> +`, `- -> /`,
+    // and `< -> ==`.
+    let t = boundary_table(SimpleColumnType::Real, DefaultValue::Float(2.0), "v = 2.0");
+    assert!(validate_one(t).is_ok());
+}
+
+#[test]
+fn float_opposite_sign_satisfies_ne() {
+    // 2 <> -2: (2-(-2)).abs()=4 >= EPS true. Kills apply_op_f64 Ne `- -> +`
+    // (where (2+(-2)).abs()=0 would wrongly report "equal").
+    let t = boundary_table(
+        SimpleColumnType::Real,
+        DefaultValue::Float(2.0),
+        "v <> -2.0",
+    );
+    assert!(validate_one(t).is_ok());
+}
+
+#[test]
+fn float_zero_satisfies_ne_nonzero() {
+    // 0 <> 5: (0-5).abs()=5 >= EPS true. Kills apply_op_f64 Ne `- -> /`
+    // (where (0/5).abs()=0 would wrongly report "equal").
+    let t = boundary_table(SimpleColumnType::Real, DefaultValue::Float(0.0), "v <> 5.0");
+    assert!(validate_one(t).is_ok());
+}
+
+#[test]
+fn string_default_equal_violates_lt_boundary() {
+    // "'m'" < "'m'" is false. Kills apply_op_str `< -> <=` and `< -> ==`.
+    let t = boundary_table(
+        SimpleColumnType::Text,
+        DefaultValue::String("'m'".into()),
+        "v < 'm'",
+    );
+    assert!(is_default_violates_check(&validate_one(t).unwrap_err()));
+}
+
+#[test]
+fn string_default_equal_violates_gt_boundary() {
+    // "'m'" > "'m'" is false. Kills apply_op_str `> -> >=`.
+    let t = boundary_table(
+        SimpleColumnType::Text,
+        DefaultValue::String("'m'".into()),
+        "v > 'm'",
+    );
+    assert!(is_default_violates_check(&validate_one(t).unwrap_err()));
+}
+
+#[test]
+fn bool_default_equal_violates_ne() {
+    // true <> true is false (violates). Kills apply_op_bool delete of the
+    // `Op::Ne` arm (which would fall through to `_ => true`).
+    let t = boundary_table(
+        SimpleColumnType::Boolean,
+        DefaultValue::Bool(true),
+        "v <> true",
+    );
+    assert!(is_default_violates_check(&validate_one(t).unwrap_err()));
+}
+
+#[test]
+fn float_default_int_literal_violates_evaluate_op_arm() {
+    // (Float, Integer) arm: 5.0 < 3 is false. Kills evaluate_op delete of the
+    // `(Float, Integer)` arm (which would fall through to `_ => true`).
+    let t = boundary_table(SimpleColumnType::Real, DefaultValue::Float(5.0), "v < 3");
+    assert!(is_default_violates_check(&validate_one(t).unwrap_err()));
+}
+
+#[test]
+fn integer_in_list_match_exercises_literal_equals_int_arm() {
+    // 5 matches the IN list -> literal_equals (Int,Int) arm. Kills the
+    // delete of that arm (-> `_ => false` -> not in list -> would violate).
+    let t = boundary_table(
+        SimpleColumnType::Integer,
+        DefaultValue::Integer(5),
+        "v IN (1, 5, 9)",
+    );
+    assert!(validate_one(t).is_ok());
+}
+
+#[test]
+fn float_in_list_matches_exercise_literal_equals_float_arms() {
+    // Float==Float, Int==Float, Float==Int IN-list matches. Each
+    // `(a-b).abs() < EPS` distinguishes `< -> >` (0 > EPS would miss).
+    assert!(
+        validate_one(boundary_table(
+            SimpleColumnType::Real,
+            DefaultValue::Float(2.0),
+            "v IN (2.0)"
+        ))
+        .is_ok()
+    );
+    assert!(
+        validate_one(boundary_table(
+            SimpleColumnType::Integer,
+            DefaultValue::Integer(2),
+            "v IN (2.0)"
+        ))
+        .is_ok()
+    );
+    assert!(
+        validate_one(boundary_table(
+            SimpleColumnType::Real,
+            DefaultValue::Float(2.0),
+            "v IN (2)"
+        ))
+        .is_ok()
+    );
+}
+
+#[test]
+fn bool_in_list_match_exercises_literal_equals_bool_arm() {
+    // true IN (true) -> literal_equals (Bool,Bool) `==`. Kills `== -> !=`.
+    let t = boundary_table(
+        SimpleColumnType::Boolean,
+        DefaultValue::Bool(true),
+        "v IN (true)",
+    );
+    assert!(validate_one(t).is_ok());
+}
+
+// `1.0000000000000002` is exactly `1.0 + f64::EPSILON` (the next representable
+// double). A value exactly EPSILON away is treated as DISTINCT by the strict
+// `(a-b).abs() < EPSILON` tolerance, so the default violates an `=`/`IN` check.
+// These pin `<` against `<=` at the tolerance boundary (the `<=` mutant would
+// treat the pair as equal and wrongly pass).
+const ONE_PLUS_EPS: &str = "1.0000000000000002";
+
+#[test]
+fn float_eq_at_exact_epsilon_distance_violates() {
+    // apply_op_f64 Eq line: `(a-b).abs() < EPSILON`. Kills `< -> <=`.
+    let expr = format!("v = {ONE_PLUS_EPS}");
+    let t = boundary_table(SimpleColumnType::Real, DefaultValue::Float(1.0), &expr);
+    assert!(is_default_violates_check(&validate_one(t).unwrap_err()));
+}
+
+#[test]
+fn float_float_in_list_at_exact_epsilon_distance_misses() {
+    // literal_equals (Float,Float) EPSILON line. Kills `< -> <=`.
+    let expr = format!("v IN ({ONE_PLUS_EPS})");
+    let t = boundary_table(SimpleColumnType::Real, DefaultValue::Float(1.0), &expr);
+    assert!(is_default_violates_check(&validate_one(t).unwrap_err()));
+}
+
+#[test]
+fn int_float_in_list_at_exact_epsilon_distance_misses() {
+    // literal_equals (Integer,Float) EPSILON line. Kills `< -> <=`.
+    let expr = format!("v IN ({ONE_PLUS_EPS})");
+    let t = boundary_table(SimpleColumnType::Integer, DefaultValue::Integer(1), &expr);
+    assert!(is_default_violates_check(&validate_one(t).unwrap_err()));
+}
+
+#[test]
+fn float_int_in_list_at_exact_epsilon_distance_misses() {
+    // literal_equals (Float,Integer) EPSILON line. Kills `< -> <=`.
+    let t = boundary_table(
+        SimpleColumnType::Real,
+        DefaultValue::Float(1.000_000_000_000_000_2),
+        "v IN (1)",
+    );
+    assert!(is_default_violates_check(&validate_one(t).unwrap_err()));
+}
+
+// ---------------------------------------------------------------------------
 // Satisfied: every op passes when the default fits
 // ---------------------------------------------------------------------------
 

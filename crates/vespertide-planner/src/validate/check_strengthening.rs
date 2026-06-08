@@ -503,6 +503,125 @@ mod tests {
         assert_eq!(warnings[0].kind, CheckStrengtheningKind::BoundaryTightened);
     }
 
+    // -- classify_pair AND/OR set logic boundary kills ---------------------
+
+    fn classify(old: &str, new: &str) -> Vec<CheckStrengtheningKind> {
+        let baseline = baseline_with_check("t", "chk", old);
+        let p = plan(vec![add_check("t", "chk", new)]);
+        find_check_strengthenings(&p, &baseline)
+            .into_iter()
+            .map(|w| w.kind)
+            .collect()
+    }
+
+    #[test]
+    fn and_conjunct_added_is_strengthening() {
+        assert_eq!(
+            classify("a > 0 AND b > 0", "a > 0 AND b > 0 AND c > 0"),
+            vec![CheckStrengtheningKind::ConjunctAdded]
+        );
+    }
+
+    #[test]
+    fn and_reordered_same_conjuncts_is_not_strengthening() {
+        // Equal length, same set, reordered -> NOT a strengthening. Pins
+        // `new.len() > old.len()` (a `>=` mutant would fire on equal length).
+        assert!(classify("a > 0 AND b > 0", "b > 0 AND a > 0").is_empty());
+    }
+
+    #[test]
+    fn and_added_non_overlapping_conjuncts_is_not_strengthening() {
+        // New is longer but does NOT contain every old conjunct -> not a
+        // pure addition. Pins the `&&` (a `||` mutant would fire on length
+        // alone) and the `np == op` all-present check (a `!=` mutant would
+        // make all-present trivially true).
+        assert!(classify("a > 0 AND b > 0", "a > 0 AND c > 0 AND d > 0").is_empty());
+    }
+
+    #[test]
+    fn or_disjunct_removed_is_strengthening() {
+        assert_eq!(
+            classify("a > 0 OR b > 0 OR c > 0", "a > 0 OR b > 0"),
+            vec![CheckStrengtheningKind::DisjunctRemoved]
+        );
+    }
+
+    #[test]
+    fn or_reordered_same_disjuncts_is_not_strengthening() {
+        // Equal length, reordered -> not a removal. Pins `new.len() < old.len()`.
+        assert!(classify("a > 0 OR b > 0", "b > 0 OR a > 0").is_empty());
+    }
+
+    #[test]
+    fn or_new_disjunct_not_in_old_is_not_strengthening() {
+        // Fewer disjuncts but one is brand new (not in old) -> not a pure
+        // removal. Pins the `&&` and the `op == np` subset check.
+        assert!(classify("a > 0 OR b > 0 OR c > 0", "a > 0 OR d > 0").is_empty());
+    }
+
+    // -- between_is_narrower boundary kills --------------------------------
+
+    #[test]
+    fn between_tighten_low_only_is_narrower() {
+        // [0,10] -> [5,10]: low tightened, high equal. Pins `lo_cmp ==
+        // Ordering::Less` in any_strict (a `!=` mutant drops the only strict
+        // inequality, making it report "not narrower").
+        assert_eq!(
+            classify("x BETWEEN 0 AND 10", "x BETWEEN 5 AND 10"),
+            vec![CheckStrengtheningKind::BetweenNarrowed]
+        );
+    }
+
+    #[test]
+    fn between_tighten_high_only_is_narrower() {
+        // [0,10] -> [0,8]: high tightened, low equal. Pins `hi_cmp ==
+        // Ordering::Greater` in any_strict (a `!=` mutant drops the only
+        // strict inequality, making it report "not narrower").
+        assert_eq!(
+            classify("x BETWEEN 0 AND 10", "x BETWEEN 0 AND 8"),
+            vec![CheckStrengtheningKind::BetweenNarrowed]
+        );
+    }
+
+    #[test]
+    fn between_widened_low_tightened_high_is_not_narrower() {
+        // [5,10] -> [0,8]: low widened (lo_ok=false), high tightened. Range
+        // is NOT a subset, so not narrower. Pins both `&&`s in
+        // `lo_ok && hi_ok && any_strict` (either `||` mutant would wrongly
+        // report narrowing from the high-only tightening).
+        assert!(classify("x BETWEEN 5 AND 10", "x BETWEEN 0 AND 8").is_empty());
+    }
+
+    // -- literal_equals EPSILON-boundary kills -----------------------------
+    // `1.0000000000000002` is exactly `1.0 + f64::EPSILON`. A literal exactly
+    // EPSILON away is DISTINCT under the strict `(a-b).abs() < EPSILON`
+    // tolerance, so the bound genuinely tightened (the `<=` mutant would call
+    // the two literals equal and suppress the warning).
+
+    #[test]
+    fn float_boundary_one_epsilon_tighter_is_tightening() {
+        assert_eq!(
+            classify("x > 1.0", "x > 1.0000000000000002"),
+            vec![CheckStrengtheningKind::BoundaryTightened]
+        );
+    }
+
+    #[test]
+    fn int_vs_float_boundary_one_epsilon_tighter_is_tightening() {
+        assert_eq!(
+            classify("x > 1", "x > 1.0000000000000002"),
+            vec![CheckStrengtheningKind::BoundaryTightened]
+        );
+    }
+
+    #[test]
+    fn float_vs_int_boundary_one_epsilon_apart_is_not_operator_tightening() {
+        // `>= 1.0000000000000002` vs `> 1`: literals differ by exactly EPSILON,
+        // so this is NOT the (Ge,Gt)-same-literal operator-tightening pattern.
+        // Pins the (Float,Integer) EPSILON arm of literal_equals.
+        assert!(classify("x >= 1.0000000000000002", "x > 1").is_empty());
+    }
+
     #[test]
     fn ge_boundary_tightened() {
         let baseline = baseline_with_check("t", "c", "x >= 1");

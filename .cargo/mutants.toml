@@ -76,6 +76,14 @@ exclude_re = [
     # are byte-identical for every renderer-reachable layout while the other
     # pick_anchors arithmetic remains in scope.
     "edges[.]rs:152(:[0-9]+)?: replace > with >= in pick_anchors",
+    # E6: classify_strengthening's `||` guard
+    # (`old==Unparseable || new==Unparseable -> return None`) is equivalent
+    # under `&&`. When exactly one side is Unparseable the `&&` mutant skips
+    # the early return, but `classify_pair(Unparseable, _)` / `(_, Unparseable)`
+    # has no matching arm and falls to `_ => None` ? identical observable
+    # result for every input. The two-unparseable case is also caught earlier
+    # by `if old == new { return None }`. No test can distinguish the mutant.
+    "check_strengthening[.]rs:233(:[0-9]+)?: replace [|][|] with && in classify_strengthening",
 ]
 
 # Focus on logic-heavy crates. Exclude:

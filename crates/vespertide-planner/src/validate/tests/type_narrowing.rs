@@ -85,6 +85,68 @@ fn varchar_length_shrink_is_detected() {
     assert_eq!(w.kind, NarrowingKind::VarcharLength { from: 40, to: 30 });
 }
 
+// Equal-length is NOT narrowing: pins the `b < a` guard (mutated to `true`)
+// and the `<` operator (mutated to `<=`) on the Varchar and Char arms.
+#[test]
+fn varchar_equal_length_is_not_narrowing() {
+    assert_eq!(is_narrowing(&varchar(30), &varchar(30)), None);
+}
+
+#[test]
+fn char_equal_length_is_not_narrowing() {
+    assert_eq!(is_narrowing(&char_t(10), &char_t(10)), None);
+}
+
+#[test]
+fn char_length_shrink_is_narrowing() {
+    assert_eq!(
+        is_narrowing(&char_t(10), &char_t(4)),
+        Some(NarrowingKind::CharLength { from: 10, to: 4 })
+    );
+}
+
+// Varchar -> Char: equal length is NOT narrowing (pins the `b < a` guard
+// and `<` operator on the VarcharToCharShorter arm); shorter target is.
+#[test]
+fn varchar_to_char_equal_length_is_not_narrowing() {
+    assert_eq!(is_narrowing(&varchar(5), &char_t(5)), None);
+}
+
+#[test]
+fn varchar_to_shorter_char_is_narrowing() {
+    assert_eq!(
+        is_narrowing(&varchar(5), &char_t(3)),
+        Some(NarrowingKind::VarcharToCharShorter { from: 5, to: 3 })
+    );
+}
+
+// Exact-string assertions pin each per-backend impact description so the
+// whole-function "xyzzy" mutants on postgres/mysql/sqlite_impact die.
+#[test]
+fn impact_descriptions_are_exact_per_backend() {
+    let kind = NarrowingKind::FloatSize {
+        from: "double precision",
+        to: "real",
+    };
+    assert_eq!(
+        kind.postgres_impact(),
+        "silently loses precision (downcast)"
+    );
+    assert_eq!(kind.mysql_impact(), "silently loses precision (downcast)");
+    assert_eq!(kind.sqlite_impact(), "REAL affinity — no size enforcement");
+
+    let len = NarrowingKind::VarcharLength { from: 40, to: 30 };
+    assert_eq!(
+        len.postgres_impact(),
+        "rejects ALTER with `value too long` if any row violates"
+    );
+    assert_eq!(
+        len.mysql_impact(),
+        "SILENTLY truncates values past the new length (warning only)"
+    );
+    assert_eq!(len.sqlite_impact(), "length advisory only — no enforcement");
+}
+
 #[test]
 fn varchar_length_grow_is_not_detected() {
     let baseline = vec![baseline_table("users", baseline_col("email", varchar(30)))];

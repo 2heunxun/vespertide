@@ -366,6 +366,44 @@ fn and_with_unparseable_second_operand_is_unparseable() {
     assert!(matches!(parse("a > 0 AND x > b"), CheckExpr::Unparseable));
 }
 
+// A bare operator at end-of-input must not read `bytes[i+1]` out of bounds.
+// Pins the two-char-lookahead guard `i + 1 < bytes.len()` (a `-`/`*`/`<=`
+// mutant would index past the buffer and panic).
+#[test]
+fn trailing_operator_at_eof_is_unparseable_not_panic() {
+    assert!(matches!(parse("age >"), CheckExpr::Unparseable));
+}
+
+// Incomplete exponent at EOF in a SIGNED literal slot must not read the
+// exponent-sign byte out of bounds. Pins the `i < bytes.len() && ...` guard
+// in the signed-number branch (`<=` / `||` mutants index past the buffer).
+#[test]
+fn incomplete_signed_exponent_at_eof_is_unparseable_not_panic() {
+    assert!(matches!(parse("x = -1e"), CheckExpr::Unparseable));
+}
+
+// Same guard in the UNSIGNED-number branch.
+#[test]
+fn incomplete_unsigned_exponent_at_eof_is_unparseable_not_panic() {
+    assert!(matches!(parse("x = 1e"), CheckExpr::Unparseable));
+}
+
+// 70 sequential parenthesized groups never nest deeper than 1, so depth must
+// return to 0 after each. Pins `self.depth -= 1` in parse_atom: a `+=` or `/=`
+// mutant leaks depth, tripping the MAX_CHECK_EXPR_DEPTH (64) guard and
+// wrongly rejecting this valid expression.
+#[test]
+fn many_sequential_paren_groups_do_not_leak_depth() {
+    let expr = std::iter::repeat("(c > 0)")
+        .take(70)
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    assert!(
+        !matches!(parse(&expr), CheckExpr::Unparseable),
+        "70 flat OR groups must parse; depth must not leak"
+    );
+}
+
 #[rstest]
 #[case::null("col = NULL", Literal::Null)]
 #[case::bool_true("col = TRUE", Literal::Bool(true))]
