@@ -394,8 +394,7 @@ fn incomplete_unsigned_exponent_at_eof_is_unparseable_not_panic() {
 // wrongly rejecting this valid expression.
 #[test]
 fn many_sequential_paren_groups_do_not_leak_depth() {
-    let expr = std::iter::repeat("(c > 0)")
-        .take(70)
+    let expr = std::iter::repeat_n("(c > 0)", 70)
         .collect::<Vec<_>>()
         .join(" OR ");
     assert!(
