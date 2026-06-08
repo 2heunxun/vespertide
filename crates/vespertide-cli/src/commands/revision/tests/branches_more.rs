@@ -8,6 +8,57 @@ use vespertide_core::{
     schema::foreign_key::ForeignKeySyntax,
 };
 
+// Adding a NOT-NULL, no-default, non-FK column to an existing table requires a
+// fill_with value, collected interactively. A value-supplying mock provides a
+// unique sentinel; the written migration must embed it. Pins
+// `if !missing.is_empty()` (mod.rs:492): a `delete !` mutant would skip
+// collection entirely, leaving the sentinel out of the migration.
+#[tokio::test]
+#[serial_test::serial]
+async fn cmd_revision_core_collects_interactive_fill_with_into_migration() {
+    let tmp = tempdir().unwrap();
+    let _guard = CwdGuard::new(&tmp.path().to_path_buf());
+    let cfg = write_config();
+    let baseline = table_def(
+        "users",
+        vec![int_col("id", false)],
+        vec![pk_constraint("id")],
+    );
+    let mut target = baseline.clone();
+    // New NOT-NULL, no-default, non-FK column -> needs fill_with.
+    target.columns.push(int_col("age", false));
+    write_project_with_tables(&cfg, vec![baseline], vec![target]);
+
+    let fill_with: FillWithFn = |_, _| Ok("424242".to_string());
+    let remap_enum_values: RemapEnumValuesFn = |_| Ok(true);
+    let prompts = RevisionPromptFns {
+        fill_with,
+        remap_enum_values,
+        ..panic_guard_prompt_fns()
+    };
+    cmd_revision_core("add age".into(), vec![], vec![], prompts)
+        .await
+        .unwrap();
+
+    // Read the newly written migration (0002_*) and confirm the collected
+    // sentinel landed in it.
+    let new_migration = std::fs::read_dir(cfg.migrations_dir())
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("0002"))
+        })
+        .expect("a second migration must be written");
+    let body = std::fs::read_to_string(&new_migration).unwrap();
+    assert!(
+        body.contains("424242"),
+        "interactively collected fill_with must be embedded in the migration: {body}"
+    );
+}
+
 #[tokio::test]
 #[serial_test::serial]
 async fn cmd_revision_core_fk_orphan_cancel_aborts() {
