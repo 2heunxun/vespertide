@@ -45,6 +45,11 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: nightly
+          # Pin the gnu host target. cargo-fuzz otherwise defaults to the
+          # statically-linked `x86_64-unknown-linux-musl` triple, whose std is
+          # not installed (E0463 "can't find crate for core") AND whose
+          # crt-static libc is incompatible with `-Zsanitizer=address`.
+          target: x86_64-unknown-linux-gnu
 
       - uses: taiki-e/install-action@v2.81.6
         with:
@@ -62,6 +67,7 @@ jobs:
         run: |
           cd fuzz
           cargo +nightly fuzz run ${{ matrix.target }} \
+            --target x86_64-unknown-linux-gnu \
             -- -max_total_time=300 -max_len=4096
 
       - name: Upload crash artifacts
