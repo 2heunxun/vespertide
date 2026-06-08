@@ -84,6 +84,14 @@ exclude_re = [
     # result for every input. The two-unparseable case is also caught earlier
     # by `if old == new { return None }`. No test can distinguish the mutant.
     "check_strengthening[.]rs:233(:[0-9]+)?: replace [|][|] with && in classify_strengthening",
+    # E7: the Rayon `*_par_*_threshold()` functions in parallel_config.rs
+    # (vespertide-planner + vespertide-query) are perf-only dispatch knobs.
+    # Replacing the returned threshold with 0 or 1 only changes WHEN the
+    # parallel path is taken; the sequential and Rayon paths are proven to
+    # produce byte-identical output (covered by the diff/validate/build_plan
+    # result tests). No correctness assertion can distinguish them ? same
+    # category as the E1 `cmd_export` perf-threshold exclusion above.
+    "parallel_config[.]rs:[0-9]+:[0-9]+: replace [a-z_]+_threshold -> usize with [01]",
 ]
 
 # Focus on logic-heavy crates. Exclude:
