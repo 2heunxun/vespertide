@@ -108,6 +108,26 @@ exclude_re = [
     "validate/schema[.]rs:77(:[0-9]+)?: replace < with (==|>|<=) in find_schema_violations",
     "diff/mod[.]rs:49(:[0-9]+)?: replace < with (==|>|<=) in diff_schemas",
     "builder/mod[.]rs:63(:[0-9]+)?: replace < with (==|>|<=) in build_plan_queries",
+    # E10: the pairwise contradiction loop `for j in (i + 1)..preds.len()`.
+    # The `+ -> *` mutant yields `i * 1 == i`, so the inner loop additionally
+    # visits the (i, i) self-pair `check_pair(col, p, p)`. A predicate never
+    # contradicts itself (two identical Compare/In/Between/IsNull predicates
+    # are always mutually satisfiable), so every added self-pair returns None
+    # and the observable result is unchanged ? equivalent.
+    "check_self_contradiction[.]rs:120(:[0-9]+)?: replace [+] with [*] in find_contradiction",
+    # E11: is_definitely_mismatch's `(Json, _) => false` and
+    # `(Custom { .. }, _) => false` arms return exactly the same value as the
+    # match's `_ => false` catch-all. Deleting either arm makes that input
+    # fall straight through to `_ => false` ? identical observable result,
+    # equivalent.
+    "check_type_mismatch[.]rs:366(:[0-9]+)?: delete match arm .Json, _. in is_definitely_mismatch",
+    "check_type_mismatch[.]rs:395(:[0-9]+)?: delete match arm .ComplexColumnType::Custom.* in is_definitely_mismatch",
+    # E12: in find_primary_key_additions, `n_existing == 0 => NewColumns`.
+    # The function acts ONLY on `ExistingColumns`; both NewColumns and the
+    # `_ => Mixed` fallback hit `if !matches!(kind, ExistingColumns) continue;`.
+    # Deleting the `0` arm sends n_existing==0 to Mixed (PK columns always
+    # number >=1, so `0 == len` is unreachable) ? same `continue`, equivalent.
+    "pk_additions[.]rs:115(:[0-9]+)?: delete match arm 0 in find_primary_key_additions",
 ]
 
 # Focus on logic-heavy crates. Exclude:

@@ -493,6 +493,29 @@ mod tests {
         }
     }
 
+    // A numeric column compared to a string literal is a mismatch; the
+    // warning's type label must render as `numeric(P, S)`. Pins the
+    // `complex_type_label` Numeric arm (deleting it falls through to the
+    // `_ => "complex"` catch-all).
+    #[test]
+    fn numeric_column_mismatch_labels_precision_and_scale() {
+        use vespertide_core::ComplexColumnType;
+        let baseline = vec![baseline_table(
+            "t",
+            vec![col(
+                "amt",
+                ColumnType::Complex(ComplexColumnType::Numeric {
+                    precision: 10,
+                    scale: 2,
+                }),
+            )],
+        )];
+        let p = plan(vec![add_check("t", "chk", "amt = 'x'")]);
+        let warnings = find_check_type_mismatches(&p, &baseline);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].column_type_label, "numeric(10, 2)");
+    }
+
     // -- Definite mismatches (warning emitted) --------------------------
 
     #[test]

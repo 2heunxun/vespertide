@@ -399,6 +399,22 @@ mod tests {
         assert!(validate_self_contradiction(&t).is_ok());
     }
 
+    // `col = X AND col != X` and the reversed `col != X AND col = X` are both
+    // contradictions. The reversed order pins the SECOND disjunct
+    // (`op_a == Ne && op_b == Eq`) of the equality-vs-negation check, whose
+    // `op_b == Op::Eq` comparison a `!=` mutant would break.
+    #[test]
+    fn eq_then_ne_same_literal_is_contradiction() {
+        let t = table(vec![check("chk", "age = 5 AND age <> 5")]);
+        assert!(validate_self_contradiction(&t).is_err());
+    }
+
+    #[test]
+    fn ne_then_eq_same_literal_is_contradiction() {
+        let t = table(vec![check("chk", "age <> 5 AND age = 5")]);
+        assert!(validate_self_contradiction(&t).is_err());
+    }
+
     // -- Range impossibility ---------------------------------------------
 
     #[test]
