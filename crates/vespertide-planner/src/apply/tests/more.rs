@@ -81,6 +81,42 @@ fn create_table_normalizes_inline_primary_key() {
     );
 }
 
+// clear_inline_constraint_fields must clear the inline primary_key flag on
+// the column NAMED by the constraint, not some other column. Two columns both
+// carry an inline PK flag; removing the PK that names only "a" must clear "a"
+// and leave "b" untouched. Pins the `&c.name == col_name` match (a `!=`
+// mutant would clear the first NON-matching column instead).
+#[test]
+fn clear_inline_primary_key_targets_the_named_column() {
+    use crate::apply::constraint_ops::clear_inline_constraint_fields;
+    use vespertide_core::schema::primary_key::PrimaryKeySyntax;
+
+    let mut a = col("a", ColumnType::Simple(SimpleColumnType::Integer));
+    a.primary_key = Some(PrimaryKeySyntax::Bool(true));
+    let mut b = col("b", ColumnType::Simple(SimpleColumnType::Integer));
+    b.primary_key = Some(PrimaryKeySyntax::Bool(true));
+    let mut tbl = table("t", vec![a, b], vec![]);
+
+    clear_inline_constraint_fields(
+        "t",
+        &mut tbl,
+        &TableConstraint::PrimaryKey {
+            auto_increment: false,
+            columns: vec!["a".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+        },
+    );
+
+    assert!(
+        tbl.columns[0].primary_key.is_none(),
+        "named column `a` inline PK must be cleared"
+    );
+    assert!(
+        tbl.columns[1].primary_key.is_some(),
+        "unrelated column `b` inline PK must be left intact"
+    );
+}
+
 // Tests for AddColumn normalizing inline constraints
 #[test]
 fn add_column_normalizes_inline_unique() {

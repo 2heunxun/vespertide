@@ -80,6 +80,38 @@ fn case_01_column_rename_same_type() {
     assert!(r.candidates[0].differences.is_empty());
 }
 
+/// A column drop on `user` must only consider rename candidates that are
+/// `AddColumn`s on the SAME table. An AddColumn on a DIFFERENT table must not
+/// surface as a candidate. Pins the `add_table.as_str() == table` match guard
+/// in resolve_column_drop (a `-> true` mutant would gather cross-table adds).
+#[test]
+fn rename_candidates_are_scoped_to_the_dropped_columns_table() {
+    let baseline = vec![
+        table(
+            "user",
+            vec![col_not_null("email", SimpleColumnType::Text)],
+            vec![pk(vec!["email"])],
+        ),
+        table(
+            "post",
+            vec![col_not_null("id", SimpleColumnType::Integer)],
+            vec![pk(vec!["id"])],
+        ),
+    ];
+    let plan = plan_with(vec![
+        delete_column("user", "email"),
+        // AddColumn on a DIFFERENT table `post` — must NOT be a candidate.
+        add_column("post", col_not_null("headline", SimpleColumnType::Text)),
+    ]);
+
+    let r = &find_drop_resolutions(&plan, &baseline)[0];
+    assert!(
+        r.candidates.is_empty(),
+        "AddColumn on a different table must not be a rename candidate: {:?}",
+        r.candidates
+    );
+}
+
 /// Case 2: column drop with type-different `AddColumn` → `Match::Different`
 /// (type mismatch dominates the grade).
 #[test]

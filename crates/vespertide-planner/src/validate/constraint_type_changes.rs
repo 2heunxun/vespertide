@@ -452,6 +452,30 @@ mod tests {
         ));
     }
 
+    /// A CreateTable that carries NO PrimaryKey constraint must NOT be counted
+    /// as "gaining a PK", so a PK removal on that same table still errors.
+    /// Pins the `constraints.iter().any(matches!(PrimaryKey))` match guard on
+    /// the CreateTable arm (a `-> true` mutant would absorb the removal).
+    #[test]
+    fn create_table_without_pk_does_not_absorb_pk_removal() {
+        let baseline = vec![table("user", vec![col("id")], vec![pk(vec!["id"])])];
+        let p = plan(vec![
+            MigrationAction::CreateTable {
+                table: "user".into(),
+                columns: vec![col("id")],
+                constraints: vec![], // no PrimaryKey constraint
+            },
+            remove("user", pk(vec!["id"])),
+        ]);
+
+        let errs = find_primary_key_removals(&p, &baseline);
+        assert_eq!(
+            errs.len(),
+            1,
+            "a PK-less CreateTable must not suppress the removal error"
+        );
+    }
+
     /// Case 8: PK removal + replacement on same table → no error
     /// (legitimate PK replacement).
     #[test]

@@ -128,6 +128,13 @@ exclude_re = [
     # Deleting the `0` arm sends n_existing==0 to Mixed (PK columns always
     # number >=1, so `0 == len` is unreachable) ? same `continue`, equivalent.
     "pk_additions[.]rs:115(:[0-9]+)?: delete match arm 0 in find_primary_key_additions",
+    # E13: in clear_index_fields, `filtered.len() < names.len()` gates whether
+    # the multi-index array is rewritten after removing a constraint name. When
+    # the name is absent, `filtered` is a clone of `names` (same elements, same
+    # order), so the `<= ` branch would set `col.index = Some(Array(filtered))`
+    # to a value byte-identical to the untouched original ? no observable
+    # difference, equivalent.
+    "constraint_ops[.]rs:148(:[0-9]+)?: replace < with <= in clear_index_fields",
 ]
 
 # Focus on logic-heavy crates. Exclude:
