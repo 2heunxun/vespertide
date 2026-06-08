@@ -168,13 +168,14 @@ fn flatten_and(parts: &[CheckExpr]) -> Vec<&CheckExpr> {
 fn group_predicates_by_column<'a>(flat: &[&'a CheckExpr]) -> Vec<(String, Vec<&'a CheckExpr>)> {
     let mut groups: Vec<(String, Vec<&'a CheckExpr>)> = Vec::new();
     for pred in flat {
-        let Some(col) = predicate_column(pred) else {
-            continue;
-        };
-        if let Some((_, existing)) = groups.iter_mut().find(|(c, _)| c == &col) {
-            existing.push(pred);
-        } else {
-            groups.push((col, vec![pred]));
+        // `if let` (not `let … else { continue; }`) so the skip path folds
+        // into the loop tail — LLVM coverage mis-attributes a bare `continue`.
+        if let Some(col) = predicate_column(pred) {
+            if let Some((_, existing)) = groups.iter_mut().find(|(c, _)| c == &col) {
+                existing.push(pred);
+            } else {
+                groups.push((col, vec![pred]));
+            }
         }
     }
     groups
