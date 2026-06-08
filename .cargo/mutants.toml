@@ -92,6 +92,12 @@ exclude_re = [
     # result tests). No correctness assertion can distinguish them ? same
     # category as the E1 `cmd_export` perf-threshold exclusion above.
     "parallel_config[.]rs:[0-9]+:[0-9]+: replace [a-z_]+_threshold -> usize with [01]",
+    # E8: in sort_enum_default_dependencies, `*type_idx < default_idx` compares
+    # the indices of two DISTINCT actions (a ModifyColumnType and a
+    # ModifyColumnDefault for the same column), so they can never be equal.
+    # `< -> <=` therefore has no reachable input that distinguishes it ?
+    # equivalent. The `&&` operator on the same line remains in the gate.
+    "ordering[.]rs:410(:[0-9]+)?: replace < with <= in sort_enum_default_dependencies",
 ]
 
 # Focus on logic-heavy crates. Exclude:
