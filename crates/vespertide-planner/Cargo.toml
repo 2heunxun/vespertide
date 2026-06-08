@@ -7,12 +7,27 @@ repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
 description = "Replays applied migrations to rebuild a baseline, then diffs against current models to compute the next migration plan"
+keywords = ["database", "migration", "schema", "orm", "sql"]
+categories = ["database"]
+readme = "../../README.md"
 
 [dependencies]
+rayon = { workspace = true }
 vespertide-core = { workspace = true }
 vespertide-naming = { workspace = true }
 thiserror = "2"
 
 [dev-dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
 rstest = "0.26"
 insta = "1.47"
+proptest = "1"
+serial_test = "3.5"
+vespertide-core = { workspace = true }
+
+[[bench]]
+name = "diff_benchmarks"
+harness = false
+
+[lints]
+workspace = true
