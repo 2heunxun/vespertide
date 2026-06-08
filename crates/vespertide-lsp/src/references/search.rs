@@ -735,4 +735,16 @@ mod tests {
             "declaration and CHECK expression should both be found: {out:?}"
         );
     }
+
+    #[test]
+    fn path_to_uri_prepends_leading_slash_for_relative_path() {
+        // A relative path never starts with `/` on any platform, so this
+        // exercises the leading-slash normalization branch deterministically.
+        let uri = path_to_uri(std::path::Path::new("models/user.json"));
+        assert!(
+            uri.as_str().starts_with("file:///"),
+            "got: {}",
+            uri.as_str()
+        );
+    }
 }

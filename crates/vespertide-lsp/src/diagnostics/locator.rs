@@ -416,10 +416,11 @@ fn is_pair(node: tree_sitter::Node<'_>) -> bool {
 }
 
 fn pair_key_matches(node: tree_sitter::Node<'_>, source: &[u8], expected: &str) -> bool {
-    let Some(key) = node.named_child(0) else {
-        return false;
-    };
-    node_text(key, source).is_some_and(|text| strip_quotes(text) == expected)
+    // Fused chain so a key-less pair (no `named_child(0)`) folds into the
+    // same `false` result without a separate defensive `return` line.
+    node.named_child(0)
+        .and_then(|key| node_text(key, source))
+        .is_some_and(|text| strip_quotes(text) == expected)
 }
 
 fn node_text<'a>(node: tree_sitter::Node<'_>, source: &'a [u8]) -> Option<&'a str> {

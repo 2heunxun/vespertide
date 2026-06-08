@@ -351,6 +351,21 @@ fn trailing_garbage_is_unparseable() {
     assert!(matches!(parse("age > 0 garbage"), CheckExpr::Unparseable));
 }
 
+#[test]
+fn or_with_unparseable_second_operand_is_unparseable() {
+    // First operand parses, but the operand after `OR` is column-to-column
+    // (unparseable). The `parse_or` loop must propagate Unparseable rather
+    // than build a partial Or.
+    assert!(matches!(parse("a > 0 OR x > b"), CheckExpr::Unparseable));
+}
+
+#[test]
+fn and_with_unparseable_second_operand_is_unparseable() {
+    // First operand parses, but the operand after `AND` is column-to-column
+    // (unparseable). The `parse_and` loop must propagate Unparseable.
+    assert!(matches!(parse("a > 0 AND x > b"), CheckExpr::Unparseable));
+}
+
 #[rstest]
 #[case::null("col = NULL", Literal::Null)]
 #[case::bool_true("col = TRUE", Literal::Bool(true))]

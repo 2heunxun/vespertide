@@ -387,6 +387,17 @@ mod tests {
         }
     }
 
+    // A top-level AND whose conjunct is an OR (not a single-column
+    // predicate) exercises the `group_predicates_by_column` skip path: the
+    // OR has no single owning column, so `predicate_column` returns None and
+    // the bucketing loop `continue`s past it. The expression is satisfiable,
+    // so no contradiction is reported.
+    #[test]
+    fn and_with_or_conjunct_skips_non_column_predicate() {
+        let t = table(vec![check("chk", "(age > 0 OR age < 5) AND id <> 3")]);
+        assert!(validate_self_contradiction(&t).is_ok());
+    }
+
     // -- Range impossibility ---------------------------------------------
 
     #[test]

@@ -175,6 +175,32 @@ fn validate_schema_accepts_table_level_primary_key_without_inline_pk() {
 }
 
 #[test]
+fn validate_schema_rejects_nullable_primary_key_column() {
+    // A column named in a table-level PRIMARY KEY must be NOT NULL: SQL
+    // defines PRIMARY KEY as UNIQUE + NOT NULL, so a nullable PK column is
+    // rejected up front (schema::validate_table PrimaryKeyColumnNullable arm).
+    let schema = vec![table(
+        "users",
+        vec![col_nullable(
+            "id",
+            ColumnType::Simple(SimpleColumnType::Integer),
+        )],
+        vec![pk(vec!["id"])],
+    )];
+
+    let err = validate_schema(&schema).unwrap_err();
+
+    assert!(
+        matches!(
+            &err,
+            PlannerError::PrimaryKeyColumnNullable { table, column }
+                if table == "users" && column == "id"
+        ),
+        "expected PrimaryKeyColumnNullable, got: {err:?}"
+    );
+}
+
+#[test]
 fn validate_schema_returns_bare_missing_primary_key_for_single_table() {
     let schema = vec![table(
         "users",

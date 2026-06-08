@@ -489,14 +489,6 @@ impl Parser {
         self.tokens.get(self.pos)
     }
 
-    fn bump(&mut self) -> Option<Token> {
-        let t = self.tokens.get(self.pos).cloned();
-        if t.is_some() {
-            self.pos += 1;
-        }
-        t
-    }
-
     fn eat_keyword(&mut self, kw: Keyword) -> bool {
         if matches!(self.peek(), Some(Token::Keyword(k)) if *k == kw) {
             self.pos += 1;
@@ -577,15 +569,20 @@ impl Parser {
                 self.pos += 1;
                 inner
             }
-            Some(Token::Ident(_)) => self.parse_predicate(),
+            Some(Token::Ident(column)) => {
+                // `peek` already confirmed the next token is an identifier;
+                // clone the column name and advance past it so `parse_predicate`
+                // receives a guaranteed-present column without a redundant
+                // (and otherwise-unreachable) re-check.
+                let column = column.clone();
+                self.pos += 1;
+                self.parse_predicate(column)
+            }
             _ => CheckExpr::Unparseable,
         }
     }
 
-    fn parse_predicate(&mut self) -> CheckExpr {
-        let Some(Token::Ident(column)) = self.bump() else {
-            return CheckExpr::Unparseable;
-        };
+    fn parse_predicate(&mut self, column: String) -> CheckExpr {
         // Look at next token to decide the predicate shape.
         let negated_for_in_or_between = self.eat_keyword(Keyword::Not);
         match self.peek().cloned() {

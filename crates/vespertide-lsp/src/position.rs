@@ -297,4 +297,15 @@ mod tests {
 
         assert_eq!(byte_to_lsp_position(&doc, byte), pos);
     }
+
+    #[test]
+    fn has_windows_drive_prefix_detects_and_rejects() {
+        // Tested directly: the only call site sits behind `if cfg!(windows)`,
+        // so on non-Windows CI the function is otherwise never invoked.
+        assert!(has_windows_drive_prefix("C:/Users/x"));
+        assert!(has_windows_drive_prefix("d:/data"));
+        assert!(!has_windows_drive_prefix("/usr/local"));
+        assert!(!has_windows_drive_prefix("ab"));
+        assert!(!has_windows_drive_prefix(""));
+    }
 }

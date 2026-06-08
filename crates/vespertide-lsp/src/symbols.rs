@@ -286,7 +286,6 @@ fn direct_pair_value<'a>(
     let value = unwrap_yaml_node(pair.named_child(1)?);
     let raw = source.get(value.byte_range())?;
     let text = std::str::from_utf8(raw).ok()?;
-    let stripped = strip_quotes(text);
     // Adjust byte range to skip quotes when the value is a quoted string.
     let range = match value.kind() {
         "string" => value.named_child(0).map_or_else(
@@ -296,9 +295,6 @@ fn direct_pair_value<'a>(
         "double_quote_scalar" | "single_quote_scalar" => trim_one_byte(&value.byte_range()),
         _ => value.byte_range(),
     };
-    // Defensive: if stripping changed the byte length unexpectedly, fall
-    // back to the raw range so we never panic on slice indexing.
-    let _ = stripped;
     Some((strip_quotes(text), range))
 }
 
@@ -1004,5 +1000,17 @@ mod tests {
         );
 
         assert!(compute("xyz_nothing_matches", &docs, None).is_empty());
+    }
+
+    #[test]
+    fn path_to_uri_prepends_leading_slash_for_relative_path() {
+        // A relative path never starts with `/` on any platform, so this
+        // exercises the leading-slash normalization branch deterministically.
+        let uri = path_to_uri(std::path::Path::new("models/user.json")).expect("uri");
+        assert!(
+            uri.as_str().starts_with("file:///"),
+            "got: {}",
+            uri.as_str()
+        );
     }
 }

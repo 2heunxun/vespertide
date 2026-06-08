@@ -365,4 +365,22 @@ mod tests {
         assert!(guess_uri(tmp.path(), "user").is_some());
         assert!(guess_uri(tmp.path(), "missing").is_none());
     }
+
+    #[test]
+    fn path_to_uri_prepends_leading_slash_for_relative_path() {
+        // A relative path never starts with `/` on any platform, so this
+        // exercises the leading-slash normalization branch deterministically
+        // (absolute POSIX paths on CI would otherwise skip it).
+        let uri = path_to_uri(std::path::Path::new("models/user.json")).expect("uri");
+        assert!(
+            uri.as_str().starts_with("file:///"),
+            "got: {}",
+            uri.as_str()
+        );
+        assert!(
+            uri.as_str().ends_with("models/user.json"),
+            "got: {}",
+            uri.as_str()
+        );
+    }
 }

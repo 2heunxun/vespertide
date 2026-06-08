@@ -151,29 +151,28 @@ fn build_fk_orphan_cleanup<T: AsRef<str>, U: AsRef<str>>(
     let quoted_ref = quote_ident(ref_table, backend);
 
     // Correlated `NOT EXISTS` join condition: `parent.pk_i = child.fk_i AND ...`
-    let join_cond: Vec<String> = child_columns
-        .iter()
-        .zip(ref_columns.iter())
-        .map(|(c, r)| {
-            let qc = quote_ident(c.as_ref(), backend);
-            let qr = quote_ident(r.as_ref(), backend);
-            format!("{quoted_ref}.{qr} = {quoted_child}.{qc}")
-        })
-        .collect();
-    let join_cond = join_cond.join(" AND ");
+    // Built with an explicit loop (not `.iter().map().collect()`) so each
+    // statement maps to its own coverage region — LLVM attributes a method
+    // chain's head line inconsistently.
+    let mut join_terms: Vec<String> = Vec::with_capacity(child_columns.len());
+    for (c, r) in child_columns.iter().zip(ref_columns.iter()) {
+        let qc = quote_ident(c.as_ref(), backend);
+        let qr = quote_ident(r.as_ref(), backend);
+        join_terms.push(format!("{quoted_ref}.{qr} = {quoted_child}.{qc}"));
+    }
+    let join_cond = join_terms.join(" AND ");
 
     let not_exists = format!("NOT EXISTS (SELECT 1 FROM {quoted_ref} WHERE {join_cond})");
 
     let sql = if strategy == ForeignKeyOrphanStrategy::NullifyOrphans {
-        // SET <col_i> = NULL, ...
-        let set_clause: Vec<String> = child_columns
-            .iter()
-            .map(|c| {
-                let qc = quote_ident(c.as_ref(), backend);
-                format!("{qc} = NULL")
-            })
-            .collect();
-        let set_clause = set_clause.join(", ");
+        // SET <col_i> = NULL, ... (explicit loop for deterministic coverage
+        // attribution; see `join_terms` above).
+        let mut set_terms: Vec<String> = Vec::with_capacity(child_columns.len());
+        for c in child_columns {
+            let qc = quote_ident(c.as_ref(), backend);
+            set_terms.push(format!("{qc} = NULL"));
+        }
+        let set_clause = set_terms.join(", ");
 
         // NULL row guard: skip rows whose FK columns are all NULL.
         // Composite FK uses `<col_i> IS NOT NULL OR ...`; single-column FK collapses to one term.

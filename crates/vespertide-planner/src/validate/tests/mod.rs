@@ -1,11 +1,6 @@
 pub(super) use super::*;
 pub(super) use crate::error::PlannerError;
-#[expect(
-    unused_imports,
-    reason = "kept available for future nullable-column fixtures"
-)]
-pub(super) use crate::test_support::col_nullable;
-pub(super) use crate::test_support::{col, idx, pk, table};
+pub(super) use crate::test_support::{col, col_nullable, idx, pk, table};
 pub(super) use crate::validate::schema::validate_table;
 pub(super) use rstest::rstest;
 pub(super) use vespertide_core::schema::primary_key::{PrimaryKeyDef, PrimaryKeySyntax};

@@ -76,10 +76,11 @@ fn escape_record_field(value: &str) -> String {
 
     for ch in value.chars() {
         match ch {
-            '\\' | '{' | '}' | '|' | '<' | '>' | '"' => {
-                escaped.push('\\');
-                escaped.push(ch);
-            }
+            // Single-statement push of the escape byte + the char so the
+            // taken-arm body maps to one coverage region (two sequential
+            // `push` calls split into adjacent regions that LLVM coverage
+            // attributes inconsistently).
+            '\\' | '{' | '}' | '|' | '<' | '>' | '"' => escaped.extend(['\\', ch]),
             _ => escaped.push(ch),
         }
     }

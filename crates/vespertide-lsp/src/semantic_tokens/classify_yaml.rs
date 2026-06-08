@@ -298,16 +298,17 @@ fn inner_scalar_range(node: tree_sitter::Node<'_>) -> std::ops::Range<usize> {
 }
 
 fn unwrap_yaml(node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
+    // Fused while-let so the empty-wrapper case (no usable `named_child(0)`)
+    // and the kind-mismatch case share the same loop exit — no defensive
+    // `return` line that only an (unobservable) empty tree-sitter wrapper
+    // could reach.
     let mut current = node;
-    while matches!(current.kind(), "flow_node" | "block_node") {
-        if let Some(inner) = current
+    while matches!(current.kind(), "flow_node" | "block_node")
+        && let Some(inner) = current
             .named_child(0)
             .filter(|inner| inner.id() != current.id())
-        {
-            current = inner;
-        } else {
-            return current;
-        }
+    {
+        current = inner;
     }
     current
 }
