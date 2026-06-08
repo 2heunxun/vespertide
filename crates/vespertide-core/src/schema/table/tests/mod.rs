@@ -46,6 +46,24 @@ fn validate_unique_column_names_rejects_duplicate_names() {
     );
 }
 
+// Distinct column names must PASS. Pins the `!seen.insert(...)` negation: a
+// `delete !` mutant would treat the first (successful) insert as a duplicate
+// and reject every well-formed table.
+#[test]
+fn validate_unique_column_names_accepts_distinct_names() {
+    let table = TableDef {
+        name: "users".into(),
+        description: None,
+        columns: vec![
+            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col("email", ColumnType::Simple(SimpleColumnType::Text)),
+        ],
+        constraints: vec![],
+    };
+
+    assert!(table.validate_unique_column_names().is_ok());
+}
+
 #[test]
 fn normalize_inline_primary_key() {
     let mut id_col = col("id", ColumnType::Simple(SimpleColumnType::Integer));

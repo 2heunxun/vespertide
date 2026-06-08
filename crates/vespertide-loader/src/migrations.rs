@@ -234,6 +234,42 @@ mod tests {
         );
     }
 
+    // A non-migration-extension file (e.g. `.txt`) must be ignored by the
+    // collector. Pins `path.is_file() && has_migration_extension(&path)`: a
+    // `&& -> ||` mutant would pick the `.txt` up, then fail to parse it as a
+    // migration plan and surface an error instead of an empty load.
+    #[test]
+    #[serial]
+    fn load_migrations_ignores_non_migration_extension_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let _guard = CwdGuard::new(&temp_dir.path().to_path_buf());
+        write_config(temp_dir.path());
+        fs::create_dir_all("migrations").unwrap();
+        fs::write("migrations/notes.txt", "not a migration: {{{ invalid").unwrap();
+
+        let plans = load_migrations(&VespertideConfig::default()).unwrap();
+        assert_eq!(plans.len(), 0, "the .txt file must be skipped");
+    }
+
+    #[test]
+    fn load_migrations_from_dir_ignores_non_migration_extension_files() {
+        let temp_dir = TempDir::new().unwrap();
+        let migrations_dir = temp_dir.path().join("migrations");
+        fs::create_dir_all(&migrations_dir).unwrap();
+        fs::write(
+            migrations_dir.join("notes.txt"),
+            "not a migration: {{{ invalid",
+        )
+        .unwrap();
+
+        let result = load_migrations_from_dir(Some(temp_dir.path().to_path_buf()));
+        assert!(
+            result.is_ok(),
+            "the .txt file must be skipped, not parsed: {result:?}"
+        );
+        assert_eq!(result.unwrap().len(), 0);
+    }
+
     #[test]
     fn test_load_migrations_from_dir_with_no_migrations_dir() {
         let temp_dir = TempDir::new().unwrap();

@@ -135,6 +135,13 @@ exclude_re = [
     # to a value byte-identical to the untouched original ? no observable
     # difference, equivalent.
     "constraint_ops[.]rs:148(:[0-9]+)?: replace < with <= in clear_index_fields",
+    # E14: the loader's `paths.len() < LOAD_FILES_PAR_THRESHOLD` seq-vs-parallel
+    # dispatch. Mutating `<` only changes whether files are loaded sequentially
+    # or via Rayon; the loaded result is identical. Perf-only, same as E1/E9.
+    "loader/src/migrations[.]rs:21(:[0-9]+)?: replace < with (==|>|<=) in load_migrations",
+    "loader/src/migrations[.]rs:65(:[0-9]+)?: replace < with (==|>|<=) in load_migrations_from_dir",
+    "loader/src/models[.]rs:43(:[0-9]+)?: replace < with (==|>|<=) in load_models_recursive",
+    "loader/src/models[.]rs:145(:[0-9]+)?: replace < with (==|>|<=) in load_models_recursive_internal",
 ]
 
 # Focus on logic-heavy crates. Exclude:
@@ -148,6 +155,9 @@ exclude_globs = [
     "crates/vespertide-macro/**",
     "crates/vespertide-exporter/**",
     "crates/vespertide-core/src/arbitrary/**",
+    # proptest idempotency oracle, gated behind feature = "arbitrary" (the same
+    # test infrastructure as arbitrary/**); not production logic.
+    "crates/vespertide-core/src/schema/table/normalize_proptest.rs",
 ]
 
 # 3× baseline test time per mutant (handles proptest variance)

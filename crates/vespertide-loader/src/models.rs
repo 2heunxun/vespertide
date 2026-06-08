@@ -367,6 +367,39 @@ mod tests {
         assert!(err_msg.contains("Failed to normalize table 'orders'"));
     }
 
+    // A non-model-extension file (e.g. `.txt`) must be ignored by the
+    // collector. Pins `path.is_file() && has_model_extension(&path)`: a
+    // `&& -> ||` mutant would pick up the `.txt`, then fail to parse it as a
+    // model and surface an error instead of an empty load.
+    #[test]
+    #[serial]
+    fn load_models_ignores_non_model_extension_files() {
+        let tmp = tempdir().unwrap();
+        let _guard = CwdGuard::new(&tmp.path().to_path_buf());
+        write_config();
+        fs::create_dir_all("models").unwrap();
+        fs::write("models/README.txt", "not a model: {{{ invalid").unwrap();
+
+        let models = load_models(&VespertideConfig::default()).unwrap();
+        assert_eq!(models.len(), 0, "the .txt file must be skipped");
+    }
+
+    #[test]
+    #[serial]
+    fn load_models_from_dir_ignores_non_model_extension_files() {
+        let temp_dir = tempdir().unwrap();
+        let models_dir = temp_dir.path().join("models");
+        fs::create_dir_all(&models_dir).unwrap();
+        fs::write(models_dir.join("notes.txt"), "not a model: {{{ invalid").unwrap();
+
+        let result = load_models_from_dir(Some(temp_dir.path().to_path_buf()));
+        assert!(
+            result.is_ok(),
+            "the .txt file must be skipped, not parsed: {result:?}"
+        );
+        assert_eq!(result.unwrap().len(), 0);
+    }
+
     #[test]
     #[serial]
     fn test_load_models_from_dir_with_root() {
