@@ -461,6 +461,41 @@ fn normalize_dedups_inline_named_index_against_existing_named_index() {
     );
 }
 
+// An UNNAMED inline index (`index: true` -> auto name -> constraint_name None)
+// is deduped against an existing UNNAMED table-level index on the SAME columns.
+// Pins the `(None, None) => cols.as_slice() == columns` arm: a `!=` mutant
+// fails to detect the duplicate and emits a second identical index.
+#[test]
+fn normalize_dedups_inline_unnamed_index_against_existing_unnamed_index() {
+    let mut x_col = col("x", ColumnType::Simple(SimpleColumnType::Integer));
+    x_col.index = Some(StrOrBoolOrArray::Bool(true));
+
+    let table = TableDef {
+        name: "t".into(),
+        description: None,
+        columns: vec![x_col],
+        constraints: vec![TableConstraint::Index {
+            name: None,
+            columns: vec!["x".into()],
+        }],
+    };
+
+    let normalized = table.normalize().unwrap();
+    let unnamed_x_index_count = normalized
+        .constraints
+        .iter()
+        .filter(|c| {
+            matches!(c, TableConstraint::Index { name: None, columns }
+                if columns.len() == 1 && columns[0] == "x")
+        })
+        .count();
+    assert_eq!(
+        unnamed_x_index_count, 1,
+        "duplicate unnamed index on [x] must be deduped: {:?}",
+        normalized.constraints
+    );
+}
+
 #[test]
 fn normalize_all_inline_constraints() {
     let mut id_col = col("id", ColumnType::Simple(SimpleColumnType::Integer));
