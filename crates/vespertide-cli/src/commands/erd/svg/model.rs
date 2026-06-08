@@ -256,26 +256,24 @@ mod tests {
         assert_eq!(measure_table_width(&"x".repeat(30), &[]), 268.0);
     }
 
-    // pk_row records the FIRST primary-key row. With a non-PK column at index 0
-    // and the PK at index 1, pk_row must be Some(1). Pins
-    // `row.is_pk && pk_row.is_none()`: a `||` mutant would latch onto index 0
-    // (the non-PK first row) because pk_row is still None there.
+    // A table with NO primary key must have pk_row == None. Pins
+    // `row.is_pk && pk_row.is_none()`: a `||` mutant fires on the FIRST row
+    // (because pk_row is still None) and sets pk_row = Some(0) even though no
+    // column is a PK. (With a real PK present, the loop's later overwrite hides
+    // the mutation, so a PK-less table is the distinguishing case.)
     #[test]
-    fn build_boxes_pk_row_is_first_primary_key_not_first_column() {
+    fn build_boxes_pk_row_is_none_when_no_primary_key() {
         let table = TableDef {
             name: "t".into(),
             description: None,
             columns: vec![
-                ColumnDef::new("name", ColumnType::Simple(SimpleColumnType::Text), true),
-                ColumnDef::new("id", ColumnType::Simple(SimpleColumnType::Integer), false)
-                    .primary_key(PrimaryKeySyntax::Bool(true)),
+                ColumnDef::new("a", ColumnType::Simple(SimpleColumnType::Text), true),
+                ColumnDef::new("b", ColumnType::Simple(SimpleColumnType::Text), true),
             ],
             constraints: vec![],
-        }
-        .normalize()
-        .unwrap();
+        };
         let boxes = build_boxes(&[table]);
-        assert_eq!(boxes[0].pk_row, Some(1));
+        assert_eq!(boxes[0].pk_row, None);
     }
 
     #[test]

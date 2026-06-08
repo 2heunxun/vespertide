@@ -127,16 +127,22 @@ fn two_col_auto_inc_pk_add(table: &str, a: &str, b: &str) -> MigrationAction {
 
 #[rstest]
 fn composite_auto_increment_pk_add_constraint_is_not_flagged() {
+    // Baseline PK is a SAFE bigint (so `baseline_existing_risky_pk` stays
+    // empty and cannot suppress); the risky smallint columns a/b are NOT a
+    // single PK. The 2-column auto-inc AddConstraint must not be flagged.
+    // A `columns.len() == 1 -> true` mutant would treat column `a` as a
+    // lone risky sequence and emit a warning.
     let baseline = vec![table_with_pk(
         "users",
         vec![
-            int_col("id", SimpleColumnType::SmallInt),
-            int_col("tenant", SimpleColumnType::SmallInt),
+            int_col("id", SimpleColumnType::BigInt),
+            int_col("a", SimpleColumnType::SmallInt),
+            int_col("b", SimpleColumnType::SmallInt),
         ],
         "id",
         false,
     )];
-    let p = plan(vec![two_col_auto_inc_pk_add("users", "id", "tenant")]);
+    let p = plan(vec![two_col_auto_inc_pk_add("users", "a", "b")]);
     assert!(
         find_sequence_exhaustion_risks(&p, &baseline).is_empty(),
         "composite auto-inc PK must not be a single-sequence risk"

@@ -120,8 +120,8 @@ exclude_re = [
     # match's `_ => false` catch-all. Deleting either arm makes that input
     # fall straight through to `_ => false` ? identical observable result,
     # equivalent.
-    "check_type_mismatch[.]rs:366(:[0-9]+)?: delete match arm .Json, _. in is_definitely_mismatch",
-    "check_type_mismatch[.]rs:395(:[0-9]+)?: delete match arm .ComplexColumnType::Custom.* in is_definitely_mismatch",
+    "check_type_mismatch[.]rs:366(:[0-9]+)?: delete match arm .* in is_definitely_mismatch",
+    "check_type_mismatch[.]rs:395(:[0-9]+)?: delete match arm .* in is_definitely_mismatch",
     # E12: in find_primary_key_additions, `n_existing == 0 => NewColumns`.
     # The function acts ONLY on `ExistingColumns`; both NewColumns and the
     # `_ => Mixed` fallback hit `if !matches!(kind, ExistingColumns) continue;`.
