@@ -7,5 +7,7 @@
   ],
   "baseBranch": "main",
   "latestPackage": "crates/vespertide/Cargo.toml",
-  "publish": {}
+  "publish": {
+    "apps/vscode-extension/package.json": "echo skip npm publish for vscode-extension - shipped via vsce in the vscode-release job"
+  }
 }
