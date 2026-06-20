@@ -78,6 +78,51 @@ impl SeaOrmConfig {
     }
 }
 
+/// Prisma-specific export configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct PrismaConfig {
+    /// Database provider: postgresql, mysql, sqlite, sqlserver, mongodb, cockroachdb.
+    #[serde(default = "default_prisma_provider")]
+    pub provider: String,
+    /// Optional output path for the generated Prisma client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_output: Option<String>,
+    /// Optional relationMode override ("foreignKeys" or "prisma").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relation_mode: Option<String>,
+}
+
+fn default_prisma_provider() -> String {
+    "postgresql".to_string()
+}
+
+impl Default for PrismaConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_prisma_provider(),
+            client_output: None,
+            relation_mode: None,
+        }
+    }
+}
+
+impl PrismaConfig {
+    pub fn provider(&self) -> &str {
+        &self.provider
+    }
+
+    pub fn client_output(&self) -> Option<&str> {
+        self.client_output.as_deref()
+    }
+
+    pub fn relation_mode(&self) -> Option<&str> {
+        self.relation_mode.as_deref()
+    }
+}
+
 /// Top-level vespertide configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -100,6 +145,9 @@ pub struct VespertideConfig {
     /// SeaORM-specific export configuration.
     #[serde(default)]
     pub seaorm: SeaOrmConfig,
+    /// Prisma-specific export configuration.
+    #[serde(default)]
+    pub prisma: PrismaConfig,
     /// Prefix to add to all table names (including migration version table).
     /// Default: "" (no prefix)
     #[serde(default)]
@@ -138,6 +186,7 @@ impl Default for VespertideConfig {
             migration_filename_pattern: default_migration_filename_pattern(),
             model_export_dir: default_model_export_dir(),
             seaorm: SeaOrmConfig::default(),
+            prisma: PrismaConfig::default(),
             prefix: String::new(),
             lock_timeout_ms: None,
             statement_timeout_ms: None,
@@ -189,6 +238,11 @@ impl VespertideConfig {
     /// SeaORM-specific export configuration.
     pub fn seaorm(&self) -> &SeaOrmConfig {
         &self.seaorm
+    }
+
+    /// Prisma-specific export configuration.
+    pub fn prisma(&self) -> &PrismaConfig {
+        &self.prisma
     }
 
     /// Prefix to add to all table names.

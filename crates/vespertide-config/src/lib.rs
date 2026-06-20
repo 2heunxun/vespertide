@@ -7,7 +7,7 @@ pub mod config;
 pub mod file_format;
 pub mod name_case;
 
-pub use config::{SeaOrmConfig, VespertideConfig, default_migration_filename_pattern};
+pub use config::{PrismaConfig, SeaOrmConfig, VespertideConfig, default_migration_filename_pattern};
 pub use file_format::FileFormat;
 pub use name_case::NameCase;
 

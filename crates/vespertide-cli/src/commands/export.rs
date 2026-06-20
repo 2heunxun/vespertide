@@ -8,7 +8,10 @@ use rayon::prelude::*;
 use tokio::fs;
 use vespertide_config::VespertideConfig;
 use vespertide_core::TableDef;
-use vespertide_exporter::{Orm, render_entity_with_schema, seaorm::SeaOrmExporterWithConfig};
+use vespertide_exporter::{
+    Orm, render_entity_with_schema, prisma::PrismaExporterWithConfig,
+    seaorm::SeaOrmExporterWithConfig,
+};
 
 use crate::parallel_config::{EXPORT_RENDER_PAR_MIN_LEN, EXPORT_RENDER_PAR_THRESHOLD};
 use crate::utils::load_config;
@@ -19,6 +22,7 @@ pub enum OrmArg {
     Sqlalchemy,
     Sqlmodel,
     Jpa,
+    Prisma,
 }
 
 impl From<OrmArg> for Orm {
@@ -28,6 +32,7 @@ impl From<OrmArg> for Orm {
             OrmArg::Sqlalchemy => Orm::SqlAlchemy,
             OrmArg::Sqlmodel => Orm::SqlModel,
             OrmArg::Jpa => Orm::Jpa,
+            OrmArg::Prisma => Orm::Prisma,
         }
     }
 }
@@ -50,6 +55,11 @@ pub async fn cmd_export(orm: OrmArg, export_dir: Option<PathBuf>) -> Result<()> 
         .collect::<Result<Vec<_>, _>>()?;
 
     let target_root = resolve_export_dir(export_dir, &config);
+
+    // Prisma uses a single-file output strategy
+    if matches!(orm, OrmArg::Prisma) {
+        return cmd_export_prisma(config, normalized_models, target_root).await;
+    }
 
     // Clean the export directory before regenerating
     let orm_kind: Orm = orm.into();
@@ -238,6 +248,7 @@ async fn clean_export_dir(root: &Path, orm: Orm) -> Result<()> {
         Orm::SeaOrm => "rs",
         Orm::SqlAlchemy | Orm::SqlModel => "py",
         Orm::Jpa => "java",
+        Orm::Prisma => "prisma",
     };
 
     clean_dir_recursive(root, ext).await?;
@@ -330,6 +341,7 @@ fn build_output_path(root: &Path, rel_path: &Path, orm: Orm) -> PathBuf {
             Orm::SeaOrm => "rs",
             Orm::SqlAlchemy | Orm::SqlModel => "py",
             Orm::Jpa => "java",
+            Orm::Prisma => "prisma",
         };
         // Java requires filename to match PascalCase class name
         let file_stem = if matches!(orm, Orm::Jpa) {
@@ -422,6 +434,36 @@ async fn ensure_mod_chain(root: &Path, rel_path: &Path) -> Result<()> {
             fs::write(mod_path, content).await?;
         }
     }
+
+    Ok(())
+}
+
+async fn cmd_export_prisma(
+    config: VespertideConfig,
+    normalized_models: Vec<(TableDef, PathBuf)>,
+    target_root: PathBuf,
+) -> Result<()> {
+    let all_tables: Vec<TableDef> = normalized_models.iter().map(|(t, _)| t.clone()).collect();
+    let content = PrismaExporterWithConfig::new(config.prisma()).render_schema(&all_tables);
+
+    clean_export_dir(&target_root, Orm::Prisma).await?;
+
+    if !target_root.exists() {
+        fs::create_dir_all(&target_root)
+            .await
+            .with_context(|| format!("create export dir {}", target_root.display()))?;
+    }
+
+    let out_path = target_root.join("schema.prisma");
+    fs::write(&out_path, &content)
+        .await
+        .with_context(|| format!("write {}", out_path.display()))?;
+
+    println!(
+        "Exported {} model(s) -> {}",
+        normalized_models.len(),
+        out_path.display()
+    );
 
     Ok(())
 }

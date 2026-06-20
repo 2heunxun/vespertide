@@ -1,8 +1,8 @@
 use vespertide_core::TableDef;
 
 use crate::{
-    jpa::JpaExporter, seaorm::SeaOrmExporter, sqlalchemy::SqlAlchemyExporter,
-    sqlmodel::SqlModelExporter,
+    jpa::JpaExporter, prisma::PrismaExporter, seaorm::SeaOrmExporter,
+    sqlalchemy::SqlAlchemyExporter, sqlmodel::SqlModelExporter,
 };
 
 /// Supported ORM targets.
@@ -12,6 +12,7 @@ pub enum Orm {
     SqlAlchemy,
     SqlModel,
     Jpa,
+    Prisma,
 }
 
 /// Standardized exporter interface for all supported ORMs.
@@ -36,6 +37,7 @@ pub fn render_entity(orm: Orm, table: &TableDef) -> Result<String, String> {
         Orm::SqlAlchemy => SqlAlchemyExporter.render_entity(table),
         Orm::SqlModel => SqlModelExporter.render_entity(table),
         Orm::Jpa => JpaExporter.render_entity(table),
+        Orm::Prisma => PrismaExporter.render_entity(table),
     }
 }
 
@@ -50,6 +52,7 @@ pub fn render_entity_with_schema(
         Orm::SqlAlchemy => SqlAlchemyExporter.render_entity_with_schema(table, schema),
         Orm::SqlModel => SqlModelExporter.render_entity_with_schema(table, schema),
         Orm::Jpa => JpaExporter.render_entity_with_schema(table, schema),
+        Orm::Prisma => PrismaExporter.render_entity_with_schema(table, schema),
     }
 }
 
@@ -64,6 +67,7 @@ mod tests {
     #[case::sqlalchemy(Orm::SqlAlchemy)]
     #[case::sqlmodel(Orm::SqlModel)]
     #[case::jpa(Orm::Jpa)]
+    #[case::prisma(Orm::Prisma)]
     fn dispatch_render_entity_succeeds(#[case] orm: Orm) {
         let table = basic_single_pk();
         assert!(render_entity(orm, &table).is_ok());
@@ -74,6 +78,7 @@ mod tests {
     #[case::sqlalchemy(Orm::SqlAlchemy)]
     #[case::sqlmodel(Orm::SqlModel)]
     #[case::jpa(Orm::Jpa)]
+    #[case::prisma(Orm::Prisma)]
     fn dispatch_render_entity_with_schema_succeeds(#[case] orm: Orm) {
         let table = basic_single_pk();
         let schema = vec![table.clone()];
