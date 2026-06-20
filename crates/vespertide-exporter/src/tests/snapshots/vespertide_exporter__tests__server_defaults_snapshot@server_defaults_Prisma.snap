@@ -1,0 +1,12 @@
+---
+source: crates/vespertide-exporter/src/tests/mod.rs
+expression: rendered
+---
+model WithDefaults {
+  id Int @id
+  created_at DateTime @default(now()) @db.Timestamptz
+  status String @default("active") @db.Text
+  count Int @default(0)
+
+  @@map("with_defaults")
+}

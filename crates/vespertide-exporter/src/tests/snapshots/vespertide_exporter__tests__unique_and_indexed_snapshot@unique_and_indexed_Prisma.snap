@@ -1,0 +1,14 @@
+---
+source: crates/vespertide-exporter/src/tests/mod.rs
+expression: rendered
+---
+model Users {
+  id Int
+  email String @unique @db.Text
+  username String @unique(map: "uq_username") @db.Text
+  department String? @db.Text
+  status String @default("active") @db.Text
+
+  @@index([department], name: "idx_department")
+  @@map("users")
+}

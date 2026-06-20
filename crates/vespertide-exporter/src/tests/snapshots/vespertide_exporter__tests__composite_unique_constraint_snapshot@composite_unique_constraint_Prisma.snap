@@ -1,0 +1,12 @@
+---
+source: crates/vespertide-exporter/src/tests/mod.rs
+expression: rendered
+---
+model AccountAliases {
+  id Int @id
+  tenant_id Int
+  slug String @db.Text
+
+  @@unique([tenant_id, slug], name: "uq_account_aliases__tenant_slug")
+  @@map("account_aliases")
+}

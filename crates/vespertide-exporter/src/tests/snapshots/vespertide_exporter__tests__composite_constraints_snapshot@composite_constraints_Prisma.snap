@@ -1,0 +1,16 @@
+---
+source: crates/vespertide-exporter/src/tests/mod.rs
+expression: rendered
+---
+model OrderItems {
+  order_id Int
+  order Orders @relation(fields: [order_id], references: [id])
+  product_id Int
+  product Products @relation(fields: [product_id], references: [id])
+  quantity Int
+
+  @@id([order_id, product_id])
+  @@unique([order_id, product_id], name: "uq_order_items__order_product")
+  @@index([order_id], name: "ix_order_items__order_id")
+  @@map("order_items")
+}

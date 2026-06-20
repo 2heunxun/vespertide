@@ -1,0 +1,10 @@
+---
+source: crates/vespertide-exporter/src/tests/mod.rs
+expression: rendered
+---
+model StringDefaults {
+  id Int @id
+  status String @default("active") @db.Text
+
+  @@map("string_defaults")
+}

@@ -1,0 +1,10 @@
+---
+source: crates/vespertide-exporter/src/tests/mod.rs
+expression: rendered
+---
+model UnknownDefaults {
+  id Int @id
+  code String @default(dbgenerated("gen_code()")) @db.Text
+
+  @@map("unknown_defaults")
+}

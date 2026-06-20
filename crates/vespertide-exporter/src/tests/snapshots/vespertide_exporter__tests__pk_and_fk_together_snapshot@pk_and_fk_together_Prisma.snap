@@ -1,0 +1,19 @@
+---
+source: crates/vespertide-exporter/src/tests/mod.rs
+expression: rendered
+---
+model ArticleUser {
+  article_id String @db.Uuid
+  article Article @relation(fields: [article_id], references: [id], onDelete: Cascade)
+  user_id String @db.Uuid
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  author_order Int @default(1)
+  role String @default("contributor") @db.VarChar(20)
+  is_lead Boolean @default(false)
+  created_at DateTime @default(now()) @db.Timestamptz
+
+  @@id([article_id, user_id])
+  @@index([article_id])
+  @@index([user_id])
+  @@map("article_user")
+}

@@ -1,0 +1,11 @@
+---
+source: crates/vespertide-exporter/src/tests/mod.rs
+expression: rendered
+---
+model Orders {
+  id String @id @db.Uuid
+  customer_id String @db.Uuid
+  total Float @db.Real
+
+  @@map("orders")
+}

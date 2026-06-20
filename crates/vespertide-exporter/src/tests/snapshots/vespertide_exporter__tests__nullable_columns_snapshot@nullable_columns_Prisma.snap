@@ -1,0 +1,11 @@
+---
+source: crates/vespertide-exporter/src/tests/mod.rs
+expression: rendered
+---
+model Profiles {
+  id Int @id @default(autoincrement())
+  bio String? @db.Text
+  avatar_url String? @db.VarChar(500)
+
+  @@map("profiles")
+}

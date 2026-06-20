@@ -1,0 +1,10 @@
+---
+source: crates/vespertide-exporter/src/tests/mod.rs
+expression: rendered
+---
+model Users {
+  id Int @id
+  display_name String? @db.Text
+
+  @@map("users")
+}

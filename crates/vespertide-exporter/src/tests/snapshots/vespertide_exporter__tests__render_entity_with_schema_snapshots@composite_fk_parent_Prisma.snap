@@ -1,0 +1,11 @@
+---
+source: crates/vespertide-exporter/src/tests/mod.rs
+expression: rendered
+---
+model Parent {
+  id1 Int
+  id2 Int
+
+  @@id([id1, id2])
+  @@map("parent")
+}

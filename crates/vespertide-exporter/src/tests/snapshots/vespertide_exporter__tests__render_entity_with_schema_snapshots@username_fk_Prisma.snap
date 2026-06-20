@@ -1,0 +1,11 @@
+---
+source: crates/vespertide-exporter/src/tests/mod.rs
+expression: rendered
+---
+model Session {
+  id String @id @db.Uuid
+  username String @db.Text
+  username User @relation(fields: [username], references: [username])
+
+  @@map("session")
+}

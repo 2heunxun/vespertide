@@ -1,0 +1,11 @@
+---
+source: crates/vespertide-exporter/src/tests/mod.rs
+expression: rendered
+---
+model Order {
+  id Int @id
+  user String @db.Text
+  select Int
+
+  @@map("order")
+}
