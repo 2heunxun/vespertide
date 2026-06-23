@@ -12,11 +12,11 @@
 //! ```
 //! where `SymbolKey: Hash + Eq + Copy`.
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 
+use rustc_hash::FxHasher;
 use tower_lsp_server::ls_types::Uri;
 
 use crate::store::DocumentStore;
@@ -110,7 +110,11 @@ where
 }
 
 pub(crate) fn hash_text(text: &str) -> u64 {
-    let mut h = DefaultHasher::new();
+    // FxHasher (not SipHash): cache keys are in-memory only and tolerate the
+    // 64-bit-hash + length collision model by design (see module docs); FxHash
+    // is markedly faster at digesting whole-document byte streams on the
+    // per-keystroke cache path.
+    let mut h = FxHasher::default();
     h.write(text.as_bytes());
     h.finish()
 }
@@ -188,7 +192,9 @@ fn cached_docstore_fingerprint(docs: &DocumentStore, docs_addr: usize) -> Option
 }
 
 fn compute_docstore_fingerprint(docs: &DocumentStore) -> (u64, Vec<DocstoreFingerprintEntry>) {
-    let mut h = DefaultHasher::new();
+    // FxHasher to match `hash_text`'s digest model and speed up the workspace
+    // fingerprint over every open document's text on the hot cache path.
+    let mut h = FxHasher::default();
     let mut entries = Vec::with_capacity(docs.len());
     docs.for_each(|uri, state| {
         let text = state.text();

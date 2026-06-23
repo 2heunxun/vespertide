@@ -696,11 +696,16 @@ pub fn quote_ident(name: &str, backend: DatabaseBackend) -> String {
 /// Quote a list of identifiers and join them with comma.
 #[must_use]
 pub fn quote_idents<T: AsRef<str>>(names: &[T], backend: DatabaseBackend) -> String {
-    names
-        .iter()
-        .map(|n| quote_ident(n.as_ref(), backend))
-        .collect::<Vec<_>>()
-        .join(", ")
+    // Write straight into one buffer instead of collecting an intermediate
+    // `Vec<String>` and joining — same output, one fewer allocation per call.
+    let mut out = String::new();
+    for (i, n) in names.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&quote_ident(n.as_ref(), backend));
+    }
+    out
 }
 
 #[cfg(test)]

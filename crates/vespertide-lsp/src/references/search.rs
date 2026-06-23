@@ -39,32 +39,33 @@ pub(super) fn find_all(
         );
     }
 
+    // Snapshot the open URIs once and reuse it for both the open-document
+    // scan and the disk-file dedup set below (was queried twice).
+    let open_uris = docs.open_uris();
+
     // Every OTHER open document.
-    let other_uris: Vec<Uri> = docs
-        .open_uris()
-        .into_iter()
-        .filter(|uri| uri != current_uri)
-        .collect();
-    for uri in other_uris {
-        docs.with_doc(&uri, |text, tree| {
+    for uri in open_uris.iter().filter(|uri| *uri != current_uri) {
+        docs.with_doc(uri, |text, tree| {
             if let Some(tree) = tree {
-                collect_in_document(symbol, &uri, text, tree, include_declaration, &mut out);
+                collect_in_document(symbol, uri, text, tree, include_declaration, &mut out);
             }
         });
     }
 
     // Disk-only models that the editor has not opened.
     if let Some(disk) = disk_tables {
-        let open_paths: std::collections::BTreeSet<PathBuf> = docs
-            .open_uris()
-            .into_iter()
-            .filter_map(|uri| crate::position::uri_to_path(&uri))
+        let open_paths: std::collections::BTreeSet<PathBuf> = open_uris
+            .iter()
+            .filter_map(crate::position::uri_to_path)
             .collect();
+        // One parser pool for the whole disk sweep instead of constructing a
+        // fresh tree-sitter parser per file inside `scan_disk_file`.
+        let pool = crate::parser::ParserPool::new();
         for name in disk.names() {
             if let Some(path) = disk.model_path(&name) {
                 // Already scanned via the open document above.
                 if !open_paths.contains(&path) {
-                    scan_disk_file(symbol, &path, include_declaration, &mut out);
+                    scan_disk_file(symbol, &path, &pool, include_declaration, &mut out);
                 }
             }
         }
@@ -89,6 +90,7 @@ pub(super) fn find_all(
 fn scan_disk_file(
     symbol: &ReferenceSymbol,
     path: &std::path::Path,
+    pool: &crate::parser::ParserPool,
     include_declaration: bool,
     out: &mut Vec<DomainReference>,
 ) {
@@ -98,12 +100,11 @@ fn scan_disk_file(
             Some("yaml" | "yml") => Some(crate::parser::DocumentFormat::Yaml),
             _ => None,
         };
-        if let Some(format) = format {
-            let pool = crate::parser::ParserPool::new();
-            if let Some(tree) = pool.parse(&text, format) {
-                let uri = path_to_uri(path);
-                collect_in_document(symbol, &uri, &text, &tree, include_declaration, out);
-            }
+        if let Some(format) = format
+            && let Some(tree) = pool.parse(&text, format)
+        {
+            let uri = path_to_uri(path);
+            collect_in_document(symbol, &uri, &text, &tree, include_declaration, out);
         }
     }
 }
@@ -546,11 +547,13 @@ mod tests {
         std::fs::write(&txt, "name: user\ncolumns: []\n").unwrap();
 
         let mut out = Vec::new();
+        let pool = crate::parser::ParserPool::new();
         scan_disk_file(
             &ReferenceSymbol::Table {
                 name: "user".to_string(),
             },
             &yaml,
+            &pool,
             true,
             &mut out,
         );
@@ -559,6 +562,7 @@ mod tests {
                 name: "account".to_string(),
             },
             &yml,
+            &pool,
             true,
             &mut out,
         );
@@ -568,6 +572,7 @@ mod tests {
                 name: "user".to_string(),
             },
             &txt,
+            &pool,
             true,
             &mut out,
         );

@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 use tree_sitter::Tree;
@@ -18,6 +19,11 @@ use vespertide_core::TableDef;
 #[derive(Debug, Default)]
 pub struct WorkspaceTables {
     inner: RwLock<Inner>,
+    /// Monotonic counter bumped every time `inner`'s table set is replaced by
+    /// `refresh()`. Consumers (the diagnostics workspace-table cache) read this
+    /// as part of their cache key to detect disk-side changes in O(1) without
+    /// hashing the whole table set. See `generation()`.
+    generation: AtomicU64,
 }
 
 #[derive(Debug, Default)]
@@ -75,6 +81,10 @@ impl WorkspaceTables {
                     path_by_name,
                     tree_cache: BTreeMap::new(),
                 };
+                // Bump AFTER the write completes so a concurrent reader that
+                // observes the new generation is guaranteed (via the lock) to
+                // see the new table set.
+                self.generation.fetch_add(1, Ordering::Relaxed);
 
                 count > 0
             } else {
@@ -84,8 +94,17 @@ impl WorkspaceTables {
             *self.inner.write().expect(
                 "workspace_tables lock poisoned — invariant: no panic while holding lock",
             ) = Inner::default();
+            self.generation.fetch_add(1, Ordering::Relaxed);
             false
         }
+    }
+
+    /// Monotonic generation counter, incremented whenever `refresh()` replaces
+    /// the in-memory table set. Cheap (`Relaxed` atomic load) cache-key input
+    /// for consumers that must invalidate when disk-discovered tables change.
+    #[must_use]
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Relaxed)
     }
 
     pub fn get(&self, name: &str) -> Option<TableDef> {

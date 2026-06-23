@@ -22,6 +22,7 @@ pub(super) use visitors::{
 };
 
 /// Parsed table plus source context for workspace-wide validation.
+#[derive(Debug)]
 pub struct WorkspaceTable {
     /// URI that owns this table definition.
     pub uri: Uri,

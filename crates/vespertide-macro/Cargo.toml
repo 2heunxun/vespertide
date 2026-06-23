@@ -20,13 +20,20 @@ vespertide-config = { workspace = true }
 vespertide-loader = { workspace = true }
 vespertide-query = { workspace = true }
 vespertide-planner = { workspace = true }
-syn = { version = "2.0", features = ["parsing", "proc-macro", "full"] }
+# Only LitStr/Ident/Token/parse are used (no Expr/Item/Stmt), so the heavy
+# "full" syntax-tree feature is intentionally omitted to cut macro-crate build time.
+syn = { version = "2.0", features = ["parsing", "proc-macro"] }
 proc-macro2 = "1.0"
 quote = "1"
 proc-macro-crate = "3.5.0"
 
 [dev-dependencies]
 tempfile = "3"
+# `runtime-macros` (test-only coverage driver) under-declares its syn features
+# and needs the full syntax tree + visitor. Supplying them here keeps the
+# production `syn` dependency lean (parsing+proc-macro only) while satisfying
+# the dev/test build via feature unification.
+syn = { version = "2.0", features = ["full", "visit"] }
 runtime-macros = "1.1"
 trybuild = { version = "1.0.116", features = ["diff"] }
 # `serial_test::serial` for tests that mutate the process-global

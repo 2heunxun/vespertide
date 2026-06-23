@@ -181,6 +181,52 @@ fn collect_workspace_tables_prefers_open_document_over_disk_duplicate() {
 }
 
 #[test]
+fn collect_workspace_tables_caches_until_state_changes() {
+    block_on_with_trace(async {
+        let fixture = workspace_fixture();
+        let (service, _socket) = make_service();
+        let backend = service.inner();
+        backend
+            .initialize(params::<InitializeParams>(json!({
+                "capabilities": {},
+                "workspaceFolders": [{ "uri": fixture.root_uri.as_str(), "name": "fixture" }],
+            })))
+            .await
+            .unwrap();
+        open_doc(backend, &fixture.user_uri, "json", USER_MODEL).await;
+
+        // Identical docstore + disk generation: the per-keystroke fan-out
+        // (publish + publish_related call this once per open doc) must reuse
+        // one cached Arc instead of rebuilding every open model each time.
+        let first = backend.collect_workspace_tables();
+        let second = backend.collect_workspace_tables();
+        assert!(
+            std::sync::Arc::ptr_eq(&first, &second),
+            "unchanged workspace must return the cached Arc (no rebuild)"
+        );
+
+        // Editing the document changes the docstore fingerprint, so the cache
+        // must invalidate and the rebuilt tables must reflect the new content.
+        backend
+            .did_change(params(json!({
+                "textDocument": { "uri": fixture.user_uri.as_str(), "version": 2 },
+                "contentChanges": [{ "text": CHANGED_USER_MODEL }],
+            })))
+            .await;
+        let third = backend.collect_workspace_tables();
+        assert!(
+            !std::sync::Arc::ptr_eq(&first, &third),
+            "a document edit must invalidate the workspace-tables cache"
+        );
+        assert!(
+            third.iter().any(|entry| entry.table.name == "user"
+                && entry.table.columns.iter().any(|col| col.name == "nickname")),
+            "post-change tables must reflect the edited document, not a stale cache"
+        );
+    });
+}
+
+#[test]
 fn workspace_table_helpers_cover_degenerate_open_and_disk_state() {
     let pool = crate::parser::ParserPool::new();
     let source = r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#;
