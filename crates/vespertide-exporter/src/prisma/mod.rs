@@ -98,9 +98,13 @@ fn collect_table_enums(table: &TableDef) -> Vec<(&str, &EnumValues)> {
     result
 }
 
-/// Render enum blocks + model block without schema context (no back-relations).
+/// Render enum blocks + model block without schema context.
+///
+/// Passes the table itself as a one-element schema so that self-referential FK
+/// back-relations are always emitted (Prisma requires both sides of a relation to
+/// be present in the model, including self-referential ones).
 pub fn render_entity(table: &TableDef) -> String {
-    render_entity_with_schema(table, &[])
+    render_entity_with_schema(table, std::slice::from_ref(table))
 }
 
 /// Render enum blocks + model block with full schema context (includes back-relations).

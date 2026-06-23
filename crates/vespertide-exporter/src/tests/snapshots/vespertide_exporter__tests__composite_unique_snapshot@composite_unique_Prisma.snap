@@ -1,5 +1,6 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
+assertion_line: 177
 expression: rendered
 ---
 model CompositeUnique {
@@ -7,6 +8,6 @@ model CompositeUnique {
   tenant_id Int
   name String @db.Text
 
-  @@unique([tenant_id, name], name: "uq_tenant_name")
+  @@unique([tenant_id, name], map: "uq_tenant_name")
   @@map("composite_unique")
 }

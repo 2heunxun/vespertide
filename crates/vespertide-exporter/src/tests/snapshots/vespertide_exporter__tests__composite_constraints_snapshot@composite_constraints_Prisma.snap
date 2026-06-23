@@ -1,5 +1,6 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
+assertion_line: 172
 expression: rendered
 ---
 model OrderItems {
@@ -10,7 +11,7 @@ model OrderItems {
   quantity Int
 
   @@id([order_id, product_id])
-  @@unique([order_id, product_id], name: "uq_order_items__order_product")
-  @@index([order_id], name: "ix_order_items__order_id")
+  @@unique([order_id, product_id], map: "uq_order_items__order_product")
+  @@index([order_id], map: "ix_order_items__order_id")
   @@map("order_items")
 }

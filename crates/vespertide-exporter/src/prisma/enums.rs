@@ -55,5 +55,11 @@ pub(super) fn to_screaming_snake(s: &str) -> String {
             prev_lower = false;
         }
     }
-    result.trim_end_matches('_').to_string()
+    let result = result.trim_end_matches('_').to_string();
+    // Prisma identifiers cannot start with a digit; prefix with '_' to keep it valid.
+    if result.starts_with(|c: char| c.is_ascii_digit()) {
+        format!("_{result}")
+    } else {
+        result
+    }
 }

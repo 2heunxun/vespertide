@@ -1,5 +1,6 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
+assertion_line: 131
 expression: rendered
 ---
 model Articles {
@@ -7,7 +8,7 @@ model Articles {
   title String @db.Text
   created_at DateTime @db.Timestamptz
 
-  @@index([created_at], name: "idx_articles_created_at")
+  @@index([created_at], map: "idx_articles_created_at")
   @@index([title])
   @@map("articles")
 }

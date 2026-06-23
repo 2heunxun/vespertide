@@ -1,5 +1,6 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
+assertion_line: 252
 expression: rendered
 ---
 model AccountAliases {
@@ -7,6 +8,6 @@ model AccountAliases {
   tenant_id Int
   slug String @db.Text
 
-  @@unique([tenant_id, slug], name: "uq_account_aliases__tenant_slug")
+  @@unique([tenant_id, slug], map: "uq_account_aliases__tenant_slug")
   @@map("account_aliases")
 }

@@ -249,7 +249,16 @@ pub(super) fn render_model(table: &TableDef, schema: &[TableDef]) -> String {
 
         // Emit inline relation field for FK columns
         if let Some(fk) = fk_by_col.get(col_name) {
-            let rel_field_name = infer_relation_field_name(col_name);
+            // `rel_name_segment` drives @relation("…") naming — must stay consistent
+            // with the segment computed by collect_back_relations on the other side.
+            let rel_name_segment = infer_relation_field_name(col_name);
+            // When no `_id` was stripped the inferred name equals the FK column name,
+            // which would collide with the scalar field.  Append `_rel` to deduplicate.
+            let rel_field_name = if rel_name_segment == col_name {
+                format!("{col_name}_rel")
+            } else {
+                rel_name_segment.clone()
+            };
             let rel_model = to_pascal_case(fk.ref_table);
             let rel_type = if col.nullable {
                 format!("{rel_model}?")
@@ -263,8 +272,9 @@ pub(super) fn render_model(table: &TableDef, schema: &[TableDef]) -> String {
 
             let mut rel_args: Vec<String> = Vec::new();
             if needs_name {
+                // Use rel_name_segment (pre-dedup) so the name matches back-relations.
                 let table_pascal = to_pascal_case(&table.name);
-                let field_pascal = to_pascal_case(&rel_field_name);
+                let field_pascal = to_pascal_case(&rel_name_segment);
                 rel_args.push(format!("\"{table_pascal}{field_pascal}\""));
             }
             rel_args.push(format!("fields: [{col_name}]"));
@@ -321,7 +331,7 @@ pub(super) fn render_model(table: &TableDef, schema: &[TableDef]) -> String {
         {
             let cols = columns.join(", ");
             if let Some(n) = name {
-                lines.push(format!("  @@unique([{cols}], name: \"{n}\")"));
+                lines.push(format!("  @@unique([{cols}], map: \"{n}\")"));
             } else {
                 lines.push(format!("  @@unique([{cols}])"));
             }
@@ -333,7 +343,7 @@ pub(super) fn render_model(table: &TableDef, schema: &[TableDef]) -> String {
         if let TableConstraint::Index { name, columns } = c {
             let cols = columns.join(", ");
             if let Some(n) = name {
-                lines.push(format!("  @@index([{cols}], name: \"{n}\")"));
+                lines.push(format!("  @@index([{cols}], map: \"{n}\")"));
             } else {
                 lines.push(format!("  @@index([{cols}])"));
             }
@@ -349,6 +359,28 @@ pub(super) fn render_model(table: &TableDef, schema: &[TableDef]) -> String {
 }
 
 fn prisma_default_attr(default_sql: &str, col_type: &ColumnType) -> String {
+    // Integer-backed enum: resolve to a variant identifier (SCREAMING_SNAKE), never a bare int.
+    if let ColumnType::Complex(ComplexColumnType::Enum {
+        values: EnumValues::Integer(int_values),
+        ..
+    }) = col_type
+    {
+        let key = default_sql.trim_matches(|c: char| c == '\'' || c == '"');
+        // 1) numeric value match → variant name
+        if let Ok(n) = key.parse::<i64>()
+            && let Some(v) = int_values.iter().find(|v| v.value == n)
+        {
+            return format!("@default({})", to_screaming_snake(&v.name));
+        }
+        // 2) exact variant-name match → variant name
+        if let Some(v) = int_values.iter().find(|v| v.name == key) {
+            return format!("@default({})", to_screaming_snake(&v.name));
+        }
+        // 3) no match → dbgenerated fallback (valid PSL; avoids bare-int type error)
+        let escaped = key.replace('"', "\\\"");
+        return format!("@default(dbgenerated(\"{escaped}\"))");
+    }
+
     if default_sql == "true" {
         return "@default(true)".into();
     }
