@@ -182,6 +182,34 @@ impl_name_newtype!(TableName);
 impl_name_newtype!(ColumnName);
 impl_name_newtype!(IndexName);
 
+/// Join a slice of [`ColumnName`]s with a separator using a single buffer
+/// — no intermediate `Vec<String>` allocation.
+///
+/// Mirrors the buffer-push pattern used by
+/// `vespertide_query::sql::helpers::quote_idents`. Folds four open-coded
+/// `cols.iter().map(...).collect::<Vec<_>>().join(sep)` callsites in
+/// `vespertide-planner::validate::*` into a single shared helper.
+///
+/// ```rust
+/// use vespertide_core::schema::names::{ColumnName, join_column_names};
+///
+/// let cols: Vec<ColumnName> = vec!["a".into(), "b".into(), "c".into()];
+/// assert_eq!(join_column_names(&cols, ", "), "a, b, c");
+/// assert_eq!(join_column_names(&cols, "_"), "a_b_c");
+/// assert_eq!(join_column_names(&[], ", "), "");
+/// ```
+#[must_use]
+pub fn join_column_names(columns: &[ColumnName], separator: &str) -> String {
+    let mut out = String::new();
+    for (i, c) in columns.iter().enumerate() {
+        if i > 0 {
+            out.push_str(separator);
+        }
+        out.push_str(c.as_str());
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     //! Coverage-closure tests for the `impl_name_newtype!` expansions.
@@ -234,5 +262,39 @@ mod tests {
         let name = IndexName::new("ix_orders__id");
         let s: String = String::from(name);
         assert_eq!(s, "ix_orders__id");
+    }
+
+    #[test]
+    fn join_column_names_empty_returns_empty_string() {
+        // Empty-slice path: `for ... in []` never runs, returns the
+        // pristine `String::new()`. Locks the empty-input contract that
+        // the deleted `validate::constraint_drops::join_columns` helper
+        // used to assert directly.
+        let cols: Vec<ColumnName> = vec![];
+        assert_eq!(join_column_names(&cols, ", "), "");
+        assert_eq!(join_column_names(&cols, "_"), "");
+    }
+
+    #[test]
+    fn join_column_names_comma_separator() {
+        // The validate-diagnostic site shape: `"a, b, c"`. Single-column
+        // case must skip the separator entirely (no leading `", "`).
+        let cols: Vec<ColumnName> = vec!["a".into(), "b".into(), "c".into()];
+        assert_eq!(join_column_names(&cols, ", "), "a, b, c");
+
+        let single: Vec<ColumnName> = vec!["only".into()];
+        assert_eq!(join_column_names(&single, ", "), "only");
+    }
+
+    #[test]
+    fn join_column_names_underscore_separator() {
+        // The `ix_{table}__{cols}` index-name builder shape: `"fk_id"`.
+        // Locks the separator variation against the validate
+        // `build_suggested_index_name` callsite.
+        let cols: Vec<ColumnName> = vec!["fk".into(), "id".into()];
+        assert_eq!(join_column_names(&cols, "_"), "fk_id");
+
+        let composite: Vec<ColumnName> = vec!["tenant_id".into(), "user_id".into()];
+        assert_eq!(join_column_names(&composite, "_"), "tenant_id_user_id");
     }
 }

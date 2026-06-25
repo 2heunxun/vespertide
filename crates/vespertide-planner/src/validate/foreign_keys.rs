@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 
-use vespertide_core::{ColumnName, TableConstraint, TableDef};
+use vespertide_core::{ColumnName, TableConstraint, TableDef, schema::names::join_column_names};
 
 use crate::error::PlannerError;
 
@@ -170,10 +170,6 @@ fn has_covering_index(covering_prefixes: &[&[ColumnName]], fk_columns: &[ColumnN
 }
 
 fn build_suggested_index_name(table: &str, columns: &[ColumnName]) -> String {
-    let cols_joined = columns
-        .iter()
-        .map(ColumnName::as_str)
-        .collect::<Vec<_>>()
-        .join("_");
+    let cols_joined = join_column_names(columns, "_");
     format!("ix_{table}__{cols_joined}")
 }

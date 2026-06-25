@@ -29,7 +29,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use vespertide_core::{ColumnName, MigrationAction, MigrationPlan, TableConstraint, TableDef};
+use vespertide_core::{
+    ColumnName, MigrationAction, MigrationPlan, TableConstraint, TableDef,
+    schema::names::join_column_names,
+};
 
 use crate::error::PlannerError;
 
@@ -146,14 +149,9 @@ pub fn find_primary_key_removals(
         if tables_dropped.contains(table_str) || tables_gaining_pk.contains(table_str) {
             continue;
         }
-        let cols = columns
-            .iter()
-            .map(ColumnName::to_string)
-            .collect::<Vec<_>>()
-            .join(", ");
         out.push(PlannerError::PrimaryKeyRemovedWithoutReplacement {
             table: table_str.to_string(),
-            columns: cols,
+            columns: join_column_names(columns, ", "),
         });
     }
     out
@@ -221,16 +219,9 @@ fn render_fk_hint(baseline: &[TableDef], target_table: &str, target_columns: &[S
                 if ref_set != target_set {
                     continue;
                 }
-                let label = name.clone().unwrap_or_else(|| {
-                    format!(
-                        "({})",
-                        columns
-                            .iter()
-                            .map(ColumnName::as_str)
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )
-                });
+                let label = name
+                    .clone()
+                    .unwrap_or_else(|| format!("({})", join_column_names(columns, ", ")));
                 hits.push(format!("{}.{}", table.name.as_str(), label));
             }
         }
