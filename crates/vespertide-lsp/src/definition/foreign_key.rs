@@ -12,10 +12,6 @@
 //! sees the document.
 
 use std::ops::Range;
-use std::path::Path;
-use std::str::FromStr;
-
-use tower_lsp_server::ls_types::Uri;
 
 use crate::store::DocumentStore;
 use crate::text_util::strip_quotes;
@@ -129,7 +125,7 @@ fn resolve_target(
 
     // Fall back to the on-disk model so closed files still navigate.
     let path = disk_tables?.model_path(table_name)?;
-    let uri = path_to_file_uri(&path)?;
+    let uri = crate::position::path_to_uri(&path)?;
     Some(DomainLocation {
         uri,
         byte_range: 0..0,
@@ -264,19 +260,6 @@ fn direct_named_child_pair<'tree>(
         .find(|&child| is_pair(child) && key_is(child, source, target_key))
 }
 
-fn path_to_file_uri(path: &Path) -> Option<Uri> {
-    let path_str = path.to_str()?;
-    // Normalize to forward slashes for the URI; on Windows the drive letter
-    // gets a leading slash so `C:\a\b` becomes `file:///C:/a/b`.
-    let normalized = path_str.replace('\\', "/");
-    let url = if normalized.starts_with('/') {
-        format!("file://{normalized}")
-    } else {
-        format!("file:///{normalized}")
-    };
-    Uri::from_str(&url).ok()
-}
-
 fn find_top_level_name_range(tree: &tree_sitter::Tree, text: &str) -> Option<Range<usize>> {
     let root = tree.root_node();
     let mapping = first_mapping(root)?;
@@ -345,6 +328,8 @@ mod tests {
     use super::*;
     use crate::parser::DocumentFormat;
     use crate::test_support::parse;
+    use std::str::FromStr;
+    use tower_lsp_server::ls_types::Uri;
 
     fn node_at<'tree>(
         tree: &'tree tree_sitter::Tree,

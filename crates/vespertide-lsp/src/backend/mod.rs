@@ -12,7 +12,7 @@
 //! would fail to resolve.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
@@ -224,14 +224,6 @@ impl Backend {
         workspace
     }
 
-    fn path_to_uri(path: &Path) -> Option<Uri> {
-        let mut path_text = path.to_string_lossy().replace('\\', "/");
-        if !path_text.starts_with('/') {
-            path_text = format!("/{path_text}");
-        }
-        Uri::from_str(&format!("file://{path_text}")).ok()
-    }
-
     fn fallback_disk_uri(table_name: &str) -> Uri {
         Uri::from_str(&format!("file:///__disk__/{table_name}.json"))
             .expect("synthetic disk model URI should parse")
@@ -377,8 +369,8 @@ fn disk_workspace_table(
     disk_path: Option<PathBuf>,
 ) -> Option<(PathBuf, diagnostics::WorkspaceTable)> {
     let disk_path = disk_path?;
-    let disk_uri =
-        Backend::path_to_uri(&disk_path).unwrap_or_else(|| Backend::fallback_disk_uri(name));
+    let disk_uri = crate::position::path_to_uri(&disk_path)
+        .unwrap_or_else(|| Backend::fallback_disk_uri(name));
     let entry = diagnostics::WorkspaceTable {
         uri: disk_uri,
         table,

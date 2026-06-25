@@ -184,7 +184,7 @@ fn build_workspace_symbol_list(
         let pool = shared_parser_pool();
         for name in disk.names() {
             if let Some(path) = disk.model_path(&name)
-                && let Some(uri) = path_to_uri(&path)
+                && let Some(uri) = crate::position::path_to_uri(&path)
                 && !seen_uris.contains(&uri)
                 && let Some((text_arc, tree_arc)) = disk.cached_parse(&path, pool)
             {
@@ -356,14 +356,6 @@ fn trim_one_byte(range: &Range<usize>) -> Range<usize> {
     } else {
         range.clone()
     }
-}
-
-fn path_to_uri(path: &std::path::Path) -> Option<Uri> {
-    let mut text = path.to_string_lossy().replace('\\', "/");
-    if !text.starts_with('/') {
-        text = format!("/{text}");
-    }
-    std::str::FromStr::from_str(&format!("file://{text}")).ok()
 }
 
 /// ASCII case-insensitive substring search. `needle_lower` must already be
@@ -1000,17 +992,5 @@ mod tests {
         );
 
         assert!(compute("xyz_nothing_matches", &docs, None).is_empty());
-    }
-
-    #[test]
-    fn path_to_uri_prepends_leading_slash_for_relative_path() {
-        // A relative path never starts with `/` on any platform, so this
-        // exercises the leading-slash normalization branch deterministically.
-        let uri = path_to_uri(std::path::Path::new("models/user.json")).expect("uri");
-        assert!(
-            uri.as_str().starts_with("file:///"),
-            "got: {}",
-            uri.as_str()
-        );
     }
 }

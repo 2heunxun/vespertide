@@ -103,19 +103,16 @@ fn scan_disk_file(
         if let Some(format) = format
             && let Some(tree) = pool.parse(&text, format)
         {
-            let uri = path_to_uri(path);
+            // Fallback to the synthetic empty `file:///` URI keeps
+            // `scan_disk_file` infallible even on the (practically
+            // unreachable) path that `path_to_uri` rejects — better to
+            // attribute references to an obviously-synthetic URI than to
+            // silently drop them.
+            let uri = crate::position::path_to_uri(path)
+                .unwrap_or_else(|| <Uri as std::str::FromStr>::from_str("file:///").unwrap());
             collect_in_document(symbol, &uri, &text, &tree, include_declaration, out);
         }
     }
-}
-
-fn path_to_uri(path: &std::path::Path) -> Uri {
-    let mut text = path.to_string_lossy().replace('\\', "/");
-    if !text.starts_with('/') {
-        text = format!("/{text}");
-    }
-    std::str::FromStr::from_str(&format!("file://{text}"))
-        .unwrap_or_else(|_| std::str::FromStr::from_str("file:///").unwrap())
 }
 
 fn collect_in_document(
@@ -738,18 +735,6 @@ mod tests {
         assert!(
             out.len() >= 2,
             "declaration and CHECK expression should both be found: {out:?}"
-        );
-    }
-
-    #[test]
-    fn path_to_uri_prepends_leading_slash_for_relative_path() {
-        // A relative path never starts with `/` on any platform, so this
-        // exercises the leading-slash normalization branch deterministically.
-        let uri = path_to_uri(std::path::Path::new("models/user.json"));
-        assert!(
-            uri.as_str().starts_with("file:///"),
-            "got: {}",
-            uri.as_str()
         );
     }
 }

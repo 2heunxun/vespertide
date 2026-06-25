@@ -71,7 +71,7 @@ pub use inlay_hints::{DomainInlayHint, compute as compute_inlay_hints};
 pub use parser::{DocumentFormat, ParserPool};
 pub use position::{
     byte_to_lsp_position, ls_to_lsp_position, ls_to_lsp_range, lsp_position_to_byte,
-    lsp_to_ls_position, uri_to_path,
+    lsp_to_ls_position, path_to_uri, uri_to_path,
 };
 pub use references::{
     DomainReference, ReferenceSymbol, compute as compute_references,

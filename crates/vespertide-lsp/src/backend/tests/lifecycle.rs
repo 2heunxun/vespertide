@@ -58,7 +58,7 @@ async fn direct_lifecycle_methods_return_capabilities_and_log_without_mocking_cl
         .await;
     backend.shutdown().await.unwrap();
 
-    let relative = super::super::Backend::path_to_uri(Path::new("relative-model.json"))
+    let relative = crate::position::path_to_uri(Path::new("relative-model.json"))
         .expect("relative paths should still lower to synthetic file URIs");
     assert!(relative.as_str().starts_with("file:///"));
     let fallback = super::super::Backend::fallback_disk_uri("ghost");
@@ -125,7 +125,7 @@ fn workspace_collection_skips_normalize_failures_and_keeps_disk_tables() {
             .unwrap();
 
         let bad_uri =
-            super::super::Backend::path_to_uri(&fixture._tmp.path().join("models/bad_index.json"))
+            crate::position::path_to_uri(&fixture._tmp.path().join("models/bad_index.json"))
                 .unwrap();
         backend
             .did_open(did_open_params(&bad_uri, "json", 1, DUP_INDEX_MODEL))
@@ -278,15 +278,12 @@ fn workspace_table_helpers_cover_degenerate_open_and_disk_state() {
 async fn service_lifecycle_and_text_document_notifications_exercise_publish_paths() {
     let fixture = workspace_fixture();
     let yaml_uri =
-        super::super::Backend::path_to_uri(&fixture._tmp.path().join("models/account.yaml"))
-            .unwrap();
+        crate::position::path_to_uri(&fixture._tmp.path().join("models/account.yaml")).unwrap();
     let bad_json_uri =
-        super::super::Backend::path_to_uri(&fixture._tmp.path().join("models/bad.json")).unwrap();
+        crate::position::path_to_uri(&fixture._tmp.path().join("models/bad.json")).unwrap();
     let bad_fk_uri =
-        super::super::Backend::path_to_uri(&fixture._tmp.path().join("models/bad_fk.json"))
-            .unwrap();
-    let text_uri =
-        super::super::Backend::path_to_uri(&fixture._tmp.path().join("notes.txt")).unwrap();
+        crate::position::path_to_uri(&fixture._tmp.path().join("models/bad_fk.json")).unwrap();
+    let text_uri = crate::position::path_to_uri(&fixture._tmp.path().join("notes.txt")).unwrap();
 
     let (mut service, socket) = make_service();
     initialize_service(
@@ -535,7 +532,7 @@ async fn workspace_refresh_from_document_uri_finds_config_above_models_dir() {
     fs::write(tmp.path().join("vespertide.json"), workspace_config()).unwrap();
     let user_path = models.join("user.json");
     fs::write(&user_path, USER_MODEL).unwrap();
-    let user_uri = super::super::Backend::path_to_uri(&user_path).unwrap();
+    let user_uri = crate::position::path_to_uri(&user_path).unwrap();
 
     let (service, _socket) = make_service();
     let backend = service.inner();
