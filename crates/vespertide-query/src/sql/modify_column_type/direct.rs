@@ -107,7 +107,7 @@ fn build_postgres_enum_migration(queries: &mut Vec<BuiltQuery>, context: &Direct
 
         // 1. CREATE TYPE target_type AS ENUM (new values).
         let column_default = column_default(context);
-        let create_values = new_values.to_sql_values().join(", ");
+        let create_values = new_values.sql_values_joined(", ");
         let quoted_target_type = quote_ident(&target_type_name, DatabaseBackend::Postgres);
         let quoted_table = quote_ident(context.table, DatabaseBackend::Postgres);
         let quoted_column = quote_ident(context.column, DatabaseBackend::Postgres);

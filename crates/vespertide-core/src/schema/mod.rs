@@ -310,6 +310,50 @@ mod tests {
             assert_eq!(vals.to_sql_values(), vec!["0", "10"]);
         }
 
+        #[rstest]
+        // Matches `to_sql_values().join(sep)` byte-for-byte across every arm.
+        #[case::string_two_variants(
+            EnumValues::String(vec!["active".into(), "pending".into()]),
+            ", ",
+            "'active', 'pending'",
+        )]
+        #[case::string_single_quote_escape(
+            EnumValues::String(vec!["O'Brien".into(), "'leading".into()]),
+            ", ",
+            "'O''Brien', '''leading'",
+        )]
+        #[case::integer_two_variants(
+            EnumValues::Integer(vec![
+                NumValue { name: "low".into(),  value: 0  },
+                NumValue { name: "high".into(), value: 10 },
+            ]),
+            ", ",
+            "0, 10",
+        )]
+        #[case::string_empty(EnumValues::String(vec![]), ", ", "")]
+        #[case::integer_empty(EnumValues::Integer(vec![]), ", ", "")]
+        #[case::string_single_variant(
+            EnumValues::String(vec!["only".into()]),
+            ", ",
+            "'only'",
+        )]
+        #[case::alt_separator(
+            EnumValues::String(vec!["a".into(), "b".into(), "c".into()]),
+            "_",
+            "'a'_'b'_'c'",
+        )]
+        fn sql_values_joined_matches_to_sql_values_join(
+            #[case] vals: EnumValues,
+            #[case] separator: &str,
+            #[case] expected: &str,
+        ) {
+            let joined = vals.sql_values_joined(separator);
+            assert_eq!(joined, expected);
+            // Equivalence lock: the buffer-push helper must be byte-identical
+            // to the legacy `Vec<String>` + `join` pipeline.
+            assert_eq!(joined, vals.to_sql_values().join(separator));
+        }
+
         #[test]
         fn test_enum_values_from_vec_string() {
             let vals: EnumValues = vec!["a".to_string(), "b".to_string()].into();

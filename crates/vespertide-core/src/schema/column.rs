@@ -472,6 +472,64 @@ impl EnumValues {
             EnumValues::Integer(values) => values.iter().map(|v| v.value.to_string()).collect(),
         }
     }
+
+    /// Format every variant for `CREATE TYPE … AS ENUM(...)` /
+    /// `CHECK (col IN (...))` and join with `separator`, writing into one
+    /// buffer — no intermediate `Vec<String>` allocation.
+    ///
+    /// Mirrors `vespertide_query::sql::helpers::quote_idents` and
+    /// `vespertide_core::schema::names::join_column_names`. Output is
+    /// byte-identical to `self.to_sql_values().join(separator)`.
+    ///
+    /// ```rust
+    /// use vespertide_core::{EnumValues, NumValue};
+    ///
+    /// let s = EnumValues::String(vec!["active".into(), "O'Brien".into()]);
+    /// assert_eq!(s.sql_values_joined(", "), "'active', 'O''Brien'");
+    ///
+    /// let i = EnumValues::Integer(vec![
+    ///     NumValue { name: "low".into(),  value: 0  },
+    ///     NumValue { name: "high".into(), value: 10 },
+    /// ]);
+    /// assert_eq!(i.sql_values_joined(", "), "0, 10");
+    ///
+    /// let empty = EnumValues::String(vec![]);
+    /// assert_eq!(empty.sql_values_joined(", "), "");
+    /// ```
+    #[must_use]
+    pub fn sql_values_joined(&self, separator: &str) -> String {
+        use std::fmt::Write as _;
+        let mut out = String::new();
+        match self {
+            EnumValues::String(values) => {
+                for (i, s) in values.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(separator);
+                    }
+                    out.push('\'');
+                    // Inline '' escape — matches the existing
+                    // `format!("'{}'", s.replace('\'', "''"))` byte-for-byte.
+                    for ch in s.chars() {
+                        if ch == '\'' {
+                            out.push('\'');
+                        }
+                        out.push(ch);
+                    }
+                    out.push('\'');
+                }
+            }
+            EnumValues::Integer(values) => {
+                for (i, v) in values.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(separator);
+                    }
+                    // i64 Display into String is infallible.
+                    write!(out, "{}", v.value).expect("writing an i64 to a String never fails");
+                }
+            }
+        }
+        out
+    }
 }
 
 impl From<Vec<String>> for EnumValues {

@@ -450,7 +450,7 @@ pub fn build_create_enum_type_sql(
             return None;
         }
 
-        let values_sql = values.to_sql_values().join(", ");
+        let values_sql = values.sql_values_joined(", ");
 
         // Generate unique type name with table prefix
         let type_name = build_enum_type_name(table, name);
@@ -513,7 +513,7 @@ pub fn build_sqlite_enum_check_clause(
 ) -> Option<String> {
     if let ColumnType::Complex(ComplexColumnType::Enum { values, .. }) = column_type {
         let name = build_check_constraint_name(table, column);
-        let values_sql = values.to_sql_values().join(", ");
+        let values_sql = values.sql_values_joined(", ");
         let name = quote_ident(&name, DatabaseBackend::Sqlite);
         let column = quote_ident(column, DatabaseBackend::Sqlite);
         Some(format!(
