@@ -160,16 +160,13 @@ impl ColumnType {
     /// Get enum variant names if this is an enum type
     /// Returns None if not an enum, Some(names) otherwise
     pub fn enum_variant_names(&self) -> Option<Vec<String>> {
-        match self {
-            ColumnType::Complex(ComplexColumnType::Enum { values, .. }) => Some(
-                values
-                    .variant_names()
-                    .into_iter()
-                    .map(String::from)
-                    .collect(),
-            ),
-            _ => None,
-        }
+        let ColumnType::Complex(ComplexColumnType::Enum { values, .. }) = self else {
+            return None;
+        };
+        Some(match values {
+            EnumValues::String(v) => v.clone(),
+            EnumValues::Integer(v) => v.iter().map(|n| n.name.clone()).collect(),
+        })
     }
 }
 
