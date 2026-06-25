@@ -23,7 +23,7 @@ pub fn build_modify_column_comment(
             let quoted_column = quote_ident(column, backend);
             let comment_sql = if let Some(comment) = new_comment {
                 // Escape single quotes in comment
-                let escaped = comment.replace('\'', "''");
+                let escaped = vespertide_core::escape_sql_string_literal(comment);
                 format!("COMMENT ON COLUMN {quoted_table}.{quoted_column} IS '{escaped}'")
             } else {
                 format!("COMMENT ON COLUMN {quoted_table}.{quoted_column} IS NULL")
@@ -67,7 +67,7 @@ pub fn build_modify_column_comment(
 
             // Add COMMENT clause if needed (sea-query doesn't support COMMENT)
             let final_sql = if let Some(comment) = modified_col_def.comment.as_deref() {
-                let escaped = comment.replace('\'', "''");
+                let escaped = vespertide_core::escape_sql_string_literal(comment);
                 format!("{base_sql} COMMENT '{escaped}'")
             } else {
                 base_sql

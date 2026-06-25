@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
 use dialoguer::{Input, Select};
-use vespertide_core::{MigrationPlan, NarrowingStrategy};
+use vespertide_core::{MigrationPlan, NarrowingStrategy, escape_sql_string_literal};
 use vespertide_planner::{NarrowingKind, TypeNarrowingWarning};
 
 /// Strategies that can be safely emitted by the SQL generator for a given
@@ -172,7 +172,7 @@ fn quote_value_for_target(raw: &str, kind: &NarrowingKind) -> String {
     if raw.starts_with('\'') && raw.ends_with('\'') {
         return raw.to_string();
     }
-    format!("'{}'", raw.replace('\'', "''"))
+    format!("'{}'", escape_sql_string_literal(raw))
 }
 
 /// Apply user-selected strategies onto the plan in place. Each warning's

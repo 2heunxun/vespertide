@@ -467,7 +467,7 @@ impl EnumValues {
         match self {
             EnumValues::String(values) => values
                 .iter()
-                .map(|s| format!("'{}'", s.replace('\'', "''")))
+                .map(|s| format!("'{}'", crate::escape_sql_string_literal(s)))
                 .collect(),
             EnumValues::Integer(values) => values.iter().map(|v| v.value.to_string()).collect(),
         }
@@ -507,14 +507,10 @@ impl EnumValues {
                         out.push_str(separator);
                     }
                     out.push('\'');
-                    // Inline '' escape — matches the existing
-                    // `format!("'{}'", s.replace('\'', "''"))` byte-for-byte.
-                    for ch in s.chars() {
-                        if ch == '\'' {
-                            out.push('\'');
-                        }
-                        out.push(ch);
-                    }
+                    // Centralized '' escape — matches the existing
+                    // `format!("'{}'", s.replace('\'', "''"))` byte-for-byte,
+                    // and borrows when no quote is present (zero alloc).
+                    out.push_str(&crate::escape_sql_string_literal(s));
                     out.push('\'');
                 }
             }

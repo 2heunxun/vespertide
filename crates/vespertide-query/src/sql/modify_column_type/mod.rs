@@ -115,7 +115,7 @@ fn build_pg_alter_with_timezone(
     let qc = super::helpers::quote_ident(column, DatabaseBackend::Postgres);
     // validate_timezone in the CLI already rejected anything with quotes,
     // but escape defensively to keep this layer safe in isolation.
-    let tz_lit = tz.replace('\'', "''");
+    let tz_lit = vespertide_core::escape_sql_string_literal(tz);
 
     let (target_sql_type, using_expr) = match new_type {
         ColumnType::Simple(SimpleColumnType::Timestamptz) => (
