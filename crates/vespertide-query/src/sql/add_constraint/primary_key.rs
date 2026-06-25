@@ -78,11 +78,7 @@ fn build_pk_pre_cleanup<T: AsRef<str>>(
     };
     let quoted_table = quote_ident(table, backend);
     let quoted_old_pk = quote_ident(&old_pk_column, backend);
-    let group_by = new_pk_columns
-        .iter()
-        .map(|c| quote_ident(c.as_ref(), backend))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let group_by = quote_idents(new_pk_columns, backend);
     let sql = format!(
         "DELETE FROM {quoted_table} WHERE {quoted_old_pk} NOT IN (\
          SELECT {agg}({quoted_old_pk}) FROM {quoted_table} GROUP BY {group_by})"

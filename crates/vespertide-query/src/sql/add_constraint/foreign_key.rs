@@ -1,7 +1,7 @@
 use sea_query::{Alias, ForeignKey};
 use vespertide_core::{ForeignKeyOrphanStrategy, ReferenceAction, TableConstraint};
 
-use super::super::helpers::{quote_ident, to_sea_fk_action};
+use super::super::helpers::{quote_ident, quote_idents, to_sea_fk_action};
 use super::super::types::{BuiltQuery, DatabaseBackend, RawSql};
 use super::{QueryError, TableDef, rebuild_sqlite_table_with_added_constraint};
 
@@ -79,16 +79,8 @@ pub(super) fn build_foreign_key<T: AsRef<str>, U: AsRef<str>>(
         let quoted_table = quote_ident(table, backend);
         let quoted_name = quote_ident(&fk_name, backend);
         let quoted_ref_table = quote_ident(ref_table, backend);
-        let cols = columns
-            .iter()
-            .map(|c| quote_ident(c.as_ref(), backend))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let ref_cols = ref_columns
-            .iter()
-            .map(|c| quote_ident(c.as_ref(), backend))
-            .collect::<Vec<_>>()
-            .join(", ");
+        let cols = quote_idents(columns, backend);
+        let ref_cols = quote_idents(ref_columns, backend);
         let on_delete_clause = render_fk_action_clause("ON DELETE", on_delete);
         let on_update_clause = render_fk_action_clause("ON UPDATE", on_update);
 

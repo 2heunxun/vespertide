@@ -2,7 +2,7 @@ use sea_query::{Alias, Index};
 
 use vespertide_core::{KeepPolicy, TableConstraint, TableDef, UniqueConstraintStrategy};
 
-use super::super::helpers::{build_unique_constraint_name, quote_ident};
+use super::super::helpers::{build_unique_constraint_name, quote_ident, quote_idents};
 use super::super::types::{BuiltQuery, DatabaseBackend, RawSql};
 use crate::error::QueryError;
 
@@ -69,11 +69,7 @@ fn build_pre_cleanup_delete<T: AsRef<str>>(
     };
     let quoted_table = quote_ident(table, backend);
     let quoted_pk = quote_ident(&pk_column, backend);
-    let quoted_unique_cols: Vec<String> = columns
-        .iter()
-        .map(|c| quote_ident(c.as_ref(), backend))
-        .collect();
-    let group_by = quoted_unique_cols.join(", ");
+    let group_by = quote_idents(columns, backend);
     let sql = format!(
         "DELETE FROM {quoted_table} WHERE {quoted_pk} NOT IN (\
          SELECT {agg}({quoted_pk}) FROM {quoted_table} GROUP BY {group_by})",
