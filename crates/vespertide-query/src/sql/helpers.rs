@@ -685,16 +685,31 @@ pub fn get_enum_name(column_type: &ColumnType) -> Option<&str> {
 /// - `MySQL`: `` `identifier` `` (backticks; embedded `` ` `` escaped as ` `` `)
 #[must_use]
 pub fn quote_ident(name: &str, backend: DatabaseBackend) -> String {
-    match backend {
-        DatabaseBackend::Postgres | DatabaseBackend::Sqlite => {
-            let escaped = name.replace('"', "\"\"");
-            format!("\"{escaped}\"")
-        }
-        DatabaseBackend::MySql => {
-            let escaped = name.replace('`', "``");
-            format!("`{escaped}`")
-        }
+    let delim = match backend {
+        DatabaseBackend::Postgres | DatabaseBackend::Sqlite => '"',
+        DatabaseBackend::MySql => '`',
+    };
+    // Hot path: every valid identifier produced by the codebase carries no
+    // embedded quote char, so one exact-size allocation suffices and the
+    // `str::replace` + `format!` double-allocation is unnecessary. Mirrors
+    // the borrowed-fast-path / owned-slow-path pattern already used by
+    // `vespertide_core::sql_escape::escape_sql_string_literal`.
+    if !name.contains(delim) {
+        let mut out = String::with_capacity(name.len() + 2);
+        out.push(delim);
+        out.push_str(name);
+        out.push(delim);
+        return out;
     }
+    // Slow path (defense-in-depth): identifier embeds the quote char and
+    // must be escaped by doubling it. Byte-identical output to the
+    // pre-fast-path implementation.
+    let escaped = name.replace(delim, &format!("{delim}{delim}"));
+    let mut out = String::with_capacity(escaped.len() + 2);
+    out.push(delim);
+    out.push_str(&escaped);
+    out.push(delim);
+    out
 }
 
 /// Quote a list of identifiers and join them with comma.
