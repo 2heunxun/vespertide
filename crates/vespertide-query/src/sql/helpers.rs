@@ -622,6 +622,21 @@ pub fn recreate_indexes_after_rebuild(
     let mut queries = Vec::with_capacity(constraints.len());
     // perf: BTreeSet membership avoids nested Vec::contains scans during SQLite rebuilds.
     let pending_constraints: std::collections::BTreeSet<_> = pending_constraints.iter().collect();
+    // perf: `table` is loop-invariant — quote it once instead of per surviving constraint.
+    let quoted_table = quote_ident(table, DatabaseBackend::Sqlite);
+    // dedup: both Index and Unique arms differ only by name builder + `UNIQUE` keyword.
+    let mut push_index =
+        |index_name: String, columns: &[vespertide_core::ColumnName], unique: bool| {
+            let cols_sql = quote_idents(columns, DatabaseBackend::Sqlite);
+            let quoted_index = quote_ident(&index_name, DatabaseBackend::Sqlite);
+            let keyword = if unique {
+                "CREATE UNIQUE INDEX"
+            } else {
+                "CREATE INDEX"
+            };
+            let sql = format!("{keyword} {quoted_index} ON {quoted_table} ({cols_sql})");
+            queries.push(BuiltQuery::Raw(RawSql::uniform(sql)));
+        };
     for constraint in constraints {
         // Skip constraints that will be created by future AddConstraint actions
         if pending_constraints.contains(constraint) {
@@ -629,20 +644,18 @@ pub fn recreate_indexes_after_rebuild(
         }
         match constraint {
             TableConstraint::Index { name, columns } => {
-                let index_name = build_index_name(table, columns, name.as_deref());
-                let cols_sql = quote_idents(columns, DatabaseBackend::Sqlite);
-                let index_name = quote_ident(&index_name, DatabaseBackend::Sqlite);
-                let table = quote_ident(table, DatabaseBackend::Sqlite);
-                let sql = format!("CREATE INDEX {index_name} ON {table} ({cols_sql})");
-                queries.push(BuiltQuery::Raw(RawSql::uniform(sql)));
+                push_index(
+                    build_index_name(table, columns, name.as_deref()),
+                    columns,
+                    false,
+                );
             }
             TableConstraint::Unique { name, columns, .. } => {
-                let index_name = build_unique_constraint_name(table, columns, name.as_deref());
-                let cols_sql = quote_idents(columns, DatabaseBackend::Sqlite);
-                let index_name = quote_ident(&index_name, DatabaseBackend::Sqlite);
-                let table = quote_ident(table, DatabaseBackend::Sqlite);
-                let sql = format!("CREATE UNIQUE INDEX {index_name} ON {table} ({cols_sql})");
-                queries.push(BuiltQuery::Raw(RawSql::uniform(sql)));
+                push_index(
+                    build_unique_constraint_name(table, columns, name.as_deref()),
+                    columns,
+                    true,
+                );
             }
             _ => {}
         }
