@@ -240,10 +240,13 @@ pub fn reference_action_sql(action: &ReferenceAction) -> &'static str {
 
 /// Convert a default value string to the appropriate backend-specific expression
 pub fn convert_default_for_backend(default: &str, backend: DatabaseBackend) -> String {
-    let lower = default.to_lowercase();
-
-    // UUID generation functions
-    if lower == "gen_random_uuid()" || lower == "uuid()" || lower == "lower(hex(randomblob(16)))" {
+    // UUID generation functions (case-insensitive match against ASCII literals
+    // — avoids the per-call `String` allocation that `to_lowercase()` would
+    // incur, mirroring the convention `needs_quoting` already uses below).
+    if default.eq_ignore_ascii_case("gen_random_uuid()")
+        || default.eq_ignore_ascii_case("uuid()")
+        || default.eq_ignore_ascii_case("lower(hex(randomblob(16)))")
+    {
         return match backend {
             DatabaseBackend::Postgres => "gen_random_uuid()".to_string(),
             DatabaseBackend::MySql => "(UUID())".to_string(),
@@ -252,10 +255,10 @@ pub fn convert_default_for_backend(default: &str, backend: DatabaseBackend) -> S
     }
 
     // Timestamp functions (case-insensitive)
-    if lower == "current_timestamp()"
-        || lower == "now()"
-        || lower == "current_timestamp"
-        || lower == "getdate()"
+    if default.eq_ignore_ascii_case("current_timestamp()")
+        || default.eq_ignore_ascii_case("now()")
+        || default.eq_ignore_ascii_case("current_timestamp")
+        || default.eq_ignore_ascii_case("getdate()")
     {
         return "CURRENT_TIMESTAMP".to_string();
     }
