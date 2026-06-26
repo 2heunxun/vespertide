@@ -586,11 +586,7 @@ pub fn build_create_with_checks(
             let check_sql = check_clauses.join(", ");
             modified_sql.insert_str(pos, &format!(", {check_sql}"));
         }
-        BuiltQuery::Raw(RawSql::per_backend(
-            modified_sql.clone(),
-            modified_sql.clone(),
-            modified_sql,
-        ))
+        BuiltQuery::Raw(RawSql::uniform(modified_sql))
     }
 }
 
@@ -638,11 +634,7 @@ pub fn recreate_indexes_after_rebuild(
                 let index_name = quote_ident(&index_name, DatabaseBackend::Sqlite);
                 let table = quote_ident(table, DatabaseBackend::Sqlite);
                 let sql = format!("CREATE INDEX {index_name} ON {table} ({cols_sql})");
-                queries.push(BuiltQuery::Raw(RawSql::per_backend(
-                    sql.clone(),
-                    sql.clone(),
-                    sql,
-                )));
+                queries.push(BuiltQuery::Raw(RawSql::uniform(sql)));
             }
             TableConstraint::Unique { name, columns, .. } => {
                 let index_name = build_unique_constraint_name(table, columns, name.as_deref());
@@ -650,11 +642,7 @@ pub fn recreate_indexes_after_rebuild(
                 let index_name = quote_ident(&index_name, DatabaseBackend::Sqlite);
                 let table = quote_ident(table, DatabaseBackend::Sqlite);
                 let sql = format!("CREATE UNIQUE INDEX {index_name} ON {table} ({cols_sql})");
-                queries.push(BuiltQuery::Raw(RawSql::per_backend(
-                    sql.clone(),
-                    sql.clone(),
-                    sql,
-                )));
+                queries.push(BuiltQuery::Raw(RawSql::uniform(sql)));
             }
             _ => {}
         }

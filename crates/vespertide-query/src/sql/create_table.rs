@@ -260,11 +260,7 @@ pub fn build_create_table(
                 let check_sql = enum_check_clauses.join(", ");
                 modified_sql.insert_str(pos, &format!(", {check_sql}"));
             }
-            queries.push(BuiltQuery::Raw(RawSql::per_backend(
-                modified_sql.clone(),
-                modified_sql.clone(),
-                modified_sql,
-            )));
+            queries.push(BuiltQuery::Raw(RawSql::uniform(modified_sql)));
         }
     } else {
         queries.push(BuiltQuery::CreateTable(Box::new(create_table_stmt)));
