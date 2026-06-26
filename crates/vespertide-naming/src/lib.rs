@@ -13,10 +13,7 @@
 /// Uses double underscore to separate table name from the rest.
 /// Format: ix_{table}__{key} or ix_{table}__{col1}_{col2}...
 pub fn build_index_name<T: AsRef<str>>(table: &str, columns: &[T], key: Option<&str>) -> String {
-    match key {
-        Some(k) => format!("ix_{table}__{k}"),
-        None => format!("ix_{}__{}", table, sort_columns_for_name(columns).join("_")),
-    }
+    build_constraint_name("ix_", table, columns, key)
 }
 
 /// Generate unique constraint name from table name, columns, and optional user-provided key.
@@ -28,10 +25,7 @@ pub fn build_unique_constraint_name<T: AsRef<str>>(
     columns: &[T],
     key: Option<&str>,
 ) -> String {
-    match key {
-        Some(k) => format!("uq_{table}__{k}"),
-        None => format!("uq_{}__{}", table, sort_columns_for_name(columns).join("_")),
-    }
+    build_constraint_name("uq_", table, columns, key)
 }
 
 /// Generate foreign key constraint name from table name, columns, and optional user-provided key.
@@ -43,16 +37,58 @@ pub fn build_foreign_key_name<T: AsRef<str>>(
     columns: &[T],
     key: Option<&str>,
 ) -> String {
-    match key {
-        Some(k) => format!("fk_{table}__{k}"),
-        None => format!("fk_{}__{}", table, sort_columns_for_name(columns).join("_")),
+    build_constraint_name("fk_", table, columns, key)
+}
+
+/// Shared body for the three constraint name builders above.
+///
+/// Folds the `{prefix}{table}__{key|sorted-columns}` template into a single
+/// pre-sized `String` so the auto-named branch ( `key.is_none()`) does only
+/// two allocations: the column-sort scratchpad (`Vec<&str>`) and the final
+/// `String`. The previous implementation went through `format!(... join("_"))`
+/// which allocated an extra intermediate `String` for the joined columns
+/// before formatting them into the final result.
+fn build_constraint_name<T: AsRef<str>>(
+    prefix: &str,
+    table: &str,
+    columns: &[T],
+    key: Option<&str>,
+) -> String {
+    if let Some(k) = key {
+        let mut out = String::with_capacity(prefix.len() + table.len() + 2 + k.len());
+        out.push_str(prefix);
+        out.push_str(table);
+        out.push_str("__");
+        out.push_str(k);
+        out
+    } else {
+        let cols_capacity: usize = columns
+            .iter()
+            .map(|c| c.as_ref().len() + 1)
+            .sum::<usize>()
+            .saturating_sub(1);
+        let mut out = String::with_capacity(prefix.len() + table.len() + 2 + cols_capacity);
+        out.push_str(prefix);
+        out.push_str(table);
+        out.push_str("__");
+        write_sorted_columns(&mut out, columns);
+        out
     }
 }
 
-fn sort_columns_for_name<T: AsRef<str>>(columns: &[T]) -> Vec<&str> {
+/// Sort the column slice into a local scratchpad and write the columns into
+/// `out` joined by `'_'`. Replaces the previous `sort_columns_for_name(...).join("_")`
+/// pair which allocated a fresh `String` for the joined columns; here the
+/// columns go directly into the caller-supplied buffer.
+fn write_sorted_columns<T: AsRef<str>>(out: &mut String, columns: &[T]) {
     let mut sorted: Vec<&str> = columns.iter().map(AsRef::as_ref).collect();
     sorted.sort_unstable();
-    sorted
+    for (i, c) in sorted.iter().enumerate() {
+        if i > 0 {
+            out.push('_');
+        }
+        out.push_str(c);
+    }
 }
 
 /// Generate CHECK constraint name for `SQLite` enum column.
