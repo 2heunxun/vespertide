@@ -45,14 +45,9 @@ pub(super) fn topological_sort_tables<'a>(
         in_degree.entry(table.name.as_str()).or_insert(0);
     }
 
-    // For each dependency, increment the in-degree of the dependent table
+    // For each dependency, increment the in-degree of the dependent table.
+    // (If A depends on B, A's in-degree rises; A is processed after B.)
     for (table_name, deps) in &dependencies {
-        for _dep in deps {
-            // The table has dependencies, so those referenced tables must come first
-            // We actually want the reverse: tables with dependencies have higher in-degree
-        }
-        // Actually, we need to track: if A depends on B, then A has in-degree from B
-        // So A cannot be processed until B is processed
         *in_degree.entry(table_name).or_insert(0) += deps.len();
     }
 
