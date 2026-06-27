@@ -163,22 +163,7 @@ fn load_models_recursive_internal(
 }
 
 fn collect_model_paths_internal(dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let entries = fs::read_dir(dir)
-        .map_err(|e| format!("Failed to read models directory {}: {}", dir.display(), e))?;
-    let mut paths = Vec::new();
-
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read directory entry: {e}"))?;
-        let path = entry.path();
-
-        if path.is_dir() {
-            paths.extend(collect_model_paths_internal(&path)?);
-        } else if path.is_file() && has_model_extension(&path) {
-            paths.push(path);
-        }
-    }
-
-    Ok(paths)
+    collect_model_paths(dir).map_err(|e| e.to_string())
 }
 
 fn load_normalized_model_file_internal(path: &Path) -> Result<TableDef, String> {
@@ -211,6 +196,7 @@ pub fn load_models_at_compile_time() -> Result<Vec<TableDef>, Box<dyn std::error
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{CwdGuard, write_default_config};
     use serial_test::serial;
     use std::fs;
     use tempfile::tempdir;
@@ -219,36 +205,12 @@ mod tests {
         schema::foreign_key::ForeignKeySyntax,
     };
 
-    struct CwdGuard {
-        original: std::path::PathBuf,
-    }
-
-    impl CwdGuard {
-        fn new(dir: &std::path::PathBuf) -> Self {
-            let original = std::env::current_dir().unwrap();
-            std::env::set_current_dir(dir).unwrap();
-            Self { original }
-        }
-    }
-
-    impl Drop for CwdGuard {
-        fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.original);
-        }
-    }
-
-    fn write_config() {
-        let cfg = VespertideConfig::default();
-        let text = serde_json::to_string_pretty(&cfg).unwrap();
-        fs::write("vespertide.json", text).unwrap();
-    }
-
     #[test]
     #[serial]
     fn load_models_returns_empty_when_no_models_dir() {
         let tmp = tempdir().unwrap();
-        let _guard = CwdGuard::new(&tmp.path().to_path_buf());
-        write_config();
+        let _guard = CwdGuard::new(tmp.path());
+        write_default_config("vespertide.json");
 
         // Don't create models directory
         let models = load_models(&VespertideConfig::default()).unwrap();
@@ -259,8 +221,8 @@ mod tests {
     #[serial]
     fn load_models_reads_yaml_and_validates() {
         let tmp = tempdir().unwrap();
-        let _guard = CwdGuard::new(&tmp.path().to_path_buf());
-        write_config();
+        let _guard = CwdGuard::new(tmp.path());
+        write_default_config("vespertide.json");
 
         fs::create_dir_all("models").unwrap();
         let table = TableDef {
@@ -294,8 +256,8 @@ mod tests {
     #[serial]
     fn load_models_recursive_processes_subdirectories() {
         let tmp = tempdir().unwrap();
-        let _guard = CwdGuard::new(&tmp.path().to_path_buf());
-        write_config();
+        let _guard = CwdGuard::new(tmp.path());
+        write_default_config("vespertide.json");
 
         fs::create_dir_all("models/subdir").unwrap();
 
@@ -332,8 +294,8 @@ mod tests {
     #[serial]
     fn load_models_fails_on_invalid_fk_format() {
         let tmp = tempdir().unwrap();
-        let _guard = CwdGuard::new(&tmp.path().to_path_buf());
-        write_config();
+        let _guard = CwdGuard::new(tmp.path());
+        write_default_config("vespertide.json");
 
         fs::create_dir_all("models").unwrap();
 
@@ -375,8 +337,8 @@ mod tests {
     #[serial]
     fn load_models_ignores_non_model_extension_files() {
         let tmp = tempdir().unwrap();
-        let _guard = CwdGuard::new(&tmp.path().to_path_buf());
-        write_config();
+        let _guard = CwdGuard::new(tmp.path());
+        write_default_config("vespertide.json");
         fs::create_dir_all("models").unwrap();
         fs::write("models/README.txt", "not a model: {{{ invalid").unwrap();
 
