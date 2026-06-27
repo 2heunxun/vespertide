@@ -88,8 +88,8 @@ pub fn build_action_queries_with_pending(
 
         MigrationAction::DeleteColumn { table, column } => {
             // Find the column type from current schema for enum DROP TYPE support
-            let column_type = helpers::find_column_in_schema(current_schema, table, column)
-                .map(|c| &c.r#type);
+            let column_type =
+                helpers::find_column_in_schema(current_schema, table, column).map(|c| &c.r#type);
             Ok(build_delete_column(
                 backend,
                 table,

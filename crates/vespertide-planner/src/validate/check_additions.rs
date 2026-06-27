@@ -167,7 +167,10 @@ mod tests {
 
     #[rstest]
     fn case_03_in_clause_flagged() {
-        let baseline = vec![table("orders", vec![col_int("id", false), col_int("status", true)])];
+        let baseline = vec![table(
+            "orders",
+            vec![col_int("id", false), col_int("status", true)],
+        )];
         let p = plan(vec![add_check(
             "orders",
             "chk_status",
@@ -194,7 +197,10 @@ mod tests {
 
     #[rstest]
     fn case_05_function_call_skipped() {
-        let baseline = vec![table("users", vec![col_int("id", false), col_int("name", true)])];
+        let baseline = vec![table(
+            "users",
+            vec![col_int("id", false), col_int("name", true)],
+        )];
         let p = plan(vec![add_check("users", "chk_name", "length(name) > 0")]);
         let ws = find_check_additions(&p, &baseline);
         assert!(ws.is_empty());
@@ -225,7 +231,11 @@ mod tests {
     fn case_08_multiple_checks_each_flagged_separately() {
         let baseline = vec![table(
             "products",
-            vec![col_int("id", false), col_int("price", true), col_int("stock", true)],
+            vec![
+                col_int("id", false),
+                col_int("price", true),
+                col_int("stock", true),
+            ],
         )];
         let p = plan(vec![
             add_check("products", "chk_price", "price > 0"),

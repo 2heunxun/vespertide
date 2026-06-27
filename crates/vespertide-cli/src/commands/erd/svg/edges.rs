@@ -54,11 +54,7 @@ pub(super) struct EdgeGeometry {
     pub curvature: f64,
 }
 
-pub(super) fn edge_geometry(
-    child: &TableBox,
-    parent: &TableBox,
-    edge: &EdgeSpec,
-) -> EdgeGeometry {
+pub(super) fn edge_geometry(child: &TableBox, parent: &TableBox, edge: &EdgeSpec) -> EdgeGeometry {
     let child_y = child.y + HEADER_H + edge.child_row as f64 * ROW_H + ROW_H / 2.0;
     let parent_y = parent.y + HEADER_H + edge.parent_row as f64 * ROW_H + ROW_H / 2.0;
     let (sx, sy, ex, ey, sdir, edir) = pick_anchors(child, parent, child_y, parent_y);
@@ -81,7 +77,15 @@ pub(super) fn render_edge_path(
     edge: &EdgeSpec,
     geom: EdgeGeometry,
 ) {
-    let path = bezier_path(geom.sx, geom.sy, geom.ex, geom.ey, geom.sdir, geom.edir, geom.curvature);
+    let path = bezier_path(
+        geom.sx,
+        geom.sy,
+        geom.ex,
+        geom.ey,
+        geom.sdir,
+        geom.edir,
+        geom.curvature,
+    );
 
     // Two-layer stroke: subtle wide halo + crisp narrow stroke for a soft look.
     let _ = writeln!(
@@ -98,16 +102,19 @@ pub(super) fn render_edge_path(
     );
 }
 
-pub(super) fn render_edge_label(
-    out: &mut String,
-    edge: &EdgeSpec,
-    geom: EdgeGeometry,
-) {
+pub(super) fn render_edge_label(out: &mut String, edge: &EdgeSpec, geom: EdgeGeometry) {
     // Label position is spread along the curve for parallel edges so the
     // cardinality badges no longer stack on top of one another.
     let label_t = label_t_for_parallel(edge.parallel_index, edge.parallel_count);
     let (label_x, label_y) = bezier_at(
-        geom.sx, geom.sy, geom.ex, geom.ey, geom.sdir, geom.edir, geom.curvature, label_t,
+        geom.sx,
+        geom.sy,
+        geom.ex,
+        geom.ey,
+        geom.sdir,
+        geom.edir,
+        geom.curvature,
+        label_t,
     );
 
     // Pill-shaped white background guarantees the label stays readable when

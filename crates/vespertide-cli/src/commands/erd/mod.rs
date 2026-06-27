@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::ValueEnum;
 use vespertide_core::schema::foreign_key::ForeignKeySyntax;
+use vespertide_core::schema::names::names_to_strings;
 use vespertide_core::schema::primary_key::PrimaryKeySyntax;
 use vespertide_core::{ColumnDef, ReferenceAction, StrOrBoolOrArray, TableConstraint, TableDef};
 
@@ -195,9 +196,9 @@ pub(super) fn collect_foreign_key_relations(tables: &[TableDef]) -> BTreeSet<For
                 };
                 relations.insert(build_foreign_key_relation(
                     table,
-                    column_names_to_strings(columns),
+                    names_to_strings(columns),
                     ref_table.to_string(),
-                    column_names_to_strings(ref_columns),
+                    names_to_strings(ref_columns),
                     on_delete.clone(),
                     on_update.clone(),
                     parent_table,
@@ -305,7 +306,7 @@ fn inline_foreign_key_relation(
         }
         ForeignKeySyntax::Object(definition) => (
             definition.ref_table.to_string(),
-            column_names_to_strings(&definition.ref_columns),
+            names_to_strings(&definition.ref_columns),
             definition.on_delete.clone(),
             definition.on_update.clone(),
         ),
@@ -429,7 +430,7 @@ fn primary_key_columns(table: &TableDef) -> Vec<String> {
             None
         }
     }) {
-        return column_names_to_strings(&columns);
+        return names_to_strings(&columns);
     }
 
     table
@@ -446,7 +447,7 @@ fn foreign_key_column_groups(table: &TableDef) -> Vec<Vec<String>> {
         if let TableConstraint::ForeignKey { columns, .. } = constraint
             && !groups.iter().any(|group| same_column_set(group, columns))
         {
-            groups.push(column_names_to_strings(columns));
+            groups.push(names_to_strings(columns));
         }
     }
 
@@ -518,13 +519,6 @@ fn same_column_set<T: AsRef<str>, U: AsRef<str>>(left: &[T], right: &[U]) -> boo
     let left: BTreeSet<&str> = left.iter().map(AsRef::as_ref).collect();
     let right: BTreeSet<&str> = right.iter().map(AsRef::as_ref).collect();
     left == right
-}
-
-fn column_names_to_strings<T: AsRef<str>>(columns: &[T]) -> Vec<String> {
-    columns
-        .iter()
-        .map(|column| column.as_ref().to_string())
-        .collect()
 }
 
 fn normalized_filter_names(names: &[String]) -> Vec<String> {

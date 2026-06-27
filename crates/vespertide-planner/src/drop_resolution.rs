@@ -151,6 +151,23 @@ pub fn find_drop_resolutions(plan: &MigrationPlan, baseline: &[TableDef]) -> Vec
     out
 }
 
+/// Locate a column in the baseline schema by table and column name.
+///
+/// Folds the two open-coded `baseline.iter().find(...).and_then(...)` chains
+/// in this module (`resolve_column_drop`, `apply_column_rename`) into a single
+/// named helper. Returns a borrowed `&ColumnDef`; callers `.cloned()` when
+/// they need ownership.
+fn find_baseline_column<'a>(
+    baseline: &'a [TableDef],
+    table: &str,
+    column: &str,
+) -> Option<&'a ColumnDef> {
+    baseline
+        .iter()
+        .find(|t| t.name == table)
+        .and_then(|t| t.columns.iter().find(|c| c.name == column))
+}
+
 fn resolve_column_drop(
     action_index: usize,
     table: &str,
@@ -162,10 +179,7 @@ fn resolve_column_drop(
     // against the candidates. If baseline lookup fails we still emit a
     // resolution — the user will see a Drop / Cancel prompt with no
     // candidates rather than crash.
-    let dropped = baseline
-        .iter()
-        .find(|t| t.name == table)
-        .and_then(|t| t.columns.iter().find(|c| c.name == column));
+    let dropped = find_baseline_column(baseline, table, column);
 
     let column_type = dropped.map_or_else(|| "(unknown)".to_string(), render_column_type);
 
@@ -452,11 +466,7 @@ fn apply_column_rename(
     };
 
     // Look up the old column's properties in the baseline.
-    let baseline_col = baseline
-        .iter()
-        .find(|t| t.name == table)
-        .and_then(|t| t.columns.iter().find(|c| c.name == old_column))
-        .cloned();
+    let baseline_col = find_baseline_column(baseline, table, old_column).cloned();
 
     // Compute follow-up actions BEFORE mutating the plan so we can append
     // them in a deterministic order right after the RenameColumn.

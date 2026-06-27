@@ -5,8 +5,8 @@
 //! `tests/mod.rs` entry can reuse the same implementation.
 
 use vespertide_core::{
-    CheckViolationStrategy, ColumnDef, ColumnType, MigrationAction, MigrationPlan, SimpleColumnType,
-    TableConstraint, TableDef,
+    CheckViolationStrategy, ColumnDef, ColumnType, MigrationAction, MigrationPlan,
+    SimpleColumnType, TableConstraint, TableDef,
 };
 
 /// Default test column (NOT NULL). Mirrors the production convention that

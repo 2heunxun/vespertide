@@ -328,10 +328,7 @@ fn test_build_action_queries_modify_column_nullable(#[case] backend: DatabaseBac
     assert!(sql.contains("UPDATE"));
     assert!(sql.contains("unknown"));
 
-    let suffix = format!(
-        "{}_modify_nullable",
-        backend_tag(backend)
-    );
+    let suffix = format!("{}_modify_nullable", backend_tag(backend));
 
     with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => suffix }, {
         assert_snapshot!(sql);
@@ -377,10 +374,7 @@ fn test_build_action_queries_modify_column_default(#[case] backend: DatabaseBack
     // Should contain DEFAULT and 'active'
     assert!(sql.contains("DEFAULT") || sql.contains("active"));
 
-    let suffix = format!(
-        "{}_modify_default",
-        backend_tag(backend)
-    );
+    let suffix = format!("{}_modify_default", backend_tag(backend));
 
     with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => suffix }, {
         assert_snapshot!(sql);
@@ -426,10 +420,7 @@ fn test_build_action_queries_modify_column_comment(#[case] backend: DatabaseBack
         assert!(sql.contains("COMMENT") || sql.contains("User email address"));
     }
 
-    let suffix = format!(
-        "{}_modify_comment",
-        backend_tag(backend)
-    );
+    let suffix = format!("{}_modify_comment", backend_tag(backend));
 
     with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => suffix }, {
         assert_snapshot!(sql);
@@ -588,10 +579,7 @@ fn test_replace_fk_constraint(#[case] backend: DatabaseBackend) {
         .collect::<Vec<_>>()
         .join(";\n");
 
-    let suffix = format!(
-        "replace_fk_constraint_{}",
-        backend_tag(backend)
-    );
+    let suffix = format!("replace_fk_constraint_{}", backend_tag(backend));
 
     with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => suffix }, {
         assert_snapshot!(sql);

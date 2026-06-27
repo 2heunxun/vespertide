@@ -133,9 +133,7 @@ mod tests {
     use super::*;
     use crate::test_support::{col_int, plan};
     use rstest::rstest;
-    use vespertide_core::{
-        ColumnDef, MigrationAction, TableConstraint, TableDef, TableName,
-    };
+    use vespertide_core::{ColumnDef, MigrationAction, TableConstraint, TableDef, TableName};
 
     fn table(name: &str, cols: Vec<ColumnDef>) -> TableDef {
         TableDef {
@@ -170,7 +168,10 @@ mod tests {
     #[rstest]
     fn case_01_existing_nullable_column_flagged_with_nullify_available() {
         // Child column exists in baseline and is nullable -> warning + NullifyOrphans valid.
-        let baseline = vec![table("posts", vec![col_int("id", false), col_int("user_id", true)])];
+        let baseline = vec![table(
+            "posts",
+            vec![col_int("id", false), col_int("user_id", true)],
+        )];
         let p = plan(vec![add_fk(
             "posts",
             Some("fk_user"),
@@ -238,7 +239,10 @@ mod tests {
     #[rstest]
     fn case_05_composite_fk_mixed_existing_and_new_skipped() {
         // Composite FK with one new column -> Edge #1's responsibility, skipped here.
-        let baseline = vec![table("audit", vec![col_int("id", false), col_int("team_id", true)])];
+        let baseline = vec![table(
+            "audit",
+            vec![col_int("id", false), col_int("team_id", true)],
+        )];
         let p = plan(vec![add_fk(
             "audit",
             None,
@@ -307,7 +311,10 @@ mod tests {
     /// action variant in addition to the warned one.
     #[rstest]
     fn case_09_mixed_plan_only_emits_fk_warning_and_skips_other_actions() {
-        let baseline = vec![table("posts", vec![col_int("id", false), col_int("user_id", true)])];
+        let baseline = vec![table(
+            "posts",
+            vec![col_int("id", false), col_int("user_id", true)],
+        )];
         let p = plan(vec![
             // 0: AddConstraint Unique - not a FK, hits let-else continue
             MigrationAction::AddConstraint {
