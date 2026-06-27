@@ -439,7 +439,9 @@ fn check_enum_shape(
         return;
     }
 
-    let values_pair = values_pair.unwrap();
+    let Some(values_pair) = values_pair else {
+        return;
+    };
     if let Some(values_value_raw) = values_pair.named_child(1) {
         let values_value = unwrap_yaml_node(values_value_raw);
         if !matches!(

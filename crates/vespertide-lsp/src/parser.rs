@@ -70,8 +70,16 @@ impl ParserPool {
     #[must_use]
     pub fn parse(&self, text: &str, format: DocumentFormat) -> Option<Tree> {
         match format {
-            DocumentFormat::Json => self.json.lock().unwrap().parse(text, None),
-            DocumentFormat::Yaml => self.yaml.lock().unwrap().parse(text, None),
+            DocumentFormat::Json => self
+                .json
+                .lock()
+                .expect("ParserPool lock poisoned — invariant: tree_sitter::Parser::parse must not panic")
+                .parse(text, None),
+            DocumentFormat::Yaml => self
+                .yaml
+                .lock()
+                .expect("ParserPool lock poisoned — invariant: tree_sitter::Parser::parse must not panic")
+                .parse(text, None),
         }
     }
 }

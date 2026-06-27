@@ -93,7 +93,7 @@ pub fn build_add_column(
             .into_table(Alias::new(&temp_table))
             .columns(columns_alias)
             .select_from(select_query)
-            .unwrap()
+            .expect("SQLite temp table copy SELECT should be valid")
             .to_owned();
         let insert_query = BuiltQuery::Insert(Box::new(insert_stmt));
 
