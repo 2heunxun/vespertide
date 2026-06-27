@@ -215,6 +215,36 @@ impl TableName {
     }
 }
 
+/// Convert any slice of stringy items (typically a `Vec<ColumnName>`) into
+/// a `Vec<String>` — hoisted out of 14+ verbatim
+/// `xxx.iter().map(ToString::to_string).collect()` chains across the planner
+/// and query crates.
+///
+/// The generic bound `T: ToString` keeps the helper usable with both the
+/// 0.2.0 [`ColumnName`] newtype (where `Display` produces the bare
+/// identifier) and the older `&str` / `String` aliases that still sit
+/// behind a few `Vec<&&str>` collect call sites.
+///
+/// ```rust
+/// use vespertide_core::schema::names::{ColumnName, names_to_strings};
+///
+/// let cols: Vec<ColumnName> = vec!["a".into(), "b".into()];
+/// assert_eq!(names_to_strings(&cols), vec!["a".to_string(), "b".to_string()]);
+///
+/// // Works with `&str` slices too — same `ToString` bound, no allocation
+/// // change versus the inline pattern.
+/// let strs = ["x", "y", "z"];
+/// assert_eq!(names_to_strings(&strs), vec!["x".to_string(), "y".to_string(), "z".to_string()]);
+///
+/// // Empty slice is the canonical empty `Vec<String>`.
+/// let empty: Vec<ColumnName> = vec![];
+/// assert_eq!(names_to_strings(&empty), Vec::<String>::new());
+/// ```
+#[must_use]
+pub fn names_to_strings<T: ToString>(names: &[T]) -> Vec<String> {
+    names.iter().map(ToString::to_string).collect()
+}
+
 /// Join a slice of [`ColumnName`]s with a separator using a single buffer
 /// — no intermediate `Vec<String>` allocation.
 ///
@@ -329,5 +359,25 @@ mod tests {
 
         let composite: Vec<ColumnName> = vec!["tenant_id".into(), "user_id".into()];
         assert_eq!(join_column_names(&composite, "_"), "tenant_id_user_id");
+    }
+
+    /// `names_to_strings` empty-slice produces an empty `Vec<String>`. Locks
+    /// the same empty-input contract previously baked into the inline
+    /// `xxx.iter().map(ToString::to_string).collect()` form at every replaced
+    /// callsite.
+    #[test]
+    fn names_to_strings_empty_returns_empty_vec() {
+        let cols: Vec<ColumnName> = vec![];
+        assert_eq!(names_to_strings(&cols), Vec::<String>::new());
+    }
+
+    /// `names_to_strings` on a populated slice produces the canonical
+    /// per-element `to_string()` output in source order — the contract every
+    /// planner / query crate call site silently depended on.
+    #[test]
+    fn names_to_strings_two_element_case() {
+        let cols: Vec<ColumnName> = vec!["a".into(), "b".into()];
+        let out = names_to_strings(&cols);
+        assert_eq!(out, vec!["a".to_string(), "b".to_string()]);
     }
 }

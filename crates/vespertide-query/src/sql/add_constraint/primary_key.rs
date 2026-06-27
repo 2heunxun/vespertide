@@ -1,4 +1,6 @@
-use vespertide_core::{KeepPolicy, PrimaryKeyAdditionStrategy, TableConstraint};
+use vespertide_core::{
+    KeepPolicy, PrimaryKeyAdditionStrategy, TableConstraint, schema::names::names_to_strings,
+};
 
 use super::super::helpers::{quote_ident, quote_idents};
 use super::super::types::{BuiltQuery, DatabaseBackend, RawSql};
@@ -98,7 +100,7 @@ fn try_resolve_single_pk_column<T: AsRef<str>>(
         .iter()
         .find_map(|c| {
             if let TableConstraint::PrimaryKey { columns, .. } = c {
-                Some(columns.iter().map(ToString::to_string).collect())
+                Some(names_to_strings(columns))
             } else {
                 None
             }

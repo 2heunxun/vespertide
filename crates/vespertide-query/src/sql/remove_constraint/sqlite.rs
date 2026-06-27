@@ -3,6 +3,7 @@ use vespertide_core::{TableConstraint, TableDef};
 use crate::error::QueryError;
 use crate::sql::helpers::{
     build_copy_into_temp_table, build_sqlite_temp_table_create, recreate_indexes_after_rebuild,
+    require_table_in_schema,
 };
 use crate::sql::rename_table::build_rename_table;
 use crate::sql::types::{BuiltQuery, DatabaseBackend};
@@ -23,7 +24,11 @@ pub fn build_remove_constraint(
     current_schema: &[TableDef],
     pending_constraints: &[TableConstraint],
 ) -> Result<Vec<BuiltQuery>, QueryError> {
-    let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::SchemaError(format!("Table '{table}' not found in current schema. SQLite requires current schema information to remove constraints.")))?;
+    let table_def = require_table_in_schema(
+        current_schema,
+        table,
+        "SQLite requires current schema information to remove constraints",
+    )?;
 
     let new_constraints = constraints_without(table_def, constraint);
     let constraints_to_recreate = if matches!(constraint, TableConstraint::Unique { .. }) {

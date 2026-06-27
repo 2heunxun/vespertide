@@ -932,6 +932,7 @@ use vespertide_core::{TableConstraint, TableDef};
 
 use super::helpers::{
     build_copy_into_temp_table, build_sqlite_temp_table_create, recreate_indexes_after_rebuild,
+    require_table_in_schema,
 };
 use super::rename_table::build_rename_table;
 use super::types::{BuiltQuery, DatabaseBackend};
@@ -1078,7 +1079,11 @@ pub(super) fn rebuild_sqlite_table_with_added_constraint(
     current_schema: &[TableDef],
     pending_constraints: &[TableConstraint],
 ) -> Result<Vec<BuiltQuery>, QueryError> {
-    let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::SchemaError(format!("Table '{table}' not found in current schema. SQLite requires current schema information to add constraints.")))?;
+    let table_def = require_table_in_schema(
+        current_schema,
+        table,
+        "SQLite requires current schema information to add constraints",
+    )?;
     let new_constraints = merge_constraint(&table_def.constraints, constraint);
     let temp_table = format!("{table}_temp");
     let create_query = build_sqlite_temp_table_create(

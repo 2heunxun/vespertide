@@ -302,12 +302,13 @@ fn table_candidate(
 
     let mut differences = Vec::new();
     if !only_in_baseline.is_empty() {
-        let mut names: Vec<String> = only_in_baseline.iter().map(ToString::to_string).collect();
+        let mut names: Vec<String> =
+            vespertide_core::schema::names::names_to_strings(&only_in_baseline);
         names.sort();
         differences.push(format!("removed columns: {}", names.join(", ")));
     }
     if !only_in_new.is_empty() {
-        let mut names: Vec<String> = only_in_new.iter().map(ToString::to_string).collect();
+        let mut names: Vec<String> = vespertide_core::schema::names::names_to_strings(&only_in_new);
         names.sort();
         differences.push(format!("added columns: {}", names.join(", ")));
     }

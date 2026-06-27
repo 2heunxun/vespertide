@@ -5,6 +5,7 @@ use vespertide_core::{ColumnType, TableConstraint, TableDef};
 use crate::error::QueryError;
 use crate::sql::helpers::{
     build_copy_into_temp_table, build_sqlite_temp_table_create, recreate_indexes_after_rebuild,
+    require_table_in_schema,
 };
 use crate::sql::rename_table::build_rename_table;
 use crate::sql::types::{BuiltQuery, DatabaseBackend};
@@ -20,7 +21,11 @@ pub(super) fn build_modify_column_type_sqlite_temp_table(
     pending_constraints: &[TableConstraint],
 ) -> Result<Vec<BuiltQuery>, QueryError> {
     // Current schema information is required
-    let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::SchemaError(format!("Table '{table}' not found in current schema. SQLite requires current schema information to modify column types.")))?;
+    let table_def = require_table_in_schema(
+        current_schema,
+        table,
+        "SQLite requires current schema information to modify column types",
+    )?;
 
     // Create new column definitions with the modified column
     let mut new_columns = table_def.columns.clone();

@@ -5,6 +5,7 @@ use sea_query::{
 
 use vespertide_core::{
     ColumnDef, ColumnType, ComplexColumnType, ReferenceAction, SimpleColumnType, TableConstraint,
+    TableDef,
 };
 
 use super::create_table::build_create_table_for_backend;
@@ -750,6 +751,27 @@ pub fn quote_idents<T: AsRef<str>>(names: &[T], backend: DatabaseBackend) -> Str
     out
 }
 
+/// Look up `table` in `current_schema` and return a reference to its
+/// [`TableDef`], or a uniform `QueryError::SchemaError` describing why the
+/// lookup is mandatory for the calling backend.
+///
+/// Centralises the six SQL-builder call sites that previously open-coded
+/// the same `current_schema.iter().find(...).ok_or_else(...)` chain. The
+/// emitted message is `"Table '{table}' not found in current schema.
+/// {context}."` — pass `context` WITHOUT a trailing period so the helper
+/// is the single source of truth for the sentence terminator.
+pub(crate) fn require_table_in_schema<'a>(
+    schema: &'a [TableDef],
+    table: &str,
+    context: &str,
+) -> Result<&'a TableDef, crate::QueryError> {
+    schema.iter().find(|t| t.name == table).ok_or_else(|| {
+        crate::QueryError::SchemaError(format!(
+            "Table '{table}' not found in current schema. {context}."
+        ))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -778,6 +800,37 @@ mod tests {
         assert!(
             matches!(query, BuiltQuery::CreateTable(_)),
             "empty-checks branch must return BuiltQuery::CreateTable"
+        );
+    }
+
+    /// `require_table_in_schema` returns the matching table when present.
+    #[test]
+    fn require_table_in_schema_hit_returns_table_ref() {
+        let schema = vec![TableDef {
+            name: "users".into(),
+            description: None,
+            columns: vec![],
+            constraints: vec![],
+        }];
+        let table_def = require_table_in_schema(&schema, "users", "test context")
+            .expect("table 'users' should be found in the schema");
+        assert_eq!(table_def.name.as_str(), "users");
+    }
+
+    /// `require_table_in_schema` emits the canonical `SchemaError`
+    /// message — same template as every replaced call site, so wire-error
+    /// output stays byte-identical for callers and downstream tests.
+    #[test]
+    fn require_table_in_schema_miss_emits_canonical_message() {
+        let schema: Vec<TableDef> = vec![];
+        let err = require_table_in_schema(&schema, "missing", "SQLite requires test context")
+            .expect_err("missing table must error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains(
+                "Table 'missing' not found in current schema. SQLite requires test context."
+            ),
+            "expected canonical message with trailing period, got: {msg}"
         );
     }
 }

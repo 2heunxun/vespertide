@@ -28,7 +28,9 @@
 
 use std::collections::HashSet;
 
-use vespertide_core::{ColumnName, MigrationAction, MigrationPlan, TableConstraint, TableDef};
+use vespertide_core::{
+    MigrationAction, MigrationPlan, TableConstraint, TableDef, schema::names::names_to_strings,
+};
 
 /// One risky FK addition needing user resolution.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,18 +118,14 @@ pub fn find_fk_orphan_additions(
             action_index: idx,
             table: table.to_string(),
             constraint_name: name.clone(),
-            columns: columns_to_strings(columns),
+            columns: names_to_strings(columns),
             ref_table: ref_table.to_string(),
-            ref_columns: columns_to_strings(ref_columns),
+            ref_columns: names_to_strings(ref_columns),
             all_columns_nullable,
         });
     }
 
     out
-}
-
-fn columns_to_strings(cols: &[ColumnName]) -> Vec<String> {
-    cols.iter().map(ToString::to_string).collect()
 }
 
 #[cfg(test)]
@@ -330,19 +328,5 @@ mod tests {
         let ws = find_fk_orphan_additions(&p, &baseline);
         assert_eq!(ws.len(), 1);
         assert_eq!(ws[0].action_index, 2);
-    }
-
-    /// Coverage-closure: ensure `columns_to_strings` produces the expected
-    /// owned String list, including the empty-input edge case (defensive
-    /// helper contract).
-    #[rstest]
-    fn case_10_columns_to_strings_helper_contract() {
-        let empty: Vec<ColumnName> = vec![];
-        assert!(columns_to_strings(&empty).is_empty());
-        let some: Vec<ColumnName> = vec!["a".into(), "b".into()];
-        assert_eq!(
-            columns_to_strings(&some),
-            vec!["a".to_string(), "b".to_string()]
-        );
     }
 }

@@ -5,6 +5,7 @@ use vespertide_core::{ColumnDef, TableDef};
 use super::helpers::{
     build_copy_into_temp_table, build_sea_column_def_with_table, build_sqlite_temp_table_create,
     convert_default_for_backend, normalize_fill_with, quote_ident, recreate_indexes_after_rebuild,
+    require_table_in_schema,
 };
 use super::rename_table::build_rename_table;
 use super::types::{BuiltQuery, DatabaseBackend, RawSql};
@@ -61,7 +62,11 @@ pub fn build_modify_column_nullable(
         DatabaseBackend::MySql => {
             // MySQL requires the full column definition in MODIFY COLUMN
             // We need to get the column type from current schema
-            let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::SchemaError(format!("Table '{table}' not found in current schema. MySQL requires current schema information to modify column nullability.")))?;
+            let table_def = require_table_in_schema(
+                current_schema,
+                table,
+                "MySQL requires current schema information to modify column nullability",
+            )?;
 
             let column_def = table_def.columns.iter().find(|c| c.name == column).ok_or_else(|| QueryError::SchemaError(format!("Column '{column}' not found in table '{table}'. MySQL requires column information to modify nullability.")))?;
 
@@ -83,7 +88,11 @@ pub fn build_modify_column_nullable(
         DatabaseBackend::Sqlite => {
             // SQLite doesn't support ALTER COLUMN for nullability changes
             // Use temporary table approach
-            let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::SchemaError(format!("Table '{table}' not found in current schema. SQLite requires current schema information to modify column nullability.")))?;
+            let table_def = require_table_in_schema(
+                current_schema,
+                table,
+                "SQLite requires current schema information to modify column nullability",
+            )?;
 
             // Create modified columns with the new nullability
             let mut new_columns = table_def.columns.clone();

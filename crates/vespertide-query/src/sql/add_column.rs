@@ -5,7 +5,7 @@ use vespertide_core::{ColumnDef, TableDef};
 use super::helpers::{
     build_create_enum_type_sql, build_sea_column_def_with_table, build_sqlite_temp_table_create,
     convert_default_for_backend, normalize_enum_default, normalize_fill_with,
-    recreate_indexes_after_rebuild,
+    recreate_indexes_after_rebuild, require_table_in_schema,
 };
 use super::rename_table::build_rename_table;
 use super::types::{BuiltQuery, DatabaseBackend};
@@ -45,7 +45,11 @@ pub fn build_add_column(
         backend == DatabaseBackend::Sqlite && (!column.nullable || is_enum_column(column));
 
     if sqlite_needs_recreation {
-        let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::SchemaError(format!("Table '{table}' not found in current schema. SQLite requires current schema information to add columns.")))?;
+        let table_def = require_table_in_schema(
+            current_schema,
+            table,
+            "SQLite requires current schema information to add columns",
+        )?;
 
         let mut new_columns = table_def.columns.clone();
         new_columns.push(column.clone());

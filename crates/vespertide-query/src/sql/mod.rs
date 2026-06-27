@@ -52,7 +52,7 @@ pub fn build_action_queries(
 /// to avoid recreating indexes that will be created by future `AddConstraint` actions.
 #[expect(
     clippy::too_many_lines,
-    reason = "flat 14-variant MigrationAction dispatcher kept inline so the variant→builder mapping stays auditable; extracting individual arms scatters the routing logic"
+    reason = "flat 15-variant MigrationAction dispatcher kept inline so the variant→builder mapping stays auditable; extracting individual arms scatters the routing logic"
 )]
 pub fn build_action_queries_with_pending(
     backend: DatabaseBackend,
