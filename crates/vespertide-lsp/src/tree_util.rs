@@ -81,3 +81,62 @@ pub(crate) fn unwrap_yaml_node(node: tree_sitter::Node<'_>) -> tree_sitter::Node
     }
     current
 }
+
+/// Walk the parent chain looking for the nearest [`is_pair`] ancestor whose
+/// key (after [`crate::text_util::strip_quotes`]) equals `expected_key`.
+///
+/// Centralises the two byte-identical private copies that lived in
+/// `definition::foreign_key` and `completion::context`. Uses the safe
+/// `source.get(..)` form so mid-edit byte ranges that fall outside `source`
+/// return `None` instead of panicking — `tree_sitter` ranges and the
+/// document text can momentarily disagree while the user types.
+pub(crate) fn enclosing_pair_with_key<'tree>(
+    node: tree_sitter::Node<'tree>,
+    source: &str,
+    expected_key: &str,
+) -> Option<tree_sitter::Node<'tree>> {
+    let mut current = Some(node);
+    while let Some(candidate) = current {
+        if is_pair(candidate)
+            && let Some(key) = candidate.named_child(0)
+            && let Some(key_text) = source.get(key.byte_range())
+            && crate::text_util::strip_quotes(key_text) == expected_key
+        {
+            return Some(candidate);
+        }
+        current = candidate.parent();
+    }
+    None
+}
+
+/// Find a direct child pair of `object` whose key (after
+/// [`crate::text_util::strip_quotes`]) equals `target_key` and return the
+/// value-side byte slice **verbatim** (quotes preserved for quoted
+/// scalars).
+///
+/// Centralises the three byte-identical private copies that lived in
+/// `definition::foreign_key`, `completion::context`, and
+/// `references::resolver`. Each pre-existing caller already stripped
+/// quotes off the returned slice, so this helper deliberately keeps the
+/// raw form to preserve the existing call-site contract. Uses the safe
+/// `source.get(..)` form on both the key and value spans so a stale
+/// byte range mid-edit returns `None` instead of panicking.
+pub(crate) fn direct_child_value<'a>(
+    object: tree_sitter::Node<'_>,
+    source: &'a str,
+    target_key: &str,
+) -> Option<&'a str> {
+    let mut cursor = object.walk();
+    for child in object.children(&mut cursor) {
+        if is_pair(child)
+            && let Some(key) = child.named_child(0)
+            && let Some(key_text) = source.get(key.byte_range())
+            && crate::text_util::strip_quotes(key_text) == target_key
+            && let Some(value) = child.named_child(1)
+            && let Some(text) = source.get(value.byte_range())
+        {
+            return Some(text);
+        }
+    }
+    None
+}

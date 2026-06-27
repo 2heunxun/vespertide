@@ -1,7 +1,7 @@
 //! Resolve "what symbol is the cursor on?" for the references provider.
 
 use crate::text_util::strip_quotes;
-use crate::tree_util::node_at_byte;
+use crate::tree_util::{direct_child_value, node_at_byte};
 use tower_lsp_server::ls_types::Uri;
 
 use super::ReferenceSymbol;
@@ -192,26 +192,6 @@ fn enclosing_table_name(name_pair: tree_sitter::Node<'_>, source: &str) -> Optio
                 let value = child.named_child(1)?;
                 return Some(strip_quotes(source.get(value.byte_range())?).to_string());
             }
-        }
-    }
-    None
-}
-
-fn direct_child_value<'a>(
-    object: tree_sitter::Node<'_>,
-    source: &'a str,
-    target_key: &str,
-) -> Option<&'a str> {
-    let mut cursor = object.walk();
-    for child in object.children(&mut cursor) {
-        if matches!(child.kind(), "pair" | "block_mapping_pair")
-            && let Some(key) = child.named_child(0)
-            && let Some(key_text) = source.get(key.byte_range())
-            && strip_quotes(key_text) == target_key
-            && let Some(value) = child.named_child(1)
-            && let Some(text) = source.get(value.byte_range())
-        {
-            return Some(text);
         }
     }
     None

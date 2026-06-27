@@ -3,11 +3,7 @@ use std::collections::BTreeMap;
 use vespertide_core::{ColumnType, TableConstraint, TableDef};
 
 use crate::error::QueryError;
-use crate::sql::helpers::{
-    build_copy_into_temp_table, build_sqlite_temp_table_create, recreate_indexes_after_rebuild,
-    require_table_in_schema,
-};
-use crate::sql::rename_table::build_rename_table;
+use crate::sql::helpers::{build_sqlite_table_rebuild, require_table_in_schema};
 use crate::sql::types::{BuiltQuery, DatabaseBackend};
 
 /// Build the canonical `SQLite` temp-table rebuild sequence for column type changes.
@@ -20,14 +16,12 @@ pub(super) fn build_modify_column_type_sqlite_temp_table(
     current_schema: &[TableDef],
     pending_constraints: &[TableConstraint],
 ) -> Result<Vec<BuiltQuery>, QueryError> {
-    // Current schema information is required
     let table_def = require_table_in_schema(
         current_schema,
         table,
         "SQLite requires current schema information to modify column types",
     )?;
 
-    // Create new column definitions with the modified column
     let mut new_columns = table_def.columns.clone();
     let col_index = new_columns
         .iter()
@@ -35,43 +29,25 @@ pub(super) fn build_modify_column_type_sqlite_temp_table(
         .ok_or_else(|| {
             QueryError::SchemaError(format!("Column '{column}' not found in table '{table}'"))
         })?;
-
     new_columns[col_index].r#type = new_type.clone();
-
-    // Generate temporary table name
-    let temp_table = format!("{table}_temp");
-
-    // 1. Create temporary table with new column types + CHECK constraints
-    let create_query = build_sqlite_temp_table_create(
-        backend,
-        &temp_table,
-        table,
-        &new_columns,
-        &table_def.constraints,
-    );
-
-    // 2. Copy data (all columns) - Use INSERT INTO ... SELECT
-    let insert_query = build_copy_into_temp_table(table, &temp_table, &new_columns);
-
-    // 3. Drop original table
-    let drop_query = crate::sql::delete_table::build_delete_table(table);
-
-    // 4. Rename temporary table to original name
-    let rename_query = build_rename_table(&temp_table, table);
-
-    // 5. Recreate indexes (both regular and UNIQUE)
-    let index_queries =
-        recreate_indexes_after_rebuild(table, &table_def.constraints, pending_constraints);
 
     let mut queries = Vec::new();
 
-    // Insert fill_with UPDATE statements before table recreation
+    // Fill-with UPDATE statements run BEFORE the rebuild so the rows
+    // copied into the temp table already carry the remapped values.
     if let Some(fw) = fill_with {
         queries.extend(super::build_fill_with_updates(table, column, fw));
     }
 
-    queries.extend([create_query, insert_query, drop_query, rename_query]);
-    queries.extend(index_queries);
+    queries.extend(build_sqlite_table_rebuild(
+        backend,
+        table,
+        &new_columns,
+        &table_def.constraints,
+        &new_columns,
+        &table_def.constraints,
+        pending_constraints,
+    ));
 
     Ok(queries)
 }

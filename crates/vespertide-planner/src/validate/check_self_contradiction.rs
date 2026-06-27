@@ -250,17 +250,17 @@ fn compare_pair_contradicts(
     op_b: Op,
     vb: &Literal,
 ) -> Option<(String, String)> {
-    let cmp = literal_compare(va, vb)?; // Need ordered literals.
+    let cmp = va.cmp_value(vb)?; // Need ordered literals.
 
     // Equality conflict: col = X AND col = Y where X != Y.
     if op_a == Op::Eq && op_b == Op::Eq && cmp != Ordering::Equal {
-        return Some((format_literal(va), format_literal(vb)));
+        return Some((va.display_value(), vb.display_value()));
     }
     // Equality vs negation: col = X AND col != X.
     if (op_a == Op::Eq && op_b == Op::Ne || op_a == Op::Ne && op_b == Op::Eq)
         && cmp == Ordering::Equal
     {
-        return Some((format_literal(va), format_literal(vb)));
+        return Some((va.display_value(), vb.display_value()));
     }
 
     // Range impossibility: at most one direction each.
@@ -271,12 +271,12 @@ fn compare_pair_contradicts(
         (Op::Lt | Op::Le, Op::Gt | Op::Ge) => (op_b, vb, op_a, va),
         _ => return None,
     };
-    let lower_vs_upper = literal_compare(lower_val, upper_val)?;
+    let lower_vs_upper = lower_val.cmp_value(upper_val)?;
     let strict_boundary = lower_op == Op::Gt || upper_op == Op::Lt;
     let unsatisfiable = matches!(lower_vs_upper, Ordering::Greater)
         || strict_boundary && lower_vs_upper == Ordering::Equal;
     if unsatisfiable {
-        Some((format_literal(va), format_literal(vb)))
+        Some((va.display_value(), vb.display_value()))
     } else {
         None
     }
@@ -297,35 +297,8 @@ fn is_null_vs_other(column: &str, a: &CheckExpr, b: &CheckExpr) -> Option<(bool,
     Some((
         negated,
         format_is_null(column, negated),
-        format_compare(column, op, &format_literal(value)),
+        format_compare(column, op, &value.display_value()),
     ))
-}
-
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "F-novel-1 self-contradiction comparison: rounding integers beyond 2^53 acceptable; conservative comparator silently skips ambiguous cases"
-)]
-fn literal_compare(a: &Literal, b: &Literal) -> Option<Ordering> {
-    match (a, b) {
-        (Literal::Integer(x), Literal::Integer(y)) => Some(x.cmp(y)),
-        (Literal::Float(x), Literal::Float(y)) => x.partial_cmp(y),
-        (Literal::Integer(x), Literal::Float(y)) => (*x as f64).partial_cmp(y),
-        (Literal::Float(x), Literal::Integer(y)) => x.partial_cmp(&(*y as f64)),
-        (Literal::String(x), Literal::String(y)) => Some(x.cmp(y)),
-        (Literal::Bool(x), Literal::Bool(y)) => Some(x.cmp(y)),
-        // Mixed / Null: can't conclude.
-        _ => None,
-    }
-}
-
-fn format_literal(lit: &Literal) -> String {
-    match lit {
-        Literal::Integer(i) => i.to_string(),
-        Literal::Float(f) => f.to_string(),
-        Literal::String(s) => s.clone(),
-        Literal::Bool(b) => b.to_string(),
-        Literal::Null => "NULL".to_string(),
-    }
 }
 
 fn format_compare(column: &str, op: Op, value_text: &str) -> String {
@@ -794,51 +767,58 @@ mod tests {
         assert!(validate_self_contradiction(&t).is_err());
     }
 
-    /// L276-277, L283, L285, L286: direct unit tests for private
-    /// helpers (`i64_to_f64` reached via 266/267 above; `format_literal`
-    /// Float / Bool / Null arms via direct call).
+    /// Pin every reachable arm of `Literal::display_value` (the unified
+    /// fault-message formatter on `check_expr_parser::Literal`). Float /
+    /// Bool / Null arms aren't reached by the public flow because the
+    /// production path filters them upstream, so this is the canonical
+    /// regression test for those arms.
     #[test]
-    fn format_literal_covers_all_arms() {
-        assert_eq!(format_literal(&Literal::Integer(7)), "7");
-        assert_eq!(format_literal(&Literal::Float(1.5)), "1.5");
-        assert_eq!(format_literal(&Literal::String("'x'".into())), "'x'");
-        assert_eq!(format_literal(&Literal::Bool(true)), "true");
-        assert_eq!(format_literal(&Literal::Null), "NULL");
+    fn display_value_covers_all_arms() {
+        assert_eq!(Literal::Integer(7).display_value(), "7");
+        assert_eq!(Literal::Float(1.5).display_value(), "1.5");
+        assert_eq!(Literal::String("'x'".into()).display_value(), "'x'");
+        assert_eq!(Literal::Bool(true).display_value(), "true");
+        assert_eq!(Literal::Null.display_value(), "NULL");
     }
 
-    /// Direct unit test for literal_compare's reachable arms — lock
-    /// the Float/Float, Int/Float, Float/Int, Bool/Bool, String/String
-    /// behaviour and the mixed-type None fallthrough.
+    /// Lock every reachable arm of `Literal::cmp_value` (the unified
+    /// CHECK comparator) — `Integer/Integer`, `Float/Float`,
+    /// `Integer/Float`, `Float/Integer`, `String/String`, `Bool/Bool`,
+    /// and the mixed-type / Null silent-`None` fallthrough.
     #[test]
-    fn literal_compare_covers_all_reachable_arms() {
+    fn cmp_value_covers_all_reachable_arms() {
         use std::cmp::Ordering;
         assert_eq!(
-            literal_compare(&Literal::Integer(1), &Literal::Integer(2)),
+            Literal::Integer(1).cmp_value(&Literal::Integer(2)),
             Some(Ordering::Less)
         );
         assert_eq!(
-            literal_compare(&Literal::Float(1.0), &Literal::Float(2.0)),
+            Literal::Float(1.0).cmp_value(&Literal::Float(2.0)),
             Some(Ordering::Less)
         );
         assert_eq!(
-            literal_compare(&Literal::Integer(1), &Literal::Float(2.0)),
+            Literal::Integer(1).cmp_value(&Literal::Float(2.0)),
             Some(Ordering::Less)
         );
         assert_eq!(
-            literal_compare(&Literal::Float(2.0), &Literal::Integer(1)),
+            Literal::Float(2.0).cmp_value(&Literal::Integer(1)),
             Some(Ordering::Greater)
         );
         assert_eq!(
-            literal_compare(&Literal::String("a".into()), &Literal::String("b".into())),
+            Literal::String("a".into()).cmp_value(&Literal::String("b".into())),
             Some(Ordering::Less)
         );
         assert_eq!(
-            literal_compare(&Literal::Bool(false), &Literal::Bool(true)),
+            Literal::Bool(false).cmp_value(&Literal::Bool(true)),
             Some(Ordering::Less)
         );
         // Mixed-type returns None.
-        assert!(literal_compare(&Literal::Integer(1), &Literal::String("a".into())).is_none());
-        assert!(literal_compare(&Literal::Null, &Literal::Integer(1)).is_none());
+        assert!(
+            Literal::Integer(1)
+                .cmp_value(&Literal::String("a".into()))
+                .is_none()
+        );
+        assert!(Literal::Null.cmp_value(&Literal::Integer(1)).is_none());
     }
 
     /// L238: `_ => false,` inside the (lower_op, upper_op) match.

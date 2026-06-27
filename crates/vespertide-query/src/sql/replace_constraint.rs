@@ -2,11 +2,7 @@ use sea_query::{Alias, ForeignKey};
 
 use vespertide_core::{TableConstraint, TableDef};
 
-use super::helpers::{
-    build_copy_into_temp_table, build_sqlite_temp_table_create, recreate_indexes_after_rebuild,
-    require_table_in_schema, to_sea_fk_action,
-};
-use super::rename_table::build_rename_table;
+use super::helpers::{build_sqlite_table_rebuild, require_table_in_schema, to_sea_fk_action};
 use super::types::{BuiltQuery, DatabaseBackend};
 use crate::error::QueryError;
 
@@ -194,40 +190,22 @@ fn build_sqlite_constraint_replace(
         "SQLite requires current schema information to replace constraints",
     )?;
 
-    // Build new constraints: replace old constraint with new one
+    // Build new constraints: replace old constraint with new one.
     let new_constraints: Vec<TableConstraint> = table_def
         .constraints
         .iter()
         .map(|c| if c == from { to.clone() } else { c.clone() })
         .collect();
 
-    let temp_table = format!("{table}_temp");
-
-    // 1. Create temporary table with replaced constraint
-    let create_query = build_sqlite_temp_table_create(
+    Ok(build_sqlite_table_rebuild(
         backend,
-        &temp_table,
         table,
         &table_def.columns,
         &new_constraints,
-    );
-
-    // 2. Copy data (all columns)
-    let insert_query = build_copy_into_temp_table(table, &temp_table, &table_def.columns);
-
-    // 3. Drop original table
-    let drop_query = super::delete_table::build_delete_table(table);
-
-    // 4. Rename temporary table to original name
-    let rename_query = build_rename_table(&temp_table, table);
-
-    // 5. Recreate indexes (both regular and UNIQUE)
-    let index_queries =
-        recreate_indexes_after_rebuild(table, &table_def.constraints, pending_constraints);
-
-    let mut queries = vec![create_query, insert_query, drop_query, rename_query];
-    queries.extend(index_queries);
-    Ok(queries)
+        &table_def.columns,
+        &table_def.constraints,
+        pending_constraints,
+    ))
 }
 
 #[cfg(test)]

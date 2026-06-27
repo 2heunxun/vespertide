@@ -690,6 +690,64 @@ pub fn recreate_indexes_after_rebuild(
     queries
 }
 
+/// Build the canonical 5-step `SQLite` temp-table rebuild sequence:
+///
+/// 1. `CREATE TABLE {table}_temp(...)` from `create_columns` + `create_constraints`
+/// 2. `INSERT INTO {table}_temp ... SELECT FROM {table}` over `copy_columns`
+/// 3. `DROP TABLE {table}`
+/// 4. `ALTER TABLE {table}_temp RENAME TO {table}`
+/// 5. Recreate indexes / UNIQUE indexes from `recreate_constraints`
+///    minus anything already in `pending_constraints`
+///
+/// Centralises the seven open-coded call sites
+/// (`add_constraint::rebuild_sqlite_table_with_added_constraint`,
+/// `remove_constraint::sqlite::rebuild_table_without_constraint`,
+/// the `SQLite` arms of `modify_column_default` / `modify_column_nullable`,
+/// `modify_column_type::sqlite_rebuild::build_modify_column_type_sqlite_temp_table`,
+/// `replace_constraint::build_sqlite_constraint_replace`, and
+/// `delete_column::sqlite_rebuild::build_delete_column_sqlite_temp_table`)
+/// that previously re-emitted the same fixed four-statement vec + index
+/// extension by hand. Each call site keeps its surrounding context
+/// (`fill_with` UPDATEs, enum DROP TYPE, ...) OUTSIDE this helper — the
+/// helper covers only the invariant rebuild contract, so emitted SQL
+/// stays byte-identical to the previous open-coded sequences (every
+/// existing snapshot must continue to match without regeneration).
+///
+/// The seven slices ARE the rebuild contract; bundling them into a
+/// struct hides which slice plays which role at each call site, so
+/// the parameters stay flat (and sit exactly at clippy's default
+/// 7-arg threshold for `too_many_arguments`).
+pub(super) fn build_sqlite_table_rebuild(
+    backend: DatabaseBackend,
+    table: &str,
+    create_columns: &[ColumnDef],
+    create_constraints: &[TableConstraint],
+    copy_columns: &[ColumnDef],
+    recreate_constraints: &[TableConstraint],
+    pending_constraints: &[TableConstraint],
+) -> Vec<BuiltQuery> {
+    let temp_table = format!("{table}_temp");
+    let create_query = build_sqlite_temp_table_create(
+        backend,
+        &temp_table,
+        table,
+        create_columns,
+        create_constraints,
+    );
+    let insert_query = build_copy_into_temp_table(table, &temp_table, copy_columns);
+    let drop_query = super::delete_table::build_delete_table(table);
+    let rename_query = super::rename_table::build_rename_table(&temp_table, table);
+    let index_queries =
+        recreate_indexes_after_rebuild(table, recreate_constraints, pending_constraints);
+    let mut queries = Vec::with_capacity(4 + index_queries.len());
+    queries.push(create_query);
+    queries.push(insert_query);
+    queries.push(drop_query);
+    queries.push(rename_query);
+    queries.extend(index_queries);
+    queries
+}
+
 /// Extract enum name from column type if it's an enum
 pub fn get_enum_name(column_type: &ColumnType) -> Option<&str> {
     if let ColumnType::Complex(ComplexColumnType::Enum { name, .. }) = column_type {

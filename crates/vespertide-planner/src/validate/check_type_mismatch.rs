@@ -253,7 +253,7 @@ fn check_one(
         constraint_name: check_name.to_string(),
         column: column.to_string(),
         column_type_label: column_type_label(col_type),
-        literal_text: format_literal(literal),
+        literal_text: literal.display_value(),
         literal_kind: literal_kind_name(literal).to_string(),
         expr: expr_text.to_string(),
     });
@@ -425,16 +425,6 @@ fn literal_kind_name(lit: &Literal) -> &'static str {
         Literal::String(_) => "String",
         Literal::Bool(_) => "Bool",
         Literal::Null => "Null",
-    }
-}
-
-fn format_literal(lit: &Literal) -> String {
-    match lit {
-        Literal::Integer(i) => i.to_string(),
-        Literal::Float(f) => f.to_string(),
-        Literal::String(s) => s.clone(),
-        Literal::Bool(b) => b.to_string(),
-        Literal::Null => "NULL".to_string(),
     }
 }
 
@@ -957,22 +947,22 @@ mod tests {
     }
 
     /// Direct unit test for `literal_kind_name` Null arm (line 425) and
-    /// `format_literal` Null arm (line 435): these arms are unreachable
+    /// the unified `Literal::display_value` Null arm: both are unreachable
     /// from the public flow because `is_definitely_mismatch` returns
     /// false for `Null` literals before the formatters run.
     #[rstest]
-    fn literal_kind_name_and_format_literal_cover_null_and_float_arms() {
+    fn literal_kind_name_and_display_value_cover_null_and_float_arms() {
         assert_eq!(literal_kind_name(&Literal::Integer(1)), "Integer");
         assert_eq!(literal_kind_name(&Literal::Float(1.0)), "Float");
         assert_eq!(literal_kind_name(&Literal::String("x".into())), "String");
         assert_eq!(literal_kind_name(&Literal::Bool(true)), "Bool");
         assert_eq!(literal_kind_name(&Literal::Null), "Null");
 
-        assert_eq!(format_literal(&Literal::Integer(7)), "7");
-        assert_eq!(format_literal(&Literal::Float(1.5)), "1.5");
-        assert_eq!(format_literal(&Literal::String("alice".into())), "alice");
-        assert_eq!(format_literal(&Literal::Bool(false)), "false");
-        assert_eq!(format_literal(&Literal::Null), "NULL");
+        assert_eq!(Literal::Integer(7).display_value(), "7");
+        assert_eq!(Literal::Float(1.5).display_value(), "1.5");
+        assert_eq!(Literal::String("alice".into()).display_value(), "alice");
+        assert_eq!(Literal::Bool(false).display_value(), "false");
+        assert_eq!(Literal::Null.display_value(), "NULL");
     }
 
     #[rstest]

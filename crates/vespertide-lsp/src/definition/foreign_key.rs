@@ -15,7 +15,7 @@ use std::ops::Range;
 
 use crate::store::DocumentStore;
 use crate::text_util::strip_quotes;
-use crate::tree_util::is_pair;
+use crate::tree_util::{direct_child_value, enclosing_pair_with_key, is_pair};
 use crate::workspace_index::WorkspaceIndex;
 use crate::workspace_tables::WorkspaceTables;
 
@@ -160,41 +160,6 @@ fn enclosing_string(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>
             _ => {}
         }
         current = candidate.parent();
-    }
-    None
-}
-
-fn enclosing_pair_with_key<'tree>(
-    node: tree_sitter::Node<'tree>,
-    source: &str,
-    expected_key: &str,
-) -> Option<tree_sitter::Node<'tree>> {
-    let mut current = Some(node);
-    while let Some(candidate) = current {
-        if is_pair(candidate) && pair_key_is(candidate, source, expected_key) {
-            return Some(candidate);
-        }
-        current = candidate.parent();
-    }
-    None
-}
-
-fn pair_key_is(pair: tree_sitter::Node<'_>, source: &str, expected: &str) -> bool {
-    pair.named_child(0)
-        .is_some_and(|key| strip_quotes(&source[key.byte_range()]) == expected)
-}
-
-fn direct_child_value<'a>(
-    object: tree_sitter::Node<'_>,
-    source: &'a str,
-    target_key: &str,
-) -> Option<&'a str> {
-    let mut cursor = object.walk();
-    for child in object.children(&mut cursor) {
-        if is_pair(child) && pair_key_is(child, source, target_key) {
-            let value = child.named_child(1)?;
-            return Some(&source[value.byte_range()]);
-        }
     }
     None
 }

@@ -3,11 +3,9 @@ use sea_query::{Alias, Table};
 use vespertide_core::{ColumnDef, TableDef};
 
 use super::helpers::{
-    build_copy_into_temp_table, build_sea_column_def_with_table, build_sqlite_temp_table_create,
-    convert_default_for_backend, normalize_fill_with, quote_ident, recreate_indexes_after_rebuild,
-    require_column_in_table, require_table_in_schema,
+    build_sea_column_def_with_table, build_sqlite_table_rebuild, convert_default_for_backend,
+    normalize_fill_with, quote_ident, require_column_in_table, require_table_in_schema,
 };
-use super::rename_table::build_rename_table;
 use super::types::{BuiltQuery, DatabaseBackend, RawSql};
 use crate::error::QueryError;
 
@@ -86,49 +84,25 @@ pub fn build_modify_column_nullable(
             queries.push(BuiltQuery::AlterTable(Box::new(stmt)));
         }
         DatabaseBackend::Sqlite => {
-            // SQLite doesn't support ALTER COLUMN for nullability changes
-            // Use temporary table approach
+            // SQLite doesn't support ALTER COLUMN for nullability changes;
+            // use the canonical temp-table rebuild with the modified column.
             let table_def = require_table_in_schema(
                 current_schema,
                 table,
                 "SQLite requires current schema information to modify column nullability",
             )?;
 
-            // Create modified columns with the new nullability
             let mut new_columns = table_def.columns.clone();
             if let Some(col) = new_columns.iter_mut().find(|c| c.name == column) {
                 col.nullable = nullable;
             }
 
-            // Generate temporary table name
-            let temp_table = format!("{table}_temp");
-
-            // 1. Create temporary table with modified column + CHECK constraints
-            let create_query = build_sqlite_temp_table_create(
+            queries.extend(build_sqlite_table_rebuild(
                 backend,
-                &temp_table,
                 table,
                 &new_columns,
                 &table_def.constraints,
-            );
-            queries.push(create_query);
-
-            // 2. Copy data (all columns)
-            queries.push(build_copy_into_temp_table(
-                table,
-                &temp_table,
                 &table_def.columns,
-            ));
-
-            // 3. Drop original table
-            queries.push(super::delete_table::build_delete_table(table));
-
-            // 4. Rename temporary table to original name
-            queries.push(build_rename_table(&temp_table, table));
-
-            // 5. Recreate indexes (both regular and UNIQUE)
-            queries.extend(recreate_indexes_after_rebuild(
-                table,
                 &table_def.constraints,
                 pending_constraints,
             ));

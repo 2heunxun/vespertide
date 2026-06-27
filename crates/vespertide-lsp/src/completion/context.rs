@@ -6,7 +6,7 @@ use vespertide_planner::{CheckToken, CheckTokenKind, lex_check_expr};
 
 use crate::check_expr_range::expr_inner_range;
 use crate::text_util::strip_quotes;
-use crate::tree_util::is_pair;
+use crate::tree_util::{direct_child_value, enclosing_pair_with_key, is_pair};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Context {
@@ -603,39 +603,12 @@ fn collect_key_path(node: tree_sitter::Node<'_>, source: &str) -> Vec<String> {
 fn sibling_ref_table(node: tree_sitter::Node<'_>, source: &str) -> Option<String> {
     let ref_columns_pair = enclosing_pair_with_key(node, source, "ref_columns")?;
     let parent = ref_columns_pair.parent()?;
-    direct_child_value(parent, source, "ref_table").map(ToString::to_string)
-}
-
-fn enclosing_pair_with_key<'tree>(
-    node: tree_sitter::Node<'tree>,
-    source: &str,
-    expected: &str,
-) -> Option<tree_sitter::Node<'tree>> {
-    let mut current = Some(node);
-
-    while let Some(candidate) = current {
-        if is_pair(candidate) && key_text(candidate, source) == Some(expected) {
-            return Some(candidate);
-        }
-        current = candidate.parent();
-    }
-
-    None
-}
-
-fn direct_child_value<'source>(
-    node: tree_sitter::Node<'_>,
-    source: &'source str,
-    expected_key: &str,
-) -> Option<&'source str> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if is_pair(child) && key_text(child, source) == Some(expected_key) {
-            return value_text(child, source);
-        }
-    }
-
-    None
+    // Hoisted `direct_child_value` returns the verbatim value-side slice
+    // (quotes preserved), so strip them here to match the previous
+    // private-helper contract that already stripped via `value_text`.
+    direct_child_value(parent, source, "ref_table")
+        .map(strip_quotes)
+        .map(ToString::to_string)
 }
 
 fn key_text<'source>(
@@ -644,14 +617,6 @@ fn key_text<'source>(
 ) -> Option<&'source str> {
     let key = pair_node.named_child(0)?;
     source.get(key.byte_range()).map(strip_quotes)
-}
-
-fn value_text<'source>(
-    pair_node: tree_sitter::Node<'_>,
-    source: &'source str,
-) -> Option<&'source str> {
-    let value = pair_node.named_child(1)?;
-    source.get(value.byte_range()).map(strip_quotes)
 }
 
 fn node_at_byte(tree: &tree_sitter::Tree, byte_offset: usize) -> tree_sitter::Node<'_> {

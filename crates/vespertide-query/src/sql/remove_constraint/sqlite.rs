@@ -1,11 +1,7 @@
 use vespertide_core::{TableConstraint, TableDef};
 
 use crate::error::QueryError;
-use crate::sql::helpers::{
-    build_copy_into_temp_table, build_sqlite_temp_table_create, recreate_indexes_after_rebuild,
-    require_table_in_schema,
-};
-use crate::sql::rename_table::build_rename_table;
+use crate::sql::helpers::{build_sqlite_table_rebuild, require_table_in_schema};
 use crate::sql::types::{BuiltQuery, DatabaseBackend};
 
 pub fn requires_rebuild(constraint: &TableConstraint) -> bool {
@@ -124,24 +120,16 @@ fn rebuild_table_without_constraint(
     constraints_to_recreate: &[TableConstraint],
     pending_constraints: &[TableConstraint],
 ) -> Vec<BuiltQuery> {
-    let temp_table = format!("{table}_temp");
-
-    // SQLite has no native ALTER TABLE DROP CONSTRAINT. Keep the canonical rebuild sequence:
-    // create temp table, copy rows, drop original, rename temp, then recreate indexes.
-    let create_query = build_sqlite_temp_table_create(
+    // SQLite has no native ALTER TABLE DROP CONSTRAINT. Use the canonical
+    // rebuild sequence: create temp table without the removed constraint,
+    // copy rows, drop original, rename temp, then recreate indexes.
+    build_sqlite_table_rebuild(
         DatabaseBackend::Sqlite,
-        &temp_table,
         table,
         &table_def.columns,
         new_constraints,
-    );
-    let insert_query = build_copy_into_temp_table(table, &temp_table, &table_def.columns);
-    let drop_query = crate::sql::delete_table::build_delete_table(table);
-    let rename_query = build_rename_table(&temp_table, table);
-    let index_queries =
-        recreate_indexes_after_rebuild(table, constraints_to_recreate, pending_constraints);
-
-    let mut queries = vec![create_query, insert_query, drop_query, rename_query];
-    queries.extend(index_queries);
-    queries
+        &table_def.columns,
+        constraints_to_recreate,
+        pending_constraints,
+    )
 }

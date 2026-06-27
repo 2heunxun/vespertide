@@ -331,7 +331,7 @@ fn compare_strictness(
     }
     // Same operator family, tighter literal:
     if op1 == op2 {
-        let cmp = literal_compare(v1, v2)?;
+        let cmp = v1.cmp_value(v2)?;
         let tighter = match op1 {
             Op::Gt | Op::Ge => cmp == Ordering::Less, // newer literal is larger
             Op::Lt | Op::Le => cmp == Ordering::Greater, // newer literal is smaller
@@ -380,10 +380,10 @@ fn between_is_narrower(
     new_low: &Literal,
     new_high: &Literal,
 ) -> bool {
-    let Some(lo_cmp) = literal_compare(old_low, new_low) else {
+    let Some(lo_cmp) = old_low.cmp_value(new_low) else {
         return false;
     };
-    let Some(hi_cmp) = literal_compare(old_high, new_high) else {
+    let Some(hi_cmp) = old_high.cmp_value(new_high) else {
         return false;
     };
     // old_low <= new_low (new low is tighter or equal)
@@ -408,21 +408,6 @@ fn literal_equals(a: &Literal, b: &Literal) -> bool {
         (Literal::Bool(x), Literal::Bool(y)) => x == y,
         (Literal::Null, Literal::Null) => true,
         _ => false,
-    }
-}
-
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "F29 strictness comparison: rounding integers beyond 2^53 acceptable; F29 silent-passes on ambiguity"
-)]
-fn literal_compare(a: &Literal, b: &Literal) -> Option<Ordering> {
-    match (a, b) {
-        (Literal::Integer(x), Literal::Integer(y)) => Some(x.cmp(y)),
-        (Literal::Float(x), Literal::Float(y)) => x.partial_cmp(y),
-        (Literal::Integer(x), Literal::Float(y)) => (*x as f64).partial_cmp(y),
-        (Literal::Float(x), Literal::Integer(y)) => x.partial_cmp(&(*y as f64)),
-        (Literal::String(x), Literal::String(y)) => Some(x.cmp(y)),
-        _ => None,
     }
 }
 

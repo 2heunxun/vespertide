@@ -930,11 +930,7 @@ mod unique;
 
 use vespertide_core::{TableConstraint, TableDef};
 
-use super::helpers::{
-    build_copy_into_temp_table, build_sqlite_temp_table_create, recreate_indexes_after_rebuild,
-    require_table_in_schema,
-};
-use super::rename_table::build_rename_table;
+use super::helpers::{build_sqlite_table_rebuild, require_table_in_schema};
 use super::types::{BuiltQuery, DatabaseBackend};
 use crate::error::QueryError;
 
@@ -1085,20 +1081,13 @@ pub(super) fn rebuild_sqlite_table_with_added_constraint(
         "SQLite requires current schema information to add constraints",
     )?;
     let new_constraints = merge_constraint(&table_def.constraints, constraint);
-    let temp_table = format!("{table}_temp");
-    let create_query = build_sqlite_temp_table_create(
+    Ok(build_sqlite_table_rebuild(
         backend,
-        &temp_table,
         table,
         &table_def.columns,
         &new_constraints,
-    );
-    let insert_query = build_copy_into_temp_table(table, &temp_table, &table_def.columns);
-    let drop_query = super::delete_table::build_delete_table(table);
-    let rename_query = build_rename_table(&temp_table, table);
-    let index_queries =
-        recreate_indexes_after_rebuild(table, &table_def.constraints, pending_constraints);
-    let mut queries = vec![create_query, insert_query, drop_query, rename_query];
-    queries.extend(index_queries);
-    Ok(queries)
+        &table_def.columns,
+        &table_def.constraints,
+        pending_constraints,
+    ))
 }

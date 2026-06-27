@@ -124,6 +124,51 @@ pub enum Literal {
     Null,
 }
 
+impl Literal {
+    /// Total/partial order over comparable literal kinds.
+    ///
+    /// Returns `None` for mixed-kind pairs or anything involving `Null`
+    /// where no answer is sound. The conservative behaviour (silent-pass
+    /// on ambiguity) is shared by every CHECK validator that needs to
+    /// reason about ordering — F-novel-1 (self-contradiction), F29
+    /// (strengthening), and any future caller. Single source of truth for
+    /// `(Integer, Integer)` / `(Float, Float)` / mixed numeric /
+    /// `(String, String)` / `(Bool, Bool)` orderings.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "shared CHECK comparator: rounding integers beyond 2^53 acceptable; conservative comparator silently skips ambiguous cases"
+    )]
+    #[must_use]
+    pub(super) fn cmp_value(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match (self, other) {
+            (Literal::Integer(a), Literal::Integer(b)) => Some(a.cmp(b)),
+            (Literal::Float(a), Literal::Float(b)) => a.partial_cmp(b),
+            (Literal::Integer(a), Literal::Float(b)) => (*a as f64).partial_cmp(b),
+            (Literal::Float(a), Literal::Integer(b)) => a.partial_cmp(&(*b as f64)),
+            (Literal::String(a), Literal::String(b)) => Some(a.cmp(b)),
+            (Literal::Bool(a), Literal::Bool(b)) => Some(a.cmp(b)),
+            // Mixed kinds / Null: cannot conclude.
+            _ => None,
+        }
+    }
+
+    /// Render the literal as the canonical surface form used in CHECK
+    /// fault messages. `Null` renders as the SQL keyword `NULL`; every
+    /// other variant renders via its natural `Display` form. Single
+    /// source of truth for fault-message rendering across the
+    /// self-contradiction and type-mismatch validators.
+    #[must_use]
+    pub(super) fn display_value(&self) -> String {
+        match self {
+            Literal::Integer(i) => i.to_string(),
+            Literal::Float(f) => f.to_string(),
+            Literal::String(s) => s.clone(),
+            Literal::Bool(b) => b.to_string(),
+            Literal::Null => "NULL".to_string(),
+        }
+    }
+}
+
 // Bound recursive grouping so hostile CHECK strings cannot overflow
 // planner/LSP stacks; unsupported shapes conservatively become Unparseable.
 const MAX_CHECK_EXPR_DEPTH: usize = 64;
