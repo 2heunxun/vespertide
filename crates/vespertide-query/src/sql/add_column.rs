@@ -158,6 +158,7 @@ pub fn build_add_column(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::joined_sql;
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{ColumnType, SimpleColumnType, TableDef};
@@ -267,7 +268,7 @@ mod tests {
         }
 
         with_settings!({ snapshot_suffix => format!("add_column_{}", title) }, {
-            assert_snapshot!(result.iter().map(|q| q.build(backend)).collect::<Vec<String>>().join("\n"));
+            assert_snapshot!(joined_sql(backend, &result));
         });
     }
 
@@ -337,11 +338,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(DatabaseBackend::Sqlite, &queries);
         // Should use default value (18) for fill
         assert!(sql.contains("18"));
     }
@@ -385,11 +382,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(DatabaseBackend::Sqlite, &queries);
         // Should use NULL for fill
         assert!(sql.contains("NULL"));
     }
@@ -438,11 +431,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(DatabaseBackend::Sqlite, &queries);
         // Should recreate index
         assert!(sql.contains("CREATE INDEX"));
         assert!(sql.contains("idx_id"));
@@ -649,11 +638,7 @@ mod tests {
         }];
         let result =
             build_add_column(backend, "project", &column, None, &current_schema, &[]).unwrap();
-        let sql = result
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &result);
 
         // SQLite must NOT contain ::json syntax
         if backend == DatabaseBackend::Sqlite {

@@ -158,7 +158,7 @@ pub fn build_modify_column_default(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{col_n as col, table_def};
+    use crate::test_support::{backend_tag, col_n as col, table_def};
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{ColumnType, SimpleColumnType, TableConstraint};
@@ -195,11 +195,7 @@ mod tests {
 
         let suffix = format!(
             "{}_{}_users",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            },
+            backend_tag(backend),
             if new_default.is_some() {
                 "set_default"
             } else {
@@ -351,14 +347,7 @@ mod tests {
             assert!(sql.contains("idx_users_email"));
         }
 
-        let suffix = format!(
-            "{}_with_index",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            }
-        );
+        let suffix = format!("{}_with_index", backend_tag(backend));
 
         with_settings!({ snapshot_suffix => suffix }, {
             assert_snapshot!(sql);
@@ -400,14 +389,7 @@ mod tests {
             .collect::<Vec<String>>()
             .join("\n");
 
-        let suffix = format!(
-            "{}_change_default",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            }
-        );
+        let suffix = format!("{}_change_default", backend_tag(backend));
 
         with_settings!({ snapshot_suffix => suffix }, {
             assert_snapshot!(sql);
@@ -450,14 +432,7 @@ mod tests {
             .collect::<Vec<String>>()
             .join("\n");
 
-        let suffix = format!(
-            "{}_integer_default",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            }
-        );
+        let suffix = format!("{}_integer_default", backend_tag(backend));
 
         with_settings!({ snapshot_suffix => suffix }, {
             assert_snapshot!(sql);
@@ -500,14 +475,7 @@ mod tests {
             .collect::<Vec<String>>()
             .join("\n");
 
-        let suffix = format!(
-            "{}_boolean_default",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            }
-        );
+        let suffix = format!("{}_boolean_default", backend_tag(backend));
 
         with_settings!({ snapshot_suffix => suffix }, {
             assert_snapshot!(sql);
@@ -555,14 +523,7 @@ mod tests {
             .collect::<Vec<String>>()
             .join("\n");
 
-        let suffix = format!(
-            "{}_function_default",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            }
-        );
+        let suffix = format!("{}_function_default", backend_tag(backend));
 
         with_settings!({ snapshot_suffix => suffix }, {
             assert_snapshot!(sql);
@@ -604,14 +565,7 @@ mod tests {
             .collect::<Vec<String>>()
             .join("\n");
 
-        let suffix = format!(
-            "{}_drop_existing_default",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            }
-        );
+        let suffix = format!("{}_drop_existing_default", backend_tag(backend));
 
         with_settings!({ snapshot_suffix => suffix }, {
             assert_snapshot!(sql);

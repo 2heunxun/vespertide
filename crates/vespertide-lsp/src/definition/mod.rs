@@ -55,8 +55,8 @@ mod tests {
     use super::*;
     use crate::parser::{DocumentFormat, ParserPool};
     use crate::store::DocumentStore;
+    use crate::test_support::uri;
     use crate::workspace_index::WorkspaceIndex;
-    use std::str::FromStr;
 
     #[test]
     fn cross_file_go_to_def() {
@@ -64,7 +64,7 @@ mod tests {
         let idx = WorkspaceIndex::new();
         let docs = DocumentStore::new();
 
-        let user_uri = Uri::from_str("file:///user.json").unwrap();
+        let user_uri = uri("user.json");
         let user_src = r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true}]}"#;
         let user_tree = pool.parse(user_src, DocumentFormat::Json).unwrap();
         idx.upsert(&user_uri, user_src, &user_tree);
@@ -109,7 +109,7 @@ mod tests {
         let idx = WorkspaceIndex::new();
         let docs = DocumentStore::new();
 
-        let user_uri = Uri::from_str("file:///user.json").unwrap();
+        let user_uri = uri("user.json");
         let user_src = r#"{"name":"user","columns":[{"name":"id","type":"integer","nullable":false,"primary_key":true},{"name":"email","type":"text","nullable":false}]}"#;
         let user_tree = pool.parse(user_src, DocumentFormat::Json).unwrap();
         idx.upsert(&user_uri, user_src, &user_tree);
@@ -149,7 +149,7 @@ mod tests {
         let idx = WorkspaceIndex::new();
         let docs = DocumentStore::new();
 
-        let user_uri = Uri::from_str("file:///user.yaml").unwrap();
+        let user_uri = uri("user.yaml");
         let user_src =
             "name: user\ncolumns:\n  - name: id\n    type: integer\n    primary_key: true\n";
         let user_tree = pool.parse(user_src, DocumentFormat::Yaml).unwrap();
@@ -188,7 +188,7 @@ mod tests {
         let idx = WorkspaceIndex::new();
         let docs = DocumentStore::new();
 
-        let user_uri = Uri::from_str("file:///user.yaml").unwrap();
+        let user_uri = uri("user.yaml");
         let user_src = "name: user\ncolumns:\n  - name: id\n    type: integer\n    primary_key: true\n  - name: email\n    type: text\n";
         let user_tree = pool.parse(user_src, DocumentFormat::Yaml).unwrap();
         idx.upsert(&user_uri, user_src, &user_tree);

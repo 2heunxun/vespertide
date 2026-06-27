@@ -141,7 +141,7 @@ pub fn build_modify_column_nullable(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{col_n as col, table_def};
+    use crate::test_support::{backend_tag, col_n as col, table_def};
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{ColumnType, SimpleColumnType, TableConstraint};
@@ -194,11 +194,7 @@ mod tests {
 
         let suffix = format!(
             "{}_{}_users{}",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            },
+            backend_tag(backend),
             if nullable { "nullable" } else { "not_null" },
             if fill_with.is_some() {
                 "_with_fill"
@@ -309,14 +305,7 @@ mod tests {
             assert!(sql.contains("idx_email"));
         }
 
-        let suffix = format!(
-            "{}_with_index",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            }
-        );
+        let suffix = format!("{}_with_index", backend_tag(backend));
 
         with_settings!({ snapshot_suffix => suffix }, {
             assert_snapshot!(sql);
@@ -370,14 +359,7 @@ mod tests {
             "SQL should contain CURRENT_TIMESTAMP, got: {sql}"
         );
 
-        let suffix = format!(
-            "{}_fill_now",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            }
-        );
+        let suffix = format!("{}_fill_now", backend_tag(backend));
 
         with_settings!({ snapshot_suffix => suffix }, {
             assert_snapshot!(sql);
@@ -425,14 +407,7 @@ mod tests {
             assert!(sql.contains("DEFAULT"));
         }
 
-        let suffix = format!(
-            "{}_with_default",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            }
-        );
+        let suffix = format!("{}_with_default", backend_tag(backend));
 
         with_settings!({ snapshot_suffix => suffix }, {
             assert_snapshot!(sql);
@@ -489,14 +464,7 @@ mod tests {
             "Should NOT contain UPDATE, got: {sql}"
         );
 
-        let suffix = format!(
-            "{}_delete_null_rows",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            }
-        );
+        let suffix = format!("{}_delete_null_rows", backend_tag(backend));
 
         with_settings!({ snapshot_suffix => suffix }, {
             assert_snapshot!(sql);

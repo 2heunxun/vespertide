@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::joined_sql;
 use vespertide_core::TableDef;
 
 #[test]
@@ -223,7 +224,7 @@ fn test_build_migration_action(
     }
 
     with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => format!("build_migration_action_{}", title) }, {
-        assert_snapshot!(result.iter().map(|q| q.build(backend)).collect::<Vec<String>>().join("\n"));
+        assert_snapshot!(joined_sql(backend, &result));
     });
 }
 
@@ -303,11 +304,7 @@ fn test_build_action_queries_modify_column_type(#[case] backend: DatabaseBackend
     }];
     let result = build_action_queries(backend, &action, &current_schema).unwrap();
     assert!(!result.is_empty());
-    let sql = result
-        .iter()
-        .map(|q| q.build(backend))
-        .collect::<Vec<String>>()
-        .join("\n");
+    let sql = joined_sql(backend, &result);
     assert!(sql.contains("ALTER TABLE"));
 
     with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => format!("modify_column_type_{:?}", backend) }, {
@@ -408,11 +405,7 @@ fn test_build_action_queries_add_constraint(#[case] backend: DatabaseBackend) {
     }];
     let result = build_action_queries(backend, &action, &current_schema).unwrap();
     assert!(!result.is_empty());
-    let sql = result
-        .iter()
-        .map(|q| q.build(backend))
-        .collect::<Vec<String>>()
-        .join("\n");
+    let sql = joined_sql(backend, &result);
     assert!(sql.contains("UNIQUE") || sql.contains("uq_email"));
 
     with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => format!("add_constraint_{:?}", backend) }, {
@@ -473,11 +466,7 @@ fn test_build_action_queries_remove_constraint(#[case] backend: DatabaseBackend)
     }];
     let result = build_action_queries(backend, &action, &current_schema).unwrap();
     assert!(!result.is_empty());
-    let sql = result
-        .iter()
-        .map(|q| q.build(backend))
-        .collect::<Vec<String>>()
-        .join("\n");
+    let sql = joined_sql(backend, &result);
     assert!(sql.contains("DROP") || sql.contains("CONSTRAINT"));
 
     with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => format!("remove_constraint_{:?}", backend) }, {
@@ -524,11 +513,7 @@ fn test_build_action_queries_add_column(#[case] backend: DatabaseBackend) {
     }];
     let result = build_action_queries(backend, &action, &current_schema).unwrap();
     assert!(!result.is_empty());
-    let sql = result
-        .iter()
-        .map(|q| q.build(backend))
-        .collect::<Vec<String>>()
-        .join("\n");
+    let sql = joined_sql(backend, &result);
     assert!(sql.contains("ALTER TABLE"));
     assert!(sql.contains("ADD COLUMN") || sql.contains("ADD"));
 
@@ -829,11 +814,7 @@ fn build_action_queries_modify_column_default_dispatch(#[case] backend: Database
         backfill: None,
     };
     let queries = build_action_queries(backend, &action, &schema).unwrap();
-    let sql = queries
-        .iter()
-        .map(|q| q.build(backend))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let sql = joined_sql(backend, &queries);
     assert!(sql.contains("'pending'") || sql.contains("pending"));
 }
 

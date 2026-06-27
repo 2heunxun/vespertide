@@ -89,7 +89,7 @@ pub fn build_modify_column_comment(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{col_n as col, table_def};
+    use crate::test_support::{backend_tag, col_n as col, table_def};
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{ColumnType, SimpleColumnType};
@@ -125,11 +125,7 @@ mod tests {
 
         let suffix = format!(
             "{}_{}_users",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            },
+            backend_tag(backend),
             if new_comment.is_some() {
                 "set_comment"
             } else {
@@ -181,14 +177,7 @@ mod tests {
             );
         }
 
-        let suffix = format!(
-            "{}_comment_with_quotes",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            }
-        );
+        let suffix = format!("{}_comment_with_quotes", backend_tag(backend));
 
         with_settings!({ snapshot_suffix => suffix }, {
             assert_snapshot!(sql);
@@ -264,14 +253,7 @@ mod tests {
             .collect::<Vec<String>>()
             .join("\n");
 
-        let suffix = format!(
-            "{}_long_comment",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            }
-        );
+        let suffix = format!("{}_long_comment", backend_tag(backend));
 
         with_settings!({ snapshot_suffix => suffix }, {
             assert_snapshot!(sql);
@@ -316,14 +298,7 @@ mod tests {
             assert!(sql.contains("DEFAULT"), "Should preserve DEFAULT clause");
         }
 
-        let suffix = format!(
-            "{}_preserves_properties",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            }
-        );
+        let suffix = format!("{}_preserves_properties", backend_tag(backend));
 
         with_settings!({ snapshot_suffix => suffix }, {
             assert_snapshot!(sql);
@@ -358,14 +333,7 @@ mod tests {
             .collect::<Vec<String>>()
             .join("\n");
 
-        let suffix = format!(
-            "{}_change_comment",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            }
-        );
+        let suffix = format!("{}_change_comment", backend_tag(backend));
 
         with_settings!({ snapshot_suffix => suffix }, {
             assert_snapshot!(sql);
@@ -402,14 +370,7 @@ mod tests {
             .collect::<Vec<String>>()
             .join("\n");
 
-        let suffix = format!(
-            "{}_drop_existing_comment",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            }
-        );
+        let suffix = format!("{}_drop_existing_comment", backend_tag(backend));
 
         with_settings!({ snapshot_suffix => suffix }, {
             assert_snapshot!(sql);
@@ -484,15 +445,7 @@ mod tests {
             .join("\n");
 
         let type_name = format!("{column_type:?}").to_lowercase();
-        let suffix = format!(
-            "{}_{}_comment",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            },
-            type_name
-        );
+        let suffix = format!("{}_{}_comment", backend_tag(backend), type_name);
 
         with_settings!({ snapshot_suffix => suffix }, {
             assert_snapshot!(sql);
@@ -623,14 +576,7 @@ mod tests {
             .collect::<Vec<String>>()
             .join("\n");
 
-        let suffix = format!(
-            "{}_not_null_column",
-            match backend {
-                DatabaseBackend::Postgres => "postgres",
-                DatabaseBackend::MySql => "mysql",
-                DatabaseBackend::Sqlite => "sqlite",
-            }
-        );
+        let suffix = format!("{}_not_null_column", backend_tag(backend));
 
         with_settings!({ snapshot_suffix => suffix }, {
             assert_snapshot!(sql);

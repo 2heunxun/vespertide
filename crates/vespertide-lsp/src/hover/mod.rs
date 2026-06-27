@@ -89,9 +89,9 @@ mod tests {
     #[test]
     fn hover_on_ref_table_falls_back_to_disk_when_target_is_closed() {
         use std::fs;
-        use std::str::FromStr;
         use tempfile::tempdir;
-        use tower_lsp_server::ls_types::Uri;
+
+        use crate::test_support::uri;
 
         let tmp = tempdir().unwrap();
         let models_dir = tmp.path().join("models");
@@ -107,7 +107,7 @@ mod tests {
         let docs = DocumentStore::new();
         // article.vespertide.json references media via FK. Media is on disk, NOT open.
         let article_src = r#"{"name":"article","columns":[{"name":"media_id","type":"uuid","foreign_key":{"ref_table":"media","ref_columns":["id"]}}]}"#;
-        let article_uri = Uri::from_str("file:///article.vespertide.json").unwrap();
+        let article_uri = uri("article.vespertide.json");
         let article_tree = pool.parse(article_src, DocumentFormat::Json).unwrap();
         idx.upsert(&article_uri, article_src, &article_tree);
 
@@ -142,14 +142,13 @@ mod tests {
 
     #[test]
     fn yaml_hover_on_ref_table_previews_target_columns() {
-        use std::str::FromStr;
-        use tower_lsp_server::ls_types::Uri;
+        use crate::test_support::uri;
 
         let pool = ParserPool::new();
         let idx = WorkspaceIndex::new();
         let docs = DocumentStore::new();
 
-        let user_uri = Uri::from_str("file:///user.yaml").unwrap();
+        let user_uri = uri("user.yaml");
         let user_src = "name: user\ncolumns:\n  - name: id\n    type: integer\n    nullable: false\n    primary_key: true\n  - name: email\n    type: text\n    nullable: false\n";
         let user_tree = pool.parse(user_src, DocumentFormat::Yaml).unwrap();
         idx.upsert(&user_uri, user_src, &user_tree);
