@@ -34,11 +34,7 @@ pub fn build_remove_constraint(table: &str, constraint: &TableConstraint) -> Vec
         }
         TableConstraint::Index { name, columns } => {
             let index_name = vespertide_naming::build_index_name(table, columns, name.as_deref());
-            let idx_drop = sea_query::Index::drop()
-                .table(Alias::new(table))
-                .name(&index_name)
-                .to_owned();
-            vec![BuiltQuery::DropIndex(Box::new(idx_drop))]
+            vec![super::build_drop_index_query(table, &index_name)]
         }
         TableConstraint::Check { name, .. } => {
             let pg_table = quote_ident(table, DatabaseBackend::Postgres);

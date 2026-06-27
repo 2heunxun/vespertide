@@ -126,8 +126,7 @@ pub fn build_modify_column_default(
             ));
 
             // 3. Drop original table
-            let drop_table = Table::drop().table(Alias::new(table)).to_owned();
-            queries.push(BuiltQuery::DropTable(Box::new(drop_table)));
+            queries.push(super::delete_table::build_delete_table(table));
 
             // 4. Rename temporary table to original name
             queries.push(build_rename_table(&temp_table, table));

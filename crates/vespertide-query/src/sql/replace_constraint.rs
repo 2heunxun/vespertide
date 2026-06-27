@@ -1,4 +1,4 @@
-use sea_query::{Alias, ForeignKey, Table};
+use sea_query::{Alias, ForeignKey};
 
 use vespertide_core::{TableConstraint, TableDef};
 
@@ -220,8 +220,7 @@ fn build_sqlite_constraint_replace(
     let insert_query = build_copy_into_temp_table(table, &temp_table, &table_def.columns);
 
     // 3. Drop original table
-    let drop_table = Table::drop().table(Alias::new(table)).to_owned();
-    let drop_query = BuiltQuery::DropTable(Box::new(drop_table));
+    let drop_query = super::delete_table::build_delete_table(table);
 
     // 4. Rename temporary table to original name
     let rename_query = build_rename_table(&temp_table, table);

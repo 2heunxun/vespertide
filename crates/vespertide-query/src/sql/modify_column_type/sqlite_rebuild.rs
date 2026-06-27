@@ -1,7 +1,5 @@
 use std::collections::BTreeMap;
 
-use sea_query::{Alias, Table};
-
 use vespertide_core::{ColumnType, TableConstraint, TableDef};
 
 use crate::error::QueryError;
@@ -51,8 +49,7 @@ pub(super) fn build_modify_column_type_sqlite_temp_table(
     let insert_query = build_copy_into_temp_table(table, &temp_table, &new_columns);
 
     // 3. Drop original table
-    let drop_table = Table::drop().table(Alias::new(table)).to_owned();
-    let drop_query = BuiltQuery::DropTable(Box::new(drop_table));
+    let drop_query = crate::sql::delete_table::build_delete_table(table);
 
     // 4. Rename temporary table to original name
     let rename_query = build_rename_table(&temp_table, table);

@@ -1,5 +1,3 @@
-use sea_query::{Alias, Table};
-
 use vespertide_core::{ColumnType, TableConstraint, TableDef};
 
 use crate::sql::helpers::{
@@ -68,8 +66,7 @@ pub(super) fn build_delete_column_sqlite_temp_table(
     stmts.push(build_copy_into_temp_table(table, &temp_table, &new_columns));
 
     // 3. Drop original table.
-    let drop_table = Table::drop().table(Alias::new(table)).to_owned();
-    stmts.push(BuiltQuery::DropTable(Box::new(drop_table)));
+    stmts.push(crate::sql::delete_table::build_delete_table(table));
 
     // 4. Rename temp table to original name.
     stmts.push(build_rename_table(&temp_table, table));

@@ -1,5 +1,3 @@
-use sea_query::{Alias, Table};
-
 use vespertide_core::{TableConstraint, TableDef};
 
 use crate::error::QueryError;
@@ -133,8 +131,7 @@ fn rebuild_table_without_constraint(
         new_constraints,
     );
     let insert_query = build_copy_into_temp_table(table, &temp_table, &table_def.columns);
-    let drop_query =
-        BuiltQuery::DropTable(Box::new(Table::drop().table(Alias::new(table)).to_owned()));
+    let drop_query = crate::sql::delete_table::build_delete_table(table);
     let rename_query = build_rename_table(&temp_table, table);
     let index_queries =
         recreate_indexes_after_rebuild(table, constraints_to_recreate, pending_constraints);

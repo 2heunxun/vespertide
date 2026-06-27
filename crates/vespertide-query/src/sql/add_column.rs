@@ -93,8 +93,7 @@ pub fn build_add_column(
             .to_owned();
         let insert_query = BuiltQuery::Insert(Box::new(insert_stmt));
 
-        let drop_query =
-            BuiltQuery::DropTable(Box::new(Table::drop().table(Alias::new(table)).to_owned()));
+        let drop_query = super::delete_table::build_delete_table(table);
         let rename_query = build_rename_table(&temp_table, table);
 
         // Recreate indexes (both regular and UNIQUE)

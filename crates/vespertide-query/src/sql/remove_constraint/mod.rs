@@ -9,6 +9,21 @@ use vespertide_core::{TableConstraint, TableDef};
 use super::types::{BuiltQuery, DatabaseBackend};
 use crate::error::QueryError;
 
+/// Build a `DROP INDEX` query for the given table-qualified index name.
+///
+/// Shared by the SQLite-rebuild fallback in this module and the
+/// `TableConstraint::Index` arms of [`mysql::build_remove_constraint`]
+/// and [`postgres::build_remove_constraint`] — they all want the same
+/// `sea_query::Index::drop().table(...).name(...)` shape.
+#[must_use]
+pub(super) fn build_drop_index_query(table: &str, index_name: &str) -> BuiltQuery {
+    let idx_drop = sea_query::Index::drop()
+        .table(Alias::new(table))
+        .name(index_name)
+        .to_owned();
+    BuiltQuery::DropIndex(Box::new(idx_drop))
+}
+
 pub fn build_remove_constraint(
     backend: DatabaseBackend,
     table: &str,
@@ -49,11 +64,7 @@ fn build_drop_index(
     };
 
     let index_name = vespertide_naming::build_index_name(table, columns, name.as_deref());
-    let idx_drop = sea_query::Index::drop()
-        .table(Alias::new(table))
-        .name(&index_name)
-        .to_owned();
-    Ok(vec![BuiltQuery::DropIndex(Box::new(idx_drop))])
+    Ok(vec![build_drop_index_query(table, &index_name)])
 }
 
 fn constraint_kind(constraint: &TableConstraint) -> &'static str {
