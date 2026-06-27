@@ -301,25 +301,21 @@ fn is_null_vs_other(column: &str, a: &CheckExpr, b: &CheckExpr) -> Option<(bool,
     ))
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "F-novel-1 self-contradiction comparison: rounding integers beyond 2^53 acceptable; conservative comparator silently skips ambiguous cases"
+)]
 fn literal_compare(a: &Literal, b: &Literal) -> Option<Ordering> {
     match (a, b) {
         (Literal::Integer(x), Literal::Integer(y)) => Some(x.cmp(y)),
         (Literal::Float(x), Literal::Float(y)) => x.partial_cmp(y),
-        (Literal::Integer(x), Literal::Float(y)) => i64_to_f64(*x).partial_cmp(y),
-        (Literal::Float(x), Literal::Integer(y)) => x.partial_cmp(&i64_to_f64(*y)),
+        (Literal::Integer(x), Literal::Float(y)) => (*x as f64).partial_cmp(y),
+        (Literal::Float(x), Literal::Integer(y)) => x.partial_cmp(&(*y as f64)),
         (Literal::String(x), Literal::String(y)) => Some(x.cmp(y)),
         (Literal::Bool(x), Literal::Bool(y)) => Some(x.cmp(y)),
         // Mixed / Null: can't conclude.
         _ => None,
     }
-}
-
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "F-novel-1 self-contradiction comparison: rounding integers beyond 2^53 acceptable; conservative comparator silently skips ambiguous cases"
-)]
-fn i64_to_f64(v: i64) -> f64 {
-    v as f64
 }
 
 fn format_literal(lit: &Literal) -> String {

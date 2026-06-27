@@ -5,6 +5,7 @@
 //! none has enough surface area to deserve its own directory.
 
 use crate::text_util::strip_quotes;
+use crate::tree_util::node_at_byte;
 use std::ops::Range;
 
 // =====================================================================
@@ -365,21 +366,6 @@ fn unwrap_yaml(node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
         current = inner;
     }
     current
-}
-
-fn node_at_byte(tree: &tree_sitter::Tree, byte_offset: usize) -> Option<tree_sitter::Node<'_>> {
-    let root = tree.root_node();
-    let mut current = root;
-    'outer: loop {
-        let mut cursor = current.walk();
-        for child in current.children(&mut cursor) {
-            if child.byte_range().contains(&byte_offset) {
-                current = child;
-                continue 'outer;
-            }
-        }
-        return Some(current);
-    }
 }
 
 fn trim_one_byte(range: &Range<usize>) -> Range<usize> {

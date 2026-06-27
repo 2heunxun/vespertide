@@ -15,6 +15,7 @@ use std::ops::Range;
 use tree_sitter::{Node, Tree};
 
 use crate::text_util::strip_quotes;
+use crate::tree_util::node_at_byte;
 
 /// Cursor-based result of [`find_check_expr_at`]: the CHECK `expr` string
 /// the cursor sits in, the inner byte range of its predicate text, and the
@@ -181,23 +182,6 @@ fn enclosing_string(node: Node<'_>) -> Option<Node<'_>> {
         current = candidate.parent();
     }
     None
-}
-
-/// Descend from the root to the deepest node whose byte range contains
-/// `byte_offset`.
-fn node_at_byte(tree: &Tree, byte_offset: usize) -> Option<Node<'_>> {
-    let root = tree.root_node();
-    let mut current = root;
-    'outer: loop {
-        let mut cursor = current.walk();
-        for child in current.children(&mut cursor) {
-            if child.byte_range().contains(&byte_offset) {
-                current = child;
-                continue 'outer;
-            }
-        }
-        return Some(current);
-    }
 }
 
 #[cfg(test)]

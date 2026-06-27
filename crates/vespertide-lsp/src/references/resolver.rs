@@ -1,6 +1,7 @@
 //! Resolve "what symbol is the cursor on?" for the references provider.
 
 use crate::text_util::strip_quotes;
+use crate::tree_util::node_at_byte;
 use tower_lsp_server::ls_types::Uri;
 
 use super::ReferenceSymbol;
@@ -224,21 +225,6 @@ fn skip_yaml_wrappers(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'
         current = parent.expect("YAML wrapper reached from a mapping pair has a parent");
     }
     Some(current)
-}
-
-fn node_at_byte(tree: &tree_sitter::Tree, byte_offset: usize) -> Option<tree_sitter::Node<'_>> {
-    let root = tree.root_node();
-    let mut current = root;
-    'outer: loop {
-        let mut cursor = current.walk();
-        for child in current.children(&mut cursor) {
-            if child.byte_range().contains(&byte_offset) {
-                current = child;
-                continue 'outer;
-            }
-        }
-        return Some(current);
-    }
 }
 
 #[cfg(test)]

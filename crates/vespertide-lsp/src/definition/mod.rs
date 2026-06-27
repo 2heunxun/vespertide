@@ -8,6 +8,7 @@ use tower_lsp_server::ls_types::Uri;
 
 use crate::parser::DocumentFormat;
 use crate::store::DocumentStore;
+use crate::tree_util::node_at_byte;
 use crate::workspace_index::WorkspaceIndex;
 use crate::workspace_tables::WorkspaceTables;
 
@@ -47,21 +48,6 @@ pub fn compute_with_workspace_tables(
     let tree = tree?;
     let node = node_at_byte(tree, byte_offset)?;
     foreign_key::try_definition(node, source, index, docs, disk_tables)
-}
-
-fn node_at_byte(tree: &tree_sitter::Tree, byte_offset: usize) -> Option<tree_sitter::Node<'_>> {
-    let root = tree.root_node();
-    let mut current = root;
-    'outer: loop {
-        let mut cursor = current.walk();
-        for child in current.children(&mut cursor) {
-            if child.byte_range().contains(&byte_offset) {
-                current = child;
-                continue 'outer;
-            }
-        }
-        return Some(current);
-    }
 }
 
 #[cfg(test)]

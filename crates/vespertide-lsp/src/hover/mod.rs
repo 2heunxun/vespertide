@@ -8,6 +8,7 @@ use std::ops::Range;
 
 use crate::parser::DocumentFormat;
 use crate::store::DocumentStore;
+use crate::tree_util::node_at_byte;
 use crate::workspace_index::WorkspaceIndex;
 use crate::workspace_tables::WorkspaceTables;
 
@@ -63,21 +64,6 @@ pub fn compute_with_workspace_tables(
     }
 
     column::try_hover(node, text)
-}
-
-fn node_at_byte(tree: &tree_sitter::Tree, byte_offset: usize) -> Option<tree_sitter::Node<'_>> {
-    let root = tree.root_node();
-    let mut current = root;
-    'outer: loop {
-        let mut cursor = current.walk();
-        for child in current.children(&mut cursor) {
-            if child.byte_range().contains(&byte_offset) {
-                current = child;
-                continue 'outer;
-            }
-        }
-        return Some(current);
-    }
 }
 
 #[cfg(test)]

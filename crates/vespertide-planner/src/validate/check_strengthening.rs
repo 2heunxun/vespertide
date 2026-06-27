@@ -394,12 +394,16 @@ fn between_is_narrower(
     lo_ok && hi_ok && any_strict
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "F29 strictness comparison: rounding integers beyond 2^53 acceptable; F29 silent-passes on ambiguity"
+)]
 fn literal_equals(a: &Literal, b: &Literal) -> bool {
     match (a, b) {
         (Literal::Integer(x), Literal::Integer(y)) => x == y,
         (Literal::Float(x), Literal::Float(y)) => (x - y).abs() < f64::EPSILON,
-        (Literal::Integer(x), Literal::Float(y)) => (i64_to_f64(*x) - y).abs() < f64::EPSILON,
-        (Literal::Float(x), Literal::Integer(y)) => (x - i64_to_f64(*y)).abs() < f64::EPSILON,
+        (Literal::Integer(x), Literal::Float(y)) => (*x as f64 - y).abs() < f64::EPSILON,
+        (Literal::Float(x), Literal::Integer(y)) => (x - *y as f64).abs() < f64::EPSILON,
         (Literal::String(x), Literal::String(y)) => x == y,
         (Literal::Bool(x), Literal::Bool(y)) => x == y,
         (Literal::Null, Literal::Null) => true,
@@ -407,23 +411,19 @@ fn literal_equals(a: &Literal, b: &Literal) -> bool {
     }
 }
 
-fn literal_compare(a: &Literal, b: &Literal) -> Option<Ordering> {
-    match (a, b) {
-        (Literal::Integer(x), Literal::Integer(y)) => Some(x.cmp(y)),
-        (Literal::Float(x), Literal::Float(y)) => x.partial_cmp(y),
-        (Literal::Integer(x), Literal::Float(y)) => i64_to_f64(*x).partial_cmp(y),
-        (Literal::Float(x), Literal::Integer(y)) => x.partial_cmp(&i64_to_f64(*y)),
-        (Literal::String(x), Literal::String(y)) => Some(x.cmp(y)),
-        _ => None,
-    }
-}
-
 #[expect(
     clippy::cast_precision_loss,
     reason = "F29 strictness comparison: rounding integers beyond 2^53 acceptable; F29 silent-passes on ambiguity"
 )]
-fn i64_to_f64(v: i64) -> f64 {
-    v as f64
+fn literal_compare(a: &Literal, b: &Literal) -> Option<Ordering> {
+    match (a, b) {
+        (Literal::Integer(x), Literal::Integer(y)) => Some(x.cmp(y)),
+        (Literal::Float(x), Literal::Float(y)) => x.partial_cmp(y),
+        (Literal::Integer(x), Literal::Float(y)) => (*x as f64).partial_cmp(y),
+        (Literal::Float(x), Literal::Integer(y)) => x.partial_cmp(&(*y as f64)),
+        (Literal::String(x), Literal::String(y)) => Some(x.cmp(y)),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
