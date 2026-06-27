@@ -189,9 +189,7 @@ mod tests {
     use rstest::rstest;
     use vespertide_core::{ColumnDef, ColumnType, MigrationAction, SimpleColumnType};
 
-    fn nn_col(name: &str, ty: SimpleColumnType) -> ColumnDef {
-        ColumnDef::new(name, ColumnType::Simple(ty), false)
-    }
+    use crate::test_support::col_n;
 
     fn fk_constraint(strategy: ForeignKeyOrphanStrategy) -> TableConstraint {
         TableConstraint::ForeignKey {
@@ -210,14 +208,18 @@ mod tests {
             TableDef {
                 name: "users".into(),
                 description: None,
-                columns: vec![nn_col("id", SimpleColumnType::Integer)],
+                columns: vec![col_n(
+                    "id",
+                    ColumnType::Simple(SimpleColumnType::Integer),
+                    false,
+                )],
                 constraints: vec![],
             },
             TableDef {
                 name: "posts".into(),
                 description: None,
                 columns: vec![
-                    nn_col("id", SimpleColumnType::Integer),
+                    col_n("id", ColumnType::Simple(SimpleColumnType::Integer), false),
                     ColumnDef::new(
                         "user_id",
                         ColumnType::Simple(SimpleColumnType::Integer),

@@ -1,4 +1,4 @@
-use vespertide_core::{MigrationAction, MigrationPlan, TableDef};
+use vespertide_core::{MigrationAction, MigrationPlan, TableConstraint, TableDef};
 
 use crate::DatabaseBackend;
 use crate::error::QueryError;
@@ -7,6 +7,8 @@ use crate::sql::BuiltQuery;
 
 mod parallel;
 mod sequential;
+#[cfg(test)]
+mod test_support;
 mod transaction;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -46,6 +48,44 @@ fn action_target_table(action: &MigrationAction) -> Option<&str> {
         MigrationAction::RenameTable { .. } | MigrationAction::RawSql { .. } => None,
         _ => action.table_name(),
     }
+}
+
+/// Collect Index/Unique constraints that LATER actions in the same plan will
+/// add to the same table. The scan starts strictly AFTER `action_index`, so an
+/// `AddConstraint(Index)` action never sees itself as pending. The result lets
+/// the SQLite temp-table rebuild defer recreating an index a later
+/// `AddConstraint` will create, avoiding "index already exists" errors.
+///
+/// Returns an empty vec for actions without a target table (`RawSql`,
+/// `RenameTable`) — there is no table-scope to compare against.
+pub(super) fn pending_constraints_for_action(
+    plan: &MigrationPlan,
+    action_index: usize,
+    action: &MigrationAction,
+) -> Vec<TableConstraint> {
+    let Some(table) = action_target_table(action) else {
+        return vec![];
+    };
+
+    plan.actions[action_index + 1..]
+        .iter()
+        .filter_map(|a| {
+            if let MigrationAction::AddConstraint {
+                table: t,
+                constraint,
+            } = a
+                && t == table
+                && matches!(
+                    constraint,
+                    TableConstraint::Index { .. } | TableConstraint::Unique { .. }
+                )
+            {
+                Some(constraint.clone())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Build SQL queries for a full migration plan with sequential schema evolution.
