@@ -4,7 +4,7 @@ use vespertide_core::{ColumnDef, TableDef};
 
 use super::helpers::{
     build_copy_into_temp_table, build_sea_column_def_with_table, build_sqlite_temp_table_create,
-    normalize_enum_default, quote_ident, recreate_indexes_after_rebuild,
+    normalize_enum_default, quote_ident, recreate_indexes_after_rebuild, require_table_in_schema,
 };
 use super::rename_table::build_rename_table;
 use super::types::{BuiltQuery, DatabaseBackend, RawSql};
@@ -58,12 +58,11 @@ pub fn build_modify_column_default(
         }
         DatabaseBackend::MySql => {
             // MySQL requires the full column definition in ALTER COLUMN
-            let table_def = current_schema
-                .iter()
-                .find(|t| t.name == table)
-                .ok_or_else(|| {
-                    QueryError::SchemaError(format!("Table '{table}' not found in current schema."))
-                })?;
+            let table_def = require_table_in_schema(
+                current_schema,
+                table,
+                "MySQL requires current schema information to modify column defaults",
+            )?;
 
             let column_def = table_def
                 .columns
@@ -92,12 +91,11 @@ pub fn build_modify_column_default(
         DatabaseBackend::Sqlite => {
             // SQLite doesn't support ALTER COLUMN for default changes
             // Use temporary table approach
-            let table_def = current_schema
-                .iter()
-                .find(|t| t.name == table)
-                .ok_or_else(|| {
-                    QueryError::SchemaError(format!("Table '{table}' not found in current schema."))
-                })?;
+            let table_def = require_table_in_schema(
+                current_schema,
+                table,
+                "SQLite requires current schema information to modify column defaults",
+            )?;
 
             // Create modified columns with the new default
             let mut new_columns = table_def.columns.clone();

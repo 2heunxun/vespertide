@@ -4,7 +4,7 @@ use vespertide_core::{TableConstraint, TableDef};
 
 use super::helpers::{
     build_copy_into_temp_table, build_sqlite_temp_table_create, recreate_indexes_after_rebuild,
-    to_sea_fk_action,
+    require_table_in_schema, to_sea_fk_action,
 };
 use super::rename_table::build_rename_table;
 use super::types::{BuiltQuery, DatabaseBackend};
@@ -188,15 +188,11 @@ fn build_sqlite_constraint_replace(
     current_schema: &[TableDef],
     pending_constraints: &[TableConstraint],
 ) -> Result<Vec<BuiltQuery>, QueryError> {
-    let table_def = current_schema
-        .iter()
-        .find(|t| t.name == table)
-        .ok_or_else(|| {
-            QueryError::SchemaError(format!(
-                "Table '{table}' not found in current schema. SQLite requires current schema \
-                 information to replace constraints."
-            ))
-        })?;
+    let table_def = require_table_in_schema(
+        current_schema,
+        table,
+        "SQLite requires current schema information to replace constraints",
+    )?;
 
     // Build new constraints: replace old constraint with new one
     let new_constraints: Vec<TableConstraint> = table_def
