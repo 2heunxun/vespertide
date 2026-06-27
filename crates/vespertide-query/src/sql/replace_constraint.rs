@@ -1,9 +1,10 @@
-use sea_query::{Alias, ForeignKey, Query, Table};
+use sea_query::{Alias, ForeignKey, Table};
 
 use vespertide_core::{TableConstraint, TableDef};
 
 use super::helpers::{
-    build_sqlite_temp_table_create, recreate_indexes_after_rebuild, to_sea_fk_action,
+    build_copy_into_temp_table, build_sqlite_temp_table_create, recreate_indexes_after_rebuild,
+    to_sea_fk_action,
 };
 use super::rename_table::build_rename_table;
 use super::types::{BuiltQuery, DatabaseBackend};
@@ -216,24 +217,7 @@ fn build_sqlite_constraint_replace(
     );
 
     // 2. Copy data (all columns)
-    let column_aliases: Vec<Alias> = table_def
-        .columns
-        .iter()
-        .map(|c| Alias::new(&c.name))
-        .collect();
-    let mut select_query = Query::select();
-    for col_alias in &column_aliases {
-        select_query.column(col_alias.clone());
-    }
-    select_query.from(Alias::new(table));
-
-    let insert_stmt = Query::insert()
-        .into_table(Alias::new(&temp_table))
-        .columns(column_aliases.clone())
-        .select_from(select_query)
-        .unwrap()
-        .to_owned();
-    let insert_query = BuiltQuery::Insert(Box::new(insert_stmt));
+    let insert_query = build_copy_into_temp_table(table, &temp_table, &table_def.columns);
 
     // 3. Drop original table
     let drop_table = Table::drop().table(Alias::new(table)).to_owned();

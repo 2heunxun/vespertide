@@ -1,9 +1,10 @@
-use sea_query::{Alias, Query, Table};
+use sea_query::{Alias, Table};
 
 use vespertide_core::{ColumnType, TableConstraint, TableDef};
 
 use crate::sql::helpers::{
-    build_drop_enum_type_sql, build_sqlite_temp_table_create, recreate_indexes_after_rebuild,
+    build_copy_into_temp_table, build_drop_enum_type_sql, build_sqlite_temp_table_create,
+    recreate_indexes_after_rebuild,
 };
 use crate::sql::rename_table::build_rename_table;
 use crate::sql::types::{BuiltQuery, DatabaseBackend};
@@ -37,13 +38,16 @@ pub(super) fn build_delete_column_sqlite_temp_table(
         .collect();
 
     // Build new constraints list without constraints referencing the deleted column.
+    // perf: pre-quote the column identifier once instead of re-allocating the
+    // same `"col"` literal inside the closure on every CHECK constraint visited.
+    let quoted_col = format!("\"{column}\"");
     let new_constraints: Vec<_> = table_def
         .constraints
         .iter()
         .filter(|c| {
             // For CHECK constraints, check if expression references the column.
             if let TableConstraint::Check { expr, .. } = c {
-                return !expr.contains(&format!("\"{column}\"")) && !expr.contains(column);
+                return !expr.contains(&quoted_col) && !expr.contains(column);
             }
             !c.columns().iter().any(|col| col == column)
         })
@@ -61,20 +65,7 @@ pub(super) fn build_delete_column_sqlite_temp_table(
     stmts.push(create_query);
 
     // 2. Copy data (excluding the deleted column).
-    let column_aliases: Vec<Alias> = new_columns.iter().map(|c| Alias::new(&c.name)).collect();
-    let mut select_query = Query::select();
-    for col_alias in &column_aliases {
-        select_query.column(col_alias.clone());
-    }
-    select_query.from(Alias::new(table));
-
-    let insert_stmt = Query::insert()
-        .into_table(Alias::new(&temp_table))
-        .columns(column_aliases.clone())
-        .select_from(select_query)
-        .unwrap()
-        .to_owned();
-    stmts.push(BuiltQuery::Insert(Box::new(insert_stmt)));
+    stmts.push(build_copy_into_temp_table(table, &temp_table, &new_columns));
 
     // 3. Drop original table.
     let drop_table = Table::drop().table(Alias::new(table)).to_owned();

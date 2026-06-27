@@ -1,6 +1,6 @@
 use sea_query::{
     Alias, ColumnDef as SeaColumnDef, ForeignKeyAction, MysqlQueryBuilder, PostgresQueryBuilder,
-    QueryStatementWriter, SchemaStatementBuilder, SimpleExpr, SqliteQueryBuilder,
+    Query, QueryStatementWriter, SchemaStatementBuilder, SimpleExpr, SqliteQueryBuilder,
 };
 
 use vespertide_core::{
@@ -594,6 +594,43 @@ pub fn build_sqlite_temp_table_create(
     let create_stmt = build_create_table_for_backend(backend, temp_table, columns, constraints);
     let check_clauses = collect_all_check_clauses(table, columns, constraints);
     build_create_with_checks(backend, &create_stmt, &check_clauses)
+}
+
+/// Canonical `INSERT INTO temp_table (cols) SELECT cols FROM table` builder used
+/// by every `SQLite` temp-table rebuild path.
+///
+/// Six call sites previously open-coded this identical sequence (delete column,
+/// modify column type, modify column default, modify column nullable, add
+/// constraint, replace constraint, remove constraint). Centralising it here
+/// removes the drift risk that comes with keeping six copies in lock-step.
+///
+/// `columns` is the column slice to copy — pass `&table_def.columns` for the
+/// "copy everything" rebuilds and a filtered slice (without the dropped column)
+/// for the `DELETE COLUMN` path.
+pub(super) fn build_copy_into_temp_table(
+    table: &str,
+    temp_table: &str,
+    columns: &[ColumnDef],
+) -> BuiltQuery {
+    let column_aliases: Vec<Alias> = columns
+        .iter()
+        .map(|column| Alias::new(&column.name))
+        .collect();
+
+    let mut select_query = Query::select();
+    for column_alias in &column_aliases {
+        select_query.column(column_alias.clone());
+    }
+    select_query.from(Alias::new(table));
+
+    let insert_stmt = Query::insert()
+        .into_table(Alias::new(temp_table))
+        .columns(column_aliases)
+        .select_from(select_query)
+        .expect("SQLite temp table copy SELECT should be valid")
+        .to_owned();
+
+    BuiltQuery::Insert(Box::new(insert_stmt))
 }
 
 /// Recreate all indexes (both regular and UNIQUE) after a `SQLite` temp table rebuild.

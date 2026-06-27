@@ -397,35 +397,9 @@ fn render_column(
     ));
 }
 
-pub(super) fn to_pascal_case(s: &str) -> String {
-    s.split('_')
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().chain(chars).collect(),
-            }
-        })
-        .collect()
-}
-
-pub(super) fn to_screaming_snake_case(s: &str) -> String {
-    let mut result = String::new();
-    for (i, ch) in s.chars().enumerate() {
-        if ch.is_uppercase() && i > 0 {
-            result.push('_');
-        }
-        result.push(ch.to_ascii_uppercase());
-    }
-    // Replace any non-alphanumeric with underscore
-    result
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
+// Naming helpers shared with the `SQLModel` exporter — both Python ORMs
+// produce identical PascalCase class names and identical
+// SCREAMING_SNAKE_CASE enum member names, so the implementation lives in
+// `crate::python_naming` and we re-export it here to keep every existing
+// `super::render::to_*` path working without churn.
+pub(super) use crate::python_naming::{to_pascal_case, to_screaming_snake_case};

@@ -1,10 +1,10 @@
-use sea_query::{Alias, Query, Table};
+use sea_query::{Alias, Table};
 
 use vespertide_core::{ColumnDef, TableDef};
 
 use super::helpers::{
-    build_sea_column_def_with_table, build_sqlite_temp_table_create, normalize_enum_default,
-    quote_ident, recreate_indexes_after_rebuild,
+    build_copy_into_temp_table, build_sea_column_def_with_table, build_sqlite_temp_table_create,
+    normalize_enum_default, quote_ident, recreate_indexes_after_rebuild,
 };
 use super::rename_table::build_rename_table;
 use super::types::{BuiltQuery, DatabaseBackend, RawSql};
@@ -19,10 +19,6 @@ use crate::error::QueryError;
 /// (already-quoted literals for strings, bare expressions like `NOW()` for
 /// functions). When `backfill` is `None` the action behaves exactly as in
 /// v0.2.0 — only the schema is touched, existing rows keep their values.
-#[expect(
-    clippy::too_many_lines,
-    reason = "three-backend dispatch (PG / MySQL / SQLite) plus optional backfill UPDATE; splitting per-backend helpers scatters the read flow"
-)]
 pub fn build_modify_column_default(
     backend: DatabaseBackend,
     table: &str,
@@ -123,24 +119,11 @@ pub fn build_modify_column_default(
             queries.push(create_query);
 
             // 2. Copy data (all columns)
-            let column_aliases: Vec<Alias> = table_def
-                .columns
-                .iter()
-                .map(|c| Alias::new(&c.name))
-                .collect();
-            let mut select_query = Query::select();
-            for col_alias in &column_aliases {
-                select_query.column(col_alias.clone());
-            }
-            select_query.from(Alias::new(table));
-
-            let insert_stmt = Query::insert()
-                .into_table(Alias::new(&temp_table))
-                .columns(column_aliases.clone())
-                .select_from(select_query)
-                .unwrap()
-                .to_owned();
-            queries.push(BuiltQuery::Insert(Box::new(insert_stmt)));
+            queries.push(build_copy_into_temp_table(
+                table,
+                &temp_table,
+                &table_def.columns,
+            ));
 
             // 3. Drop original table
             let drop_table = Table::drop().table(Alias::new(table)).to_owned();

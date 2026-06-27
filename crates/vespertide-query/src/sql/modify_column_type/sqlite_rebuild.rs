@@ -1,11 +1,13 @@
 use std::collections::BTreeMap;
 
-use sea_query::{Alias, Query, Table};
+use sea_query::{Alias, Table};
 
 use vespertide_core::{ColumnType, TableConstraint, TableDef};
 
 use crate::error::QueryError;
-use crate::sql::helpers::{build_sqlite_temp_table_create, recreate_indexes_after_rebuild};
+use crate::sql::helpers::{
+    build_copy_into_temp_table, build_sqlite_temp_table_create, recreate_indexes_after_rebuild,
+};
 use crate::sql::rename_table::build_rename_table;
 use crate::sql::types::{BuiltQuery, DatabaseBackend};
 
@@ -46,24 +48,7 @@ pub(super) fn build_modify_column_type_sqlite_temp_table(
     );
 
     // 2. Copy data (all columns) - Use INSERT INTO ... SELECT
-    let column_aliases: Vec<Alias> = new_columns.iter().map(|c| Alias::new(&c.name)).collect();
-
-    // Build SELECT query
-    let mut select_query = Query::select();
-    for col_alias in &column_aliases {
-        select_query.column(col_alias.clone());
-    }
-    select_query.from(Alias::new(table));
-
-    // Build INSERT query
-    let insert_stmt = Query::insert()
-        .into_table(Alias::new(&temp_table))
-        .columns(column_aliases.clone())
-        .select_from(select_query)
-        .unwrap()
-        .to_owned();
-
-    let insert_query = BuiltQuery::Insert(Box::new(insert_stmt));
+    let insert_query = build_copy_into_temp_table(table, &temp_table, &new_columns);
 
     // 3. Drop original table
     let drop_table = Table::drop().table(Alias::new(table)).to_owned();

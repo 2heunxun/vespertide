@@ -1,9 +1,11 @@
-use sea_query::{Alias, Query, Table};
+use sea_query::{Alias, Table};
 
 use vespertide_core::{TableConstraint, TableDef};
 
 use crate::error::QueryError;
-use crate::sql::helpers::{build_sqlite_temp_table_create, recreate_indexes_after_rebuild};
+use crate::sql::helpers::{
+    build_copy_into_temp_table, build_sqlite_temp_table_create, recreate_indexes_after_rebuild,
+};
 use crate::sql::rename_table::build_rename_table;
 use crate::sql::types::{BuiltQuery, DatabaseBackend};
 
@@ -130,7 +132,7 @@ fn rebuild_table_without_constraint(
         &table_def.columns,
         new_constraints,
     );
-    let insert_query = build_copy_into_temp_table(table, &temp_table, table_def);
+    let insert_query = build_copy_into_temp_table(table, &temp_table, &table_def.columns);
     let drop_query =
         BuiltQuery::DropTable(Box::new(Table::drop().table(Alias::new(table)).to_owned()));
     let rename_query = build_rename_table(&temp_table, table);
@@ -140,27 +142,4 @@ fn rebuild_table_without_constraint(
     let mut queries = vec![create_query, insert_query, drop_query, rename_query];
     queries.extend(index_queries);
     queries
-}
-
-fn build_copy_into_temp_table(table: &str, temp_table: &str, table_def: &TableDef) -> BuiltQuery {
-    let column_aliases: Vec<Alias> = table_def
-        .columns
-        .iter()
-        .map(|column| Alias::new(&column.name))
-        .collect();
-
-    let mut select_query = Query::select();
-    for column_alias in &column_aliases {
-        select_query.column(column_alias.clone());
-    }
-    select_query.from(Alias::new(table));
-
-    let insert_stmt = Query::insert()
-        .into_table(Alias::new(temp_table))
-        .columns(column_aliases)
-        .select_from(select_query)
-        .expect("SQLite temp table copy SELECT should be valid")
-        .to_owned();
-
-    BuiltQuery::Insert(Box::new(insert_stmt))
 }

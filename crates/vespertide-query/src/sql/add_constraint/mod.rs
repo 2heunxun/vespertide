@@ -928,10 +928,12 @@ mod tests {
 
 mod unique;
 
-use sea_query::{Alias, Query, Table};
+use sea_query::{Alias, Table};
 use vespertide_core::{TableConstraint, TableDef};
 
-use super::helpers::{build_sqlite_temp_table_create, recreate_indexes_after_rebuild};
+use super::helpers::{
+    build_copy_into_temp_table, build_sqlite_temp_table_create, recreate_indexes_after_rebuild,
+};
 use super::rename_table::build_rename_table;
 use super::types::{BuiltQuery, DatabaseBackend};
 use crate::error::QueryError;
@@ -1087,23 +1089,7 @@ pub(super) fn rebuild_sqlite_table_with_added_constraint(
         &table_def.columns,
         &new_constraints,
     );
-    let column_aliases: Vec<Alias> = table_def
-        .columns
-        .iter()
-        .map(|c| Alias::new(&c.name))
-        .collect();
-    let mut select_query = Query::select();
-    for col_alias in &column_aliases {
-        select_query.column(col_alias.clone());
-    }
-    select_query.from(Alias::new(table));
-    let insert_stmt = Query::insert()
-        .into_table(Alias::new(&temp_table))
-        .columns(column_aliases)
-        .select_from(select_query)
-        .unwrap()
-        .to_owned();
-    let insert_query = BuiltQuery::Insert(Box::new(insert_stmt));
+    let insert_query = build_copy_into_temp_table(table, &temp_table, &table_def.columns);
     let drop_table = Table::drop().table(Alias::new(table)).to_owned();
     let drop_query = BuiltQuery::DropTable(Box::new(drop_table));
     let rename_query = build_rename_table(&temp_table, table);
