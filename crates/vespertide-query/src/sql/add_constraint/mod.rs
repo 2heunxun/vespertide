@@ -6,6 +6,7 @@ mod primary_key;
 mod tests {
     use super::*;
     use crate::sql::types::DatabaseBackend;
+    use crate::test_support::joined_sql;
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{
@@ -173,11 +174,7 @@ mod tests {
         // F3 introduced multi-statement output for FK additions (pre-cleanup +
         // ADD CONSTRAINT). Search across every emitted statement so the
         // assertion still locates the constraint SQL regardless of position.
-        let sql = result
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let sql = joined_sql(backend, &result);
         for exp in expected {
             assert!(
                 sql.contains(exp),
@@ -185,7 +182,7 @@ mod tests {
             );
         }
         with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => format!("add_constraint_{}", title) }, {
-            assert_snapshot!(result.iter().map(|q| q.build(backend)).collect::<Vec<String>>().join("\n"));
+            assert_snapshot!(joined_sql(backend, &result));
         });
     }
     #[test]
@@ -244,11 +241,7 @@ mod tests {
         // into NOT VALID + VALIDATE. Validate identifier escaping appears in
         // both statements by joining the full result and asserting on every
         // distinct emitted form.
-        let pg_sql = pg_results
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Postgres))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let pg_sql = joined_sql(DatabaseBackend::Postgres, &pg_results);
         assert!(pg_sql.contains("ALTER TABLE \"users\"\"archive\" ADD CONSTRAINT \"chk_age\"\"quote\" CHECK (age > 0) NOT VALID"), "PG NOT VALID statement missing or mis-escaped, got: {pg_sql}");
         assert!(
             pg_sql.contains(
@@ -316,11 +309,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(DatabaseBackend::Sqlite, &queries);
         assert!(sql.contains("CONSTRAINT \"chk_id\" CHECK"));
     }
     #[test]
@@ -358,11 +347,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(DatabaseBackend::Sqlite, &queries);
         assert!(sql.contains("CREATE INDEX"));
         assert!(sql.contains("idx_id"));
     }
@@ -404,11 +389,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(DatabaseBackend::Sqlite, &queries);
         assert!(sql.contains("CREATE TABLE"));
     }
     #[test]
@@ -462,11 +443,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(DatabaseBackend::Sqlite, &queries);
         assert!(sql.contains("CREATE TABLE"));
         assert!(sql.contains("CONSTRAINT \"chk_age\" CHECK"));
     }
@@ -502,11 +479,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(DatabaseBackend::Sqlite, &queries);
         assert!(sql.contains("CREATE TABLE"));
         assert!(sql.contains("PRIMARY KEY"));
     }
@@ -546,11 +519,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(DatabaseBackend::Sqlite, &queries);
         assert!(sql.contains("CREATE INDEX"));
         assert!(sql.contains("idx_age"));
     }
@@ -592,11 +561,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(DatabaseBackend::Sqlite, &queries);
         assert!(sql.contains("CREATE TABLE"));
     }
     #[test]

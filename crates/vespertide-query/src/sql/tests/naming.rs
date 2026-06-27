@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::backend_tag;
 use vespertide_core::TableDef;
 
 // Comprehensive unique constraint naming tests
@@ -329,11 +330,7 @@ fn test_build_action_queries_modify_column_nullable(#[case] backend: DatabaseBac
 
     let suffix = format!(
         "{}_modify_nullable",
-        match backend {
-            DatabaseBackend::Postgres => "postgres",
-            DatabaseBackend::MySql => "mysql",
-            DatabaseBackend::Sqlite => "sqlite",
-        }
+        backend_tag(backend)
     );
 
     with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => suffix }, {
@@ -382,11 +379,7 @@ fn test_build_action_queries_modify_column_default(#[case] backend: DatabaseBack
 
     let suffix = format!(
         "{}_modify_default",
-        match backend {
-            DatabaseBackend::Postgres => "postgres",
-            DatabaseBackend::MySql => "mysql",
-            DatabaseBackend::Sqlite => "sqlite",
-        }
+        backend_tag(backend)
     );
 
     with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => suffix }, {
@@ -435,11 +428,7 @@ fn test_build_action_queries_modify_column_comment(#[case] backend: DatabaseBack
 
     let suffix = format!(
         "{}_modify_comment",
-        match backend {
-            DatabaseBackend::Postgres => "postgres",
-            DatabaseBackend::MySql => "mysql",
-            DatabaseBackend::Sqlite => "sqlite",
-        }
+        backend_tag(backend)
     );
 
     with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => suffix }, {
@@ -601,11 +590,7 @@ fn test_replace_fk_constraint(#[case] backend: DatabaseBackend) {
 
     let suffix = format!(
         "replace_fk_constraint_{}",
-        match backend {
-            DatabaseBackend::Postgres => "postgres",
-            DatabaseBackend::MySql => "mysql",
-            DatabaseBackend::Sqlite => "sqlite",
-        }
+        backend_tag(backend)
     );
 
     with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => suffix }, {
