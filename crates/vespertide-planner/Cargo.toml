@@ -23,7 +23,7 @@ rstest = "0.26"
 insta = "1.47"
 proptest = "1"
 serial_test = "3.5"
-vespertide-core = { workspace = true }
+vespertide-core = { workspace = true, features = ["arbitrary"] }
 
 [[bench]]
 name = "diff_benchmarks"

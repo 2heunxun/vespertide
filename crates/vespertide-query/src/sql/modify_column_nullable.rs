@@ -37,7 +37,7 @@ pub fn build_modify_column_nullable(
     }
     // If changing to NOT NULL, first update existing NULL values if fill_with is provided
     else if !nullable && let Some(fill_value) = normalize_fill_with(fill_with) {
-        let fill_value = convert_default_for_backend(&fill_value, backend);
+        let fill_value = convert_default_for_backend(fill_value, backend);
         let quoted_table = quote_ident(table, backend);
         let quoted_column = quote_ident(column, backend);
         let update_sql = format!(

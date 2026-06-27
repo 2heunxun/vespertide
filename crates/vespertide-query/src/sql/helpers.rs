@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use sea_query::{
     Alias, ColumnDef as SeaColumnDef, ForeignKeyAction, MysqlQueryBuilder, PostgresQueryBuilder,
     QueryStatementWriter, SchemaStatementBuilder, SimpleExpr, SqliteQueryBuilder,
@@ -12,17 +10,13 @@ use vespertide_core::{
 use super::create_table::build_create_table_for_backend;
 use super::types::{BuiltQuery, DatabaseBackend, RawSql};
 
-/// Normalize `fill_with` value - empty string becomes '' (SQL empty string literal)
-/// Returns a Cow to avoid allocations when possible.
+/// Normalize `fill_with` value - empty string becomes `''` (SQL empty-string
+/// literal). Returns a borrowed `&str` because both arms are static or borrowed
+/// from the caller — no allocation ever happens, so the `Cow` wrapper was
+/// purely ceremonial.
 #[must_use]
-pub fn normalize_fill_with(fill_with: Option<&str>) -> Option<Cow<'_, str>> {
-    fill_with.map(|s| {
-        if s.is_empty() {
-            Cow::Borrowed("''")
-        } else {
-            Cow::Borrowed(s)
-        }
-    })
+pub fn normalize_fill_with(fill_with: Option<&str>) -> Option<&str> {
+    fill_with.map(|s| if s.is_empty() { "''" } else { s })
 }
 
 /// Helper function to convert a schema statement to SQL for a specific backend

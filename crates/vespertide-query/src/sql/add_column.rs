@@ -66,8 +66,7 @@ pub fn build_add_column(
         for col in &table_def.columns {
             select_query.column(Alias::new(&col.name));
         }
-        let normalized_fill = normalize_fill_with(fill_with);
-        let fill_expr = if let Some(fill) = normalized_fill.as_deref() {
+        let fill_expr = if let Some(fill) = normalize_fill_with(fill_with) {
             let converted = convert_default_for_backend(fill, backend);
             Expr::cust(normalize_enum_default(&column.r#type, &converted))
         } else if let Some(def) = &column.default {
@@ -129,7 +128,7 @@ pub fn build_add_column(
 
         // Backfill with provided value
         if let Some(fill) = normalize_fill_with(fill_with) {
-            let fill = convert_default_for_backend(&fill, backend);
+            let fill = convert_default_for_backend(fill, backend);
             let update_stmt = Query::update()
                 .table(Alias::new(table))
                 .value(Alias::new(&column.name), Expr::cust(fill))
