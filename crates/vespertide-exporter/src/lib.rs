@@ -1,12 +1,16 @@
 //! Helpers to convert `TableDef` models into ORM-specific representations
-//! such as SeaORM, SQLAlchemy, SQLModel, JPA, and GORM.
+//! such as `SeaORM`, `SQLAlchemy`, `SQLModel`, JPA, and GORM.
 
 pub mod gorm;
 pub mod jpa;
 pub mod orm;
+mod parallel_config;
 pub mod seaorm;
 pub mod sqlalchemy;
 pub mod sqlmodel;
+#[cfg(test)]
+mod tests;
+mod utils;
 
 pub use gorm::GormExporter;
 pub use jpa::JpaExporter;
