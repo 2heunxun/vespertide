@@ -2,27 +2,16 @@ mod mysql;
 mod postgres;
 mod sqlite;
 
-use sea_query::Alias;
-
 use vespertide_core::{TableConstraint, TableDef};
 
 use super::types::{BuiltQuery, DatabaseBackend};
 use crate::error::QueryError;
 
-/// Build a `DROP INDEX` query for the given table-qualified index name.
-///
-/// Shared by the SQLite-rebuild fallback in this module and the
-/// `TableConstraint::Index` arms of [`mysql::build_remove_constraint`]
-/// and [`postgres::build_remove_constraint`] — they all want the same
-/// `sea_query::Index::drop().table(...).name(...)` shape.
-#[must_use]
-pub(super) fn build_drop_index_query(table: &str, index_name: &str) -> BuiltQuery {
-    let idx_drop = sea_query::Index::drop()
-        .table(Alias::new(table))
-        .name(index_name)
-        .to_owned();
-    BuiltQuery::DropIndex(Box::new(idx_drop))
-}
+// Re-export the canonical `DROP INDEX` builder from `sql::helpers` so
+// the SQLite fallback below and the `TableConstraint::Index` arms in
+// `mysql.rs` / `postgres.rs` keep resolving `super::build_drop_index_query`
+// unchanged. The implementation now lives in one place.
+pub(super) use super::helpers::build_drop_index_query;
 
 pub fn build_remove_constraint(
     backend: DatabaseBackend,

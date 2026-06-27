@@ -5,7 +5,7 @@ use vespertide_core::{ColumnDef, TableDef};
 use super::helpers::{
     build_copy_into_temp_table, build_sea_column_def_with_table, build_sqlite_temp_table_create,
     convert_default_for_backend, normalize_fill_with, quote_ident, recreate_indexes_after_rebuild,
-    require_table_in_schema,
+    require_column_in_table, require_table_in_schema,
 };
 use super::rename_table::build_rename_table;
 use super::types::{BuiltQuery, DatabaseBackend, RawSql};
@@ -68,7 +68,7 @@ pub fn build_modify_column_nullable(
                 "MySQL requires current schema information to modify column nullability",
             )?;
 
-            let column_def = table_def.columns.iter().find(|c| c.name == column).ok_or_else(|| QueryError::SchemaError(format!("Column '{column}' not found in table '{table}'. MySQL requires column information to modify nullability.")))?;
+            let column_def = require_column_in_table(table_def, column)?;
 
             // Create a modified column def with the new nullability
             let modified_col_def = ColumnDef {

@@ -1,9 +1,8 @@
-use sea_query::{Alias, Index};
-
 use vespertide_core::{ColumnType, ComplexColumnType, TableConstraint, TableDef};
 
 use self::direct::build_direct_delete_column;
 use self::sqlite_rebuild::build_delete_column_sqlite_temp_table;
+use super::helpers::build_drop_index_query;
 use super::types::{BuiltQuery, DatabaseBackend};
 
 mod direct;
@@ -104,20 +103,12 @@ fn sqlite_constraint_handling(
                     columns,
                     name.as_deref(),
                 );
-                let drop_idx = Index::drop()
-                    .name(&index_name)
-                    .table(Alias::new(table))
-                    .to_owned();
-                stmts.push(BuiltQuery::DropIndex(Box::new(drop_idx)));
+                stmts.push(build_drop_index_query(table, &index_name));
             }
             TableConstraint::Index { name, columns } => {
                 let index_name =
                     vespertide_naming::build_index_name(table, columns, name.as_deref());
-                let drop_idx = Index::drop()
-                    .name(&index_name)
-                    .table(Alias::new(table))
-                    .to_owned();
-                stmts.push(BuiltQuery::DropIndex(Box::new(drop_idx)));
+                stmts.push(build_drop_index_query(table, &index_name));
             }
             _ => {
                 unreachable!("TableConstraint is #[non_exhaustive]; all variants are matched above")

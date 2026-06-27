@@ -772,6 +772,68 @@ pub(crate) fn require_table_in_schema<'a>(
     })
 }
 
+/// Build a `DROP INDEX` query for the given table-qualified `index_name`.
+///
+/// Single source of truth for the
+/// `sea_query::Index::drop().table(...).name(...)` shape. Centralises the
+/// four call sites that previously open-coded it (the SQLite-rebuild
+/// fallback in [`crate::sql::remove_constraint`], the Postgres / MySQL
+/// `Index` arms there, and the two inline constraint-drop arms in
+/// [`crate::sql::delete_column`]).
+#[must_use]
+pub(crate) fn build_drop_index_query(table: &str, index_name: &str) -> BuiltQuery {
+    let idx_drop = sea_query::Index::drop()
+        .table(Alias::new(table))
+        .name(index_name)
+        .to_owned();
+    BuiltQuery::DropIndex(Box::new(idx_drop))
+}
+
+/// Look up `column` in `table_def.columns` and return a reference to its
+/// [`ColumnDef`], or a uniform `QueryError::SchemaError` describing the
+/// miss. Mirrors [`require_table_in_schema`] one level down: centralises
+/// the call sites that previously open-coded
+/// `table_def.columns.iter().find(|c| c.name == column).ok_or_else(...)`
+/// with the canonical `"Column '{column}' not found in table '{table}'."`
+/// message (trailing period included so callers stay byte-identical to
+/// existing string-match assertions).
+pub(crate) fn require_column_in_table<'a>(
+    table_def: &'a TableDef,
+    column: &str,
+) -> Result<&'a ColumnDef, crate::QueryError> {
+    table_def
+        .columns
+        .iter()
+        .find(|c| c.name == column)
+        .ok_or_else(|| {
+            crate::QueryError::SchemaError(format!(
+                "Column '{column}' not found in table '{table}'.",
+                table = table_def.name,
+            ))
+        })
+}
+
+/// Look up `column` in the table named `table` inside `schema`, returning
+/// `None` when either the table or the column is absent.
+///
+/// Centralises the `schema.iter().find(|t| t.name == table).and_then(|t|
+/// t.columns.iter().find(|c| c.name == column))` chain used by the five
+/// non-error-returning column lookups across the SQL builders (the
+/// `DeleteColumn` dispatcher, the Postgres `ModifyColumnDefault` path,
+/// and the three direct `ModifyColumnType` helpers). The error-returning
+/// twin lives one helper up as [`require_column_in_table`].
+#[must_use]
+pub(crate) fn find_column_in_schema<'a>(
+    schema: &'a [TableDef],
+    table: &str,
+    column: &str,
+) -> Option<&'a ColumnDef> {
+    schema
+        .iter()
+        .find(|t| t.name == table)
+        .and_then(|t| t.columns.iter().find(|c| c.name == column))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

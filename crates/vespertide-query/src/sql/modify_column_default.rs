@@ -4,7 +4,8 @@ use vespertide_core::{ColumnDef, TableDef};
 
 use super::helpers::{
     build_copy_into_temp_table, build_sea_column_def_with_table, build_sqlite_temp_table_create,
-    normalize_enum_default, quote_ident, recreate_indexes_after_rebuild, require_table_in_schema,
+    find_column_in_schema, normalize_enum_default, quote_ident, recreate_indexes_after_rebuild,
+    require_column_in_table, require_table_in_schema,
 };
 use super::rename_table::build_rename_table;
 use super::types::{BuiltQuery, DatabaseBackend, RawSql};
@@ -36,11 +37,8 @@ pub fn build_modify_column_default(
             let quoted_column = quote_ident(column, backend);
             let alter_sql = if let Some(default_value) = new_default {
                 // Look up column type to properly quote enum defaults
-                let column_type = current_schema
-                    .iter()
-                    .find(|t| t.name == table)
-                    .and_then(|t| t.columns.iter().find(|c| c.name == column))
-                    .map(|c| &c.r#type);
+                let column_type =
+                    find_column_in_schema(current_schema, table, column).map(|c| &c.r#type);
 
                 let normalized_default = if let Some(col_type) = column_type {
                     normalize_enum_default(col_type, default_value)
@@ -64,15 +62,7 @@ pub fn build_modify_column_default(
                 "MySQL requires current schema information to modify column defaults",
             )?;
 
-            let column_def = table_def
-                .columns
-                .iter()
-                .find(|c| c.name == column)
-                .ok_or_else(|| {
-                    QueryError::SchemaError(format!(
-                        "Column '{column}' not found in table '{table}'."
-                    ))
-                })?;
+            let column_def = require_column_in_table(table_def, column)?;
 
             // Create a modified column def with the new default
             let modified_col_def = ColumnDef {

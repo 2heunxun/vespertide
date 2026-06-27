@@ -2,7 +2,9 @@ use sea_query::Alias;
 
 use vespertide_core::TableDef;
 
-use super::helpers::{build_sea_column_def_with_table, quote_ident, require_table_in_schema};
+use super::helpers::{
+    build_sea_column_def_with_table, quote_ident, require_column_in_table, require_table_in_schema,
+};
 use super::types::{BuiltQuery, DatabaseBackend, RawSql};
 use crate::error::QueryError;
 
@@ -38,15 +40,7 @@ pub fn build_modify_column_comment(
                 "MySQL requires current schema information to modify column comments",
             )?;
 
-            let column_def = table_def
-                .columns
-                .iter()
-                .find(|c| c.name == column)
-                .ok_or_else(|| {
-                    QueryError::SchemaError(format!(
-                        "Column '{column}' not found in table '{table}'."
-                    ))
-                })?;
+            let column_def = require_column_in_table(table_def, column)?;
 
             // Build the full column definition with updated comment
             let mut modified_col_def = column_def.clone();

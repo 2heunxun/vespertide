@@ -6,7 +6,7 @@ use vespertide_core::{ColumnType, ComplexColumnType, TableDef};
 
 use crate::sql::helpers::{
     apply_column_type_with_table, build_create_enum_type_sql, convert_default_for_backend,
-    normalize_enum_default, quote_ident,
+    find_column_in_schema, normalize_enum_default, quote_ident,
 };
 use crate::sql::types::{BuiltQuery, DatabaseBackend, RawSql};
 
@@ -53,11 +53,7 @@ fn old_column_type<'a>(
     table: &str,
     column: &str,
 ) -> Option<&'a ColumnType> {
-    current_schema
-        .iter()
-        .find(|t| t.name == table)
-        .and_then(|t| t.columns.iter().find(|c| c.name == column))
-        .map(|c| &c.r#type)
+    find_column_in_schema(current_schema, table, column).map(|c| &c.r#type)
 }
 
 fn needs_postgres_enum_migration(context: &DirectBuildContext<'_>) -> bool {
@@ -152,11 +148,7 @@ fn build_postgres_enum_migration(queries: &mut Vec<BuiltQuery>, context: &Direct
 }
 
 fn column_default(context: &DirectBuildContext<'_>) -> Option<vespertide_core::DefaultValue> {
-    context
-        .current_schema
-        .iter()
-        .find(|t| t.name == context.table)
-        .and_then(|t| t.columns.iter().find(|c| c.name == context.column))
+    find_column_in_schema(context.current_schema, context.table, context.column)
         .and_then(|c| c.default.clone())
 }
 
@@ -209,11 +201,8 @@ fn create_new_enum_type_if_needed(queries: &mut Vec<BuiltQuery>, context: &Direc
 
 fn preserve_mysql_column_attributes(col: &mut SeaColumnDef, context: &DirectBuildContext<'_>) {
     if context.backend == DatabaseBackend::MySql
-        && let Some(column_def) = context
-            .current_schema
-            .iter()
-            .find(|t| t.name == context.table)
-            .and_then(|t| t.columns.iter().find(|c| c.name == context.column))
+        && let Some(column_def) =
+            find_column_in_schema(context.current_schema, context.table, context.column)
     {
         if !column_def.nullable {
             col.not_null();
