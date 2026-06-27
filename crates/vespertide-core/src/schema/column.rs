@@ -458,25 +458,12 @@ impl EnumValues {
         }
     }
 
-    /// Get SQL values for CREATE TYPE ENUM (only for string enums)
-    /// Returns quoted strings like 'value1', 'value2'
-    pub fn to_sql_values(&self) -> Vec<String> {
-        match self {
-            EnumValues::String(values) => values
-                .iter()
-                .map(|s| format!("'{}'", crate::escape_sql_string_literal(s)))
-                .collect(),
-            EnumValues::Integer(values) => values.iter().map(|v| v.value.to_string()).collect(),
-        }
-    }
-
     /// Format every variant for `CREATE TYPE … AS ENUM(...)` /
     /// `CHECK (col IN (...))` and join with `separator`, writing into one
     /// buffer — no intermediate `Vec<String>` allocation.
     ///
     /// Mirrors `vespertide_query::sql::helpers::quote_idents` and
-    /// `vespertide_core::schema::names::join_column_names`. Output is
-    /// byte-identical to `self.to_sql_values().join(separator)`.
+    /// `vespertide_core::schema::names::join_column_names`.
     ///
     /// ```rust
     /// use vespertide_core::{EnumValues, NumValue};

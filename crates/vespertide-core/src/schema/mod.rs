@@ -269,49 +269,11 @@ mod tests {
             assert_eq!(non_empty_int.len(), 2);
         }
 
-        #[test]
-        fn test_enum_values_to_sql_values_string() {
-            let vals = EnumValues::String(vec!["active".into(), "pending".into()]);
-            assert_eq!(vals.to_sql_values(), vec!["'active'", "'pending'"]);
-        }
-
-        #[test]
-        fn to_sql_values_escapes_single_quotes() {
-            let vals =
-                EnumValues::String(vec!["O'Brien".into(), "Smith".into(), "'leading".into()]);
-            let sql = vals.to_sql_values();
-
-            assert!(
-                sql.iter().any(|s| s == "'O''Brien'"),
-                "single quote inside value must be doubled"
-            );
-            assert!(
-                sql.iter().any(|s| s == "'''leading'"),
-                "leading single quote must be doubled"
-            );
-            assert!(
-                sql.iter().any(|s| s == "'Smith'"),
-                "values without quotes are unchanged"
-            );
-        }
-
-        #[test]
-        fn test_enum_values_to_sql_values_integer() {
-            let vals = EnumValues::Integer(vec![
-                NumValue {
-                    name: "Low".into(),
-                    value: 0,
-                },
-                NumValue {
-                    name: "High".into(),
-                    value: 10,
-                },
-            ]);
-            assert_eq!(vals.to_sql_values(), vec!["0", "10"]);
-        }
-
         #[rstest]
-        // Matches `to_sql_values().join(sep)` byte-for-byte across every arm.
+        // Locks the buffer-push helper's expected output across every arm.
+        // Prior versions also cross-checked against a now-deleted
+        // `to_sql_values() -> Vec<String>` pipeline; the case data below is
+        // the actual contract.
         #[case::string_two_variants(
             EnumValues::String(vec!["active".into(), "pending".into()]),
             ", ",
@@ -342,16 +304,12 @@ mod tests {
             "_",
             "'a'_'b'_'c'",
         )]
-        fn sql_values_joined_matches_to_sql_values_join(
+        fn sql_values_joined_locks_expected_output(
             #[case] vals: EnumValues,
             #[case] separator: &str,
             #[case] expected: &str,
         ) {
-            let joined = vals.sql_values_joined(separator);
-            assert_eq!(joined, expected);
-            // Equivalence lock: the buffer-push helper must be byte-identical
-            // to the legacy `Vec<String>` + `join` pipeline.
-            assert_eq!(joined, vals.to_sql_values().join(separator));
+            assert_eq!(vals.sql_values_joined(separator), expected);
         }
 
         #[test]

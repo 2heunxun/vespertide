@@ -182,6 +182,39 @@ impl_name_newtype!(TableName);
 impl_name_newtype!(ColumnName);
 impl_name_newtype!(IndexName);
 
+impl TableName {
+    /// Prepend `prefix` to this table name in place, reusing the existing
+    /// `String` allocation when capacity allows. No-op when
+    /// `prefix.is_empty()`.
+    ///
+    /// Unifies the two pre-existing prepend patterns in
+    /// `vespertide-core` (`action/prefix.rs`'s private `add_prefix` and
+    /// `schema/constraint.rs`'s open-coded
+    /// `format!("{prefix}{table}").into()`) — every "prefix a `TableName`"
+    /// site now reads the same way and avoids the fresh `format!`
+    /// allocation the latter shape always paid.
+    ///
+    /// ```rust
+    /// use vespertide_core::schema::names::TableName;
+    ///
+    /// let prefixed = TableName::new("user").with_prefix("tenant_");
+    /// assert_eq!(prefixed.as_str(), "tenant_user");
+    ///
+    /// // Empty prefix is a pure no-op.
+    /// let unchanged = TableName::new("user").with_prefix("");
+    /// assert_eq!(unchanged.as_str(), "user");
+    /// ```
+    #[must_use]
+    pub fn with_prefix(self, prefix: &str) -> Self {
+        if prefix.is_empty() {
+            return self;
+        }
+        let mut s = self.0;
+        s.insert_str(0, prefix);
+        Self(s)
+    }
+}
+
 /// Join a slice of [`ColumnName`]s with a separator using a single buffer
 /// — no intermediate `Vec<String>` allocation.
 ///

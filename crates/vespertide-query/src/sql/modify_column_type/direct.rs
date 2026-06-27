@@ -112,45 +112,41 @@ fn build_postgres_enum_migration(queries: &mut Vec<BuiltQuery>, context: &Direct
         let quoted_table = quote_ident(context.table, DatabaseBackend::Postgres);
         let quoted_column = quote_ident(context.column, DatabaseBackend::Postgres);
         let quoted_old_type = quote_ident(&old_type_name, DatabaseBackend::Postgres);
-        queries.push(BuiltQuery::Raw(RawSql::per_backend(
-            format!("CREATE TYPE {quoted_target_type} AS ENUM ({create_values})"),
-            String::new(),
-            String::new(),
-        )));
+        queries.push(BuiltQuery::Raw(RawSql::postgres_only(format!(
+            "CREATE TYPE {quoted_target_type} AS ENUM ({create_values})"
+        ))));
 
         // 2. DROP DEFAULT if exists (must be done before type change).
         if column_default.is_some() {
-            queries.push(BuiltQuery::Raw(RawSql::per_backend(
-                format!("ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} DROP DEFAULT"),
-                String::new(),
-                String::new(),
-            )));
+            queries.push(BuiltQuery::Raw(RawSql::postgres_only(format!(
+                "ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} DROP DEFAULT"
+            ))));
         }
 
         // 3. ALTER TABLE ... ALTER COLUMN ... TYPE target_type USING col::text::target_type.
-        queries.push(BuiltQuery::Raw(RawSql::per_backend(format!("ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} TYPE {quoted_target_type} USING {quoted_column}::text::{quoted_target_type}"), String::new(), String::new())));
+        queries.push(BuiltQuery::Raw(RawSql::postgres_only(format!(
+            "ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} TYPE {quoted_target_type} USING {quoted_column}::text::{quoted_target_type}"
+        ))));
 
         // 4. DROP old enum type.
-        queries.push(BuiltQuery::Raw(RawSql::per_backend(
-            format!("DROP TYPE {quoted_old_type}"),
-            String::new(),
-            String::new(),
-        )));
+        queries.push(BuiltQuery::Raw(RawSql::postgres_only(format!(
+            "DROP TYPE {quoted_old_type}"
+        ))));
 
         // 5. RENAME temp to final (only for same-name value changes).
         if needs_rename {
-            queries.push(BuiltQuery::Raw(RawSql::per_backend(
-                format!("ALTER TYPE {quoted_target_type} RENAME TO {quoted_old_type}"),
-                String::new(),
-                String::new(),
-            )));
+            queries.push(BuiltQuery::Raw(RawSql::postgres_only(format!(
+                "ALTER TYPE {quoted_target_type} RENAME TO {quoted_old_type}"
+            ))));
         }
 
         // 6. Restore DEFAULT if it existed.
         if let Some(default_value) = column_default {
             let normalized_default =
                 normalize_enum_default(context.new_type, &default_value.to_sql());
-            queries.push(BuiltQuery::Raw(RawSql::per_backend(format!("ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} SET DEFAULT {normalized_default}"), String::new(), String::new())));
+            queries.push(BuiltQuery::Raw(RawSql::postgres_only(format!(
+                "ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} SET DEFAULT {normalized_default}"
+            ))));
         }
     }
 }
@@ -245,11 +241,9 @@ fn drop_old_enum_type_if_needed(queries: &mut Vec<BuiltQuery>, context: &DirectB
         if should_drop {
             let old_type_name = crate::sql::helpers::build_enum_type_name(context.table, old_name);
             let old_type_name = quote_ident(&old_type_name, DatabaseBackend::Postgres);
-            queries.push(BuiltQuery::Raw(RawSql::per_backend(
-                format!("DROP TYPE {old_type_name}"),
-                String::new(),
-                String::new(),
-            )));
+            queries.push(BuiltQuery::Raw(RawSql::postgres_only(format!(
+                "DROP TYPE {old_type_name}"
+            ))));
         }
     }
 }

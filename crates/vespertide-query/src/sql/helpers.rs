@@ -464,11 +464,7 @@ pub fn build_create_enum_type_sql(
 
         // MySQL: ENUMs are inline, no CREATE TYPE needed
         // SQLite: Uses TEXT, no CREATE TYPE needed
-        Some(super::types::RawSql::per_backend(
-            pg_sql,
-            String::new(),
-            String::new(),
-        ))
+        Some(super::types::RawSql::postgres_only(pg_sql))
     } else {
         None
     }
@@ -491,11 +487,7 @@ pub fn build_drop_enum_type_sql(
         let pg_sql = format!("DROP TYPE {type_name}");
 
         // MySQL/SQLite: No action needed
-        Some(super::types::RawSql::per_backend(
-            pg_sql,
-            String::new(),
-            String::new(),
-        ))
+        Some(super::types::RawSql::postgres_only(pg_sql))
     } else {
         None
     }
