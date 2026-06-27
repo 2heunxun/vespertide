@@ -441,22 +441,8 @@ fn format_literal(lit: &Literal) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{add_check, check, plan};
+    use crate::test_support::{add_check, check, col, plan};
     use vespertide_core::{ColumnDef, ColumnType, EnumValues, SimpleColumnType, TableDef};
-
-    fn col(name: &str, ty: ColumnType) -> ColumnDef {
-        ColumnDef {
-            name: name.into(),
-            r#type: ty,
-            nullable: false,
-            default: None,
-            comment: None,
-            primary_key: None,
-            unique: None,
-            index: None,
-            foreign_key: None,
-        }
-    }
 
     fn baseline_table(table: &str, cols: Vec<ColumnDef>) -> TableDef {
         TableDef {

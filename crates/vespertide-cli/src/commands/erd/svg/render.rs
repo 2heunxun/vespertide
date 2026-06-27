@@ -17,7 +17,7 @@
 
 use std::fmt::Write as _;
 
-use super::edges::{render_edge_label, render_edge_path};
+use super::edges::{EdgeGeometry, edge_geometry, render_edge_label, render_edge_path};
 use super::model::{EdgeSpec, RowSpec, TableBox};
 use super::style::{
     BADGE_FS, BADGE_GAP, BADGE_H, BADGE_W, BG, CARD_BG, CARD_BORDER, FK_BG, FK_FG, FONT_FAMILY,
@@ -49,16 +49,27 @@ pub(super) fn render_doc(boxes: &[TableBox], edges: &[EdgeSpec], vw: f64, vh: f6
         bg = BG
     );
 
+    // Pre-compute every edge's routing geometry once. Previously each edge
+    // ran `edge_geometry` twice — once during the path pass and again during
+    // the label pass — so for an ERD with N edges we were doing 2N anchor +
+    // curvature computations. Caching the per-edge result before the two
+    // passes halves that work without changing a single pixel of the output.
+    let geometries: Vec<EdgeGeometry> = edges
+        .iter()
+        .map(|e| edge_geometry(&boxes[e.child_idx], &boxes[e.parent_idx], e))
+        .collect();
+
     // Pass 1: draw every edge path. Doing all paths before any labels
     // guarantees label pills are never overdrawn by another edge in a
     // dense bundle (junction tables, self-references, etc.).
     out.push_str("  <g class=\"edges\" fill=\"none\">\n");
-    for edge in edges {
+    for (edge, geom) in edges.iter().zip(&geometries) {
         render_edge_path(
             &mut out,
             &boxes[edge.child_idx],
             &boxes[edge.parent_idx],
             edge,
+            *geom,
         );
     }
     out.push_str("  </g>\n");
@@ -74,13 +85,8 @@ pub(super) fn render_doc(boxes: &[TableBox], edges: &[EdgeSpec], vw: f64, vh: f6
     // Pass 2: cardinality labels (pill + text). Always on top so they stay
     // readable regardless of how many curves cross their location.
     out.push_str("  <g class=\"edge-labels\">\n");
-    for edge in edges {
-        render_edge_label(
-            &mut out,
-            &boxes[edge.child_idx],
-            &boxes[edge.parent_idx],
-            edge,
-        );
+    for (edge, geom) in edges.iter().zip(&geometries) {
+        render_edge_label(&mut out, edge, *geom);
     }
     out.push_str("  </g>\n");
 

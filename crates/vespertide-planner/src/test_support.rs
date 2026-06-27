@@ -5,8 +5,8 @@
 //! `tests/mod.rs` entry can reuse the same implementation.
 
 use vespertide_core::{
-    CheckViolationStrategy, ColumnDef, ColumnType, MigrationAction, MigrationPlan, TableConstraint,
-    TableDef,
+    CheckViolationStrategy, ColumnDef, ColumnType, MigrationAction, MigrationPlan, SimpleColumnType,
+    TableConstraint, TableDef,
 };
 
 /// Default test column (NOT NULL). Mirrors the production convention that
@@ -19,6 +19,21 @@ pub(crate) fn col(name: &str, ty: ColumnType) -> ColumnDef {
 /// Nullable test column.
 pub(crate) fn col_nullable(name: &str, ty: ColumnType) -> ColumnDef {
     ColumnDef::new(name, ty, true)
+}
+
+/// Integer-typed test column with explicit nullability.
+///
+/// Hoisted from four byte-identical `fn col(name, nullable) -> ColumnDef`
+/// helpers inside `validate/*` test modules. Every caller hard-coded the
+/// column type to `Integer` and set every inline-constraint field to `None`,
+/// which is precisely what `ColumnDef::new(name, Integer, nullable)`
+/// produces.
+pub(crate) fn col_int(name: &str, nullable: bool) -> ColumnDef {
+    ColumnDef::new(
+        name,
+        ColumnType::Simple(SimpleColumnType::Integer),
+        nullable,
+    )
 }
 
 /// Build a table from name + columns + constraints.
