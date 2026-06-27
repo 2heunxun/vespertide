@@ -170,10 +170,11 @@ pub fn find_primary_key_additions(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::plan;
     use rstest::rstest;
     use vespertide_core::{
-        ColumnDef, ColumnType, MigrationAction, MigrationPlan, PrimaryKeyAdditionStrategy,
-        SimpleColumnType, TableConstraint, TableDef, TableName,
+        ColumnDef, ColumnType, MigrationAction, PrimaryKeyAdditionStrategy, SimpleColumnType,
+        TableConstraint, TableDef, TableName,
     };
 
     fn col(name: &str, nullable: bool) -> ColumnDef {
@@ -207,16 +208,6 @@ mod tests {
                 columns: columns.iter().map(|c| (*c).into()).collect(),
                 strategy: PrimaryKeyAdditionStrategy::default(),
             },
-        }
-    }
-
-    fn plan(actions: Vec<MigrationAction>) -> MigrationPlan {
-        MigrationPlan {
-            id: "test".into(),
-            version: 1,
-            comment: None,
-            created_at: None,
-            actions,
         }
     }
 

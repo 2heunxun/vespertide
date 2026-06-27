@@ -441,9 +441,8 @@ fn format_literal(lit: &Literal) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vespertide_core::{
-        CheckViolationStrategy, ColumnDef, ColumnType, EnumValues, SimpleColumnType, TableDef,
-    };
+    use crate::test_support::{add_check, check, plan};
+    use vespertide_core::{ColumnDef, ColumnType, EnumValues, SimpleColumnType, TableDef};
 
     fn col(name: &str, ty: ColumnType) -> ColumnDef {
         ColumnDef {
@@ -465,31 +464,6 @@ mod tests {
             description: None,
             columns: cols,
             constraints: Vec::new(),
-        }
-    }
-
-    fn plan(actions: Vec<MigrationAction>) -> MigrationPlan {
-        MigrationPlan {
-            id: String::new(),
-            comment: None,
-            created_at: None,
-            version: 0,
-            actions,
-        }
-    }
-
-    fn check(name: &str, expr: &str) -> TableConstraint {
-        TableConstraint::Check {
-            name: name.to_string(),
-            expr: expr.to_string(),
-            strategy: CheckViolationStrategy::default(),
-        }
-    }
-
-    fn add_check(table: &str, name: &str, expr: &str) -> MigrationAction {
-        MigrationAction::AddConstraint {
-            table: table.into(),
-            constraint: check(name, expr),
         }
     }
 

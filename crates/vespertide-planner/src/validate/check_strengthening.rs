@@ -429,15 +429,8 @@ fn i64_to_f64(v: i64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vespertide_core::{CheckViolationStrategy, MigrationAction, MigrationPlan, TableDef};
-
-    fn check(name: &str, expr: &str) -> TableConstraint {
-        TableConstraint::Check {
-            name: name.to_string(),
-            expr: expr.to_string(),
-            strategy: CheckViolationStrategy::default(),
-        }
-    }
+    use crate::test_support::{add_check, check, plan};
+    use vespertide_core::{MigrationAction, TableDef};
 
     fn baseline_with_check(table: &str, name: &str, expr: &str) -> Vec<TableDef> {
         vec![TableDef {
@@ -446,23 +439,6 @@ mod tests {
             columns: Vec::new(),
             constraints: vec![check(name, expr)],
         }]
-    }
-
-    fn plan(actions: Vec<MigrationAction>) -> MigrationPlan {
-        MigrationPlan {
-            id: String::new(),
-            comment: None,
-            created_at: None,
-            version: 0,
-            actions,
-        }
-    }
-
-    fn add_check(table: &str, name: &str, expr: &str) -> MigrationAction {
-        MigrationAction::AddConstraint {
-            table: table.into(),
-            constraint: check(name, expr),
-        }
     }
 
     fn remove_check(table: &str, name: &str, expr: &str) -> MigrationAction {

@@ -133,10 +133,11 @@ fn columns_to_strings(cols: &[ColumnName]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::plan;
     use rstest::rstest;
     use vespertide_core::{
-        ColumnDef, ColumnType, MigrationAction, MigrationPlan, SimpleColumnType, TableConstraint,
-        TableDef, TableName,
+        ColumnDef, ColumnType, MigrationAction, SimpleColumnType, TableConstraint, TableDef,
+        TableName,
     };
 
     fn col(name: &str, nullable: bool) -> ColumnDef {
@@ -180,16 +181,6 @@ mod tests {
                 on_update: None,
                 orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             },
-        }
-    }
-
-    fn plan(actions: Vec<MigrationAction>) -> MigrationPlan {
-        MigrationPlan {
-            id: "test".into(),
-            version: 1,
-            comment: None,
-            created_at: None,
-            actions,
         }
     }
 

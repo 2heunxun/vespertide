@@ -97,11 +97,12 @@ pub fn find_addcolumn_fk_nullable_violations(plan: &MigrationPlan) -> Vec<Planne
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::plan;
     use rstest::rstest;
     use vespertide_core::schema::foreign_key::{ForeignKeyDef, ForeignKeySyntax};
     use vespertide_core::{
-        ColumnDef, ColumnName, ColumnType, MigrationAction, MigrationPlan, SimpleColumnType,
-        StringOrBool, TableConstraint, TableName,
+        ColumnDef, ColumnName, ColumnType, MigrationAction, SimpleColumnType, StringOrBool,
+        TableConstraint, TableName,
     };
 
     /// Minimal `ColumnDef` constructor with all inline-constraint fields
@@ -156,16 +157,6 @@ mod tests {
             on_update: None,
             orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
         })
-    }
-
-    fn plan(actions: Vec<MigrationAction>) -> MigrationPlan {
-        MigrationPlan {
-            id: "test".into(),
-            version: 1,
-            comment: None,
-            created_at: None,
-            actions,
-        }
     }
 
     #[rstest]

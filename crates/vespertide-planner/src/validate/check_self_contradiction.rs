@@ -355,17 +355,8 @@ fn format_is_null(column: &str, negated: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vespertide_core::{
-        CheckViolationStrategy, ColumnDef, ColumnType, SimpleColumnType, TableDef,
-    };
-
-    fn check(name: &str, expr: &str) -> TableConstraint {
-        TableConstraint::Check {
-            name: name.to_string(),
-            expr: expr.to_string(),
-            strategy: CheckViolationStrategy::default(),
-        }
-    }
+    use crate::test_support::check;
+    use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType, TableDef};
 
     fn table(checks: Vec<TableConstraint>) -> TableDef {
         TableDef {

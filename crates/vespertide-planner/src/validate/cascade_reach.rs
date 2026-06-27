@@ -239,10 +239,11 @@ fn classify_risk(depth: usize, max_fanout: usize) -> Option<CascadeRiskLevel> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::plan;
     use rstest::rstest;
     use vespertide_core::{
-        ColumnDef, ColumnType, ForeignKeyOrphanStrategy, MigrationAction, MigrationPlan,
-        ReferenceAction, SimpleColumnType, TableConstraint, TableDef, TableName,
+        ColumnDef, ColumnType, ForeignKeyOrphanStrategy, MigrationAction, ReferenceAction,
+        SimpleColumnType, TableConstraint, TableDef, TableName,
     };
 
     fn col(name: &str) -> ColumnDef {
@@ -313,16 +314,6 @@ mod tests {
                 on_update: None,
                 orphan_strategy: ForeignKeyOrphanStrategy::default(),
             },
-        }
-    }
-
-    fn plan(actions: Vec<MigrationAction>) -> MigrationPlan {
-        MigrationPlan {
-            id: "test".into(),
-            version: 1,
-            comment: None,
-            created_at: None,
-            actions,
         }
     }
 

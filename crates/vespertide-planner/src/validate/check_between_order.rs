@@ -138,17 +138,8 @@ fn format_literal(lit: &Literal) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vespertide_core::{
-        CheckViolationStrategy, ColumnDef, ColumnType, SimpleColumnType, TableDef,
-    };
-
-    fn check_constraint(name: &str, expr: &str) -> TableConstraint {
-        TableConstraint::Check {
-            name: name.to_string(),
-            expr: expr.to_string(),
-            strategy: CheckViolationStrategy::default(),
-        }
-    }
+    use crate::test_support::check;
+    use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType, TableDef};
 
     fn table_with_check(name: &str, check_expr: &str) -> TableDef {
         TableDef {
@@ -167,7 +158,7 @@ mod tests {
                 index: None,
                 foreign_key: None,
             }],
-            constraints: vec![check_constraint("chk_test", check_expr)],
+            constraints: vec![check("chk_test", check_expr)],
         }
     }
 
@@ -317,8 +308,8 @@ mod tests {
                 foreign_key: None,
             }],
             constraints: vec![
-                check_constraint("chk_first", "age BETWEEN 100 AND 0"),
-                check_constraint("chk_second", "score BETWEEN 50 AND 10"),
+                check("chk_first", "age BETWEEN 100 AND 0"),
+                check("chk_second", "score BETWEEN 50 AND 10"),
             ],
         };
         let err = validate_between_boundary_order(&table).unwrap_err();
@@ -347,8 +338,8 @@ mod tests {
                 foreign_key: None,
             }],
             constraints: vec![
-                check_constraint("chk_first", "age BETWEEN 100 AND 0"),
-                check_constraint("chk_second", "score BETWEEN 50 AND 10"),
+                check("chk_first", "age BETWEEN 100 AND 0"),
+                check("chk_second", "score BETWEEN 50 AND 10"),
             ],
         };
 
@@ -387,7 +378,7 @@ mod tests {
                 index: None,
                 foreign_key: None,
             }],
-            constraints: vec![check_constraint(
+            constraints: vec![check(
                 "chk_or_both",
                 "age BETWEEN 100 AND 0 OR score BETWEEN 50 AND 10",
             )],
@@ -432,8 +423,8 @@ mod tests {
                 foreign_key: None,
             }],
             constraints: vec![
-                check_constraint("chk_valid", "age BETWEEN 0 AND 100"),
-                check_constraint("chk_reversed", "score BETWEEN 50 AND 10"),
+                check("chk_valid", "age BETWEEN 0 AND 100"),
+                check("chk_reversed", "score BETWEEN 50 AND 10"),
             ],
         };
 

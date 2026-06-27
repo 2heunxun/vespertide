@@ -125,11 +125,9 @@ fn find_check_target_column(expr: &str, table: &TableDef) -> Option<(String, boo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{add_check, plan};
     use rstest::rstest;
-    use vespertide_core::{
-        CheckViolationStrategy, ColumnDef, ColumnType, MigrationAction, MigrationPlan,
-        SimpleColumnType, TableConstraint, TableDef, TableName,
-    };
+    use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType, TableDef};
 
     fn col(name: &str, nullable: bool) -> ColumnDef {
         ColumnDef {
@@ -151,27 +149,6 @@ mod tests {
             description: None,
             columns: cols,
             constraints: vec![],
-        }
-    }
-
-    fn add_check(table: &str, name: &str, expr: &str) -> MigrationAction {
-        MigrationAction::AddConstraint {
-            table: TableName::from(table),
-            constraint: TableConstraint::Check {
-                name: name.into(),
-                expr: expr.into(),
-                strategy: CheckViolationStrategy::default(),
-            },
-        }
-    }
-
-    fn plan(actions: Vec<MigrationAction>) -> MigrationPlan {
-        MigrationPlan {
-            id: "test".into(),
-            version: 1,
-            comment: None,
-            created_at: None,
-            actions,
         }
     }
 

@@ -215,7 +215,7 @@ mod tests {
         ColumnDef::new(name, ColumnType::Simple(SimpleColumnType::Text), false)
     }
 
-    use crate::test_support::{pk, table};
+    use crate::test_support::{pk, plan, table};
 
     fn unique(name: Option<&str>, columns: Vec<&str>) -> TableConstraint {
         TableConstraint::Unique {
@@ -229,16 +229,6 @@ mod tests {
         MigrationAction::AddConstraint {
             table: t.into(),
             constraint: c,
-        }
-    }
-
-    fn plan(actions: Vec<MigrationAction>) -> MigrationPlan {
-        MigrationPlan {
-            id: String::new(),
-            comment: None,
-            created_at: None,
-            version: 1,
-            actions,
         }
     }
 

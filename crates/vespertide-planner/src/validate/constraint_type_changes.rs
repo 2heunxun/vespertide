@@ -239,7 +239,7 @@ fn render_fk_hint(baseline: &[TableDef], target_table: &str, target_columns: &[S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{pk, table};
+    use crate::test_support::{pk, plan, table};
     use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType, TableName};
 
     fn col(name: &str) -> ColumnDef {
@@ -270,16 +270,6 @@ mod tests {
             on_delete: None,
             on_update: None,
             orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
-        }
-    }
-
-    fn plan(actions: Vec<MigrationAction>) -> MigrationPlan {
-        MigrationPlan {
-            id: String::new(),
-            comment: None,
-            created_at: None,
-            version: 1,
-            actions,
         }
     }
 
