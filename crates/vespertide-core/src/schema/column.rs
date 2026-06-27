@@ -458,6 +458,27 @@ impl EnumValues {
         }
     }
 
+    /// Returns `true` when `value` matches any variant of this enum.
+    ///
+    /// For string enums the comparison is exact-string against each variant.
+    /// For integer enums the value is first parsed as `i32` (matching the
+    /// underlying DB representation): successful parses match against
+    /// `NumValue::value`, failed parses fall back to matching against
+    /// `NumValue::name`. Mirrors the loose JSON-default behaviour expected by
+    /// the planner validator so a model author can write either the numeric
+    /// literal (`5`) or the variant name (`"Active"`) for an integer enum
+    /// default.
+    #[must_use]
+    pub fn contains_value(&self, value: &str) -> bool {
+        match self {
+            EnumValues::String(variants) => variants.iter().any(|v| v == value),
+            EnumValues::Integer(variants) => value.parse::<i32>().map_or_else(
+                |_| variants.iter().any(|v| v.name == value),
+                |n| variants.iter().any(|v| v.value == i64::from(n)),
+            ),
+        }
+    }
+
     /// Format every variant for `CREATE TYPE … AS ENUM(...)` /
     /// `CHECK (col IN (...))` and join with `separator`, writing into one
     /// buffer — no intermediate `Vec<String>` allocation.

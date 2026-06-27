@@ -98,7 +98,7 @@ pub(in crate::commands::revision) fn prompt_type_narrowings(
 
     let mut strategies = Vec::with_capacity(warnings.len());
     for (idx, w) in warnings.iter().enumerate() {
-        println!("{}", "\u{2500}".repeat(60).bright_black());
+        super::print_section_rule();
         println!(
             "  {} {}/{}: {} ({} {} {})",
             "\u{25b6}".bright_cyan(),
@@ -157,7 +157,7 @@ pub(in crate::commands::revision) fn prompt_type_narrowings(
         };
         strategies.push(strategy);
     }
-    println!("{}", "\u{2500}".repeat(60).bright_black());
+    super::print_section_rule();
     Ok(Some(strategies))
 }
 

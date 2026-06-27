@@ -241,6 +241,60 @@ mod tests {
             assert_eq!(vals.variant_names(), vec!["Low", "High"]);
         }
 
+        #[rstest]
+        // String match: exact-string check against each variant.
+        #[case::string_match(
+            EnumValues::String(vec!["active".into(), "pending".into()]),
+            "active",
+            true,
+        )]
+        #[case::string_miss(
+            EnumValues::String(vec!["active".into(), "pending".into()]),
+            "banned",
+            false,
+        )]
+        // Integer enum, numeric input: parses as i32 then matches `NumValue::value`.
+        #[case::integer_numeric_match(
+            EnumValues::Integer(vec![
+                NumValue { name: "Low".into(),  value: 0  },
+                NumValue { name: "High".into(), value: 10 },
+            ]),
+            "10",
+            true,
+        )]
+        #[case::integer_numeric_miss(
+            EnumValues::Integer(vec![
+                NumValue { name: "Low".into(),  value: 0  },
+                NumValue { name: "High".into(), value: 10 },
+            ]),
+            "99",
+            false,
+        )]
+        // Integer enum, non-numeric input: falls back to matching `NumValue::name`.
+        #[case::integer_name_match(
+            EnumValues::Integer(vec![
+                NumValue { name: "Low".into(),  value: 0  },
+                NumValue { name: "High".into(), value: 10 },
+            ]),
+            "High",
+            true,
+        )]
+        #[case::integer_name_miss(
+            EnumValues::Integer(vec![
+                NumValue { name: "Low".into(),  value: 0  },
+                NumValue { name: "High".into(), value: 10 },
+            ]),
+            "Unknown",
+            false,
+        )]
+        fn contains_value_matches_variants_per_enum_kind(
+            #[case] values: EnumValues,
+            #[case] candidate: &str,
+            #[case] expected: bool,
+        ) {
+            assert_eq!(values.contains_value(candidate), expected);
+        }
+
         #[test]
         fn test_enum_values_len_and_is_empty() {
             // String variant

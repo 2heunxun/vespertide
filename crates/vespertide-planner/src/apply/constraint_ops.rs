@@ -1,4 +1,4 @@
-use vespertide_core::{ColumnName, StrOrBoolOrArray, TableConstraint, TableDef};
+use vespertide_core::{ColumnDef, ColumnName, StrOrBoolOrArray, TableConstraint, TableDef};
 
 use crate::error::PlannerError;
 
@@ -73,24 +73,34 @@ pub(super) fn clear_inline_constraint_fields(
             clear_unique_fields(tbl, name.as_deref(), columns);
         }
         TableConstraint::PrimaryKey { columns, .. } => {
-            for col_name in columns {
-                if let Some(col) = tbl.columns.iter_mut().find(|c| &c.name == col_name) {
-                    col.primary_key = None;
-                }
-            }
+            clear_columns_field(tbl, columns, |c| c.primary_key = None);
         }
         TableConstraint::ForeignKey { columns, .. } => {
-            for col_name in columns {
-                if let Some(col) = tbl.columns.iter_mut().find(|c| &c.name == col_name) {
-                    col.foreign_key = None;
-                }
-            }
+            clear_columns_field(tbl, columns, |c| c.foreign_key = None);
         }
         TableConstraint::Check { .. } => {}
         TableConstraint::Index { name, columns } => {
             clear_index_fields(table, tbl, name.as_deref(), columns);
         }
         _ => unreachable!("TableConstraint is #[non_exhaustive]; all variants are matched above"),
+    }
+}
+
+/// Run `clear` on every column in `tbl` whose name appears in `columns`.
+/// Used by the PK/FK arms of [`clear_inline_constraint_fields`] to drop the
+/// single inline field that mirrors the table-level constraint being
+/// removed. Centralises the "find each column and clear one field" pattern
+/// so the two arms cannot drift (e.g. if the lookup later needs case-folding
+/// or aliasing).
+fn clear_columns_field(
+    tbl: &mut TableDef,
+    columns: &[ColumnName],
+    mut clear: impl FnMut(&mut ColumnDef),
+) {
+    for col_name in columns {
+        if let Some(col) = tbl.columns.iter_mut().find(|c| &c.name == col_name) {
+            clear(col);
+        }
     }
 }
 

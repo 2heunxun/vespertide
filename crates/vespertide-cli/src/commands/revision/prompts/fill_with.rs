@@ -53,12 +53,12 @@ pub(in crate::commands::revision) fn print_fill_with_header() {
         "⚠".bright_yellow(),
         "The following columns require fill_with values:".bright_yellow()
     );
-    println!("{}", "─".repeat(60).bright_black());
+    super::print_section_rule();
 }
 
 /// Print the footer for `fill_with` prompts.
 pub(in crate::commands::revision) fn print_fill_with_footer() {
-    println!("{}", "─".repeat(60).bright_black());
+    super::print_section_rule();
 }
 
 /// Print a `fill_with` item and return the formatted prompt.
@@ -303,7 +303,7 @@ where
         "\u{26a0}".bright_yellow(),
         "The following enum value removals require replacement mappings:".bright_yellow()
     );
-    println!("{}", "\u{2500}".repeat(60).bright_black());
+    super::print_section_rule();
 
     for item in missing {
         println!(
@@ -337,7 +337,7 @@ where
         results.push((item.action_index, mappings));
     }
 
-    println!("{}", "\u{2500}".repeat(60).bright_black());
+    super::print_section_rule();
     Ok(results)
 }
 
