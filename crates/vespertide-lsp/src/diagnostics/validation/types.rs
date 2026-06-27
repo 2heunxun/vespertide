@@ -34,22 +34,7 @@ pub(super) struct EnumValueDescriptor {
     pub(super) integer_value_range: std::ops::Range<usize>,
 }
 
-/// Peel YAML's `flow_node` / `block_node` wrappers (no-op on JSON).
-pub(super) fn unwrap_yaml_node(node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
-    // Fused while-let so the empty-wrapper case (no usable `named_child(0)`)
-    // and the kind-mismatch case share the same loop exit — no defensive
-    // `return` line that only an (unobservable) empty tree-sitter wrapper
-    // could reach.
-    let mut current = node;
-    while matches!(current.kind(), "flow_node" | "block_node")
-        && let Some(inner) = current
-            .named_child(0)
-            .filter(|inner| inner.id() != current.id())
-    {
-        current = inner;
-    }
-    current
-}
+pub(super) use crate::tree_util::unwrap_yaml_node;
 
 pub(super) fn collect_enum_value_descriptors(
     array: tree_sitter::Node<'_>,

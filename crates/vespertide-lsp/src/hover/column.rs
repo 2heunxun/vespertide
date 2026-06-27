@@ -1,6 +1,7 @@
 //! Column hover: markdown showing name, type, nullable, default, constraints.
 
 use crate::text_util::strip_quotes;
+use crate::tree_util::is_pair;
 use std::fmt::Write as _;
 use std::ops::Range;
 
@@ -92,10 +93,6 @@ fn highlight_range(node: tree_sitter::Node<'_>, fallback: tree_sitter::Node<'_>)
 
 fn is_mapping(node: tree_sitter::Node<'_>) -> bool {
     matches!(node.kind(), "object" | "block_mapping")
-}
-
-fn is_pair(node: tree_sitter::Node<'_>) -> bool {
-    matches!(node.kind(), "pair" | "block_mapping_pair")
 }
 
 fn constraint_is_enabled(value: &str) -> bool {

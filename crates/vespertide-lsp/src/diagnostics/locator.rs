@@ -4,6 +4,8 @@ use std::ops::Range;
 
 use vespertide_planner::PlannerError;
 
+use crate::tree_util::is_pair;
+
 /// Specific column field a diagnostic should attach to. The locator narrows
 /// the highlighted range from the whole column object down to this child
 /// pair so the squiggle lands on the *responsible* line.
@@ -320,18 +322,7 @@ pub(crate) fn locate_top_name(
     direct_name_value_range(mapping, source_bytes)
 }
 
-fn find_outer_mapping(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
-    if matches!(node.kind(), "object" | "block_mapping" | "flow_mapping") {
-        return Some(node);
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if let Some(found) = find_outer_mapping(child) {
-            return Some(found);
-        }
-    }
-    None
-}
+use crate::tree_util::find_outer_mapping;
 
 fn direct_name_value_range(mapping: tree_sitter::Node<'_>, source: &[u8]) -> Option<Range<usize>> {
     let mut cursor = mapping.walk();
@@ -409,10 +400,6 @@ fn mapping_has_name(node: tree_sitter::Node<'_>, source: &[u8], target_name: &st
 
 fn is_mapping(node: tree_sitter::Node<'_>) -> bool {
     matches!(node.kind(), "object" | "block_mapping")
-}
-
-fn is_pair(node: tree_sitter::Node<'_>) -> bool {
-    matches!(node.kind(), "pair" | "block_mapping_pair")
 }
 
 fn pair_key_matches(node: tree_sitter::Node<'_>, source: &[u8], expected: &str) -> bool {

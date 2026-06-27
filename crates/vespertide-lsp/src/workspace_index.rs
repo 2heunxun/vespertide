@@ -144,21 +144,8 @@ impl WorkspaceIndex {
 /// `columns` before `name` — that polluted the workspace index with column
 /// names like `id` and `media_id` as if they were tables.
 fn extract_top_level_name(source: &str, tree: &Tree) -> Option<String> {
-    let mapping = find_outer_mapping(tree.root_node())?;
+    let mapping = crate::tree_util::find_outer_mapping(tree.root_node())?;
     find_direct_name_value(mapping, source.as_bytes())
-}
-
-fn find_outer_mapping(node: Node<'_>) -> Option<Node<'_>> {
-    if matches!(node.kind(), "object" | "block_mapping" | "flow_mapping") {
-        return Some(node);
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if let Some(found) = find_outer_mapping(child) {
-            return Some(found);
-        }
-    }
-    None
 }
 
 fn find_direct_name_value(mapping: Node<'_>, source: &[u8]) -> Option<String> {

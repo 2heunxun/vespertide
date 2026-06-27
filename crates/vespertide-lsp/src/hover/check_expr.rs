@@ -11,6 +11,7 @@ use vespertide_planner::{CheckExprAst, CheckExprLiteral, CheckExprOp, parse_chec
 
 use super::DomainHover;
 use crate::check_expr_range::expr_inner_range;
+use crate::tree_util::is_pair;
 
 pub(super) fn try_hover(
     node: tree_sitter::Node<'_>,
@@ -247,10 +248,6 @@ fn is_inside_constraints(node: tree_sitter::Node<'_>, source: &str) -> bool {
         cur = candidate.parent();
     }
     false
-}
-
-fn is_pair(node: tree_sitter::Node<'_>) -> bool {
-    matches!(node.kind(), "pair" | "block_mapping_pair")
 }
 
 #[cfg(test)]

@@ -15,6 +15,7 @@ use std::ops::Range;
 
 use crate::store::DocumentStore;
 use crate::text_util::strip_quotes;
+use crate::tree_util::is_pair;
 use crate::workspace_index::WorkspaceIndex;
 use crate::workspace_tables::WorkspaceTables;
 
@@ -317,10 +318,6 @@ fn key_is(node: tree_sitter::Node<'_>, source: &[u8], expected: &str) -> bool {
 
 fn is_mapping(node: tree_sitter::Node<'_>) -> bool {
     matches!(node.kind(), "object" | "block_mapping")
-}
-
-fn is_pair(node: tree_sitter::Node<'_>) -> bool {
-    matches!(node.kind(), "pair" | "block_mapping_pair")
 }
 
 #[cfg(test)]

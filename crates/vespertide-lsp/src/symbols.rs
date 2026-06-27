@@ -322,33 +322,9 @@ fn find_pair_with_key<'tree>(
     })
 }
 
-fn find_outer_mapping(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
-    if matches!(node.kind(), "object" | "block_mapping" | "flow_mapping") {
-        return Some(node);
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if let Some(found) = find_outer_mapping(child) {
-            return Some(found);
-        }
-    }
-    None
-}
+use crate::tree_util::find_outer_mapping;
 
-fn unwrap_yaml_node(node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
-    // Fused while-let so the empty-wrapper case (no usable `named_child(0)`)
-    // and the kind-mismatch case share the same exit — no defensive `return`
-    // line that depends on a tree-sitter-yaml release producing empty wrappers.
-    let mut current = node;
-    while matches!(current.kind(), "flow_node" | "block_node")
-        && let Some(inner) = current
-            .named_child(0)
-            .filter(|inner| inner.id() != current.id())
-    {
-        current = inner;
-    }
-    current
-}
+use crate::tree_util::unwrap_yaml_node;
 
 fn trim_one_byte(range: &Range<usize>) -> Range<usize> {
     if range.end.saturating_sub(range.start) >= 2 {

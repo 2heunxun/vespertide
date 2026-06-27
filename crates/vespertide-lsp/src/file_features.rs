@@ -250,18 +250,7 @@ pub fn compute_selection_ranges(
 // Shared helpers
 // =====================================================================
 
-fn find_outer_mapping(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
-    if matches!(node.kind(), "object" | "block_mapping" | "flow_mapping") {
-        return Some(node);
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if let Some(found) = find_outer_mapping(child) {
-            return Some(found);
-        }
-    }
-    None
-}
+use crate::tree_util::find_outer_mapping;
 
 fn find_pair_with_key<'tree>(
     mapping: tree_sitter::Node<'tree>,
