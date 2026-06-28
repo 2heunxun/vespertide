@@ -21,6 +21,16 @@ fn push_postgres_raw(queries: &mut Vec<BuiltQuery>, sql: String) {
     queries.push(BuiltQuery::Raw(RawSql::postgres_only(sql)));
 }
 
+/// Emit one PostgreSQL-only `ALTER TABLE ... ALTER COLUMN ...` statement.
+///
+/// Centralises the `push_postgres_raw(queries, build_pg_alter_column_sql(...))`
+/// two-call composition used three times by `build_postgres_enum_migration`
+/// (DROP DEFAULT / TYPE … USING …::text::… / SET DEFAULT …) so each call site
+/// reads as "alter this column with this suffix" instead of plumbing.
+fn push_pg_alter_column(queries: &mut Vec<BuiltQuery>, table: &str, column: &str, suffix: &str) {
+    push_postgres_raw(queries, build_pg_alter_column_sql(table, column, suffix));
+}
+
 struct DirectBuildContext<'a> {
     backend: DatabaseBackend,
     table: &'a str,
@@ -119,22 +129,15 @@ fn build_postgres_enum_migration(queries: &mut Vec<BuiltQuery>, context: &Direct
 
         // 2. DROP DEFAULT if exists (must be done before type change).
         if column_default.is_some() {
-            push_postgres_raw(
-                queries,
-                build_pg_alter_column_sql(context.table, context.column, "DROP DEFAULT"),
-            );
+            push_pg_alter_column(queries, context.table, context.column, "DROP DEFAULT");
         }
 
         // 3. ALTER TABLE ... ALTER COLUMN ... TYPE target_type USING col::text::target_type.
-        push_postgres_raw(
+        push_pg_alter_column(
             queries,
-            build_pg_alter_column_sql(
-                context.table,
-                context.column,
-                &format!(
-                    "TYPE {quoted_target_type} USING {quoted_column}::text::{quoted_target_type}"
-                ),
-            ),
+            context.table,
+            context.column,
+            &format!("TYPE {quoted_target_type} USING {quoted_column}::text::{quoted_target_type}"),
         );
 
         // 4. DROP old enum type.
@@ -152,13 +155,11 @@ fn build_postgres_enum_migration(queries: &mut Vec<BuiltQuery>, context: &Direct
         if let Some(default_value) = column_default {
             let normalized_default =
                 normalize_enum_default(context.new_type, &default_value.to_sql());
-            push_postgres_raw(
+            push_pg_alter_column(
                 queries,
-                build_pg_alter_column_sql(
-                    context.table,
-                    context.column,
-                    &format!("SET DEFAULT {normalized_default}"),
-                ),
+                context.table,
+                context.column,
+                &format!("SET DEFAULT {normalized_default}"),
             );
         }
     }
