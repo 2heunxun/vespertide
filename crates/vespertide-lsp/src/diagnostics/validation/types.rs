@@ -36,6 +36,8 @@ pub(super) struct EnumValueDescriptor {
 
 pub(super) use crate::tree_util::unwrap_yaml_node;
 
+use crate::tree_util::is_pair;
+
 pub(super) fn collect_enum_value_descriptors(
     array: tree_sitter::Node<'_>,
     source: &[u8],
@@ -133,7 +135,7 @@ pub(super) fn find_value_for_key<'tree>(
 ) -> Option<tree_sitter::Node<'tree>> {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if is_pair_node(child)
+        if is_pair(child)
             && pair_key_text(child, source).is_some_and(|k| k == target_key)
             && let Some(value) = child.named_child(1)
         {
@@ -153,12 +155,8 @@ pub(super) fn find_pair_with_key<'tree>(
 ) -> Option<tree_sitter::Node<'tree>> {
     let mut cursor = object.walk();
     object.children(&mut cursor).find(|&child| {
-        is_pair_node(child) && pair_key_text(child, source).is_some_and(|k| k == target_key)
+        is_pair(child) && pair_key_text(child, source).is_some_and(|k| k == target_key)
     })
-}
-
-pub(super) fn is_pair_node(node: tree_sitter::Node<'_>) -> bool {
-    matches!(node.kind(), "pair" | "block_mapping_pair")
 }
 
 pub(super) fn pair_key_text<'a>(pair: tree_sitter::Node<'_>, source: &'a [u8]) -> Option<&'a str> {

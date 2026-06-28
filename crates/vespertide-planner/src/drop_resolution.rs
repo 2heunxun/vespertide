@@ -157,7 +157,7 @@ pub fn find_drop_resolutions(plan: &MigrationPlan, baseline: &[TableDef]) -> Vec
 /// in this module (`resolve_column_drop`, `apply_column_rename`) into a single
 /// named helper. Returns a borrowed `&ColumnDef`; callers `.cloned()` when
 /// they need ownership.
-fn find_baseline_column<'a>(
+pub(crate) fn find_baseline_column<'a>(
     baseline: &'a [TableDef],
     table: &str,
     column: &str,

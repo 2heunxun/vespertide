@@ -4,8 +4,9 @@ use crate::diagnostics::{DomainDiagnostic, Severity};
 use super::types::find_value_for_key;
 use super::types::{
     EnumValueDescriptor, KNOWN_SIMPLE_TYPES, collect_enum_value_descriptors, find_pair_with_key,
-    is_pair_node, pair_key_text, scalar_text, strip_quotes_str, unwrap_yaml_node,
+    pair_key_text, scalar_text, strip_quotes_str, unwrap_yaml_node,
 };
+use crate::tree_util::is_pair;
 
 pub(in crate::diagnostics) fn collect_all(
     tree: &tree_sitter::Tree,
@@ -92,7 +93,7 @@ impl<'source, 'tree> FusedCollector<'source, 'tree> {
         node: tree_sitter::Node<'tree>,
     ) -> Option<tree_sitter::Node<'tree>> {
         if self.columns.is_some()
-            || !is_pair_node(node)
+            || !is_pair(node)
             || pair_key_text(node, self.source).is_none_or(|key| key != "columns")
         {
             return None;
