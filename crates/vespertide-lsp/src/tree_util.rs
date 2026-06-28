@@ -223,3 +223,33 @@ pub(crate) fn direct_child_value<'a>(
     }
     None
 }
+
+/// Direct-child variant of [`enclosing_pair_with_key`] for the
+/// **byte-slice** call sites: walk only the immediate children of
+/// `mapping` (no parent traversal, no recursion) and return the first
+/// [`is_pair`] child whose key — UTF-8 decoded then run through
+/// [`crate::text_util::strip_quotes`] — equals `target_key`.
+///
+/// Centralises the three byte-identical private copies that lived in
+/// `file_features`, `inlay_hints`, and `symbols` pre-0.2.0. The
+/// `references::search` variant stays put because it does a RECURSIVE
+/// walk, and the `completion::context` / `diagnostics::validation::types`
+/// variants stay put because they operate on `&str` source. Use
+/// [`direct_child_value`] when you only need the value-side text;
+/// reach for this helper when you need the pair `Node` itself (e.g. to
+/// continue navigating into its named children).
+pub(crate) fn find_pair_with_key<'tree>(
+    mapping: tree_sitter::Node<'tree>,
+    source: &[u8],
+    target_key: &str,
+) -> Option<tree_sitter::Node<'tree>> {
+    let mut cursor = mapping.walk();
+    mapping.children(&mut cursor).find(|&child| {
+        is_pair(child)
+            && child
+                .named_child(0)
+                .and_then(|key| std::str::from_utf8(&source[key.byte_range()]).ok())
+                .map(crate::text_util::strip_quotes)
+                == Some(target_key)
+    })
+}

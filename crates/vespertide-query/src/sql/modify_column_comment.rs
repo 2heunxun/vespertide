@@ -82,7 +82,7 @@ pub fn build_modify_column_comment(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{backend_tag, col_n as col, table_def};
+    use crate::test_support::{backend_tag, col_n as col, joined_sql, table_def};
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{ColumnType, SimpleColumnType};
@@ -110,11 +110,7 @@ mod tests {
         let result = build_modify_column_comment(backend, "users", "email", new_comment, &schema);
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         let suffix = format!(
             "{}_{}_users",
@@ -156,11 +152,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         // Postgres and MySQL should escape quotes, SQLite returns empty
         if backend != DatabaseBackend::Sqlite {
@@ -240,11 +232,7 @@ mod tests {
             build_modify_column_comment(backend, "users", "bio", Some(long_comment), &schema);
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         let suffix = format!("{}_long_comment", backend_tag(backend));
 
@@ -280,11 +268,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         // MySQL should preserve the default value in the MODIFY COLUMN statement
         if backend == DatabaseBackend::MySql {
@@ -320,11 +304,7 @@ mod tests {
             build_modify_column_comment(backend, "users", "email", Some("New comment"), &schema);
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         let suffix = format!("{}_change_comment", backend_tag(backend));
 
@@ -357,11 +337,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         let suffix = format!("{}_drop_existing_comment", backend_tag(backend));
 
@@ -431,11 +407,7 @@ mod tests {
         let result = build_modify_column_comment(backend, "data", "field", Some(comment), &schema);
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         let type_name = format!("{column_type:?}").to_lowercase();
         let suffix = format!("{}_{}_comment", backend_tag(backend), type_name);
@@ -472,11 +444,7 @@ mod tests {
 
         let queries = build_modify_column_comment(backend, "users", "email", new_comment, &schema)
             .expect("build_modify_column_comment should succeed");
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         match (backend, new_comment) {
             (DatabaseBackend::Sqlite, _) => {
@@ -563,11 +531,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         let suffix = format!("{}_not_null_column", backend_tag(backend));
 

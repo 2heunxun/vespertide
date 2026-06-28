@@ -92,7 +92,7 @@ pub fn build_modify_column_default(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{backend_tag, col_n as col, table_def};
+    use crate::test_support::{backend_tag, col_n as col, joined_sql, table_def};
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{ColumnType, SimpleColumnType, TableConstraint};
@@ -121,11 +121,7 @@ mod tests {
             build_modify_column_default(backend, "users", "email", new_default, None, &schema, &[]);
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         let suffix = format!(
             "{}_{}_users",
@@ -230,11 +226,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Postgres))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(DatabaseBackend::Postgres, &queries);
 
         // Should still generate valid SQL, using the default value as-is
         assert!(sql.contains("ALTER TABLE \"users\" ALTER COLUMN \"status\" SET DEFAULT 'active'"));
@@ -269,11 +261,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         // SQLite should recreate the index after table rebuild
         if backend == DatabaseBackend::Sqlite {
@@ -317,11 +305,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         let suffix = format!("{}_change_default", backend_tag(backend));
 
@@ -360,11 +344,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         let suffix = format!("{}_integer_default", backend_tag(backend));
 
@@ -403,11 +383,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         let suffix = format!("{}_boolean_default", backend_tag(backend));
 
@@ -451,11 +427,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         let suffix = format!("{}_function_default", backend_tag(backend));
 
@@ -493,11 +465,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         let suffix = format!("{}_drop_existing_default", backend_tag(backend));
 
@@ -535,11 +503,7 @@ mod tests {
             &[],
         )
         .expect("backfill path should succeed");
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         // The trailing UPDATE was emitted exactly once.
         let update_count = sql.matches("UPDATE").count();

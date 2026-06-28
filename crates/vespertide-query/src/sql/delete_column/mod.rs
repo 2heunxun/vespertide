@@ -123,7 +123,7 @@ fn sqlite_constraint_handling(
 mod tests {
     use super::*;
     use crate::sql::types::DatabaseBackend;
-    use crate::test_support::col;
+    use crate::test_support::{col, joined_sql_semicolon};
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{ComplexColumnType, SimpleColumnType};
@@ -746,14 +746,6 @@ mod tests {
 
     // ==================== Snapshot Tests ====================
 
-    fn build_sql_snapshot(result: &[BuiltQuery], backend: DatabaseBackend) -> String {
-        result
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<_>>()
-            .join(";\n")
-    }
-
     #[rstest]
     #[case::postgres("postgres", DatabaseBackend::Postgres)]
     #[case::mysql("mysql", DatabaseBackend::MySql)]
@@ -780,7 +772,7 @@ mod tests {
         }];
 
         let result = build_delete_column(backend, "users", "email", None, &schema, &[]);
-        let sql = build_sql_snapshot(&result, backend);
+        let sql = joined_sql_semicolon(backend, &result);
 
         with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => format!("delete_column_with_unique_{}", title) }, {
             assert_snapshot!(sql);
@@ -813,7 +805,7 @@ mod tests {
         }];
 
         let result = build_delete_column(backend, "posts", "created_at", None, &schema, &[]);
-        let sql = build_sql_snapshot(&result, backend);
+        let sql = joined_sql_semicolon(backend, &result);
 
         with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => format!("delete_column_with_index_{}", title) }, {
             assert_snapshot!(sql);
@@ -848,7 +840,7 @@ mod tests {
         }];
 
         let result = build_delete_column(backend, "orders", "user_id", None, &schema, &[]);
-        let sql = build_sql_snapshot(&result, backend);
+        let sql = joined_sql_semicolon(backend, &result);
 
         with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => format!("delete_column_with_fk_{}", title) }, {
             assert_snapshot!(sql);
@@ -879,7 +871,7 @@ mod tests {
         }];
 
         let result = build_delete_column(backend, "order_items", "product_id", None, &schema, &[]);
-        let sql = build_sql_snapshot(&result, backend);
+        let sql = joined_sql_semicolon(backend, &result);
 
         with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => format!("delete_column_with_pk_{}", title) }, {
             assert_snapshot!(sql);
@@ -925,7 +917,7 @@ mod tests {
         }];
 
         let result = build_delete_column(backend, "orders", "user_id", None, &schema, &[]);
-        let sql = build_sql_snapshot(&result, backend);
+        let sql = joined_sql_semicolon(backend, &result);
 
         with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => format!("delete_column_with_fk_and_index_{}", title) }, {
             assert_snapshot!(sql);

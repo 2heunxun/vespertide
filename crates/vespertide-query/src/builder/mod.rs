@@ -126,22 +126,14 @@ pub fn build_plan_queries_with_options(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sql::{BuiltQuery, DatabaseBackend};
-    use crate::test_support::col;
+    use crate::sql::DatabaseBackend;
+    use crate::test_support::{col, joined_sql_semicolon};
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{
         ColumnDef, ColumnType, MigrationAction, MigrationPlan, ReferenceAction, SimpleColumnType,
         TableConstraint, TableDef,
     };
-
-    fn build_sql_snapshot(result: &[BuiltQuery], backend: DatabaseBackend) -> String {
-        result
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<_>>()
-            .join(";\n")
-    }
 
     #[rstest]
     #[case::empty(
@@ -238,7 +230,7 @@ mod tests {
             DatabaseBackend::MySql => &result[1].mysql,
             DatabaseBackend::Sqlite => &result[1].sqlite,
         };
-        let sql = build_sql_snapshot(queries, backend);
+        let sql = joined_sql_semicolon(backend, queries);
 
         with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => format!("inline_unique_{}", title) }, {
             assert_snapshot!(sql);
@@ -284,7 +276,7 @@ mod tests {
             DatabaseBackend::MySql => &result[1].mysql,
             DatabaseBackend::Sqlite => &result[1].sqlite,
         };
-        let sql = build_sql_snapshot(queries, backend);
+        let sql = joined_sql_semicolon(backend, queries);
 
         with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => format!("inline_index_{}", title) }, {
             assert_snapshot!(sql);
@@ -489,7 +481,7 @@ mod tests {
                     DatabaseBackend::MySql => &pq.mysql,
                     DatabaseBackend::Sqlite => &pq.sqlite,
                 };
-                let sql = build_sql_snapshot(queries, backend);
+                let sql = joined_sql_semicolon(backend, queries);
                 format!("-- Action {}: {:?}\n{}", i, pq.action, sql)
             })
             .collect::<Vec<_>>()

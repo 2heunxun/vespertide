@@ -4,7 +4,6 @@
 //! here because they share the same tree-sitter walk patterns and
 //! none has enough surface area to deserve its own directory.
 
-use crate::text_util::strip_quotes;
 use crate::tree_util::node_at_byte;
 use std::ops::Range;
 
@@ -250,23 +249,7 @@ pub fn compute_selection_ranges(
 // Shared helpers
 // =====================================================================
 
-use crate::tree_util::find_outer_mapping;
-
-fn find_pair_with_key<'tree>(
-    mapping: tree_sitter::Node<'tree>,
-    source: &[u8],
-    target_key: &str,
-) -> Option<tree_sitter::Node<'tree>> {
-    let mut cursor = mapping.walk();
-    mapping.children(&mut cursor).find(|&child| {
-        matches!(child.kind(), "pair" | "block_mapping_pair")
-            && child
-                .named_child(0)
-                .and_then(|key| std::str::from_utf8(&source[key.byte_range()]).ok())
-                .map(strip_quotes)
-                == Some(target_key)
-    })
-}
+use crate::tree_util::{find_outer_mapping, find_pair_with_key};
 
 fn direct_string_value(
     mapping: tree_sitter::Node<'_>,

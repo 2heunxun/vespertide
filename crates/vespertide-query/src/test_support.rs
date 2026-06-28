@@ -48,6 +48,24 @@ pub(crate) fn joined_sql(
         .join("\n")
 }
 
+/// Same shape as [`joined_sql`] but uses `";\n"` as the separator — matches
+/// the canonical multi-statement SQL formatting that `builder::mod` and
+/// `sql::delete_column::mod` snapshot. Hoisted from two byte-identical
+/// `build_sql_snapshot` helpers that lived in those modules pre-0.2.0; the
+/// broader inline `.join(";\n")` adoption pass across the rest of the
+/// crate is deliberately deferred to a follow-up iteration to keep each
+/// dedupe item independently revertible.
+pub(crate) fn joined_sql_semicolon(
+    backend: crate::sql::DatabaseBackend,
+    queries: &[crate::sql::BuiltQuery],
+) -> String {
+    queries
+        .iter()
+        .map(|q| q.build(backend))
+        .collect::<Vec<String>>()
+        .join(";\n")
+}
+
 /// Snapshot-suffix tag for a backend. The string is part of the snapshot
 /// file name, so changing it would invalidate every `assert_snapshot!` that
 /// uses it — keep it byte-stable. Hoisted from a `match backend { ... }`

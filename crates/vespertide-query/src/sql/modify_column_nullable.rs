@@ -83,7 +83,7 @@ pub fn build_modify_column_nullable(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{backend_tag, col_n as col, table_def};
+    use crate::test_support::{backend_tag, col_n as col, joined_sql, table_def};
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{ColumnType, SimpleColumnType, TableConstraint};
@@ -128,11 +128,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         let suffix = format!(
             "{}_{}_users{}",
@@ -235,11 +231,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         // SQLite should recreate the index after table rebuild
         if backend == DatabaseBackend::Sqlite {
@@ -285,11 +277,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         // NOW() should be converted to CURRENT_TIMESTAMP for all backends
         assert!(
@@ -338,11 +326,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         // MySQL and SQLite should include DEFAULT clause
         if backend == DatabaseBackend::MySql || backend == DatabaseBackend::Sqlite {
@@ -387,11 +371,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         assert!(
             sql.contains("DELETE FROM"),
@@ -442,11 +422,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         assert!(
             !sql.contains("DELETE FROM"),
