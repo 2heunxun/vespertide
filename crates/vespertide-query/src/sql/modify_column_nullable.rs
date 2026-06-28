@@ -1,8 +1,8 @@
 use vespertide_core::TableDef;
 
 use super::helpers::{
-    build_mysql_modify_column_with, build_sqlite_modify_column_with, convert_default_for_backend,
-    normalize_fill_with, quote_ident,
+    build_mysql_modify_column_with, build_pg_alter_column_sql, build_sqlite_modify_column_with,
+    convert_default_for_backend, normalize_fill_with, quote_ident,
 };
 use super::types::{BuiltQuery, DatabaseBackend, RawSql};
 use crate::error::QueryError;
@@ -46,12 +46,10 @@ pub fn build_modify_column_nullable(
     // Generate ALTER TABLE statement based on backend
     match backend {
         DatabaseBackend::Postgres => {
-            let quoted_table = quote_ident(table, backend);
-            let quoted_column = quote_ident(column, backend);
             let alter_sql = if nullable {
-                format!("ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} DROP NOT NULL")
+                build_pg_alter_column_sql(table, column, "DROP NOT NULL")
             } else {
-                format!("ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} SET NOT NULL")
+                build_pg_alter_column_sql(table, column, "SET NOT NULL")
             };
             queries.push(BuiltQuery::Raw(RawSql::uniform(alter_sql)));
         }

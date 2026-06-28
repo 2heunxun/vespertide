@@ -1,8 +1,8 @@
 use vespertide_core::TableDef;
 
 use super::helpers::{
-    build_mysql_modify_column_with, build_sqlite_modify_column_with, find_column_in_schema,
-    normalize_enum_default, quote_ident,
+    build_mysql_modify_column_with, build_pg_alter_column_sql, build_sqlite_modify_column_with,
+    find_column_in_schema, normalize_enum_default, quote_ident,
 };
 use super::types::{BuiltQuery, DatabaseBackend, RawSql};
 use crate::error::QueryError;
@@ -29,8 +29,6 @@ pub fn build_modify_column_default(
 
     match backend {
         DatabaseBackend::Postgres => {
-            let quoted_table = quote_ident(table, backend);
-            let quoted_column = quote_ident(column, backend);
             let alter_sql = if let Some(default_value) = new_default {
                 // Look up column type to properly quote enum defaults
                 let column_type =
@@ -42,11 +40,13 @@ pub fn build_modify_column_default(
                     default_value.to_string()
                 };
 
-                format!(
-                    "ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} SET DEFAULT {normalized_default}"
+                build_pg_alter_column_sql(
+                    table,
+                    column,
+                    &format!("SET DEFAULT {normalized_default}"),
                 )
             } else {
-                format!("ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} DROP DEFAULT")
+                build_pg_alter_column_sql(table, column, "DROP DEFAULT")
             };
             queries.push(BuiltQuery::Raw(RawSql::uniform(alter_sql)));
         }

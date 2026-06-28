@@ -809,6 +809,24 @@ pub fn quote_idents<T: AsRef<str>>(names: &[T], backend: DatabaseBackend) -> Str
     out
 }
 
+/// Build a PostgreSQL `ALTER TABLE "t" ALTER COLUMN "c" <suffix>` statement.
+///
+/// Single source of truth for the seven open-coded PG-only emit sites
+/// across [`crate::sql::modify_column_default`],
+/// [`crate::sql::modify_column_nullable`], and
+/// [`crate::sql::modify_column_type::direct`]. Each call site used to
+/// repeat the same `quote_ident(table, …) + quote_ident(column, …) +
+/// format!("ALTER TABLE {qt} ALTER COLUMN {qc} <suffix>")` skeleton; this
+/// helper folds them into one call so the next PG ALTER variant only has
+/// to choose its suffix. SQL output is byte-identical (every existing
+/// snapshot must continue to match).
+#[must_use]
+pub(super) fn build_pg_alter_column_sql(table: &str, column: &str, suffix: &str) -> String {
+    let quoted_table = quote_ident(table, DatabaseBackend::Postgres);
+    let quoted_column = quote_ident(column, DatabaseBackend::Postgres);
+    format!("ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} {suffix}")
+}
+
 /// Look up `table` in `current_schema` and return a reference to its
 /// [`TableDef`], or a uniform `QueryError::SchemaError` describing why the
 /// lookup is mandatory for the calling backend.

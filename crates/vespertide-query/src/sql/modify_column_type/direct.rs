@@ -5,8 +5,8 @@ use sea_query::{Alias, ColumnDef as SeaColumnDef, Table};
 use vespertide_core::{ColumnType, ComplexColumnType, TableDef};
 
 use crate::sql::helpers::{
-    apply_column_type_with_table, build_create_enum_type_sql, convert_default_for_backend,
-    find_column_in_schema, normalize_enum_default, quote_ident,
+    apply_column_type_with_table, build_create_enum_type_sql, build_pg_alter_column_sql,
+    convert_default_for_backend, find_column_in_schema, normalize_enum_default, quote_ident,
 };
 use crate::sql::types::{BuiltQuery, DatabaseBackend, RawSql};
 
@@ -110,7 +110,6 @@ fn build_postgres_enum_migration(queries: &mut Vec<BuiltQuery>, context: &Direct
         let column_default = column_default(context);
         let create_values = new_values.sql_values_joined(", ");
         let quoted_target_type = quote_ident(&target_type_name, DatabaseBackend::Postgres);
-        let quoted_table = quote_ident(context.table, DatabaseBackend::Postgres);
         let quoted_column = quote_ident(context.column, DatabaseBackend::Postgres);
         let quoted_old_type = quote_ident(&old_type_name, DatabaseBackend::Postgres);
         push_postgres_raw(
@@ -122,15 +121,19 @@ fn build_postgres_enum_migration(queries: &mut Vec<BuiltQuery>, context: &Direct
         if column_default.is_some() {
             push_postgres_raw(
                 queries,
-                format!("ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} DROP DEFAULT"),
+                build_pg_alter_column_sql(context.table, context.column, "DROP DEFAULT"),
             );
         }
 
         // 3. ALTER TABLE ... ALTER COLUMN ... TYPE target_type USING col::text::target_type.
         push_postgres_raw(
             queries,
-            format!(
-                "ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} TYPE {quoted_target_type} USING {quoted_column}::text::{quoted_target_type}"
+            build_pg_alter_column_sql(
+                context.table,
+                context.column,
+                &format!(
+                    "TYPE {quoted_target_type} USING {quoted_column}::text::{quoted_target_type}"
+                ),
             ),
         );
 
@@ -151,8 +154,10 @@ fn build_postgres_enum_migration(queries: &mut Vec<BuiltQuery>, context: &Direct
                 normalize_enum_default(context.new_type, &default_value.to_sql());
             push_postgres_raw(
                 queries,
-                format!(
-                    "ALTER TABLE {quoted_table} ALTER COLUMN {quoted_column} SET DEFAULT {normalized_default}"
+                build_pg_alter_column_sql(
+                    context.table,
+                    context.column,
+                    &format!("SET DEFAULT {normalized_default}"),
                 ),
             );
         }

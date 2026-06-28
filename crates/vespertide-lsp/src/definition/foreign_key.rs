@@ -15,7 +15,9 @@ use std::ops::Range;
 
 use crate::store::DocumentStore;
 use crate::text_util::strip_quotes;
-use crate::tree_util::{direct_child_value, enclosing_pair_with_key, is_pair};
+use crate::tree_util::{
+    direct_child_value, enclosing_pair_with_key, enclosing_string, is_pair, skip_yaml_wrappers,
+};
 use crate::workspace_index::WorkspaceIndex;
 use crate::workspace_tables::WorkspaceTables;
 
@@ -131,37 +133,6 @@ fn resolve_target(
         uri,
         byte_range: 0..0,
     })
-}
-
-/// Skip past tree-sitter-yaml's pure wrapper nodes (`flow_node`,
-/// `block_node`). Returns the first ancestor that has a meaningful kind.
-fn skip_yaml_wrappers(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
-    let mut current = node;
-    while matches!(current.kind(), "flow_node" | "block_node") {
-        current = current.parent()?;
-    }
-    Some(current)
-}
-
-fn enclosing_string(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
-    let mut current = Some(node);
-    while let Some(candidate) = current {
-        match candidate.kind() {
-            "string"
-            | "double_quote_scalar"
-            | "single_quote_scalar"
-            | "string_scalar"
-            | "plain_scalar" => return Some(candidate),
-            // String_content is the inner span without quotes; climb to the
-            // surrounding `string` node so the parent is the JSON array.
-            "string_content" => return candidate.parent(),
-            "array" | "object" | "pair" | "block_mapping_pair" | "block_mapping"
-            | "block_sequence" | "flow_mapping" | "flow_sequence" => return None,
-            _ => {}
-        }
-        current = candidate.parent();
-    }
-    None
 }
 
 fn find_column_name_range(

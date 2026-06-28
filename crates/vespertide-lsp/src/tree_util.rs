@@ -82,6 +82,59 @@ pub(crate) fn unwrap_yaml_node(node: tree_sitter::Node<'_>) -> tree_sitter::Node
     current
 }
 
+/// Walk the PARENT chain skipping tree-sitter-yaml's `flow_node` /
+/// `block_node` wrapper kinds. Counterpart to [`unwrap_yaml_node`], which
+/// descends INTO a wrapper; this helper escapes UP through them so the
+/// caller can reach the real ancestor (e.g. the surrounding mapping pair
+/// or constraint object). Returns `None` when the parent chain runs out
+/// before a non-wrapper node is reached.
+///
+/// Centralises the two byte-equivalent private copies that lived in
+/// `definition::foreign_key` and `references::resolver` pre-0.2.0.
+pub(crate) fn skip_yaml_wrappers(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    let mut current = node;
+    while matches!(current.kind(), "flow_node" | "block_node") {
+        current = current.parent()?;
+    }
+    Some(current)
+}
+
+/// Walk from `node` up the parent chain returning the nearest tree-sitter
+/// node whose kind is a JSON / YAML string scalar (`string` /
+/// `double_quote_scalar` / `single_quote_scalar` / `string_scalar` /
+/// `plain_scalar`). When the cursor sits on `string_content` (the inner
+/// span without quotes), climb one level so the returned node covers the
+/// surrounding quotes. Stops at the first structural-container boundary
+/// (`array` / `object` / `pair` / `block_mapping_pair` / `block_mapping` /
+/// `block_sequence` / `flow_mapping` / `flow_sequence`) so a nested
+/// object value never counts as "in string".
+///
+/// Centralises the two byte-equivalent private copies that lived in
+/// `definition::foreign_key` and `references::resolver` pre-0.2.0.
+///
+/// NOTE: `completion::context::enclosing_string_range` deliberately stays
+/// SEPARATE — it returns a `Range<usize>` (not a `Node`) and uses an
+/// `unwrap_or(candidate)` fallback on the `string_content` arm, so its
+/// behaviour differs at end-of-token boundaries. Do not migrate it here.
+pub(crate) fn enclosing_string(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    let mut current = Some(node);
+    while let Some(candidate) = current {
+        match candidate.kind() {
+            "string"
+            | "double_quote_scalar"
+            | "single_quote_scalar"
+            | "string_scalar"
+            | "plain_scalar" => return Some(candidate),
+            "string_content" => return candidate.parent(),
+            "array" | "object" | "pair" | "block_mapping_pair" | "block_mapping"
+            | "block_sequence" | "flow_mapping" | "flow_sequence" => return None,
+            _ => {}
+        }
+        current = candidate.parent();
+    }
+    None
+}
+
 /// Walk the parent chain looking for the nearest [`is_pair`] ancestor whose
 /// key (after [`crate::text_util::strip_quotes`]) equals `expected_key`.
 ///

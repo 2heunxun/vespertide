@@ -1,7 +1,7 @@
 //! Resolve "what symbol is the cursor on?" for the references provider.
 
 use crate::text_util::strip_quotes;
-use crate::tree_util::{direct_child_value, node_at_byte};
+use crate::tree_util::{direct_child_value, enclosing_string, node_at_byte, skip_yaml_wrappers};
 use tower_lsp_server::ls_types::Uri;
 
 use super::ReferenceSymbol;
@@ -107,26 +107,6 @@ fn resolve_check_expr_column(
     })
 }
 
-fn enclosing_string(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
-    let mut current = Some(node);
-    while let Some(candidate) = current {
-        match candidate.kind() {
-            "string"
-            | "double_quote_scalar"
-            | "single_quote_scalar"
-            | "string_scalar"
-            | "plain_scalar" => return Some(candidate),
-            "string_content" => return candidate.parent(),
-            // Stop at structural boundaries.
-            "array" | "object" | "pair" | "block_mapping_pair" | "block_mapping"
-            | "block_sequence" | "flow_mapping" | "flow_sequence" => return None,
-            _ => {}
-        }
-        current = candidate.parent();
-    }
-    None
-}
-
 fn enclosing_pair(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
     let mut current = node.parent();
     while let Some(candidate) = current {
@@ -195,16 +175,6 @@ fn enclosing_table_name(name_pair: tree_sitter::Node<'_>, source: &str) -> Optio
         }
     }
     None
-}
-
-fn skip_yaml_wrappers(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
-    let mut current = node;
-    while matches!(current.kind(), "flow_node" | "block_node") {
-        let parent = current.parent();
-        parent?;
-        current = parent.expect("YAML wrapper reached from a mapping pair has a parent");
-    }
-    Some(current)
 }
 
 #[cfg(test)]
