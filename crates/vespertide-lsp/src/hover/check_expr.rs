@@ -11,7 +11,7 @@ use vespertide_planner::{CheckExprAst, CheckExprLiteral, CheckExprOp, parse_chec
 
 use super::DomainHover;
 use crate::check_expr_range::expr_inner_range;
-use crate::tree_util::{ancestor_pair_with_key, is_pair};
+use crate::tree_util::{is_inside_constraints, is_pair};
 
 pub(super) fn try_hover(
     node: tree_sitter::Node<'_>,
@@ -230,12 +230,6 @@ fn expr_pair_ancestor<'tree>(
         cur = candidate.parent();
     }
     None
-}
-
-/// True when any ancestor pair has key `"constraints"`. Mirrors
-/// `column::is_inside_columns` from the column-hover handler.
-fn is_inside_constraints(node: tree_sitter::Node<'_>, source: &str) -> bool {
-    ancestor_pair_with_key(node, source, "constraints").is_some()
 }
 
 #[cfg(test)]

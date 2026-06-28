@@ -7,7 +7,7 @@ use vespertide_planner::{CheckToken, CheckTokenKind, lex_check_expr};
 use crate::check_expr_range::expr_inner_range;
 use crate::text_util::strip_quotes;
 use crate::tree_util::{
-    ancestor_pair_with_key, direct_child_value, enclosing_pair_with_key, is_pair,
+    direct_child_value, enclosing_pair_with_key, is_inside_constraints, is_pair,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -244,10 +244,6 @@ fn keyword_expects_operand(keyword: &str) -> bool {
     ["AND", "OR", "NOT", "IN", "BETWEEN"]
         .iter()
         .any(|expected| keyword.eq_ignore_ascii_case(expected))
-}
-
-fn is_inside_constraints(node: tree_sitter::Node<'_>, source: &str) -> bool {
-    ancestor_pair_with_key(node, source, "constraints").is_some()
 }
 
 fn current_table_columns(node: tree_sitter::Node<'_>, source: &str) -> Vec<String> {
@@ -653,9 +649,7 @@ mod tests {
         super::super::compute(src, format, Some(&tree), &idx, &docs, pos)
     }
 
-    fn completion_labels(items: &[super::super::DomainCompletion]) -> Vec<&str> {
-        items.iter().map(|item| item.label.as_str()).collect()
-    }
+    use super::super::completion_labels;
 
     fn assert_label_expectations(
         labels: &[&str],

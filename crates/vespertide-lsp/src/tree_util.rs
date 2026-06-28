@@ -253,3 +253,11 @@ pub(crate) fn find_pair_with_key<'tree>(
                 == Some(target_key)
     })
 }
+
+/// True when any ancestor pair of `node` has key `"constraints"`. Shared LSP
+/// predicate for "cursor is inside a `constraints` array" — used by both the
+/// CHECK-expression hover (`hover::check_expr`) and the CHECK-expression
+/// completion context (`completion::context`).
+pub(crate) fn is_inside_constraints(node: tree_sitter::Node<'_>, source: &str) -> bool {
+    ancestor_pair_with_key(node, source, "constraints").is_some()
+}
