@@ -928,11 +928,61 @@ mod tests {
 
 mod unique;
 
-use vespertide_core::{TableConstraint, TableDef};
+use vespertide_core::{TableConstraint, TableDef, schema::names::names_to_strings};
 
 use super::helpers::{build_sqlite_table_rebuild, require_table_in_schema};
 use super::types::{BuiltQuery, DatabaseBackend};
 use crate::error::QueryError;
+
+/// Locate the single-column PRIMARY KEY for `table` in `current_schema`,
+/// returning `None` whenever the table has no usable PK (missing, composite,
+/// or the PK column appears inside `cols` — the last case would turn a
+/// `NOT IN (SELECT MIN(pk) ... GROUP BY pk)` cleanup into a tautology).
+///
+/// Shared by [`primary_key::build_primary_key`]'s pre-cleanup and
+/// [`unique::build_unique`]'s pre-cleanup; co-locating the resolver here
+/// eliminates the drift risk of two byte-identical private copies.
+pub(super) fn try_resolve_single_pk_column<T: AsRef<str>>(
+    table: &str,
+    current_schema: &[TableDef],
+    cols: &[T],
+) -> Option<String> {
+    let table_def = current_schema.iter().find(|t| t.name.as_str() == table)?;
+
+    let pk_columns: Vec<String> = table_def
+        .constraints
+        .iter()
+        .find_map(|c| {
+            if let TableConstraint::PrimaryKey { columns, .. } = c {
+                Some(names_to_strings(columns))
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
+            let inline: Vec<String> = table_def
+                .columns
+                .iter()
+                .filter(|col| col.primary_key.is_some())
+                .map(|col| col.name.to_string())
+                .collect();
+            if inline.is_empty() {
+                None
+            } else {
+                Some(inline)
+            }
+        })?;
+
+    if pk_columns.len() != 1 {
+        return None;
+    }
+    let pk_column = pk_columns.into_iter().next().expect("len == 1");
+    let cols_ref: Vec<&str> = cols.iter().map(AsRef::as_ref).collect();
+    if cols_ref.iter().any(|c| *c == pk_column) {
+        return None;
+    }
+    Some(pk_column)
+}
 
 pub fn build_add_constraint(
     backend: DatabaseBackend,

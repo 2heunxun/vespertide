@@ -4,7 +4,7 @@
 pub mod jpa;
 pub mod orm;
 mod parallel_config;
-mod python_naming;
+pub mod python_naming;
 pub mod seaorm;
 pub mod sqlalchemy;
 pub mod sqlmodel;

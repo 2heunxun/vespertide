@@ -10,7 +10,11 @@
 /// Convert snake_case (or single-word) input to PascalCase. Splits on
 /// underscores, upper-cases the first character of each segment, and
 /// preserves the remainder verbatim.
-pub(crate) fn to_pascal_case(s: &str) -> String {
+///
+/// Public so the `vespertide-cli` `export` command can reuse the exact same
+/// PascalCase semantics for JPA filename derivation without keeping a
+/// duplicate private implementation.
+pub fn to_pascal_case(s: &str) -> String {
     s.split('_')
         .map(|word| {
             let mut chars = word.chars();

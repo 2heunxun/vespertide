@@ -8,7 +8,10 @@ use rayon::prelude::*;
 use tokio::fs;
 use vespertide_config::VespertideConfig;
 use vespertide_core::TableDef;
-use vespertide_exporter::{Orm, render_entity_with_schema, seaorm::SeaOrmExporterWithConfig};
+use vespertide_exporter::{
+    Orm, python_naming::to_pascal_case, render_entity_with_schema,
+    seaorm::SeaOrmExporterWithConfig,
+};
 
 use crate::parallel_config::{EXPORT_RENDER_PAR_MIN_LEN, EXPORT_RENDER_PAR_THRESHOLD};
 use crate::utils::load_config;
@@ -341,18 +344,6 @@ fn build_output_path(root: &Path, rel_path: &Path, orm: Orm) -> PathBuf {
     }
 
     out
-}
-
-fn to_pascal_case(s: &str) -> String {
-    s.split('_')
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().chain(chars).collect(),
-            }
-        })
-        .collect()
 }
 
 fn sanitize_filename(name: &str) -> String {
@@ -963,13 +954,4 @@ mod tests {
         assert_eq!(out, Path::new("src/models/User.java"));
     }
 
-    #[rstest]
-    #[case("order_item", "OrderItem")]
-    #[case("users", "Users")]
-    #[case("a", "A")]
-    #[case("user_profile_image", "UserProfileImage")]
-    #[case("a__b", "AB")]
-    fn test_to_pascal_case(#[case] input: &str, #[case] expected: &str) {
-        assert_eq!(to_pascal_case(input), expected);
-    }
 }

@@ -91,16 +91,12 @@ pub(in crate::seaorm) fn infer_field_name_from_fk_column(
     }
 
     // If the sanitized name is exactly the table name (e.g., "user_id" -> "user" for table "user"),
-    // we need to fall back to the table name for proper disambiguation
+    // we need to fall back to the table name for proper disambiguation.
+    // Otherwise, use the inferred sanitized name from the column — this naturally
+    // covers compound forms like "creator_user" for table "user".
     if sanitized_lower == table_lower {
         sanitize_field_name(table_name)
-    }
-    // If the sanitized name ends with (but is not equal to) the table name, use it as-is
-    // This handles cases like "creator_user" for table "user"
-    else if sanitized_lower.ends_with(&table_lower) {
-        sanitized
     } else {
-        // Otherwise, use the inferred name from the column
         sanitized
     }
 }
