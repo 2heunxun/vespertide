@@ -364,9 +364,7 @@ mod tests {
         );
 
         // Apply the edit and confirm the result is still valid JSON.
-        let mut after = String::from(&src[..edit.byte_range.start]);
-        after.push_str(&edit.new_text);
-        after.push_str(&src[edit.byte_range.end..]);
+        let after = crate::test_support::apply_text_edit(src, edit);
         assert!(
             after.contains(r#""a""#),
             "result must keep the quotes: {after}"
@@ -538,12 +536,7 @@ mod tests {
 
         // Apply all edits front-to-back and confirm the CHECK now reads
         // `years > 0` and the document still parses as JSON.
-        let mut sorted = file_edits.clone();
-        sorted.sort_by_key(|e| std::cmp::Reverse(e.byte_range.start));
-        let mut after = src.to_string();
-        for edit in &sorted {
-            after.replace_range(edit.byte_range.clone(), &edit.new_text);
-        }
+        let after = crate::test_support::apply_text_edits(src, file_edits);
         assert!(
             after.contains(r#""expr":"years > 0""#),
             "CHECK expr must be rewritten to `years > 0`, got: {after}"

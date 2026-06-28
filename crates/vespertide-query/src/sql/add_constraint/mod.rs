@@ -928,7 +928,7 @@ mod tests {
 
 mod unique;
 
-use vespertide_core::{TableConstraint, TableDef, schema::names::names_to_strings};
+use vespertide_core::{TableConstraint, TableDef};
 
 use super::helpers::{build_sqlite_table_rebuild, require_table_in_schema};
 use super::types::{BuiltQuery, DatabaseBackend};
@@ -949,36 +949,31 @@ pub(super) fn try_resolve_single_pk_column<T: AsRef<str>>(
 ) -> Option<String> {
     let table_def = current_schema.iter().find(|t| t.name.as_str() == table)?;
 
-    let pk_columns: Vec<String> = table_def
-        .constraints
-        .iter()
-        .find_map(|c| {
-            if let TableConstraint::PrimaryKey { columns, .. } = c {
-                Some(names_to_strings(columns))
-            } else {
-                None
-            }
-        })
-        .or_else(|| {
-            let inline: Vec<String> = table_def
-                .columns
-                .iter()
-                .filter(|col| col.primary_key.is_some())
-                .map(|col| col.name.to_string())
-                .collect();
-            if inline.is_empty() {
-                None
-            } else {
-                Some(inline)
-            }
-        })?;
+    // Prefer the first table-level PRIMARY KEY constraint; fall back to
+    // inline `primary_key: true` columns only when no table-level PK exists.
+    // Either way the resolver fires only when exactly one column is the PK
+    // (composite PK → `None`).
+    let pk_column = if let Some(columns) = table_def.constraints.iter().find_map(|c| match c {
+        TableConstraint::PrimaryKey { columns, .. } => Some(columns),
+        _ => None,
+    }) {
+        if columns.len() != 1 {
+            return None;
+        }
+        columns[0].to_string()
+    } else {
+        let mut inline = table_def
+            .columns
+            .iter()
+            .filter(|col| col.primary_key.is_some());
+        let first = inline.next()?;
+        if inline.next().is_some() {
+            return None;
+        }
+        first.name.to_string()
+    };
 
-    if pk_columns.len() != 1 {
-        return None;
-    }
-    let pk_column = pk_columns.into_iter().next().expect("len == 1");
-    let cols_ref: Vec<&str> = cols.iter().map(AsRef::as_ref).collect();
-    if cols_ref.iter().any(|c| *c == pk_column) {
+    if cols.iter().any(|c| c.as_ref() == pk_column) {
         return None;
     }
     Some(pk_column)

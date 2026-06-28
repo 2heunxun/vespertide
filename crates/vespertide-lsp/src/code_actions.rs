@@ -569,9 +569,7 @@ mod tests {
             .expect("primary_key remove action missing");
         let edit = &action.edits[0];
         // Confirm the edit produces a valid object when applied.
-        let mut after = String::from(&src[..edit.byte_range.start]);
-        after.push_str(&edit.new_text);
-        after.push_str(&src[edit.byte_range.end..]);
+        let after = crate::test_support::apply_text_edit(src, edit);
         assert!(serde_json::from_str::<serde_json::Value>(&after).is_ok());
         assert!(!after.contains("primary_key"));
     }
@@ -617,9 +615,7 @@ mod tests {
             .find(|a| a.title == "Convert to varchar(255)")
             .expect("text → varchar action");
         let edit = &convert.edits[0];
-        let mut after = String::from(&src[..edit.byte_range.start]);
-        after.push_str(&edit.new_text);
-        after.push_str(&src[edit.byte_range.end..]);
+        let after = crate::test_support::apply_text_edit(src, edit);
         assert!(after.contains(r#""kind":"varchar""#));
         serde_json::from_str::<serde_json::Value>(&after).expect("valid JSON");
     }
@@ -687,9 +683,7 @@ mod tests {
             .find(|a| a.title == "Add foreign_key skeleton")
             .expect("foreign_key skeleton action");
         let edit = &fk.edits[0];
-        let mut after = String::from(&src[..edit.byte_range.start]);
-        after.push_str(&edit.new_text);
-        after.push_str(&src[edit.byte_range.end..]);
+        let after = crate::test_support::apply_text_edit(src, edit);
         assert!(after.contains(r#""foreign_key""#));
         serde_json::from_str::<serde_json::Value>(&after).expect("valid JSON");
     }
@@ -726,15 +720,10 @@ mod tests {
     // hard-error diagnostic.
 
     /// Apply `action`'s edits to `src` (front-to-back safe) and return the
-    /// resulting document.
+    /// resulting document. Thin wrapper around the shared
+    /// [`crate::test_support::apply_text_edits`] helper.
     fn apply(src: &str, action: &DomainCodeAction) -> String {
-        let mut edits = action.edits.clone();
-        edits.sort_by_key(|e| std::cmp::Reverse(e.byte_range.start));
-        let mut out = src.to_string();
-        for e in &edits {
-            out.replace_range(e.byte_range.clone(), &e.new_text);
-        }
-        out
+        crate::test_support::apply_text_edits(src, &action.edits)
     }
 
     #[test]
