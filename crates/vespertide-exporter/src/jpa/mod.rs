@@ -46,27 +46,11 @@ pub fn render_entities(schema: &[TableDef]) -> Result<Vec<String>, String> {
             .collect::<Vec<_>>()
     };
 
-    Ok(merge_rendered_entities(rendered).entities)
+    Ok(merge_rendered_entities(rendered))
 }
 
-struct RenderedEntities {
-    entities: Vec<String>,
-    _imports: UsedImports,
-}
-
-fn merge_rendered_entities(rendered: Vec<(String, UsedImports)>) -> RenderedEntities {
-    let mut entities = Vec::with_capacity(rendered.len());
-    let mut imports = UsedImports::default();
-
-    for (entity, local_imports) in rendered {
-        entities.push(entity);
-        imports.merge(local_imports);
-    }
-
-    RenderedEntities {
-        entities,
-        _imports: imports,
-    }
+fn merge_rendered_entities(rendered: Vec<(String, UsedImports)>) -> Vec<String> {
+    rendered.into_iter().map(|(entity, _)| entity).collect()
 }
 
 #[cfg(test)]

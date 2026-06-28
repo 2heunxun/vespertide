@@ -1,5 +1,6 @@
 use vespertide_core::{ColumnDef, ColumnName, StrOrBoolOrArray, TableConstraint, TableDef};
 
+use super::find_table_mut;
 use crate::error::PlannerError;
 
 pub(super) fn add_constraint(
@@ -49,16 +50,6 @@ pub(super) fn replace_constraint(
     // from re-adding it as a ghost constraint.
     clear_inline_constraint_fields(table, tbl, from);
     Ok(())
-}
-
-fn find_table_mut<'a>(
-    schema: &'a mut [TableDef],
-    table: &str,
-) -> Result<&'a mut TableDef, PlannerError> {
-    schema
-        .iter_mut()
-        .find(|t| t.name == table)
-        .ok_or_else(|| PlannerError::TableNotFound(table.to_string()))
 }
 
 /// Clear inline column fields that correspond to a constraint.
