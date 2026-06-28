@@ -35,9 +35,7 @@ pub(super) fn build_modify_column_type_sqlite_temp_table(
 
     // Fill-with UPDATE statements run BEFORE the rebuild so the rows
     // copied into the temp table already carry the remapped values.
-    if let Some(fw) = fill_with {
-        queries.extend(super::build_fill_with_updates(table, column, fw));
-    }
+    super::extend_fill_with_updates(&mut queries, table, column, fill_with);
 
     queries.extend(build_sqlite_table_rebuild(
         backend,

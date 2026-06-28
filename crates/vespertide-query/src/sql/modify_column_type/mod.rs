@@ -167,6 +167,27 @@ fn build_fill_with_updates(
         .collect()
 }
 
+/// Conditionally prepend `fill_with` UPDATEs to `queries`.
+///
+/// Centralises the byte-identical
+/// `if let Some(fw) = fill_with { queries.extend(build_fill_with_updates(...)); }`
+/// dance that the three `modify_column_type` paths each previously
+/// open-coded (`direct::build_postgres_enum_migration`,
+/// `direct::build_standard_type_modification`, and
+/// `sqlite_rebuild::build_modify_column_type_sqlite_temp_table`). Each
+/// callsite now collapses to a single line whose name reads
+/// "if a fill_with map exists, prepend its UPDATEs".
+pub(super) fn extend_fill_with_updates(
+    queries: &mut Vec<BuiltQuery>,
+    table: &str,
+    column: &str,
+    fill_with: Option<&BTreeMap<String, String>>,
+) {
+    if let Some(fw) = fill_with {
+        queries.extend(build_fill_with_updates(table, column, fw));
+    }
+}
+
 pub fn build_modify_column_type(
     backend: DatabaseBackend,
     table: &str,

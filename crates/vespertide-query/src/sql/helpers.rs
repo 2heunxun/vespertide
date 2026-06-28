@@ -1,6 +1,6 @@
 use sea_query::{
     Alias, ColumnDef as SeaColumnDef, ForeignKeyAction, MysqlQueryBuilder, PostgresQueryBuilder,
-    Query, QueryStatementWriter, SchemaStatementBuilder, SimpleExpr, SqliteQueryBuilder,
+    Query, QueryStatementWriter, SchemaStatementBuilder, SimpleExpr, SqliteQueryBuilder, Table,
 };
 
 use vespertide_core::{
@@ -869,6 +869,85 @@ pub(crate) fn require_column_in_table<'a>(
                 table = table_def.name,
             ))
         })
+}
+
+/// Build the `MySQL ALTER TABLE ... MODIFY COLUMN ...` query produced by
+/// every "modify one ColumnDef field" builder (nullability, default, …).
+///
+/// Folds the byte-identical six-line MySQL dispatch — look up the table,
+/// look up the column, clone & mutate one field, hand the result to
+/// `build_sea_column_def_with_table`, wrap as an `AlterTable` — into a
+/// single helper. `context` is the descriptor appended to the canonical
+/// `require_table_in_schema` error message ("MySQL requires …"); pass it
+/// WITHOUT a trailing period (the helper adds it).
+///
+/// `mutator` rewrites whichever single field the caller cares about
+/// (`|c| c.nullable = …`, `|c| c.default = …`, …) on a fresh clone, so
+/// the original `current_schema` is never mutated.
+///
+/// `modify_column_comment` deliberately does NOT use this helper: its
+/// MySQL emit hand-appends a `COMMENT '…'` suffix outside sea-query and
+/// produces `BuiltQuery::Raw` rather than `BuiltQuery::AlterTable`.
+pub(crate) fn build_mysql_modify_column_with<F>(
+    table: &str,
+    column: &str,
+    current_schema: &[TableDef],
+    context: &str,
+    mutator: F,
+) -> Result<BuiltQuery, crate::QueryError>
+where
+    F: FnOnce(&mut ColumnDef),
+{
+    let table_def = require_table_in_schema(current_schema, table, context)?;
+    let column_def = require_column_in_table(table_def, column)?;
+    let mut modified_col_def = column_def.clone();
+    mutator(&mut modified_col_def);
+    let sea_col = build_sea_column_def_with_table(DatabaseBackend::MySql, table, &modified_col_def);
+    let stmt = Table::alter()
+        .table(Alias::new(table))
+        .modify_column(sea_col)
+        .to_owned();
+    Ok(BuiltQuery::AlterTable(Box::new(stmt)))
+}
+
+/// Build the canonical `SQLite` temp-table rebuild for every "modify one
+/// ColumnDef field" builder (nullability, default, …). Every other column
+/// stays untouched; `mutator` rewrites only the single column the action
+/// targets — matching the existing
+/// `new_columns.iter_mut().find(|c| c.name == column)` shape, including
+/// the silent no-op when the column is absent (which is the documented
+/// behaviour: see the `column_not_found` test in `modify_column_nullable`).
+///
+/// Folds the byte-identical nine-line SQLite dispatch — look up the
+/// table, clone the column list, rewrite one column, forward the rebuild
+/// contract to `build_sqlite_table_rebuild` — into a single helper.
+/// `context` is the descriptor appended to the canonical
+/// `require_table_in_schema` error message.
+pub(crate) fn build_sqlite_modify_column_with<F>(
+    table: &str,
+    column: &str,
+    current_schema: &[TableDef],
+    pending_constraints: &[TableConstraint],
+    context: &str,
+    mutator: F,
+) -> Result<Vec<BuiltQuery>, crate::QueryError>
+where
+    F: FnOnce(&mut ColumnDef),
+{
+    let table_def = require_table_in_schema(current_schema, table, context)?;
+    let mut new_columns = table_def.columns.clone();
+    if let Some(col) = new_columns.iter_mut().find(|c| c.name == column) {
+        mutator(col);
+    }
+    Ok(build_sqlite_table_rebuild(
+        DatabaseBackend::Sqlite,
+        table,
+        &new_columns,
+        &table_def.constraints,
+        &table_def.columns,
+        &table_def.constraints,
+        pending_constraints,
+    ))
 }
 
 /// Look up `column` in the table named `table` inside `schema`, returning

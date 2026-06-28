@@ -1,10 +1,8 @@
-use sea_query::{Alias, Table};
-
-use vespertide_core::{ColumnDef, TableDef};
+use vespertide_core::TableDef;
 
 use super::helpers::{
-    build_sea_column_def_with_table, build_sqlite_table_rebuild, find_column_in_schema,
-    normalize_enum_default, quote_ident, require_column_in_table, require_table_in_schema,
+    build_mysql_modify_column_with, build_sqlite_modify_column_with, find_column_in_schema,
+    normalize_enum_default, quote_ident,
 };
 use super::types::{BuiltQuery, DatabaseBackend, RawSql};
 use crate::error::QueryError;
@@ -53,52 +51,26 @@ pub fn build_modify_column_default(
             queries.push(BuiltQuery::Raw(RawSql::uniform(alter_sql)));
         }
         DatabaseBackend::MySql => {
-            // MySQL requires the full column definition in ALTER COLUMN
-            let table_def = require_table_in_schema(
-                current_schema,
+            // MySQL requires the full column definition in ALTER COLUMN.
+            queries.push(build_mysql_modify_column_with(
                 table,
+                column,
+                current_schema,
                 "MySQL requires current schema information to modify column defaults",
-            )?;
-
-            let column_def = require_column_in_table(table_def, column)?;
-
-            // Create a modified column def with the new default
-            let modified_col_def = ColumnDef {
-                default: new_default.map(std::convert::Into::into),
-                ..column_def.clone()
-            };
-
-            let sea_col = build_sea_column_def_with_table(backend, table, &modified_col_def);
-
-            let stmt = Table::alter()
-                .table(Alias::new(table))
-                .modify_column(sea_col)
-                .to_owned();
-            queries.push(BuiltQuery::AlterTable(Box::new(stmt)));
+                |c| c.default = new_default.map(std::convert::Into::into),
+            )?);
         }
         DatabaseBackend::Sqlite => {
             // SQLite doesn't support ALTER COLUMN for default changes;
             // use the canonical temp-table rebuild with the modified column.
-            let table_def = require_table_in_schema(
+            queries.extend(build_sqlite_modify_column_with(
+                table,
+                column,
                 current_schema,
-                table,
-                "SQLite requires current schema information to modify column defaults",
-            )?;
-
-            let mut new_columns = table_def.columns.clone();
-            if let Some(col) = new_columns.iter_mut().find(|c| c.name == column) {
-                col.default = new_default.map(std::convert::Into::into);
-            }
-
-            queries.extend(build_sqlite_table_rebuild(
-                backend,
-                table,
-                &new_columns,
-                &table_def.constraints,
-                &table_def.columns,
-                &table_def.constraints,
                 pending_constraints,
-            ));
+                "SQLite requires current schema information to modify column defaults",
+                |c| c.default = new_default.map(std::convert::Into::into),
+            )?);
         }
     }
 
