@@ -6,7 +6,9 @@ use vespertide_planner::{CheckToken, CheckTokenKind, lex_check_expr};
 
 use crate::check_expr_range::expr_inner_range;
 use crate::text_util::strip_quotes;
-use crate::tree_util::{direct_child_value, enclosing_pair_with_key, is_pair};
+use crate::tree_util::{
+    ancestor_pair_with_key, direct_child_value, enclosing_pair_with_key, is_pair,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Context {
@@ -245,14 +247,7 @@ fn keyword_expects_operand(keyword: &str) -> bool {
 }
 
 fn is_inside_constraints(node: tree_sitter::Node<'_>, source: &str) -> bool {
-    let mut current = node.parent();
-    while let Some(candidate) = current {
-        if is_pair(candidate) && key_text(candidate, source) == Some("constraints") {
-            return true;
-        }
-        current = candidate.parent();
-    }
-    false
+    ancestor_pair_with_key(node, source, "constraints").is_some()
 }
 
 fn current_table_columns(node: tree_sitter::Node<'_>, source: &str) -> Vec<String> {

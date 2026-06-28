@@ -14,6 +14,8 @@ use std::sync::RwLock;
 use tower_lsp_server::ls_types::Uri;
 use tree_sitter::{Node, Tree};
 
+use crate::text_util::strip_json_quotes;
+
 /// Snapshot returned by [`WorkspaceIndex::lookup`]; not held across mutations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableLocation {
@@ -157,7 +159,7 @@ fn find_direct_name_value(mapping: Node<'_>, source: &[u8]) -> Option<String> {
             return source
                 .get(value.byte_range())
                 .and_then(|text| std::str::from_utf8(text).ok())
-                .map(|text| strip_quotes(text).to_string());
+                .map(|text| strip_json_quotes(text).to_string());
         }
     }
     None
@@ -170,18 +172,13 @@ fn is_name_key_node(node: Node<'_>, source: &[u8]) -> bool {
             .named_child(0)
             .and_then(|key| source.get(key.byte_range()))
             .and_then(|text| std::str::from_utf8(text).ok())
-            .is_some_and(|key_str| strip_quotes(key_str.trim()) == "name")
+            .is_some_and(|key_str| strip_json_quotes(key_str.trim()) == "name")
 }
 
 fn find_value_sibling(pair_node: Node<'_>) -> Option<Node<'_>> {
     // JSON pair: key, ":", value → value is named_child(1)
     // YAML block_mapping_pair: key, ":", value → value is named_child(1)
     pair_node.named_child(1)
-}
-
-fn strip_quotes(s: &str) -> &str {
-    let s = s.trim();
-    s.trim_start_matches('"').trim_end_matches('"')
 }
 
 #[cfg(test)]

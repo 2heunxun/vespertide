@@ -109,6 +109,36 @@ pub(crate) fn enclosing_pair_with_key<'tree>(
     None
 }
 
+/// Parent-only variant of [`enclosing_pair_with_key`]: walk strictly the
+/// PARENT chain (skip `node` itself) looking for the nearest [`is_pair`]
+/// ancestor whose key (after [`crate::text_util::strip_quotes`]) equals
+/// `expected_key`.
+///
+/// Centralises the three byte-equivalent `is_inside_*` ancestor walks
+/// previously open-coded in `completion::context::is_inside_constraints`,
+/// `hover::check_expr::is_inside_constraints`, and
+/// `hover::column::is_inside_columns`. Use this when "am I inside a pair
+/// whose key is `<X>`?" is the question; use [`enclosing_pair_with_key`]
+/// when the cursor's own node may itself be the pair.
+pub(crate) fn ancestor_pair_with_key<'tree>(
+    node: tree_sitter::Node<'tree>,
+    source: &str,
+    expected_key: &str,
+) -> Option<tree_sitter::Node<'tree>> {
+    let mut current = node.parent();
+    while let Some(candidate) = current {
+        if is_pair(candidate)
+            && let Some(key) = candidate.named_child(0)
+            && let Some(key_text) = source.get(key.byte_range())
+            && crate::text_util::strip_quotes(key_text) == expected_key
+        {
+            return Some(candidate);
+        }
+        current = candidate.parent();
+    }
+    None
+}
+
 /// Find a direct child pair of `object` whose key (after
 /// [`crate::text_util::strip_quotes`]) equals `target_key` and return the
 /// value-side byte slice **verbatim** (quotes preserved for quoted

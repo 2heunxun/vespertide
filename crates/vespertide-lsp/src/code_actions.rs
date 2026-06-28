@@ -17,7 +17,7 @@ use std::ops::Range;
 
 use crate::parser::DocumentFormat;
 use crate::rename::DomainTextEdit;
-use crate::text_util::node_text;
+use crate::text_util::{node_text, strip_json_quotes};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DomainCodeAction {
@@ -229,7 +229,7 @@ fn type_conversions(column: tree_sitter::Node<'_>, source: &[u8]) -> Vec<DomainC
             .get(type_value.byte_range())
             .and_then(|bytes| std::str::from_utf8(bytes).ok())
     {
-        match strip_quotes(text) {
+        match strip_json_quotes(text) {
             // Variable-width strings: offer varchar(255).
             "text" | "varchar" | "char" => {
                 out.push(replace_type_action(
@@ -281,7 +281,7 @@ fn enum_extraction(column: tree_sitter::Node<'_>, source: &[u8]) -> Vec<DomainCo
         .filter(|default_value| default_value.kind() == "string")
         .and_then(|default_value| source.get(default_value.byte_range()))
         .and_then(|bytes| std::str::from_utf8(bytes).ok())
-        .map(strip_quotes)
+        .map(strip_json_quotes)
         // Look for `'literal'` pattern — SQL single-quote literal inside JSON string.
         .and_then(|default_text| {
             default_text
@@ -300,7 +300,7 @@ fn enum_extraction(column: tree_sitter::Node<'_>, source: &[u8]) -> Vec<DomainCo
             .and_then(|p| p.named_child(1))
             .and_then(|v| source.get(v.byte_range()))
             .and_then(|bytes| std::str::from_utf8(bytes).ok())
-            .map_or("status", strip_quotes)
+            .map_or("status", strip_json_quotes)
             .to_string();
 
         let enum_name = format!("{column_name}_kind");
@@ -441,7 +441,7 @@ fn is_inside_columns_array(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
         if candidate.kind() == "pair"
             && let Some(key) = candidate.named_child(0)
             && let Some(text) = node_text(key, source)
-            && strip_quotes(text) == "columns"
+            && strip_json_quotes(text) == "columns"
         {
             return true;
         }
@@ -461,7 +461,7 @@ fn find_pair<'tree>(
             && child
                 .named_child(0)
                 .and_then(|key| node_text(key, source))
-                .map(strip_quotes)
+                .map(strip_json_quotes)
                 == Some(target_key)
     })
 }
@@ -532,10 +532,6 @@ fn remove_pair_edit(
         byte_range: removed_start..removed_end,
         new_text: String::new(),
     })
-}
-
-fn strip_quotes(text: &str) -> &str {
-    text.trim().trim_start_matches('"').trim_end_matches('"')
 }
 
 #[cfg(test)]

@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use vespertide_planner::PlannerError;
 
-use crate::text_util::node_text;
+use crate::text_util::{node_text, strip_json_quotes};
 use crate::tree_util::is_pair;
 
 /// Specific column field a diagnostic should attach to. The locator narrows
@@ -391,7 +391,7 @@ fn mapping_has_name(node: tree_sitter::Node<'_>, source: &[u8], target_name: &st
         if is_pair(child)
             && pair_key_matches(child, source, "name")
             && let Some(value) = child.named_child(1)
-            && node_text(value, source).is_some_and(|text| strip_quotes(text) == target_name)
+            && node_text(value, source).is_some_and(|text| strip_json_quotes(text) == target_name)
         {
             return true;
         }
@@ -408,20 +408,7 @@ fn pair_key_matches(node: tree_sitter::Node<'_>, source: &[u8], expected: &str) 
     // same `false` result without a separate defensive `return` line.
     node.named_child(0)
         .and_then(|key| node_text(key, source))
-        .is_some_and(|text| strip_quotes(text) == expected)
-}
-
-fn strip_quotes(s: &str) -> &str {
-    let trimmed = s.trim();
-    trimmed
-        .strip_prefix('"')
-        .and_then(|without_prefix| without_prefix.strip_suffix('"'))
-        .or_else(|| {
-            trimmed
-                .strip_prefix('\'')
-                .and_then(|without_prefix| without_prefix.strip_suffix('\''))
-        })
-        .unwrap_or(trimmed)
+        .is_some_and(|text| strip_json_quotes(text) == expected)
 }
 
 #[cfg(test)]
