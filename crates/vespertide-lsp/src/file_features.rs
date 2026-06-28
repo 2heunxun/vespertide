@@ -4,7 +4,7 @@
 //! here because they share the same tree-sitter walk patterns and
 //! none has enough surface area to deserve its own directory.
 
-use crate::tree_util::node_at_byte;
+use crate::tree_util::{node_at_byte, trim_one_byte_each_side as trim_one_byte};
 use std::ops::Range;
 
 // =====================================================================
@@ -338,14 +338,6 @@ fn unwrap_yaml(node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
         current = inner;
     }
     current
-}
-
-fn trim_one_byte(range: &Range<usize>) -> Range<usize> {
-    if range.end.saturating_sub(range.start) >= 2 {
-        (range.start + 1)..(range.end - 1)
-    } else {
-        range.clone()
-    }
 }
 
 // =====================================================================

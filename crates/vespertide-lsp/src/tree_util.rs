@@ -82,6 +82,23 @@ pub(crate) fn unwrap_yaml_node(node: tree_sitter::Node<'_>) -> tree_sitter::Node
     current
 }
 
+/// Strip one byte from each side of `range` if it spans at least 2 bytes.
+/// Used to peel quote delimiters off `double_quote_scalar` /
+/// `single_quote_scalar` byte ranges (and JSON `string` ranges when the
+/// `string_content` named child is absent — the empty-string case).
+///
+/// Centralises the three byte-identical private copies that lived in
+/// `file_features`, `rename`, and `symbols` pre-this-hoist. The
+/// `references::search::trim_one_byte_each_side` variant takes `Range`
+/// by value and stays put; its signature change is a separate decision.
+pub(crate) fn trim_one_byte_each_side(range: &std::ops::Range<usize>) -> std::ops::Range<usize> {
+    if range.end.saturating_sub(range.start) >= 2 {
+        (range.start + 1)..(range.end - 1)
+    } else {
+        range.clone()
+    }
+}
+
 /// Walk the PARENT chain skipping tree-sitter-yaml's `flow_node` /
 /// `block_node` wrapper kinds. Counterpart to [`unwrap_yaml_node`], which
 /// descends INTO a wrapper; this helper escapes UP through them so the
@@ -185,6 +202,24 @@ pub(crate) fn ancestor_pair_with_key<'tree>(
             && let Some(key_text) = source.get(key.byte_range())
             && crate::text_util::strip_quotes(key_text) == expected_key
         {
+            return Some(candidate);
+        }
+        current = candidate.parent();
+    }
+    None
+}
+
+/// Walk strictly the PARENT chain (skip `node` itself) and return the
+/// nearest [`is_pair`] ancestor — no key filter. This is the
+/// unfiltered-key counterpart to [`ancestor_pair_with_key`]; use this
+/// when "is there *any* pair ancestor?" is the question.
+///
+/// Centralises the two byte-equivalent private copies that lived in
+/// `check_expr_locate` and `references::resolver` pre-this-hoist.
+pub(crate) fn ancestor_pair(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    let mut current = node.parent();
+    while let Some(candidate) = current {
+        if is_pair(candidate) {
             return Some(candidate);
         }
         current = candidate.parent();

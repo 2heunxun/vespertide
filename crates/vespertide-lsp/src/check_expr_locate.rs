@@ -15,7 +15,7 @@ use std::ops::Range;
 use tree_sitter::{Node, Tree};
 
 use crate::text_util::strip_quotes;
-use crate::tree_util::node_at_byte;
+use crate::tree_util::{ancestor_pair, node_at_byte};
 
 /// Cursor-based result of [`find_check_expr_at`]: the CHECK `expr` string
 /// the cursor sits in and the inner byte range of its predicate text.
@@ -38,7 +38,7 @@ pub(crate) fn find_check_expr_at(
     let node = node_at_byte(tree, byte_offset)?;
     let string_node = enclosing_string(node)?;
 
-    let pair = enclosing_pair(string_node)?;
+    let pair = ancestor_pair(string_node)?;
     let key = pair.named_child(0)?;
     let key_text = std::str::from_utf8(source.get(key.byte_range())?).ok()?;
     if strip_quotes(key_text) != "expr" {
@@ -105,18 +105,6 @@ fn peel_wrapper(node: Node<'_>) -> Node<'_> {
         "flow_node" | "block_node" => node.named_child(0).unwrap_or(node),
         _ => node,
     }
-}
-
-/// Closest ancestor `pair` / `block_mapping_pair`.
-fn enclosing_pair(node: Node<'_>) -> Option<Node<'_>> {
-    let mut current = node.parent();
-    while let Some(candidate) = current {
-        if matches!(candidate.kind(), "pair" | "block_mapping_pair") {
-            return Some(candidate);
-        }
-        current = candidate.parent();
-    }
-    None
 }
 
 /// Closest ancestor that is a JSON / YAML string scalar. Stops at
@@ -207,7 +195,7 @@ mod tests {
         let tree = parse(r#"{"name":"u"}"#);
         let root = tree.root_node();
 
-        assert!(enclosing_pair(root).is_none());
+        assert!(ancestor_pair(root).is_none());
         assert!(enclosing_string(root).is_none());
     }
 

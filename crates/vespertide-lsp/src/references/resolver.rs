@@ -1,7 +1,9 @@
 //! Resolve "what symbol is the cursor on?" for the references provider.
 
 use crate::text_util::strip_quotes;
-use crate::tree_util::{direct_child_value, enclosing_string, node_at_byte, skip_yaml_wrappers};
+use crate::tree_util::{
+    ancestor_pair, direct_child_value, enclosing_string, node_at_byte, skip_yaml_wrappers,
+};
 use tower_lsp_server::ls_types::Uri;
 
 use super::ReferenceSymbol;
@@ -25,7 +27,7 @@ pub(super) fn resolve(
     }
 
     // What pair owns the string?
-    let pair = enclosing_pair(string_node)?;
+    let pair = ancestor_pair(string_node)?;
     let key = pair.named_child(0)?;
     let key_text = strip_quotes(source.get(key.byte_range())?);
 
@@ -105,17 +107,6 @@ fn resolve_check_expr_column(
         table: owning_table,
         column,
     })
-}
-
-fn enclosing_pair(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
-    let mut current = node.parent();
-    while let Some(candidate) = current {
-        if matches!(candidate.kind(), "pair" | "block_mapping_pair") {
-            return Some(candidate);
-        }
-        current = candidate.parent();
-    }
-    None
 }
 
 /// A pair is "top level" when its direct ancestor mapping is itself the
@@ -266,7 +257,7 @@ mod tests {
 
         assert!(!is_check_constraint_pair(root, r#"{"name":"u"}"#));
         assert!(enclosing_string(root).is_none());
-        assert!(enclosing_pair(root).is_none());
+        assert!(ancestor_pair(root).is_none());
         assert!(!is_top_level_pair(root));
     }
 

@@ -306,15 +306,10 @@ fn direct_pair_node<'tree>(
     find_pair_with_key(mapping, source, target_key)?.named_child(1)
 }
 
-use crate::tree_util::{find_outer_mapping, find_pair_with_key, unwrap_yaml_node};
-
-fn trim_one_byte(range: &Range<usize>) -> Range<usize> {
-    if range.end.saturating_sub(range.start) >= 2 {
-        (range.start + 1)..(range.end - 1)
-    } else {
-        range.clone()
-    }
-}
+use crate::tree_util::{
+    find_outer_mapping, find_pair_with_key, trim_one_byte_each_side as trim_one_byte,
+    unwrap_yaml_node,
+};
 
 /// ASCII case-insensitive substring search. `needle_lower` must already be
 /// lowercase (the public `compute()` entry-point lowercases the query once).

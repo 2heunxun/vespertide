@@ -16,7 +16,7 @@ use tower_lsp_server::ls_types::Uri;
 use crate::parser::DocumentFormat;
 use crate::references::{self, ReferenceSymbol};
 use crate::store::DocumentStore;
-use crate::tree_util::node_at_byte;
+use crate::tree_util::{node_at_byte, trim_one_byte_each_side as trim_one_byte};
 use crate::workspace_index::WorkspaceIndex;
 use crate::workspace_tables::WorkspaceTables;
 
@@ -128,14 +128,6 @@ fn inner_content_range(node: tree_sitter::Node<'_>, source: &str) -> Range<usize
             let _ = source;
             raw
         }
-    }
-}
-
-fn trim_one_byte(range: &Range<usize>) -> Range<usize> {
-    if range.end.saturating_sub(range.start) >= 2 {
-        (range.start + 1)..(range.end - 1)
-    } else {
-        range.clone()
     }
 }
 
