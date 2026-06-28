@@ -484,18 +484,14 @@ fn build_default_initializer(col: &ColumnDef) -> Option<String> {
 // ---------------------------------------------------------------------------
 // Naming utilities
 // ---------------------------------------------------------------------------
+//
+// `to_pascal_case` is shared with the SQLAlchemy and SQLModel backends via
+// `python_naming::to_pascal_case` — JPA's class-name convention happens to
+// match the snake-case-aware PascalCase the Python backends already needed.
+// `seaorm` keeps its own variant (reserved-keyword guards, different
+// allocation pattern), so it is intentionally not in scope here.
 
-pub(super) fn to_pascal_case(s: &str) -> String {
-    s.split('_')
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().chain(chars).collect(),
-            }
-        })
-        .collect()
-}
+pub(super) use crate::python_naming::to_pascal_case;
 
 pub(super) fn to_camel_case(s: &str) -> String {
     let pascal = to_pascal_case(s);

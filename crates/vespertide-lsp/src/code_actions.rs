@@ -17,6 +17,7 @@ use std::ops::Range;
 
 use crate::parser::DocumentFormat;
 use crate::rename::DomainTextEdit;
+use crate::text_util::node_text;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DomainCodeAction {
@@ -349,7 +350,7 @@ fn toggle_bool_flag(
 ) -> Option<DomainCodeAction> {
     if let Some(pair) = find_pair(column, source, flag) {
         let value = pair.named_child(1)?;
-        let value_text = std::str::from_utf8(&source[value.byte_range()]).ok()?;
+        let value_text = node_text(value, source)?;
         if value_text.trim() == "true" {
             return Some(DomainCodeAction {
                 title: title_when_removing.to_string(),
@@ -380,7 +381,7 @@ fn toggle_nullable(column: tree_sitter::Node<'_>, source: &[u8]) -> Option<Domai
     let pair = find_pair(column, source, "nullable");
     if let Some(pair) = pair {
         let value = pair.named_child(1)?;
-        let value_text = std::str::from_utf8(&source[value.byte_range()]).ok()?;
+        let value_text = node_text(value, source)?;
         let (next_value, title) = match value_text.trim() {
             "true" => ("false", "Make column NOT NULL"),
             "false" => ("true", "Allow NULL"),
@@ -439,7 +440,7 @@ fn is_inside_columns_array(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
     while let Some(candidate) = current {
         if candidate.kind() == "pair"
             && let Some(key) = candidate.named_child(0)
-            && let Ok(text) = std::str::from_utf8(&source[key.byte_range()])
+            && let Some(text) = node_text(key, source)
             && strip_quotes(text) == "columns"
         {
             return true;
@@ -459,7 +460,7 @@ fn find_pair<'tree>(
         child.kind() == "pair"
             && child
                 .named_child(0)
-                .and_then(|key| std::str::from_utf8(&source[key.byte_range()]).ok())
+                .and_then(|key| node_text(key, source))
                 .map(strip_quotes)
                 == Some(target_key)
     })
@@ -471,7 +472,7 @@ fn insert_pair_edit(
     new_key: &str,
     new_value: &str,
 ) -> Option<DomainTextEdit> {
-    let object_text = std::str::from_utf8(&source[column.byte_range()]).ok()?;
+    let object_text = node_text(column, source)?;
     let close_idx = object_text.rfind('}')?;
     let absolute_close = column.start_byte() + close_idx;
 
@@ -498,7 +499,7 @@ fn remove_pair_edit(
 ) -> Option<DomainTextEdit> {
     // Decide which neighbouring comma to consume so the resulting JSON has
     // no `,,` or trailing `,}`.
-    let object_text = std::str::from_utf8(&source[column.byte_range()]).ok()?;
+    let object_text = node_text(column, source)?;
     let object_start = column.start_byte();
     let pair_start = pair.start_byte() - object_start;
     let pair_end = pair.end_byte() - object_start;

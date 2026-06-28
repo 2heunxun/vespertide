@@ -13,3 +13,16 @@ pub(crate) fn strip_quotes(s: &str) -> &str {
         .trim_start_matches('\'')
         .trim_end_matches('\'')
 }
+
+/// UTF-8 slice of a tree-sitter node's byte range. Returns `None` when the
+/// slice is not valid UTF-8 — defensive only; the LSP parsers produce valid
+/// UTF-8 spans on every source we feed them. Single source of truth for the
+/// `std::str::from_utf8(&source[node.byte_range()]).ok()` chain that used to
+/// be open-coded across `diagnostics/locator`, `code_actions`, and friends.
+#[must_use]
+pub(crate) fn node_text<'a>(
+    node: tree_sitter::Node<'_>,
+    source: &'a [u8],
+) -> Option<&'a str> {
+    std::str::from_utf8(&source[node.byte_range()]).ok()
+}

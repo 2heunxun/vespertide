@@ -4,6 +4,7 @@ use std::ops::Range;
 
 use vespertide_planner::PlannerError;
 
+use crate::text_util::node_text;
 use crate::tree_util::is_pair;
 
 /// Specific column field a diagnostic should attach to. The locator narrows
@@ -408,10 +409,6 @@ fn pair_key_matches(node: tree_sitter::Node<'_>, source: &[u8], expected: &str) 
     node.named_child(0)
         .and_then(|key| node_text(key, source))
         .is_some_and(|text| strip_quotes(text) == expected)
-}
-
-fn node_text<'a>(node: tree_sitter::Node<'_>, source: &'a [u8]) -> Option<&'a str> {
-    std::str::from_utf8(&source[node.byte_range()]).ok()
 }
 
 fn strip_quotes(s: &str) -> &str {
