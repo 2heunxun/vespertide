@@ -132,7 +132,7 @@ fn scan_check(
     table: &str,
     check_name: &str,
     expr: &str,
-    type_map: &HashMap<(String, String), ColumnType>,
+    type_map: &HashMap<(&str, &str), &ColumnType>,
     out: &mut Vec<CheckTypeMismatchWarning>,
 ) {
     let parsed = parse(expr);
@@ -153,7 +153,7 @@ fn walk_check_expr(
     table: &str,
     check_name: &str,
     expr_text: &str,
-    type_map: &HashMap<(String, String), ColumnType>,
+    type_map: &HashMap<(&str, &str), &ColumnType>,
     out: &mut Vec<CheckTypeMismatchWarning>,
 ) {
     match expr_node {
@@ -238,10 +238,10 @@ fn check_one(
     column: &str,
     literal: &Literal,
     expr_text: &str,
-    type_map: &HashMap<(String, String), ColumnType>,
+    type_map: &HashMap<(&str, &str), &ColumnType>,
     out: &mut Vec<CheckTypeMismatchWarning>,
 ) {
-    let Some(col_type) = type_map.get(&(table.to_string(), column.to_string())) else {
+    let Some(&col_type) = type_map.get(&(table, column)) else {
         return; // unknown column - other validators handle it
     };
     if !is_definitely_mismatch(col_type, literal) {
@@ -259,17 +259,17 @@ fn check_one(
     });
 }
 
-fn build_column_type_map(
-    plan: &MigrationPlan,
-    baseline: &[TableDef],
-) -> HashMap<(String, String), ColumnType> {
+/// Borrow-keyed lookup map: `(table, column) -> column type`, borrowing
+/// from `plan` + `baseline` so per-literal lookups in [`check_one`] are
+/// allocation-free. Owned strings are produced only when a warning fires.
+fn build_column_type_map<'a>(
+    plan: &'a MigrationPlan,
+    baseline: &'a [TableDef],
+) -> HashMap<(&'a str, &'a str), &'a ColumnType> {
     let mut map = HashMap::new();
     for table in baseline {
         for col in &table.columns {
-            map.insert(
-                (table.name.to_string(), col.name.to_string()),
-                col.r#type.clone(),
-            );
+            map.insert((table.name.as_str(), col.name.as_str()), &col.r#type);
         }
     }
     // Plan-added tables / columns supersede baseline so a CreateTable
@@ -278,17 +278,11 @@ fn build_column_type_map(
         match action {
             MigrationAction::CreateTable { table, columns, .. } => {
                 for col in columns {
-                    map.insert(
-                        (table.to_string(), col.name.to_string()),
-                        col.r#type.clone(),
-                    );
+                    map.insert((table.as_str(), col.name.as_str()), &col.r#type);
                 }
             }
             MigrationAction::AddColumn { table, column, .. } => {
-                map.insert(
-                    (table.to_string(), column.name.to_string()),
-                    column.r#type.clone(),
-                );
+                map.insert((table.as_str(), column.name.as_str()), &column.r#type);
             }
             MigrationAction::ModifyColumnType {
                 table,
@@ -296,7 +290,7 @@ fn build_column_type_map(
                 new_type,
                 ..
             } => {
-                map.insert((table.to_string(), column.to_string()), new_type.clone());
+                map.insert((table.as_str(), column.as_str()), new_type);
             }
             _ => {}
         }
@@ -399,25 +393,10 @@ fn is_definitely_mismatch(col_type: &ColumnType, lit: &Literal) -> bool {
 }
 
 fn column_type_label(col_type: &ColumnType) -> String {
-    match col_type {
-        // Wire-format spelling (`small_int`, not `smallint`) so the warning
-        // echoes exactly what the user wrote in the model file.
-        ColumnType::Simple(simple) => simple.model_name().to_string(),
-        ColumnType::Complex(complex) => complex_type_label(complex),
-    }
-}
-
-fn complex_type_label(complex: &ComplexColumnType) -> String {
-    match complex {
-        ComplexColumnType::Varchar { length } => format!("varchar({length})"),
-        ComplexColumnType::Char { length } => format!("char({length})"),
-        ComplexColumnType::Numeric { precision, scale } => format!("numeric({precision}, {scale})"),
-        ComplexColumnType::Custom { custom_type } => format!("custom({custom_type})"),
-        ComplexColumnType::Enum { name, .. } => format!("enum({name})"),
-        // reason: unreachable - exhaustive over current ComplexColumnType variants; fallback required only for #[non_exhaustive] future variants
-        #[cfg(not(tarpaulin_include))]
-        _ => "complex".to_string(),
-    }
+    // Wire-format spelling (`small_int`, not `smallint`) so the warning
+    // echoes exactly what the user wrote in the model file. Delegates to
+    // the shared renderer beside `SimpleColumnType::model_name` in core.
+    col_type.display_label()
 }
 
 fn literal_kind_name(lit: &Literal) -> &'static str {

@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn render_helpers_format_correctly() {
         let int_type = ColumnType::Simple(SimpleColumnType::Integer);
-        assert!(render_column_type(&int_type).contains("Integer"));
+        assert_eq!(render_column_type(&int_type), "integer");
         assert_eq!(render_default(None), "<none>");
         assert_eq!(render_default(Some("0")), "\"0\"");
         assert_eq!(render_nullable(true), "nullable");
@@ -245,8 +245,8 @@ mod tests {
 
         let (_, _, message) = action_to_drift(&action, &baseline, source, Some(&tree)).unwrap();
 
-        assert!(message.contains("Integer"));
-        assert!(message.contains("BigInt"));
+        assert!(message.contains("integer"));
+        assert!(message.contains("big_int"));
     }
 
     #[test]

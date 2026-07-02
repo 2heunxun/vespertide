@@ -148,6 +148,22 @@ impl ColumnType {
         }
     }
 
+    /// Render the type in the **model-file (wire-format) spelling** — the
+    /// exact syntax users write in JSON/YAML models: `small_int`,
+    /// `varchar(32)`, `numeric(10, 2)`, `enum(status)`, `custom(TSVECTOR)`.
+    /// Use this for user-facing diagnostics that echo model syntax.
+    /// Distinct from [`Self::to_display_string`], which renders
+    /// SQL-flavoured names for CLI prompts (`smallint`, `double precision`,
+    /// `enum<status>`), and from `Debug`, which leaks Rust internals
+    /// (`Simple(Integer)`, `Varchar { length: 32 }`).
+    #[must_use]
+    pub fn display_label(&self) -> String {
+        match self {
+            ColumnType::Simple(simple) => simple.model_name().to_string(),
+            ColumnType::Complex(complex) => complex.display_label(),
+        }
+    }
+
     /// Get the default fill value for this column type (for CLI prompts)
     /// Returns None if no sensible default exists for the type
     pub fn default_fill_value(&self) -> &'static str {
@@ -636,6 +652,23 @@ impl ComplexColumnType {
                     format!("enum<{name}>")
                 }
             }
+        }
+    }
+
+    /// Wire-format spelling of the complex type for user-facing
+    /// diagnostics: `varchar(32)`, `char(2)`, `numeric(10, 2)`,
+    /// `custom(TSVECTOR)`, `enum(status)`. See
+    /// [`ColumnType::display_label`].
+    #[must_use]
+    pub fn display_label(&self) -> String {
+        match self {
+            ComplexColumnType::Varchar { length } => format!("varchar({length})"),
+            ComplexColumnType::Char { length } => format!("char({length})"),
+            ComplexColumnType::Numeric { precision, scale } => {
+                format!("numeric({precision}, {scale})")
+            }
+            ComplexColumnType::Custom { custom_type } => format!("custom({custom_type})"),
+            ComplexColumnType::Enum { name, .. } => format!("enum({name})"),
         }
     }
 

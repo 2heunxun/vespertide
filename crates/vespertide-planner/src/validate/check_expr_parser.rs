@@ -152,6 +152,31 @@ impl Literal {
         }
     }
 
+    /// Approximate literal equality: numeric literals compare across the
+    /// Integer/Float divide (`1` equals `1.0`) with epsilon tolerance for
+    /// floats. Deliberately distinct from `cmp_value(..) == Some(Equal)`,
+    /// which is exact — two floats less than `f64::EPSILON` apart are
+    /// `approx_eq` but not `cmp_value`-equal. Single source of truth for
+    /// `Literal`-vs-`Literal` equality across CHECK validators (F29
+    /// strengthening today; any future caller).
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "shared CHECK literal equality: rounding integers beyond 2^53 acceptable; conservative validators silently skip ambiguous cases"
+    )]
+    #[must_use]
+    pub(super) fn approx_eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Literal::Integer(x), Literal::Integer(y)) => x == y,
+            (Literal::Float(x), Literal::Float(y)) => (x - y).abs() < f64::EPSILON,
+            (Literal::Integer(x), Literal::Float(y)) => (*x as f64 - y).abs() < f64::EPSILON,
+            (Literal::Float(x), Literal::Integer(y)) => (x - *y as f64).abs() < f64::EPSILON,
+            (Literal::String(x), Literal::String(y)) => x == y,
+            (Literal::Bool(x), Literal::Bool(y)) => x == y,
+            (Literal::Null, Literal::Null) => true,
+            _ => false,
+        }
+    }
+
     /// Render the literal as the canonical surface form used in CHECK
     /// fault messages. `Null` renders as the SQL keyword `NULL`; every
     /// other variant renders via its natural `Display` form. Single

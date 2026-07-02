@@ -118,7 +118,7 @@ fn find_contradiction(expr: &CheckExpr) -> Option<Contradiction> {
             // Pairwise contradiction check within the same column.
             for i in 0..preds.len() {
                 for j in (i + 1)..preds.len() {
-                    if let Some(c) = check_pair(&column, preds[i], preds[j]) {
+                    if let Some(c) = check_pair(column, preds[i], preds[j]) {
                         return Some(c);
                     }
                 }
@@ -165,13 +165,13 @@ fn flatten_and(parts: &[CheckExpr]) -> Vec<&CheckExpr> {
 /// Bucket `Compare` / `In` / `Between` / `IsNull` predicates by the
 /// column they reference. Predicates that don't directly reference a
 /// single column (And/Or/Not/Unparseable) are skipped.
-fn group_predicates_by_column<'a>(flat: &[&'a CheckExpr]) -> Vec<(String, Vec<&'a CheckExpr>)> {
-    let mut groups: Vec<(String, Vec<&'a CheckExpr>)> = Vec::new();
+fn group_predicates_by_column<'a>(flat: &[&'a CheckExpr]) -> Vec<(&'a str, Vec<&'a CheckExpr>)> {
+    let mut groups: Vec<(&'a str, Vec<&'a CheckExpr>)> = Vec::new();
     for pred in flat {
         // `if let` (not `let … else { continue; }`) so the skip path folds
         // into the loop tail — LLVM coverage mis-attributes a bare `continue`.
         if let Some(col) = predicate_column(pred) {
-            if let Some((_, existing)) = groups.iter_mut().find(|(c, _)| c == &col) {
+            if let Some((_, existing)) = groups.iter_mut().find(|(c, _)| *c == col) {
                 existing.push(pred);
             } else {
                 groups.push((col, vec![pred]));
@@ -181,12 +181,12 @@ fn group_predicates_by_column<'a>(flat: &[&'a CheckExpr]) -> Vec<(String, Vec<&'
     groups
 }
 
-fn predicate_column(expr: &CheckExpr) -> Option<String> {
+fn predicate_column(expr: &CheckExpr) -> Option<&str> {
     match expr {
         CheckExpr::Compare { column, .. }
         | CheckExpr::In { column, .. }
         | CheckExpr::Between { column, .. }
-        | CheckExpr::IsNull { column, .. } => Some(column.clone()),
+        | CheckExpr::IsNull { column, .. } => Some(column),
         _ => None,
     }
 }
@@ -937,10 +937,10 @@ mod tests {
             column: "d".into(),
             negated: false,
         };
-        assert_eq!(predicate_column(&cmp).as_deref(), Some("a"));
-        assert_eq!(predicate_column(&in_e).as_deref(), Some("b"));
-        assert_eq!(predicate_column(&bw).as_deref(), Some("c"));
-        assert_eq!(predicate_column(&isn).as_deref(), Some("d"));
+        assert_eq!(predicate_column(&cmp), Some("a"));
+        assert_eq!(predicate_column(&in_e), Some("b"));
+        assert_eq!(predicate_column(&bw), Some("c"));
+        assert_eq!(predicate_column(&isn), Some("d"));
         // `_ => None`: And node.
         let and = CheckExpr::And(vec![cmp.clone()]);
         assert!(predicate_column(&and).is_none());
