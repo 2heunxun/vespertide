@@ -22,7 +22,7 @@ use tower_lsp_server::ls_types::{
 };
 
 use super::Backend;
-use super::helpers::{byte_to_ls_position, domain_edits_to_lsp};
+use super::helpers::{byte_range_to_ls, domain_edits_to_lsp};
 use crate::parser::DocumentFormat;
 
 #[cfg(not(tarpaulin_include))]
@@ -79,9 +79,8 @@ pub(super) async fn prepare_rename_impl(
 
     let range = backend
         .store
-        .docs_iter_for_uri(&uri, |state| Range {
-            start: byte_to_ls_position(&state.doc, domain.byte_range.start),
-            end: byte_to_ls_position(&state.doc, domain.byte_range.end),
+        .docs_iter_for_uri(&uri, |state| {
+            byte_range_to_ls(&state.doc, &domain.byte_range)
         })
         .unwrap_or(Range {
             start: Position {
@@ -158,9 +157,5 @@ pub(super) fn lowered_rename_changes(
         changes.insert(target_uri, text_edits);
     }
 
-    if changes.is_empty() {
-        None
-    } else {
-        Some(changes)
-    }
+    (!changes.is_empty()).then_some(changes)
 }

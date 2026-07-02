@@ -32,7 +32,7 @@ use tower_lsp_server::ls_types::{
 use super::Backend;
 use super::helpers::{
     byte_to_ls_position, domain_edits_to_lsp, domain_reference_to_location, domain_to_lsp,
-    symbol_to_lsp,
+    non_empty, symbol_to_lsp,
 };
 use crate::parser::DocumentFormat;
 
@@ -307,11 +307,7 @@ pub(super) async fn references_impl(
         .filter_map(|reference| domain_reference_to_location(&reference, backend))
         .collect::<Vec<_>>();
 
-    if locations.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(locations))
-    }
+    Ok(non_empty(locations))
 }
 
 pub(super) async fn code_action_impl(
@@ -355,11 +351,7 @@ pub(super) async fn code_action_impl(
         })
         .collect();
 
-    if actions.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(actions))
-    }
+    Ok(non_empty(actions))
 }
 
 pub(super) async fn inlay_hint_impl(
@@ -399,11 +391,7 @@ pub(super) async fn inlay_hint_impl(
 
     log_inlay_hint(&uri, hints.len());
 
-    if hints.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(hints))
-    }
+    Ok(non_empty(hints))
 }
 
 pub(super) async fn symbol_impl(
@@ -423,9 +411,5 @@ pub(super) async fn symbol_impl(
         .iter()
         .filter_map(|sym| symbol_to_lsp(sym, backend))
         .collect();
-    if lsp_symbols.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(WorkspaceSymbolResponse::Flat(lsp_symbols)))
-    }
+    Ok(non_empty(lsp_symbols).map(WorkspaceSymbolResponse::Flat))
 }

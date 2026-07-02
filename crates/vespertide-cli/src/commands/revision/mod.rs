@@ -601,7 +601,7 @@ where
     println!(
         "{} {}",
         "Created migration:".bright_green().bold(),
-        format!("{}", path.display()).bright_white()
+        path.display().to_string().bright_white()
     );
     println!(
         "  {} {}",

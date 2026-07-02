@@ -23,7 +23,7 @@ pub async fn cmd_new(name: String, format: Option<FileFormat>) -> Result<()> {
     }
 
     let table = TableDef {
-        name: name.clone().into(),
+        name: name.into(),
         description: None,
         columns: Vec::new(),
         constraints: Vec::new(),
@@ -39,7 +39,7 @@ pub async fn cmd_new(name: String, format: Option<FileFormat>) -> Result<()> {
     println!(
         "{} {}",
         "Created model template:".bright_green().bold(),
-        format!("{}", path.display()).bright_white()
+        path.display().to_string().bright_white()
     );
     Ok(())
 }

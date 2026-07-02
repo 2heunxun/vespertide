@@ -15,35 +15,6 @@ pub(super) fn absolute_module_path(crate_prefix: &str, to_module: &[String]) -> 
     path
 }
 
-/// Look up the module path for a table name from the `module_paths` map.
-/// Uses `super::` for sibling modules in the same folder, `crate::` absolute paths for
-/// cross-directory relations when mappings are available, and falls back to `super::{table_name}`.
-#[cfg(test)]
-pub(super) fn resolve_entity_module_path(
-    current_table: &str,
-    target_table: &str,
-    module_paths: &HashMap<String, Vec<String>>,
-    crate_prefix: &str,
-) -> String {
-    if let (Some(current), Some(target)) = (
-        module_paths.get(current_table),
-        module_paths.get(target_table),
-    ) {
-        let current_parent = current.split_last().map_or(&[][..], |(_, parent)| parent);
-        let target_parent = target.split_last().map_or(&[][..], |(_, parent)| parent);
-
-        if current_parent == target_parent {
-            return format!("super::{target_table}");
-        }
-
-        if !crate_prefix.is_empty() {
-            return absolute_module_path(crate_prefix, target);
-        }
-    }
-
-    format!("super::{target_table}")
-}
-
 /// Resolve relation field entity paths for `SeaORM` model macros.
 ///
 /// Rule:

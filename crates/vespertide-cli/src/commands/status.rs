@@ -14,12 +14,12 @@ pub async fn cmd_status() -> Result<()> {
     println!(
         "  {} {}",
         "Models directory:".cyan(),
-        format!("{}", config.models_dir().display()).bright_white()
+        config.models_dir().display().to_string().bright_white()
     );
     println!(
         "  {} {}",
         "Migrations directory:".cyan(),
-        format!("{}", config.migrations_dir().display()).bright_white()
+        config.migrations_dir().display().to_string().bright_white()
     );
     println!(
         "  {} {:?}",
