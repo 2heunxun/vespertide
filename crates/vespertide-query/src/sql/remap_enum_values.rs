@@ -54,6 +54,7 @@ pub fn build_remap_enum_values(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::backend_tag;
     use insta::{assert_snapshot, with_settings};
 
     fn run(backend: DatabaseBackend, mapping: &[(i64, i64)]) -> String {
@@ -83,11 +84,12 @@ mod tests {
         ($name:ident, $mapping:expr) => {
             #[test]
             fn $name() {
-                for (backend, tag) in [
-                    (DatabaseBackend::Postgres, "postgres"),
-                    (DatabaseBackend::MySql, "mysql"),
-                    (DatabaseBackend::Sqlite, "sqlite"),
+                for backend in [
+                    DatabaseBackend::Postgres,
+                    DatabaseBackend::MySql,
+                    DatabaseBackend::Sqlite,
                 ] {
+                    let tag = backend_tag(backend);
                     let sql = run(backend, $mapping);
                     snap(&format!("{}_{}", stringify!($name), tag), &sql);
                 }

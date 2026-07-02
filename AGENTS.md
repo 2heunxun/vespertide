@@ -42,7 +42,7 @@ vespertide/
 | Core types (TableDef, ColumnDef) | `vespertide-core/src/schema/` | Start with `table.rs`, `column.rs` |
 | **Newtype name wrappers** | `vespertide-core/src/schema/names.rs` | `TableName` / `ColumnName` / `IndexName` with `#[serde(transparent)]` |
 | Column type system | `vespertide-core/src/schema/column.rs` | `ColumnType::Simple/Complex` variants |
-| Migration actions | `vespertide-core/src/action/` | **14 action variants** (incl. `RawSql` escape hatch), `MigrationPlan` struct |
+| Migration actions | `vespertide-core/src/action/` | **15 action variants** (incl. `RawSql` escape hatch), `MigrationPlan` struct |
 | **QueryError variants** | `vespertide-query/src/error.rs` | `InvalidColumnType` / `SchemaError` / `BackendError` / `UnsupportedAction`; `Other` is `#[deprecated]` |
 | Schema diffing | `vespertide-planner/src/diff/` | topological sort for FK deps |
 | SQL generation | `vespertide-query/src/sql/` | One file per action type |

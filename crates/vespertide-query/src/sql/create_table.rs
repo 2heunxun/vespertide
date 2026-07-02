@@ -320,7 +320,7 @@ pub fn build_create_table(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::col;
+    use crate::test_support::{col, joined_sql};
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{ColumnType, EnumValues, SimpleColumnType};
@@ -737,11 +737,7 @@ mod tests {
             },
         ];
         let queries = build_create_table(backend, "users", &columns, &constraints).unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
         // The CHECK arm in `add_create_table_constraints` is a documented
         // no-op (CHECK appears in a separate ALTER ADD CONSTRAINT statement,
         // not in CREATE TABLE itself). We assert the dispatch ran (PK lands)

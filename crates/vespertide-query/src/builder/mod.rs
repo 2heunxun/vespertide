@@ -127,7 +127,7 @@ pub fn build_plan_queries_with_options(
 mod tests {
     use super::*;
     use crate::sql::DatabaseBackend;
-    use crate::test_support::{col, joined_sql_semicolon};
+    use crate::test_support::{backend_tag, col, joined_sql_semicolon};
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{
@@ -306,40 +306,20 @@ mod tests {
         assert_eq!(result.len(), 2);
 
         // Test PostgreSQL output
-        let sql1 = result[0]
-            .postgres
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Postgres))
-            .collect::<Vec<_>>()
-            .join(";\n");
+        let sql1 = joined_sql_semicolon(DatabaseBackend::Postgres, &result[0].postgres);
         assert!(sql1.contains("CREATE TABLE"));
         assert!(sql1.contains("\"users\""));
         assert!(sql1.contains("\"id\""));
 
-        let sql2 = result[1]
-            .postgres
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Postgres))
-            .collect::<Vec<_>>()
-            .join(";\n");
+        let sql2 = joined_sql_semicolon(DatabaseBackend::Postgres, &result[1].postgres);
         assert!(sql2.contains("DROP TABLE"));
         assert!(sql2.contains("\"posts\""));
 
         // Test MySQL output
-        let sql1_mysql = result[0]
-            .mysql
-            .iter()
-            .map(|q| q.build(DatabaseBackend::MySql))
-            .collect::<Vec<_>>()
-            .join(";\n");
+        let sql1_mysql = joined_sql_semicolon(DatabaseBackend::MySql, &result[0].mysql);
         assert!(sql1_mysql.contains("`users`"));
 
-        let sql2_mysql = result[1]
-            .mysql
-            .iter()
-            .map(|q| q.build(DatabaseBackend::MySql))
-            .collect::<Vec<_>>()
-            .join(";\n");
+        let sql2_mysql = joined_sql_semicolon(DatabaseBackend::MySql, &result[1].mysql);
         assert!(sql2_mysql.contains("`posts`"));
     }
 
@@ -601,11 +581,12 @@ mod tests {
         assert_no_orphan_duplicate_indexes(&result);
 
         // Snapshot per backend
-        for (backend, label) in [
-            (DatabaseBackend::Postgres, "postgres"),
-            (DatabaseBackend::MySql, "mysql"),
-            (DatabaseBackend::Sqlite, "sqlite"),
+        for backend in [
+            DatabaseBackend::Postgres,
+            DatabaseBackend::MySql,
+            DatabaseBackend::Sqlite,
         ] {
+            let label = backend_tag(backend);
             let sql = collect_all_sql(&result, backend);
             with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => format!("add_col_{}_{}", title, label) }, {
                 assert_snapshot!(sql);
@@ -631,11 +612,12 @@ mod tests {
         let result = build_plan_queries(&plan, &schema).unwrap();
 
         // Snapshot per backend
-        for (backend, label) in [
-            (DatabaseBackend::Postgres, "postgres"),
-            (DatabaseBackend::MySql, "mysql"),
-            (DatabaseBackend::Sqlite, "sqlite"),
+        for backend in [
+            DatabaseBackend::Postgres,
+            DatabaseBackend::MySql,
+            DatabaseBackend::Sqlite,
         ] {
+            let label = backend_tag(backend);
             let sql = collect_all_sql(&result, backend);
             with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => format!("rm_col_{}_{}", title, label) }, {
                 assert_snapshot!(sql);
@@ -659,11 +641,12 @@ mod tests {
         assert_no_duplicate_indexes_per_action(&result);
         assert_no_orphan_duplicate_indexes(&result);
 
-        for (backend, label) in [
-            (DatabaseBackend::Postgres, "postgres"),
-            (DatabaseBackend::MySql, "mysql"),
-            (DatabaseBackend::Sqlite, "sqlite"),
+        for backend in [
+            DatabaseBackend::Postgres,
+            DatabaseBackend::MySql,
+            DatabaseBackend::Sqlite,
         ] {
+            let label = backend_tag(backend);
             let sql = collect_all_sql(&result, backend);
             with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => format!("add_col_pair_{}_{}", title, label) }, {
                 assert_snapshot!(sql);
@@ -687,11 +670,12 @@ mod tests {
         assert_no_duplicate_indexes_per_action(&result);
         assert_no_orphan_duplicate_indexes(&result);
 
-        for (backend, label) in [
-            (DatabaseBackend::Postgres, "postgres"),
-            (DatabaseBackend::MySql, "mysql"),
-            (DatabaseBackend::Sqlite, "sqlite"),
+        for backend in [
+            DatabaseBackend::Postgres,
+            DatabaseBackend::MySql,
+            DatabaseBackend::Sqlite,
         ] {
+            let label = backend_tag(backend);
             let sql = collect_all_sql(&result, backend);
             with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => format!("add_col_pair_{}_{}", title, label) }, {
                 assert_snapshot!(sql);

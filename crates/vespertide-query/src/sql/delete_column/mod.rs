@@ -123,7 +123,7 @@ fn sqlite_constraint_handling(
 mod tests {
     use super::*;
     use crate::sql::types::DatabaseBackend;
-    use crate::test_support::{col, joined_sql_semicolon};
+    use crate::test_support::{col, joined_sql, joined_sql_semicolon};
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{ComplexColumnType, SimpleColumnType};
@@ -409,11 +409,7 @@ mod tests {
             result.len()
         );
 
-        let all_sql: Vec<String> = result
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect();
-        let combined_sql = all_sql.join("\n");
+        let combined_sql = joined_sql(DatabaseBackend::Sqlite, &result);
 
         // Verify temp table creation
         assert!(
@@ -484,11 +480,7 @@ mod tests {
             &[],
         );
 
-        let all_sql: Vec<String> = result
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect();
-        let combined_sql = all_sql.join("\n");
+        let combined_sql = joined_sql(DatabaseBackend::Sqlite, &result);
 
         // Should preserve other columns
         assert!(combined_sql.contains("\"id\""), "Should preserve id column");
@@ -591,11 +583,7 @@ mod tests {
             result.len()
         );
 
-        let all_sql: Vec<String> = result
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect();
-        let combined_sql = all_sql.join("\n");
+        let combined_sql = joined_sql(DatabaseBackend::Sqlite, &result);
 
         assert!(
             combined_sql.contains("order_items_temp"),
@@ -711,11 +699,7 @@ mod tests {
             &[],
         );
 
-        let all_sql: Vec<String> = result
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect();
-        let combined_sql = all_sql.join("\n");
+        let combined_sql = joined_sql(DatabaseBackend::Sqlite, &result);
 
         // Should use temp table approach (FK triggers it)
         assert!(
@@ -975,11 +959,7 @@ mod tests {
             result.len()
         );
 
-        let all_sql: Vec<String> = result
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect();
-        let combined_sql = all_sql.join("\n");
+        let combined_sql = joined_sql(DatabaseBackend::Sqlite, &result);
 
         // Verify temp table approach
         assert!(
@@ -1082,11 +1062,7 @@ mod tests {
         }];
 
         let queries = build_delete_column(backend, "people", "age", None, &schema, &[]);
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
 
         if backend == DatabaseBackend::Sqlite {
             assert!(

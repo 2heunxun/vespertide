@@ -9,8 +9,7 @@ use tokio::fs;
 use vespertide_config::VespertideConfig;
 use vespertide_core::TableDef;
 use vespertide_exporter::{
-    Orm, python_naming::to_pascal_case, render_entity_with_schema,
-    seaorm::SeaOrmExporterWithConfig,
+    Orm, python_naming::to_pascal_case, render_entity_with_schema, seaorm::SeaOrmExporterWithConfig,
 };
 
 use crate::parallel_config::{EXPORT_RENDER_PAR_MIN_LEN, EXPORT_RENDER_PAR_THRESHOLD};
@@ -230,6 +229,15 @@ fn resolve_export_dir(export_dir: Option<PathBuf>, config: &VespertideConfig) ->
     config.model_export_dir().to_path_buf()
 }
 
+/// File extension for the source files a given ORM generates.
+fn orm_file_extension(orm: Orm) -> &'static str {
+    match orm {
+        Orm::SeaOrm => "rs",
+        Orm::SqlAlchemy | Orm::SqlModel => "py",
+        Orm::Jpa => "java",
+    }
+}
+
 /// Clean the export directory by removing all generated files.
 /// This ensures no stale files remain from previous exports.
 async fn clean_export_dir(root: &Path, orm: Orm) -> Result<()> {
@@ -237,13 +245,7 @@ async fn clean_export_dir(root: &Path, orm: Orm) -> Result<()> {
         return Ok(());
     }
 
-    let ext = match orm {
-        Orm::SeaOrm => "rs",
-        Orm::SqlAlchemy | Orm::SqlModel => "py",
-        Orm::Jpa => "java",
-    };
-
-    clean_dir_recursive(root, ext).await?;
+    clean_dir_recursive(root, orm_file_extension(orm)).await?;
     Ok(())
 }
 
@@ -329,11 +331,7 @@ fn build_output_path(root: &Path, rel_path: &Path, orm: Orm) -> PathBuf {
         let stem = stem.strip_suffix(".vespertide").unwrap_or(stem);
 
         let sanitized = sanitize_filename(stem);
-        let ext = match orm {
-            Orm::SeaOrm => "rs",
-            Orm::SqlAlchemy | Orm::SqlModel => "py",
-            Orm::Jpa => "java",
-        };
+        let ext = orm_file_extension(orm);
         // Java requires filename to match PascalCase class name
         let file_stem = if matches!(orm, Orm::Jpa) {
             to_pascal_case(&sanitized)
@@ -953,5 +951,4 @@ mod tests {
         let out = build_output_path(root, rel_path, Orm::Jpa);
         assert_eq!(out, Path::new("src/models/User.java"));
     }
-
 }

@@ -71,6 +71,7 @@ fn constraint_kind(constraint: &TableConstraint) -> &'static str {
 mod tests {
     use super::*;
     use crate::sql::types::DatabaseBackend;
+    use crate::test_support::joined_sql;
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{
@@ -159,12 +160,10 @@ mod tests {
         constraint: &TableConstraint,
         schema: &[TableDef],
     ) -> String {
-        build_remove_constraint(backend, table_name, constraint, schema, &[])
-            .unwrap()
-            .iter()
-            .map(|query| query.build(backend))
-            .collect::<Vec<_>>()
-            .join("\n")
+        joined_sql(
+            backend,
+            &build_remove_constraint(backend, table_name, constraint, schema, &[]).unwrap(),
+        )
     }
 
     fn assert_rendered(

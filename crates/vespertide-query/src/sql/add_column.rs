@@ -158,7 +158,7 @@ pub fn build_add_column(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::joined_sql;
+    use crate::test_support::{joined_sql, joined_sql_semicolon};
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{ColumnType, SimpleColumnType, TableDef};
@@ -479,11 +479,7 @@ mod tests {
         let result = build_add_column(backend, "users", &column, None, &current_schema, &[]);
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join(";\n");
+        let sql = joined_sql_semicolon(backend, &queries);
 
         with_settings!({ snapshot_suffix => format!("add_column_with_enum_type_{:?}", backend) }, {
             assert_snapshot!(sql);
@@ -536,11 +532,7 @@ mod tests {
         let result = build_add_column(backend, "users", &column, None, &current_schema, &[]);
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join(";\n");
+        let sql = joined_sql_semicolon(backend, &queries);
 
         with_settings!({ snapshot_suffix => format!("enum_non_nullable_with_default_{:?}", backend) }, {
             assert_snapshot!(sql);
@@ -585,11 +577,7 @@ mod tests {
         let result = build_add_column(backend, "users", &column, None, &current_schema, &[]);
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join(";\n");
+        let sql = joined_sql_semicolon(backend, &queries);
 
         // Verify empty string becomes ''
         assert!(
@@ -700,11 +688,7 @@ mod tests {
         let result = build_add_column(backend, "users", &column, Some(""), &current_schema, &[]);
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join(";\n");
+        let sql = joined_sql_semicolon(backend, &queries);
 
         // Verify empty string becomes ''
         assert!(

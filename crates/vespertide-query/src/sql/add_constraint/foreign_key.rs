@@ -189,7 +189,7 @@ mod tests {
     use rstest::rstest;
     use vespertide_core::{ColumnDef, ColumnType, MigrationAction, SimpleColumnType};
 
-    use crate::test_support::col_n;
+    use crate::test_support::{col_n, joined_sql};
 
     fn fk_constraint(strategy: ForeignKeyOrphanStrategy) -> TableConstraint {
         TableConstraint::ForeignKey {
@@ -292,11 +292,7 @@ mod tests {
             &[],
         )
         .unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let sql = joined_sql(DatabaseBackend::Sqlite, &queries);
         assert!(sql.contains("CONSTRAINT \"chk_user_id\" CHECK"));
     }
 
@@ -322,11 +318,7 @@ mod tests {
             &[],
         )
         .unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let sql = joined_sql(DatabaseBackend::Sqlite, &queries);
         assert!(sql.contains("CREATE INDEX"));
         assert!(sql.contains("idx_user_id"));
     }
@@ -354,14 +346,7 @@ mod tests {
             &[],
         )
         .unwrap();
-        assert!(
-            queries
-                .iter()
-                .map(|q| q.build(DatabaseBackend::Sqlite))
-                .collect::<Vec<_>>()
-                .join("\n")
-                .contains("CREATE TABLE")
-        );
+        assert!(joined_sql(DatabaseBackend::Sqlite, &queries).contains("CREATE TABLE"));
     }
 
     #[test]
@@ -382,11 +367,7 @@ mod tests {
             &[],
         )
         .unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let sql = joined_sql(DatabaseBackend::Sqlite, &queries);
         assert!(sql.contains("CREATE TABLE"));
         assert!(sql.contains("FOREIGN KEY"));
     }
@@ -433,11 +414,7 @@ mod tests {
             &[],
         )
         .unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Postgres))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let sql = joined_sql(DatabaseBackend::Postgres, &queries);
         assert!(sql.contains("NOT VALID"));
         assert!(sql.contains("VALIDATE CONSTRAINT"));
         assert!(sql.contains("ON DELETE CASCADE") && sql.contains("ON UPDATE RESTRICT"));
@@ -551,11 +528,7 @@ mod tests {
             &[],
         )
         .unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
         assert!(sql.contains("UPDATE"));
         assert!(sql.contains("= NULL"));
         assert!(sql.contains("NOT EXISTS"));
@@ -587,12 +560,10 @@ mod tests {
             constraint,
         };
 
-        let sql = crate::sql::build_action_queries(backend, &action, &parent_child_schema())
-            .unwrap()
-            .iter()
-            .map(|query| query.build(backend))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let sql = joined_sql(
+            backend,
+            &crate::sql::build_action_queries(backend, &action, &parent_child_schema()).unwrap(),
+        );
 
         assert!(sql.contains("ON DELETE CASCADE"), "{sql}");
         assert!(sql.contains("ON UPDATE CASCADE"), "{sql}");
@@ -629,11 +600,7 @@ mod tests {
             &[],
         )
         .unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let sql = joined_sql(backend, &queries);
         assert!(sql.contains("DELETE FROM"));
         assert!(sql.contains("NOT EXISTS"));
         assert!(

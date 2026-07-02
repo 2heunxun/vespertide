@@ -51,10 +51,8 @@ pub(crate) fn joined_sql(
 /// Same shape as [`joined_sql`] but uses `";\n"` as the separator — matches
 /// the canonical multi-statement SQL formatting that `builder::mod` and
 /// `sql::delete_column::mod` snapshot. Hoisted from two byte-identical
-/// `build_sql_snapshot` helpers that lived in those modules pre-0.2.0; the
-/// broader inline `.join(";\n")` adoption pass across the rest of the
-/// crate is deliberately deferred to a follow-up iteration to keep each
-/// dedupe item independently revertible.
+/// `build_sql_snapshot` helpers that lived in those modules pre-0.2.0;
+/// adopted crate-wide wherever a test joins built queries with `";\n"`.
 pub(crate) fn joined_sql_semicolon(
     backend: crate::sql::DatabaseBackend,
     queries: &[crate::sql::BuiltQuery],
@@ -69,8 +67,9 @@ pub(crate) fn joined_sql_semicolon(
 /// Snapshot-suffix tag for a backend. The string is part of the snapshot
 /// file name, so changing it would invalidate every `assert_snapshot!` that
 /// uses it — keep it byte-stable. Hoisted from a `match backend { ... }`
-/// block repeated across `sql/tests/naming.rs` (and several
-/// `sql/modify_column_*` tests, left for a follow-up iteration).
+/// block repeated across `sql/tests/naming.rs` and adopted by the
+/// backend fan-out loops in `builder`, `remap_enum_values`, and the
+/// `modify_column_type` test modules.
 pub(crate) fn backend_tag(backend: crate::sql::DatabaseBackend) -> &'static str {
     match backend {
         crate::sql::DatabaseBackend::Postgres => "postgres",

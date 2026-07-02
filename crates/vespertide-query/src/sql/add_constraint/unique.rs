@@ -93,8 +93,8 @@ fn build_unique_index<T: AsRef<str>>(table: &str, name: Option<&str>, columns: &
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::try_resolve_single_pk_column;
+    use super::*;
     use rstest::rstest;
     use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType, TableConstraint};
 
