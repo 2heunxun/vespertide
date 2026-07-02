@@ -102,7 +102,7 @@ pub(in crate::seaorm) fn infer_field_name_from_fk_column(
 }
 
 pub(in crate::seaorm) fn pluralize(name: &str) -> String {
-    if name.ends_with('s') || name.ends_with("es") {
+    if name.ends_with('s') {
         name.to_string()
     } else if name.ends_with('y')
         && !name.ends_with("ay")

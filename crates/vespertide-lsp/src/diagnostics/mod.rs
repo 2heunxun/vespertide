@@ -363,6 +363,41 @@ mod tests {
         assert!(diags.iter().all(|d| d.code != "unknown-type"));
     }
 
+    #[rstest]
+    #[case::json(
+        r#"{"name":"u","columns":[{"name":"payload","type":"jsonb","nullable":false}]}"#,
+        DocumentFormat::Json
+    )]
+    #[case::yaml(
+        "name: u\ncolumns:\n  - name: payload\n    type: jsonb\n    nullable: false\n",
+        DocumentFormat::Yaml
+    )]
+    fn jsonb_is_not_a_simple_type_and_gets_flagged(
+        #[case] src: &str,
+        #[case] format: DocumentFormat,
+    ) {
+        // `SimpleColumnType` has no `Jsonb` variant: the loader rejects
+        // `"type": "jsonb"`, so the editor must flag it too.
+        let pool = ParserPool::new();
+        let idx = WorkspaceIndex::new();
+        let tree = pool.parse(src, format);
+        let diags = compute(src, format, tree.as_ref(), &idx);
+
+        let err = diags
+            .iter()
+            .find(|d| d.code == "unknown-type")
+            .expect("`jsonb` must produce an unknown-type diagnostic");
+        let suggested = err
+            .message
+            .split_once("Expected one of:")
+            .map(|(_, tail)| tail)
+            .expect("diagnostic should list the expected types");
+        assert!(
+            !suggested.contains("jsonb"),
+            "the suggested type list must not advertise `jsonb`, got: {suggested}"
+        );
+    }
+
     #[test]
     fn yaml_unknown_column_type_highlights_type_pair() {
         let pool = ParserPool::new();

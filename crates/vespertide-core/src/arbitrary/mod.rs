@@ -466,7 +466,12 @@ fn names_are_unique<'a>(names: impl Iterator<Item = &'a str>) -> bool {
 
 fn arb_default_string() -> impl Strategy<Value = String> {
     prop_oneof![
-        arb_safe_ident(),
+        // Bare identifier used as a raw SQL default expression. The `_d`
+        // suffix guarantees the ident never collides with a fully-reserved
+        // SQL keyword (`do`, `as`, `end`, ...) that PostgreSQL's parser
+        // rejects as an expression head — no reserved keyword in PG, MySQL,
+        // or SQLite ends in `_d`.
+        arb_safe_ident().prop_map(|ident| format!("{ident}_d")),
         arb_safe_ident().prop_map(|ident| format!("'{ident}'")),
         Just("NOW()".to_string()),
         Just("CURRENT_TIMESTAMP".to_string()),

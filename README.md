@@ -123,12 +123,15 @@ Models are JSON files in the `models/` directory. Always include `$schema` for I
 | `"big_int"` | BIGINT | `"boolean"` | BOOLEAN |
 | `"small_int"` | SMALLINT | `"uuid"` | UUID |
 | `"real"` | REAL | `"json"` | JSON |
-| `"double_precision"` | DOUBLE PRECISION | `"jsonb"` | JSONB |
-| `"date"` | DATE | `"bytea"` | BYTEA |
-| `"time"` | TIME | `"inet"` | INET |
-| `"timestamp"` | TIMESTAMP | `"cidr"` | CIDR |
-| `"timestamptz"` | TIMESTAMPTZ | `"macaddr"` | MACADDR |
-| `"interval"` | INTERVAL | `"xml"` | XML |
+| `"double_precision"` | DOUBLE PRECISION | `"bytea"` | BYTEA |
+| `"date"` | DATE | `"inet"` | INET |
+| `"time"` | TIME | `"cidr"` | CIDR |
+| `"timestamp"` | TIMESTAMP | `"macaddr"` | MACADDR |
+| `"timestamptz"` | TIMESTAMPTZ | `"xml"` | XML |
+| `"interval"` | INTERVAL | | |
+
+> Need `JSONB`? There is no `"jsonb"` simple type — use the custom complex type instead:
+> `{ "kind": "custom", "custom_type": "JSONB" }`.
 
 **Complex Types:**
 

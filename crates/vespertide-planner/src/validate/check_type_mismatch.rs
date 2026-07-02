@@ -400,7 +400,9 @@ fn is_definitely_mismatch(col_type: &ColumnType, lit: &Literal) -> bool {
 
 fn column_type_label(col_type: &ColumnType) -> String {
     match col_type {
-        ColumnType::Simple(simple) => format!("{simple:?}").to_lowercase(),
+        // Wire-format spelling (`small_int`, not `smallint`) so the warning
+        // echoes exactly what the user wrote in the model file.
+        ColumnType::Simple(simple) => simple.model_name().to_string(),
         ColumnType::Complex(complex) => complex_type_label(complex),
     }
 }
@@ -983,5 +985,18 @@ mod tests {
             custom_type: "TSVECTOR".into(),
         }));
         assert_eq!(label, "custom(TSVECTOR)");
+    }
+
+    #[rstest]
+    #[case::small_int(SimpleColumnType::SmallInt, "small_int")]
+    #[case::big_int(SimpleColumnType::BigInt, "big_int")]
+    #[case::double_precision(SimpleColumnType::DoublePrecision, "double_precision")]
+    fn column_type_label_uses_wire_format_for_multi_word_simple_types(
+        #[case] simple: SimpleColumnType,
+        #[case] expected: &str,
+    ) {
+        // A user who wrote `"small_int"` must be warned about `small_int`,
+        // not the Debug-derived `smallint`.
+        assert_eq!(column_type_label(&ColumnType::Simple(simple)), expected);
     }
 }

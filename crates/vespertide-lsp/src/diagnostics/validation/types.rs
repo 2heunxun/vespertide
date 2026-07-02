@@ -19,7 +19,6 @@ pub(super) const KNOWN_SIMPLE_TYPES: &[&str] = &[
     "bytea",
     "uuid",
     "json",
-    "jsonb",
     "inet",
     "cidr",
     "macaddr",

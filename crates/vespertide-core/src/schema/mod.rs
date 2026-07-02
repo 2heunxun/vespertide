@@ -591,6 +591,38 @@ mod tests {
         }
 
         #[rstest]
+        #[case(SimpleColumnType::SmallInt, "small_int")]
+        #[case(SimpleColumnType::Integer, "integer")]
+        #[case(SimpleColumnType::BigInt, "big_int")]
+        #[case(SimpleColumnType::Real, "real")]
+        #[case(SimpleColumnType::DoublePrecision, "double_precision")]
+        #[case(SimpleColumnType::Text, "text")]
+        #[case(SimpleColumnType::Boolean, "boolean")]
+        #[case(SimpleColumnType::Date, "date")]
+        #[case(SimpleColumnType::Time, "time")]
+        #[case(SimpleColumnType::Timestamp, "timestamp")]
+        #[case(SimpleColumnType::Timestamptz, "timestamptz")]
+        #[case(SimpleColumnType::Interval, "interval")]
+        #[case(SimpleColumnType::Bytea, "bytea")]
+        #[case(SimpleColumnType::Uuid, "uuid")]
+        #[case(SimpleColumnType::Json, "json")]
+        #[case(SimpleColumnType::Inet, "inet")]
+        #[case(SimpleColumnType::Cidr, "cidr")]
+        #[case(SimpleColumnType::Macaddr, "macaddr")]
+        #[case(SimpleColumnType::Xml, "xml")]
+        fn test_simple_column_type_model_name_matches_serde_wire_format(
+            #[case] column_type: SimpleColumnType,
+            #[case] expected: &str,
+        ) {
+            assert_eq!(column_type.model_name(), expected);
+            // model_name() must agree with the serde wire format byte-for-byte.
+            assert_eq!(
+                serde_json::to_value(column_type).unwrap(),
+                serde_json::Value::String(expected.to_string())
+            );
+        }
+
+        #[rstest]
         #[case(ComplexColumnType::Varchar { length: 255 }, "VARCHAR")]
         #[case(ComplexColumnType::Numeric { precision: 10, scale: 2 }, "NUMERIC")]
         #[case(ComplexColumnType::Char { length: 5 }, "CHAR")]

@@ -333,6 +333,35 @@ impl SimpleColumnType {
         }
     }
 
+    /// Returns the snake_case model-file spelling of this type — the exact
+    /// string users write in JSON/YAML models (the serde wire name), e.g.
+    /// `SmallInt` → `"small_int"`. Use this for user-facing messages that
+    /// reference the model syntax; use [`Self::sql_type`] for SQL rendering.
+    #[must_use]
+    pub fn model_name(&self) -> &'static str {
+        match self {
+            SimpleColumnType::SmallInt => "small_int",
+            SimpleColumnType::Integer => "integer",
+            SimpleColumnType::BigInt => "big_int",
+            SimpleColumnType::Real => "real",
+            SimpleColumnType::DoublePrecision => "double_precision",
+            SimpleColumnType::Text => "text",
+            SimpleColumnType::Boolean => "boolean",
+            SimpleColumnType::Date => "date",
+            SimpleColumnType::Time => "time",
+            SimpleColumnType::Timestamp => "timestamp",
+            SimpleColumnType::Timestamptz => "timestamptz",
+            SimpleColumnType::Interval => "interval",
+            SimpleColumnType::Bytea => "bytea",
+            SimpleColumnType::Uuid => "uuid",
+            SimpleColumnType::Json => "json",
+            SimpleColumnType::Inet => "inet",
+            SimpleColumnType::Cidr => "cidr",
+            SimpleColumnType::Macaddr => "macaddr",
+            SimpleColumnType::Xml => "xml",
+        }
+    }
+
     /// Returns true if this type supports `auto_increment` (integer types only)
     pub fn supports_auto_increment(&self) -> bool {
         matches!(

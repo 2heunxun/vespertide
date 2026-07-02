@@ -304,12 +304,10 @@ pub(super) fn sort_create_before_add_constraint(actions: &mut [MigrationAction])
     actions.sort_by(|a, b| compare_actions_for_create_order(a, b, &created_tables));
 }
 
-/// Get the set of string enum values that were removed (present in `from` but not in `to`).
-/// Returns None if either type is not a string enum.
-fn get_removed_string_enum_values(
-    from_type: &ColumnType,
-    to_type: &ColumnType,
-) -> Option<Vec<String>> {
+/// Returns true when both types are string enums and `needle` is a value the
+/// change removes (present in `from`, absent in `to`). Direct membership test:
+/// `needle ∈ (from \ to)` ⇔ `needle ∈ from ∧ needle ∉ to` — no set or clones.
+fn string_enum_value_removed(from_type: &ColumnType, to_type: &ColumnType, needle: &str) -> bool {
     match (from_type, to_type) {
         (
             ColumnType::Complex(ComplexColumnType::Enum {
@@ -320,20 +318,8 @@ fn get_removed_string_enum_values(
                 values: EnumValues::String(to_values),
                 ..
             }),
-        ) => {
-            let to_set: HashSet<&str> = to_values.iter().map(std::string::String::as_str).collect();
-            let removed: Vec<String> = from_values
-                .iter()
-                .filter(|v| !to_set.contains(v.as_str()))
-                .cloned()
-                .collect();
-            if removed.is_empty() {
-                None
-            } else {
-                Some(removed)
-            }
-        }
-        _ => None,
+        ) => from_values.iter().any(|v| v == needle) && !to_values.iter().any(|v| v == needle),
+        _ => false,
     }
 }
 
@@ -393,8 +379,6 @@ pub(super) fn sort_enum_default_dependencies(
         if let Some(&default_idx) = default_changes.get(&(*table, *column))
             && let Some(from_table) = from_map.get(table)
             && let Some(from_column) = from_table.columns.iter().find(|c| c.name == *column)
-            && let Some(removed_values) =
-                get_removed_string_enum_values(&from_column.r#type, new_type)
             && let Some(ref old_default) = from_column.default
         {
             // Both ModifyColumnType and ModifyColumnDefault exist for same column
@@ -402,7 +386,9 @@ pub(super) fn sort_enum_default_dependencies(
             let old_default_sql = old_default.to_sql();
             let old_default_unquoted = extract_unquoted_default(&old_default_sql);
 
-            if removed_values.iter().any(|v| v == old_default_unquoted) && *type_idx < default_idx {
+            if string_enum_value_removed(&from_column.r#type, new_type, old_default_unquoted)
+                && *type_idx < default_idx
+            {
                 // Old default is being removed - must change default BEFORE type
                 swaps.push((*type_idx, default_idx));
             }
