@@ -2965,6 +2965,7 @@ version = "0.2.1"
 dependencies = [
  "criterion",
  "proptest",
+ "rstest",
 ]
 
 [[package]]

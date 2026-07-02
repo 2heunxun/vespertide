@@ -135,23 +135,15 @@ fn load_models_recursive_internal(
     Ok(())
 }
 
+/// Compile-time variant of [`load_model_file`]: same read → parse → validate
+/// pipeline (delegated so extension dispatch and validation live in exactly
+/// one place), followed by normalization — the macro path needs inline
+/// constraints resolved to table level.
 fn load_normalized_model_file_internal(path: &Path) -> Result<TableDef, String> {
-    let ext = path.extension().and_then(|s| s.to_str());
-    let content = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read model file {}: {}", path.display(), e))?;
-
-    let table: TableDef = if ext == Some("json") {
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse JSON model {}: {}", path.display(), e))?
-    } else {
-        serde_yaml::from_str(&content)
-            .map_err(|e| format!("Failed to parse YAML model {}: {}", path.display(), e))?
-    };
-
-    table
-        .validate_unique_column_names()
-        .map_err(|e| format!("Failed to validate model {}: {}", path.display(), e))?;
-
+    // anyhow's alternate format renders the context chain as
+    // "parse JSON model: <path>: <source>"; prefixing "Failed to " keeps the
+    // messages this pipeline has always produced.
+    let table = load_model_file(path).map_err(|e| format!("Failed to {e:#}"))?;
     table
         .normalize()
         .map_err(|e| format!("Failed to normalize table '{}': {}", table.name, e))

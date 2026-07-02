@@ -1,4 +1,8 @@
-use super::super::helpers::{is_enum_type, needs_quoting, parse_pg_type_cast};
+use super::super::helpers::{
+    apply_column_type_with_table, build_create_enum_type_sql, convert_default_for_backend,
+    get_enum_name, is_enum_type, needs_quoting, parse_pg_type_cast, recreate_indexes_after_rebuild,
+    reference_action_sql, to_sea_fk_action,
+};
 use super::*;
 use proptest::prelude::*;
 use sea_query::{Alias, ColumnDef as SeaColumnDef, ForeignKeyAction};

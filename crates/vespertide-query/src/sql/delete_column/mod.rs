@@ -74,7 +74,9 @@ fn sqlite_constraint_handling(
             // SQLite can't DROP COLUMN if a CHECK references it — use temp table.
             TableConstraint::Check { expr, .. } => {
                 // Check if the expression references the column (e.g. "status" IN (...)).
-                if expr.contains(&format!("\"{column}\"")) || expr.contains(column) {
+                // Deliberately conservative bare-substring heuristic: it also matches the
+                // quoted form `"col"`, so false positives only cost an unnecessary rebuild.
+                if expr.contains(column) {
                     return Some(build_delete_column_sqlite_temp_table(
                         table,
                         column,

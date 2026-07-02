@@ -110,123 +110,68 @@ pub fn build_enum_type_name(table: &str, enum_name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
     // ========================================================================
     // Constraint Naming Tests
     // ========================================================================
 
-    #[test]
-    fn test_build_index_name_with_key() {
-        assert_eq!(
-            build_index_name("users", &["email"], Some("email_idx")),
-            "ix_users__email_idx"
-        );
+    /// The three builders monomorphized for `&[&str]` columns.
+    /// Column strings are `'static` so the generic builders (whose column
+    /// lifetime is fixed at instantiation) can coerce to a single fn pointer.
+    type BuildFn = fn(&str, &[&'static str], Option<&str>) -> String;
+    /// The three builders monomorphized for `&[String]` columns.
+    type BuildStringFn = fn(&str, &[String], Option<&str>) -> String;
+
+    #[rstest]
+    #[case::index_with_key(build_index_name, "users", &["email"][..], Some("email_idx"), "ix_users__email_idx")]
+    #[case::index_without_key(build_index_name, "users", &["email"][..], None, "ix_users__email")]
+    #[case::index_multiple_columns(build_index_name, "users", &["first_name", "last_name"][..], None, "ix_users__first_name_last_name")]
+    #[case::unique_with_key(build_unique_constraint_name, "users", &["email"][..], Some("email_unique"), "uq_users__email_unique")]
+    #[case::unique_without_key(build_unique_constraint_name, "users", &["email"][..], None, "uq_users__email")]
+    #[case::foreign_key_with_key(build_foreign_key_name, "posts", &["user_id"][..], Some("fk_user"), "fk_posts__fk_user")]
+    #[case::foreign_key_without_key(build_foreign_key_name, "posts", &["user_id"][..], None, "fk_posts__user_id")]
+    fn constraint_name_builders_render_expected(
+        #[case] build: BuildFn,
+        #[case] table: &str,
+        #[case] columns: &[&'static str],
+        #[case] key: Option<&str>,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(build(table, columns, key), expected);
     }
 
-    #[test]
-    fn test_build_index_name_without_key() {
-        assert_eq!(
-            build_index_name("users", &["email"], None),
-            "ix_users__email"
-        );
+    /// Column order must not affect the generated name (`&[&str]` instantiation).
+    #[rstest]
+    #[case::index(build_index_name, "users", &["last_name", "first_name"][..])]
+    #[case::unique(build_unique_constraint_name, "users", &["last_name", "first_name"][..])]
+    #[case::foreign_key(build_foreign_key_name, "posts", &["tenant_id", "user_id"][..])]
+    fn constraint_name_builders_sort_str_columns_for_deterministic_name(
+        #[case] build: BuildFn,
+        #[case] table: &str,
+        #[case] columns: &[&'static str],
+    ) {
+        let mut reversed = columns.to_vec();
+        reversed.reverse();
+        assert_eq!(build(table, columns, None), build(table, &reversed, None));
     }
 
-    #[test]
-    fn test_build_index_name_multiple_columns() {
-        assert_eq!(
-            build_index_name("users", &["first_name", "last_name"], None),
-            "ix_users__first_name_last_name"
-        );
-    }
-
-    #[test]
-    fn test_build_index_name_multiple_columns_is_deterministic() {
-        assert_eq!(
-            build_index_name("users", &["last_name", "first_name"], None),
-            build_index_name("users", &["first_name", "last_name"], None)
-        );
-    }
-
-    #[test]
-    fn test_build_index_name_sorts_columns_for_deterministic_name() {
-        let columns = vec!["last_name".to_string(), "first_name".to_string()];
-        let reversed = vec!["first_name".to_string(), "last_name".to_string()];
-
-        assert_eq!(
-            build_index_name("users", &columns, None),
-            build_index_name("users", &reversed, None)
-        );
-    }
-
-    #[test]
-    fn test_build_unique_constraint_name_with_key() {
-        assert_eq!(
-            build_unique_constraint_name("users", &["email"], Some("email_unique")),
-            "uq_users__email_unique"
-        );
-    }
-
-    #[test]
-    fn test_build_unique_constraint_name_without_key() {
-        assert_eq!(
-            build_unique_constraint_name("users", &["email"], None),
-            "uq_users__email"
-        );
-    }
-
-    #[test]
-    fn test_build_unique_constraint_name_multiple_columns_is_deterministic() {
-        assert_eq!(
-            build_unique_constraint_name("users", &["last_name", "first_name"], None),
-            build_unique_constraint_name("users", &["first_name", "last_name"], None)
-        );
-    }
-
-    #[test]
-    fn test_build_unique_constraint_name_sorts_columns_for_deterministic_name() {
-        let columns = vec!["product_id".to_string(), "order_id".to_string()];
-        let reversed = vec!["order_id".to_string(), "product_id".to_string()];
-
-        assert_eq!(
-            build_unique_constraint_name("order_items", &columns, None),
-            build_unique_constraint_name("order_items", &reversed, None)
-        );
-    }
-
-    #[test]
-    fn test_build_foreign_key_name_with_key() {
-        assert_eq!(
-            build_foreign_key_name("posts", &["user_id"], Some("fk_user")),
-            "fk_posts__fk_user"
-        );
-    }
-
-    #[test]
-    fn test_build_foreign_key_name_without_key() {
-        assert_eq!(
-            build_foreign_key_name("posts", &["user_id"], None),
-            "fk_posts__user_id"
-        );
-    }
-
-    #[test]
-    fn test_build_foreign_key_name_multiple_columns_is_deterministic() {
-        assert_eq!(
-            build_foreign_key_name("posts", &["tenant_id", "user_id"], None),
-            build_foreign_key_name("posts", &["user_id", "tenant_id"], None)
-        );
-    }
-
-    #[test]
-    fn test_build_foreign_key_name_sorts_columns_for_deterministic_name() {
-        let columns = vec!["tenant_id".to_string(), "account_id".to_string()];
-        let reversed = vec!["account_id".to_string(), "tenant_id".to_string()];
-
-        assert_eq!(
-            build_foreign_key_name("memberships", &columns, None),
-            build_foreign_key_name("memberships", &reversed, None)
-        );
+    /// Column order must not affect the generated name (`&[String]` instantiation).
+    #[rstest]
+    #[case::index(build_index_name, "users", &["last_name", "first_name"][..])]
+    #[case::unique(build_unique_constraint_name, "order_items", &["product_id", "order_id"][..])]
+    #[case::foreign_key(build_foreign_key_name, "memberships", &["tenant_id", "account_id"][..])]
+    fn constraint_name_builders_sort_string_columns_for_deterministic_name(
+        #[case] build: BuildStringFn,
+        #[case] table: &str,
+        #[case] columns: &[&str],
+    ) {
+        let columns: Vec<String> = columns.iter().map(ToString::to_string).collect();
+        let mut reversed = columns.clone();
+        reversed.reverse();
+        assert_eq!(build(table, &columns, None), build(table, &reversed, None));
     }
 
     #[test]

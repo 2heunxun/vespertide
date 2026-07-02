@@ -16,12 +16,12 @@ use super::types::{BuiltQuery, DatabaseBackend, RawSql};
 /// from the caller — no allocation ever happens, so the `Cow` wrapper was
 /// purely ceremonial.
 #[must_use]
-pub fn normalize_fill_with(fill_with: Option<&str>) -> Option<&str> {
+pub(crate) fn normalize_fill_with(fill_with: Option<&str>) -> Option<&str> {
     fill_with.map(|s| if s.is_empty() { "''" } else { s })
 }
 
 /// Helper function to convert a schema statement to SQL for a specific backend
-pub fn build_schema_statement<T: SchemaStatementBuilder>(
+pub(crate) fn build_schema_statement<T: SchemaStatementBuilder>(
     stmt: &T,
     backend: DatabaseBackend,
 ) -> String {
@@ -33,7 +33,7 @@ pub fn build_schema_statement<T: SchemaStatementBuilder>(
 }
 
 /// Helper function to convert a query statement (INSERT, SELECT, etc.) to SQL for a specific backend
-pub fn build_query_statement<T: QueryStatementWriter>(
+pub(crate) fn build_query_statement<T: QueryStatementWriter>(
     stmt: &T,
     backend: DatabaseBackend,
 ) -> String {
@@ -45,7 +45,7 @@ pub fn build_query_statement<T: QueryStatementWriter>(
 }
 
 /// Apply vespertide `ColumnType` to `sea_query` `ColumnDef` with table-aware enum type naming
-pub fn apply_column_type_with_table(
+pub(crate) fn apply_column_type_with_table(
     col: &mut SeaColumnDef,
     ty: &ColumnType,
     table: &str,
@@ -210,7 +210,7 @@ fn apply_numeric_type(
 }
 
 /// Convert vespertide `ReferenceAction` to `sea_query` `ForeignKeyAction`
-pub fn to_sea_fk_action(action: &ReferenceAction) -> ForeignKeyAction {
+pub(crate) fn to_sea_fk_action(action: &ReferenceAction) -> ForeignKeyAction {
     match action {
         ReferenceAction::Cascade => ForeignKeyAction::Cascade,
         ReferenceAction::Restrict => ForeignKeyAction::Restrict,
@@ -221,8 +221,12 @@ pub fn to_sea_fk_action(action: &ReferenceAction) -> ForeignKeyAction {
     }
 }
 
-/// Convert vespertide `ReferenceAction` to SQL string
-pub fn reference_action_sql(action: &ReferenceAction) -> &'static str {
+/// Convert vespertide `ReferenceAction` to SQL string.
+///
+/// Test oracle: production paths go through [`to_sea_fk_action`]; this
+/// string-level mapping is only asserted against in unit tests.
+#[cfg(test)]
+pub(crate) fn reference_action_sql(action: &ReferenceAction) -> &'static str {
     match action {
         ReferenceAction::Cascade => "CASCADE",
         ReferenceAction::Restrict => "RESTRICT",
@@ -234,7 +238,7 @@ pub fn reference_action_sql(action: &ReferenceAction) -> &'static str {
 }
 
 /// Convert a default value string to the appropriate backend-specific expression
-pub fn convert_default_for_backend(default: &str, backend: DatabaseBackend) -> String {
+pub(crate) fn convert_default_for_backend(default: &str, backend: DatabaseBackend) -> String {
     // UUID generation functions (case-insensitive match against ASCII literals
     // — avoids the per-call `String` allocation that `to_lowercase()` would
     // incur, mirroring the convention `needs_quoting` already uses below).
@@ -260,7 +264,7 @@ pub fn convert_default_for_backend(default: &str, backend: DatabaseBackend) -> S
 
     // PostgreSQL-style type casts: 'value'::type or expr::type
     if let Some((value, cast_type)) = parse_pg_type_cast(default) {
-        return convert_type_cast(&value, &cast_type, backend);
+        return convert_type_cast(value, &cast_type, backend);
     }
 
     default.to_string()
@@ -268,7 +272,11 @@ pub fn convert_default_for_backend(default: &str, backend: DatabaseBackend) -> S
 
 /// Parse a PostgreSQL-style type cast expression (e.g., `'[]'::json`, `0::boolean`)
 /// Returns `(value, type)` if parsed, or None if not a type cast.
-pub(super) fn parse_pg_type_cast(expr: &str) -> Option<(String, String)> {
+///
+/// The value borrows `expr` (both arms return a contiguous slice of the
+/// input — quotes included for the quoted arm); only `cast_type` is owned
+/// because of the `to_lowercase()` normalisation.
+pub(super) fn parse_pg_type_cast(expr: &str) -> Option<(&str, String)> {
     let trimmed = expr.trim();
 
     // Handle quoted values: 'value'::type
@@ -287,7 +295,10 @@ pub(super) fn parse_pg_type_cast(expr: &str) -> Option<(String, String)> {
                 if let Some(stripped) = rest.strip_prefix("::") {
                     let cast_type = stripped.trim().to_lowercase();
                     if !cast_type.is_empty() {
-                        let value = format!("'{}'", after_open.get(..i)?);
+                        // Opening quote + verbatim content (incl. doubled
+                        // quotes) + closing quote is exactly the contiguous
+                        // input slice `trimmed[..i + 2]` — no allocation.
+                        let value = trimmed.get(..i + 1 + ch.len_utf8())?;
                         return Some((value, cast_type));
                     }
                 }
@@ -299,7 +310,7 @@ pub(super) fn parse_pg_type_cast(expr: &str) -> Option<(String, String)> {
 
     // Handle unquoted values: expr::type (e.g., 0::boolean, NULL::json)
     if let Some((value, cast_type)) = trimmed.split_once("::") {
-        let value = value.trim().to_string();
+        let value = value.trim();
         let cast_type = cast_type.trim().to_lowercase();
         if !value.is_empty() && !cast_type.is_empty() {
             return Some((value, cast_type));
@@ -352,7 +363,7 @@ pub(super) fn is_enum_type(column_type: &ColumnType) -> bool {
 
 /// Normalize a default value for enum columns - add quotes if needed
 /// This is used for SQL expressions (INSERT, UPDATE) where enum values need quoting
-pub fn normalize_enum_default(column_type: &ColumnType, value: &str) -> String {
+pub(crate) fn normalize_enum_default(column_type: &ColumnType, value: &str) -> String {
     if is_enum_type(column_type) && needs_quoting(value) {
         format!("'{value}'")
     } else {
@@ -390,7 +401,7 @@ pub(super) fn needs_quoting(default_str: &str) -> bool {
 }
 
 /// Build `sea_query` `ColumnDef` from vespertide `ColumnDef` for a specific backend with table-aware enum naming
-pub fn build_sea_column_def_with_table(
+pub(crate) fn build_sea_column_def_with_table(
     backend: DatabaseBackend,
     table: &str,
     column: &ColumnDef,
@@ -438,7 +449,7 @@ pub fn build_sea_column_def_with_table(
 ///
 /// The enum type name will be prefixed with the table name to avoid conflicts
 /// across tables using the same enum name (e.g., "status", "gender").
-pub fn build_create_enum_type_sql(
+pub(crate) fn build_create_enum_type_sql(
     table: &str,
     column_type: &ColumnType,
 ) -> Option<super::types::RawSql> {
@@ -469,7 +480,7 @@ pub fn build_create_enum_type_sql(
 /// Returns None for non-PostgreSQL backends or non-enum types
 ///
 /// The enum type name will be prefixed with the table name to match the CREATE TYPE.
-pub fn build_drop_enum_type_sql(
+pub(crate) fn build_drop_enum_type_sql(
     table: &str,
     column_type: &ColumnType,
 ) -> Option<super::types::RawSql> {
@@ -489,14 +500,14 @@ pub fn build_drop_enum_type_sql(
 }
 
 // Re-export naming functions from vespertide-naming
-pub use vespertide_naming::{
+pub(crate) use vespertide_naming::{
     build_check_constraint_name, build_enum_type_name, build_foreign_key_name, build_index_name,
     build_unique_constraint_name,
 };
 
 /// Generate CHECK constraint expression for `SQLite` enum column
 /// Returns the constraint clause like: CONSTRAINT "`chk_table_col`" CHECK (col IN ('val1', 'val2'))
-pub fn build_sqlite_enum_check_clause(
+pub(crate) fn build_sqlite_enum_check_clause(
     table: &str,
     column: &str,
     column_type: &ColumnType,
@@ -515,7 +526,7 @@ pub fn build_sqlite_enum_check_clause(
 }
 
 /// Collect all CHECK constraints for enum columns in a table (for `SQLite`)
-pub fn collect_sqlite_enum_check_clauses(table: &str, columns: &[ColumnDef]) -> Vec<String> {
+pub(crate) fn collect_sqlite_enum_check_clauses(table: &str, columns: &[ColumnDef]) -> Vec<String> {
     columns
         .iter()
         .filter_map(|col| build_sqlite_enum_check_clause(table, &col.name, &col.r#type))
@@ -524,7 +535,7 @@ pub fn collect_sqlite_enum_check_clauses(table: &str, columns: &[ColumnDef]) -> 
 
 /// Extract CHECK constraint clauses from a list of table constraints.
 /// Returns SQL fragments like: `CONSTRAINT "chk_name" CHECK (expr)`
-pub fn extract_check_clauses(constraints: &[TableConstraint]) -> Vec<String> {
+pub(crate) fn extract_check_clauses(constraints: &[TableConstraint]) -> Vec<String> {
     constraints
         .iter()
         .filter_map(|c| {
@@ -544,7 +555,7 @@ pub fn extract_check_clauses(constraints: &[TableConstraint]) -> Vec<String> {
 /// - Explicit CHECK constraints (from `TableConstraint::Check`)
 ///
 /// Returns deduplicated union of both.
-pub fn collect_all_check_clauses(
+pub(crate) fn collect_all_check_clauses(
     table: &str,
     columns: &[ColumnDef],
     constraints: &[TableConstraint],
@@ -562,7 +573,7 @@ pub fn collect_all_check_clauses(
 /// Build CREATE TABLE query with CHECK constraints properly embedded.
 /// sea-query doesn't support CHECK constraints natively, so we inject them
 /// by modifying the generated SQL string.
-pub fn build_create_with_checks(
+pub(crate) fn build_create_with_checks(
     backend: DatabaseBackend,
     create_stmt: &sea_query::TableCreateStatement,
     check_clauses: &[String],
@@ -585,7 +596,7 @@ pub fn build_create_with_checks(
 ///
 /// `table` is the ORIGINAL table name (used for constraint naming).
 /// `temp_table` is the temporary table name.
-pub fn build_sqlite_temp_table_create(
+pub(crate) fn build_sqlite_temp_table_create(
     backend: DatabaseBackend,
     temp_table: &str,
     table: &str,
@@ -640,7 +651,7 @@ pub(super) fn build_copy_into_temp_table(
 /// `pending_constraints` are constraints that exist in the logical schema but haven't been
 /// physically created yet (e.g., promoted from inline column definitions by `AddColumn` normalization).
 /// These will be created by separate `AddConstraint` actions later, so we must NOT recreate them here.
-pub fn recreate_indexes_after_rebuild(
+pub(crate) fn recreate_indexes_after_rebuild(
     table: &str,
     constraints: &[TableConstraint],
     pending_constraints: &[TableConstraint],
@@ -748,8 +759,11 @@ pub(super) fn build_sqlite_table_rebuild(
     queries
 }
 
-/// Extract enum name from column type if it's an enum
-pub fn get_enum_name(column_type: &ColumnType) -> Option<&str> {
+/// Extract enum name from column type if it's an enum.
+///
+/// Test oracle: only unit tests consume this accessor today.
+#[cfg(test)]
+pub(crate) fn get_enum_name(column_type: &ColumnType) -> Option<&str> {
     if let ColumnType::Complex(ComplexColumnType::Enum { name, .. }) = column_type {
         Some(name.as_str())
     } else {

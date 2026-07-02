@@ -16,7 +16,7 @@ pub mod rename_table;
 pub mod replace_constraint;
 pub mod types;
 
-pub use helpers::*;
+pub use helpers::{quote_ident, quote_idents};
 pub use types::{BuiltQuery, DatabaseBackend, RawSql};
 
 use crate::error::QueryError;

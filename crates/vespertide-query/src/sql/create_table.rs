@@ -3,10 +3,10 @@ use sea_query::{Alias, ForeignKey, Index, Table, TableCreateStatement};
 use vespertide_core::{ColumnDef, ColumnType, ComplexColumnType, TableConstraint};
 
 use super::helpers::{
-    build_create_enum_type_sql, build_schema_statement, build_sea_column_def_with_table,
+    build_create_enum_type_sql, build_create_with_checks, build_sea_column_def_with_table,
     collect_sqlite_enum_check_clauses, to_sea_fk_action,
 };
-use super::types::{BuiltQuery, DatabaseBackend, RawSql};
+use super::types::{BuiltQuery, DatabaseBackend};
 use crate::error::QueryError;
 
 pub(crate) fn build_create_table_for_backend(
@@ -253,14 +253,13 @@ pub fn build_create_table(
         if enum_check_clauses.is_empty() {
             queries.push(BuiltQuery::CreateTable(Box::new(create_table_stmt)));
         } else {
-            // Embed CHECK constraints into CREATE TABLE statement
-            let base_sql = build_schema_statement(&create_table_stmt, backend);
-            let mut modified_sql = base_sql;
-            if let Some(pos) = modified_sql.rfind(')') {
-                let check_sql = enum_check_clauses.join(", ");
-                modified_sql.insert_str(pos, &format!(", {check_sql}"));
-            }
-            queries.push(BuiltQuery::Raw(RawSql::uniform(modified_sql)));
+            // Embed CHECK constraints into the CREATE TABLE statement via the
+            // single source of truth for CHECK injection.
+            queries.push(build_create_with_checks(
+                backend,
+                &create_table_stmt,
+                &enum_check_clauses,
+            ));
         }
     } else {
         queries.push(BuiltQuery::CreateTable(Box::new(create_table_stmt)));
