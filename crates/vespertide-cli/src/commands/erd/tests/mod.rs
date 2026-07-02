@@ -301,6 +301,21 @@ fn test_filter_include_with_depth_2() {
 }
 
 #[test]
+fn test_filter_include_with_depth_beyond_saturation() {
+    // Depth far beyond the FK graph's diameter: the BFS frontier empties
+    // after every reachable table is found and the expansion stops early,
+    // yielding the same result as the exact-diameter depth.
+    let (filtered, warnings) =
+        filter_tables_with_warnings(filter_schema(), &only_include(&["user"]), &[], 10);
+
+    assert!(warnings.is_empty());
+    assert_eq!(
+        table_names(&filtered),
+        vec!["user", "media", "article", "article_user", "comment"]
+    );
+}
+
+#[test]
 fn test_filter_exclude() {
     let (filtered, warnings) =
         filter_tables_with_warnings(filter_schema(), &[], &only_include(&["article_user"]), 0);

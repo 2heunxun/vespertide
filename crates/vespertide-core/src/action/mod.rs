@@ -4,6 +4,7 @@ mod prefix;
 mod remap_mapping_serde;
 
 use crate::schema::{ColumnDef, ColumnName, ColumnType, TableConstraint, TableName};
+pub use display::truncate_comment;
 pub use narrowing_strategy::NarrowingStrategy;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

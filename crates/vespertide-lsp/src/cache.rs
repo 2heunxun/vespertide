@@ -87,6 +87,14 @@ where
             .inner
             .lock()
             .expect("RingCache lock poisoned — invariant: compute_fn must not panic");
+        // Re-check after the unlocked compute: another thread may have missed
+        // on the same key concurrently and already inserted. Returning the
+        // canonical `Arc` (and dropping our duplicate computation) keeps
+        // `insertion_order` free of duplicate keys — a duplicate would shrink
+        // effective capacity and evict a recently re-inserted hot entry early.
+        if let Some(existing) = inner.entries.get(&key) {
+            return Arc::clone(existing);
+        }
         if inner.entries.len() >= N
             && let Some(oldest) = inner.insertion_order.pop_front()
         {
@@ -272,6 +280,40 @@ mod tests {
             vec![]
         });
         assert_eq!(counter.load(Ordering::SeqCst), 4);
+    }
+
+    #[test]
+    fn ring_cache_concurrent_miss_returns_canonical_arc() {
+        // Deterministic double-compute: the barrier inside `compute_fn` can
+        // only release once BOTH threads have missed and entered compute
+        // (a thread that hit the cache would never reach the barrier, and
+        // the winner cannot insert while blocked on it). The loser must then
+        // discard its value and return the winner's canonical `Arc`, leaving
+        // `insertion_order` without a duplicate key.
+        let cache: Arc<RingCache<u64, Vec<i32>, 4>> = Arc::new(RingCache::new());
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let compute_calls = Arc::new(AtomicUsize::new(0));
+        let handles: Vec<_> = (0..2)
+            .map(|i| {
+                let cache = Arc::clone(&cache);
+                let barrier = Arc::clone(&barrier);
+                let compute_calls = Arc::clone(&compute_calls);
+                std::thread::spawn(move || {
+                    cache.get_or_compute(1, || {
+                        compute_calls.fetch_add(1, Ordering::SeqCst);
+                        barrier.wait();
+                        vec![i]
+                    })
+                })
+            })
+            .collect();
+        let results: Vec<Arc<Vec<i32>>> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        // Both threads genuinely computed (the race happened) …
+        assert_eq!(compute_calls.load(Ordering::SeqCst), 2);
+        // … yet both callers share the single canonical cached value.
+        assert!(Arc::ptr_eq(&results[0], &results[1]));
+        let again = cache.get_or_compute(1, || unreachable!("must be cached"));
+        assert!(Arc::ptr_eq(&results[0], &again));
     }
 
     #[test]

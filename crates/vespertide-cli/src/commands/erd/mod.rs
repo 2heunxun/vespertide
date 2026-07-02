@@ -107,18 +107,25 @@ pub(super) fn filter_tables_with_warnings(
     };
 
     let adjacency = build_fk_adjacency(&tables);
+    // Layered BFS: each round expands only the names discovered in the
+    // previous round instead of re-scanning (and re-cloning) all of `kept`,
+    // so every node's adjacency is walked at most once regardless of depth.
+    let mut frontier: Vec<String> = kept.iter().cloned().collect();
     for _ in 0..depth {
-        let frontier: Vec<String> = kept.iter().cloned().collect();
+        if frontier.is_empty() {
+            break;
+        }
+        let mut next = Vec::new();
         for name in frontier {
             if let Some(neighbors) = adjacency.get(&name) {
-                kept.extend(
-                    neighbors
-                        .iter()
-                        .filter(|neighbor| all_names.contains(*neighbor))
-                        .cloned(),
-                );
+                for neighbor in neighbors {
+                    if all_names.contains(neighbor) && kept.insert(neighbor.clone()) {
+                        next.push(neighbor.clone());
+                    }
+                }
             }
         }
+        frontier = next;
     }
 
     for name in exclude {

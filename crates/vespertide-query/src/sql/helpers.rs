@@ -767,31 +767,42 @@ pub fn get_enum_name(column_type: &ColumnType) -> Option<&str> {
 /// - `MySQL`: `` `identifier` `` (backticks; embedded `` ` `` escaped as ` `` `)
 #[must_use]
 pub fn quote_ident(name: &str, backend: DatabaseBackend) -> String {
+    let mut out = String::with_capacity(name.len() + 2);
+    quote_ident_into(&mut out, name, backend);
+    out
+}
+
+/// Append the quoted form of `name` for `backend` directly to `out`.
+///
+/// Core of [`quote_ident`], exposed as an append-style helper so
+/// multi-identifier emitters ([`quote_idents`]) can write every identifier
+/// straight into their single output buffer without a per-identifier
+/// `String` round-trip (one allocation + one memcpy saved per element).
+fn quote_ident_into(out: &mut String, name: &str, backend: DatabaseBackend) {
     let delim = match backend {
         DatabaseBackend::Postgres | DatabaseBackend::Sqlite => '"',
         DatabaseBackend::MySql => '`',
     };
     // Hot path: every valid identifier produced by the codebase carries no
-    // embedded quote char, so one exact-size allocation suffices and the
+    // embedded quote char, so one exact-size reservation suffices and the
     // `str::replace` + `format!` double-allocation is unnecessary. Mirrors
     // the borrowed-fast-path / owned-slow-path pattern already used by
     // `vespertide_core::sql_escape::escape_sql_string_literal`.
     if !name.contains(delim) {
-        let mut out = String::with_capacity(name.len() + 2);
+        out.reserve(name.len() + 2);
         out.push(delim);
         out.push_str(name);
         out.push(delim);
-        return out;
+        return;
     }
     // Slow path (defense-in-depth): identifier embeds the quote char and
     // must be escaped by doubling it. Byte-identical output to the
     // pre-fast-path implementation.
     let escaped = name.replace(delim, &format!("{delim}{delim}"));
-    let mut out = String::with_capacity(escaped.len() + 2);
+    out.reserve(escaped.len() + 2);
     out.push(delim);
     out.push_str(&escaped);
     out.push(delim);
-    out
 }
 
 /// Quote a list of identifiers and join them with comma.
@@ -804,7 +815,7 @@ pub fn quote_idents<T: AsRef<str>>(names: &[T], backend: DatabaseBackend) -> Str
         if i > 0 {
             out.push_str(", ");
         }
-        out.push_str(&quote_ident(n.as_ref(), backend));
+        quote_ident_into(&mut out, n.as_ref(), backend);
     }
     out
 }

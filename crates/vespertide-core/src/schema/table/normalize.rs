@@ -143,13 +143,14 @@ fn push_grouped_column(
     group_name: &str,
     column_name: &str,
 ) {
-    if !groups.contains_key(group_name) {
+    // Single map lookup: groups never store empty vectors (a group exists
+    // only after a push below), so a Vec just created by `or_default()` is
+    // exactly the "first sighting" that must register in `order`.
+    let cols = groups.entry(group_name.to_string()).or_default();
+    if cols.is_empty() {
         order.push(group_name.to_string());
     }
-    groups
-        .entry(group_name.to_string())
-        .or_default()
-        .push(column_name.into());
+    cols.push(column_name.into());
 }
 
 fn generated_name_to_constraint_name(name: &str) -> Option<String> {

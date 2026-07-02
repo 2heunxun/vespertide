@@ -104,7 +104,14 @@ fn write_comment_action(
     }
 }
 
-fn truncate_comment(comment: &str) -> String {
+/// Truncate a column comment for display: comments longer than 30 characters
+/// are cut to their first 27 characters followed by `...`.
+///
+/// Single source of truth for the `ModifyColumnComment` display budget —
+/// shared by [`MigrationAction`]'s `Display` impl and the CLI diff formatter
+/// so the two renderings can never drift apart.
+#[must_use]
+pub fn truncate_comment(comment: &str) -> String {
     if comment.chars().count() > 30 {
         format!("{}...", truncate_chars(comment, 27))
     } else {
