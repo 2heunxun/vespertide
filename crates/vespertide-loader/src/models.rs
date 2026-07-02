@@ -59,19 +59,12 @@ fn collect_model_paths(dir: &Path) -> Result<Vec<PathBuf>> {
 
         if path.is_dir() {
             paths.extend(collect_model_paths(&path)?);
-        } else if path.is_file() && has_model_extension(&path) {
+        } else if path.is_file() && crate::has_supported_extension(&path) {
             paths.push(path);
         }
     }
 
     Ok(paths)
-}
-
-fn has_model_extension(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|s| s.to_str()),
-        Some("json" | "yaml" | "yml")
-    )
 }
 
 fn load_model_file(path: &Path) -> Result<TableDef> {
@@ -132,7 +125,7 @@ fn load_models_recursive_internal(
     dir: &Path,
     tables: &mut Vec<TableDef>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let paths = collect_model_paths_internal(dir)?;
+    let paths = collect_model_paths(dir).map_err(|e| e.to_string())?;
     let results = map_paths_with_threshold(&paths, load_normalized_model_file_internal);
 
     for result in results {
@@ -140,10 +133,6 @@ fn load_models_recursive_internal(
     }
 
     Ok(())
-}
-
-fn collect_model_paths_internal(dir: &Path) -> Result<Vec<PathBuf>, String> {
-    collect_model_paths(dir).map_err(|e| e.to_string())
 }
 
 fn load_normalized_model_file_internal(path: &Path) -> Result<TableDef, String> {

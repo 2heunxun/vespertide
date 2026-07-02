@@ -168,7 +168,9 @@ pub(crate) fn docstore_fingerprint(docs: &DocumentStore) -> u64 {
     let (fingerprint, entries) = compute_docstore_fingerprint(docs);
     *docstore_fingerprint_cache()
         .lock()
-        .expect("RingCache lock poisoned — invariant: compute_fn must not panic") =
+        .expect(
+            "docstore fingerprint cache lock poisoned — invariant: fingerprint computation must not panic",
+        ) =
         Some(CachedDocstoreFingerprint {
             docs_addr,
             len: entries.len(),
@@ -181,7 +183,9 @@ pub(crate) fn docstore_fingerprint(docs: &DocumentStore) -> u64 {
 fn cached_docstore_fingerprint(docs: &DocumentStore, docs_addr: usize) -> Option<u64> {
     let cache = docstore_fingerprint_cache()
         .lock()
-        .expect("RingCache lock poisoned — invariant: compute_fn must not panic");
+        .expect(
+            "docstore fingerprint cache lock poisoned — invariant: fingerprint computation must not panic",
+        );
     let cached = cache.as_ref()?;
     if cached.docs_addr != docs_addr || cached.len != docs.len() {
         return None;

@@ -6,13 +6,58 @@ use vespertide_core::{
 
 use crate::error::PlannerError;
 
+/// Kahn's-algorithm core shared by creation and deletion ordering.
+///
+/// `dependencies` maps each name to the set of names it depends on and must
+/// contain an entry for EVERY name to order. Returns names in ready order —
+/// deterministic because the zero-degree seed follows `BTreeMap` key order and
+/// each step collects newly-ready names into a `BTreeSet`. On a cycle the
+/// result is partial (cyclic names are absent); callers decide how to react.
+fn kahn_ready_order<'a>(dependencies: &BTreeMap<&'a str, BTreeSet<&'a str>>) -> Vec<&'a str> {
+    // SEQUENTIAL BY NATURE: Kahn's algorithm requires in-degree state evolution.
+    let mut in_degree: BTreeMap<&'a str, usize> = dependencies
+        .iter()
+        .map(|(name, deps)| (*name, deps.len()))
+        .collect();
+
+    // Start with names that have no dependencies.
+    // BTreeMap iteration is already sorted by key.
+    let mut queue: VecDeque<&'a str> = in_degree
+        .iter()
+        .filter(|(_, deg)| **deg == 0)
+        .map(|(name, _)| *name)
+        .collect();
+
+    let mut order: Vec<&'a str> = Vec::with_capacity(dependencies.len());
+    while let Some(name) = queue.pop_front() {
+        order.push(name);
+
+        // Collect names that become ready (in-degree becomes 0).
+        // Use BTreeSet for consistent ordering.
+        let mut ready: BTreeSet<&'a str> = BTreeSet::new();
+        for (dependent, deps) in dependencies {
+            if deps.contains(&name)
+                && let Some(degree) = in_degree.get_mut(dependent)
+            {
+                *degree -= 1;
+                if *degree == 0 {
+                    ready.insert(dependent);
+                }
+            }
+        }
+        for t in ready {
+            queue.push_back(t);
+        }
+    }
+    order
+}
+
 /// Topologically sort tables based on foreign key dependencies.
 /// Returns tables in order where tables with no FK dependencies come first,
 /// and tables that reference other tables come after their referenced tables.
 pub(super) fn topological_sort_tables<'a>(
     tables: &[&'a TableDef],
 ) -> Result<Vec<&'a TableDef>, PlannerError> {
-    // SEQUENTIAL BY NATURE: Kahn's algorithm requires in-degree state evolution.
     if tables.is_empty() {
         return Ok(vec![]);
     }
@@ -37,54 +82,14 @@ pub(super) fn topological_sort_tables<'a>(
         dependencies.insert(table.name.as_str(), deps_set);
     }
 
-    // Kahn's algorithm for topological sort
-    // Calculate in-degrees (number of tables that depend on each table)
-    // Use BTreeMap for consistent ordering
-    let mut in_degree: BTreeMap<&str, usize> = BTreeMap::new();
-    for table in tables {
-        in_degree.entry(table.name.as_str()).or_insert(0);
-    }
-
-    // For each dependency, increment the in-degree of the dependent table.
-    // (If A depends on B, A's in-degree rises; A is processed after B.)
-    for (table_name, deps) in &dependencies {
-        *in_degree.entry(table_name).or_insert(0) += deps.len();
-    }
-
-    // Start with tables that have no dependencies
-    // BTreeMap iteration is already sorted by key
-    let mut queue: VecDeque<&str> = in_degree
-        .iter()
-        .filter(|(_, deg)| **deg == 0)
-        .map(|(name, _)| *name)
-        .collect();
-
-    let mut result: Vec<&TableDef> = Vec::with_capacity(tables.len());
+    // Kahn's algorithm for topological sort (shared core), then map the
+    // ready-ordered names back to their table definitions.
     let table_map: BTreeMap<&str, &TableDef> =
         tables.iter().map(|t| (t.name.as_str(), *t)).collect();
-
-    while let Some(table_name) = queue.pop_front() {
-        if let Some(&table) = table_map.get(table_name) {
-            result.push(table);
-        }
-
-        // Collect tables that become ready (in-degree becomes 0)
-        // Use BTreeSet for consistent ordering
-        let mut ready_tables: BTreeSet<&str> = BTreeSet::new();
-        for (dependent, deps) in &dependencies {
-            if deps.contains(&table_name)
-                && let Some(degree) = in_degree.get_mut(dependent)
-            {
-                *degree -= 1;
-                if *degree == 0 {
-                    ready_tables.insert(dependent);
-                }
-            }
-        }
-        for t in ready_tables {
-            queue.push_back(t);
-        }
-    }
+    let result: Vec<&TableDef> = kahn_ready_order(&dependencies)
+        .into_iter()
+        .filter_map(|name| table_map.get(name).copied())
+        .collect();
 
     // Check for cycles
     if result.len() != tables.len() {
@@ -116,7 +121,6 @@ pub(super) fn sort_delete_tables(
     actions: &mut [MigrationAction],
     all_tables: &BTreeMap<&str, &TableDef>,
 ) {
-    // SEQUENTIAL BY NATURE: Kahn's algorithm requires in-degree state evolution.
     // Collect DeleteTable actions and their indices
     let delete_indices: Vec<usize> = actions
         .iter()
@@ -161,48 +165,9 @@ pub(super) fn sort_delete_tables(
         dependencies.insert(table_name, deps_set);
     }
 
-    // Use Kahn's algorithm for topological sort
-    // in_degree[A] = number of tables A depends on
-    // Use BTreeMap for consistent ordering
-    let mut in_degree: BTreeMap<&str, usize> = BTreeMap::new();
-    for &table_name in &delete_table_names {
-        in_degree.insert(
-            table_name,
-            dependencies
-                .get(table_name)
-                .map_or(0, std::collections::BTreeSet::len),
-        );
-    }
-
-    // Start with tables that have no dependencies (can be deleted last in creation order)
-    // BTreeMap iteration is already sorted
-    let mut queue: VecDeque<&str> = in_degree
-        .iter()
-        .filter(|(_, deg)| **deg == 0)
-        .map(|(name, _)| *name)
-        .collect();
-
-    let mut sorted_tables: Vec<&str> = Vec::with_capacity(delete_table_names.len());
-    while let Some(table_name) = queue.pop_front() {
-        sorted_tables.push(table_name);
-
-        // For each table that has this one as a dependency, decrement its in-degree
-        // Use BTreeSet for consistent ordering of newly ready tables
-        let mut ready_tables: BTreeSet<&str> = BTreeSet::new();
-        for (&dependent, deps) in &dependencies {
-            if deps.contains(&table_name)
-                && let Some(degree) = in_degree.get_mut(dependent)
-            {
-                *degree -= 1;
-                if *degree == 0 {
-                    ready_tables.insert(dependent);
-                }
-            }
-        }
-        for t in ready_tables {
-            queue.push_back(t);
-        }
-    }
+    // Kahn's algorithm for topological sort (shared core): creation order
+    // first, then reversed below into deletion order.
+    let mut sorted_tables = kahn_ready_order(&dependencies);
 
     // Reverse to get deletion order (tables with dependencies should be deleted first)
     sorted_tables.reverse();
@@ -226,9 +191,11 @@ pub(super) fn sort_delete_tables(
         a_pos.cmp(&b_pos)
     });
 
-    // Put them back
-    for (i, idx) in delete_indices.iter().enumerate() {
-        actions[*idx] = delete_actions[i].clone();
+    // Put them back (move-back instead of clone-back — `delete_actions` is owned
+    // and unused afterwards, so each `MigrationAction` is moved into place
+    // without an extra deep clone of its enum payload).
+    for (idx, action) in delete_indices.iter().zip(delete_actions) {
+        actions[*idx] = action;
     }
 }
 

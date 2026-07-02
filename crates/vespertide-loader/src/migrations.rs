@@ -52,7 +52,7 @@ pub fn load_migrations_from_dir(
         return Ok(Vec::new());
     }
 
-    let paths = collect_migration_paths_internal(&migrations_dir)?;
+    let paths = collect_migration_paths(&migrations_dir).map_err(|e| e.to_string())?;
     let results = map_paths_with_threshold(&paths, load_migration_file_internal);
 
     let mut plans = Vec::with_capacity(results.len());
@@ -72,23 +72,12 @@ fn collect_migration_paths(dir: &Path) -> Result<Vec<PathBuf>> {
     for entry in entries {
         let entry = entry.context("read directory entry")?;
         let path = entry.path();
-        if path.is_file() && has_migration_extension(&path) {
+        if path.is_file() && crate::has_supported_extension(&path) {
             paths.push(path);
         }
     }
 
     Ok(paths)
-}
-
-fn collect_migration_paths_internal(dir: &Path) -> Result<Vec<PathBuf>, String> {
-    collect_migration_paths(dir).map_err(|e| e.to_string())
-}
-
-fn has_migration_extension(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|s| s.to_str()),
-        Some("json" | "yaml" | "yml")
-    )
 }
 
 fn load_migration_file(path: &Path) -> Result<MigrationPlan> {
