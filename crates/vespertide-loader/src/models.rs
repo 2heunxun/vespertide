@@ -89,16 +89,14 @@ fn load_model_file(path: &Path) -> Result<TableDef> {
 
 /// Load models from a specific directory (for compile-time use in macros).
 pub fn load_models_from_dir(
-    project_root: Option<std::path::PathBuf>,
+    project_root: Option<PathBuf>,
 ) -> Result<Vec<TableDef>, Box<dyn std::error::Error>> {
-    use std::env;
-
     // Locate project root from CARGO_MANIFEST_DIR or use provided path
     let project_root = if let Some(root) = project_root {
         root
     } else {
-        std::path::PathBuf::from(
-            env::var("CARGO_MANIFEST_DIR")
+        PathBuf::from(
+            std::env::var("CARGO_MANIFEST_DIR")
                 .context("CARGO_MANIFEST_DIR environment variable not set")?,
         )
     };
@@ -189,17 +187,11 @@ mod tests {
         let table = TableDef {
             name: "users".into(),
             description: None,
-            columns: vec![ColumnDef {
-                name: "id".into(),
-                r#type: ColumnType::Simple(SimpleColumnType::Integer),
-                nullable: false,
-                default: None,
-                comment: None,
-                primary_key: None,
-                unique: None,
-                index: None,
-                foreign_key: None,
-            }],
+            columns: vec![ColumnDef::new(
+                "id",
+                ColumnType::Simple(SimpleColumnType::Integer),
+                false,
+            )],
             constraints: vec![TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
@@ -226,17 +218,11 @@ mod tests {
         let table = TableDef {
             name: "subtable".into(),
             description: None,
-            columns: vec![ColumnDef {
-                name: "id".into(),
-                r#type: ColumnType::Simple(SimpleColumnType::Integer),
-                nullable: false,
-                default: None,
-                comment: None,
-                primary_key: None,
-                unique: None,
-                index: None,
-                foreign_key: None,
-            }],
+            columns: vec![ColumnDef::new(
+                "id",
+                ColumnType::Simple(SimpleColumnType::Integer),
+                false,
+            )],
             constraints: vec![TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
@@ -264,18 +250,15 @@ mod tests {
         let table = TableDef {
             name: "orders".into(),
             description: None,
-            columns: vec![ColumnDef {
-                name: "user_id".into(),
-                r#type: ColumnType::Simple(SimpleColumnType::Integer),
-                nullable: false,
-                default: None,
-                comment: None,
-                primary_key: None,
-                unique: None,
-                index: None,
+            columns: vec![
                 // Invalid FK format: should be "table.column" but missing the dot
-                foreign_key: Some(ForeignKeySyntax::String("invalid_format".into())),
-            }],
+                ColumnDef::new(
+                    "user_id",
+                    ColumnType::Simple(SimpleColumnType::Integer),
+                    false,
+                )
+                .foreign_key(ForeignKeySyntax::String("invalid_format".into())),
+            ],
             constraints: vec![],
         };
         fs::write(
@@ -333,17 +316,11 @@ mod tests {
         let table = TableDef {
             name: "users".into(),
             description: None,
-            columns: vec![ColumnDef {
-                name: "id".into(),
-                r#type: ColumnType::Simple(SimpleColumnType::Integer),
-                nullable: false,
-                default: None,
-                comment: None,
-                primary_key: None,
-                unique: None,
-                index: None,
-                foreign_key: None,
-            }],
+            columns: vec![ColumnDef::new(
+                "id",
+                ColumnType::Simple(SimpleColumnType::Integer),
+                false,
+            )],
             constraints: vec![],
         };
         fs::write(
@@ -407,17 +384,11 @@ mod tests {
         let table = TableDef {
             name: "users".into(),
             description: None,
-            columns: vec![ColumnDef {
-                name: "id".into(),
-                r#type: ColumnType::Simple(SimpleColumnType::Integer),
-                nullable: false,
-                default: None,
-                comment: None,
-                primary_key: None,
-                unique: None,
-                index: None,
-                foreign_key: None,
-            }],
+            columns: vec![ColumnDef::new(
+                "id",
+                ColumnType::Simple(SimpleColumnType::Integer),
+                false,
+            )],
             constraints: vec![],
         };
         fs::write(
@@ -443,17 +414,11 @@ mod tests {
         let table = TableDef {
             name: "users".into(),
             description: None,
-            columns: vec![ColumnDef {
-                name: "id".into(),
-                r#type: ColumnType::Simple(SimpleColumnType::Integer),
-                nullable: false,
-                default: None,
-                comment: None,
-                primary_key: None,
-                unique: None,
-                index: None,
-                foreign_key: None,
-            }],
+            columns: vec![ColumnDef::new(
+                "id",
+                ColumnType::Simple(SimpleColumnType::Integer),
+                false,
+            )],
             constraints: vec![],
         };
         fs::write(
@@ -480,17 +445,11 @@ mod tests {
         let table = TableDef {
             name: "subtable".into(),
             description: None,
-            columns: vec![ColumnDef {
-                name: "id".into(),
-                r#type: ColumnType::Simple(SimpleColumnType::Integer),
-                nullable: false,
-                default: None,
-                comment: None,
-                primary_key: None,
-                unique: None,
-                index: None,
-                foreign_key: None,
-            }],
+            columns: vec![ColumnDef::new(
+                "id",
+                ColumnType::Simple(SimpleColumnType::Integer),
+                false,
+            )],
             constraints: vec![],
         };
         fs::write(
@@ -547,17 +506,14 @@ mod tests {
         let table = TableDef {
             name: "orders".into(),
             description: None,
-            columns: vec![ColumnDef {
-                name: "user_id".into(),
-                r#type: ColumnType::Simple(SimpleColumnType::Integer),
-                nullable: false,
-                default: None,
-                comment: None,
-                primary_key: None,
-                unique: None,
-                index: None,
-                foreign_key: Some(ForeignKeySyntax::String("invalid_format".into())),
-            }],
+            columns: vec![
+                ColumnDef::new(
+                    "user_id",
+                    ColumnType::Simple(SimpleColumnType::Integer),
+                    false,
+                )
+                .foreign_key(ForeignKeySyntax::String("invalid_format".into())),
+            ],
             constraints: vec![],
         };
         fs::write(

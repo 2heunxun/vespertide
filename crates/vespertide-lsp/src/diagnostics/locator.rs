@@ -56,9 +56,9 @@ impl ErrorLocation {
             // Batched validation errors carry several independent violations.
             // Locator returns *one* location per call, so we recurse into the
             // first nested error to pick a sensible anchor. Per-violation
-            // diagnostics belong to the publisher (see TODO in
-            // `diagnostics::validation`): when it iterates `find_*_violations`
-            // each inner error is presented directly and this arm is bypassed.
+            // diagnostics are handled by the publisher in
+            // `diagnostics::validation`: it iterates `find_*_violations` and
+            // presents each inner error directly, so this arm is bypassed.
             Multiple(batch) => batch.0.first().and_then(Self::from_planner_error),
             // F9 dangling FK after drop: anchor on the *dropped* target so the
             // squiggle lands on the column/table the user removed. When only
