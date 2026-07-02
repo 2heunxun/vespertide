@@ -15,15 +15,15 @@
 /// PascalCase semantics for JPA filename derivation without keeping a
 /// duplicate private implementation.
 pub fn to_pascal_case(s: &str) -> String {
-    s.split('_')
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().chain(chars).collect(),
-            }
-        })
-        .collect()
+    let mut result = String::with_capacity(s.len());
+    for word in s.split('_') {
+        let mut chars = word.chars();
+        if let Some(first) = chars.next() {
+            result.extend(first.to_uppercase());
+            result.push_str(chars.as_str());
+        }
+    }
+    result
 }
 
 /// Convert any input to SCREAMING_SNAKE_CASE: inserts `_` before interior

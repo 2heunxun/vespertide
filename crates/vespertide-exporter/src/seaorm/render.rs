@@ -219,7 +219,7 @@ pub(super) fn render_column(
         }
         // JSONB custom type should use Json rust type
         ColumnType::Complex(ComplexColumnType::Custom { custom_type })
-            if custom_type.to_uppercase() == "JSONB" =>
+            if custom_type.eq_ignore_ascii_case("JSONB") =>
         {
             if column.nullable {
                 "Option<Json>".to_string()
@@ -234,16 +234,9 @@ pub(super) fn render_column(
 }
 pub(super) fn primary_key_columns(table: &TableDef) -> HashSet<String> {
     use vespertide_core::schema::primary_key::PrimaryKeySyntax;
-    let mut keys = HashSet::new();
 
-    // First, check table-level constraints
-    for constraint in &table.constraints {
-        if let TableConstraint::PrimaryKey { columns, .. } = constraint {
-            for col in columns {
-                keys.insert(col.to_string());
-            }
-        }
-    }
+    // Table-level constraints via the shared scan (single source of truth).
+    let mut keys = crate::constraint_scan::primary_key_columns(&table.constraints);
 
     // Then, check inline primary_key on columns
     // This handles cases where primary_key is defined inline but not yet normalized

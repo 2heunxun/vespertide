@@ -215,10 +215,10 @@ fn resolve_table_drop(
     plan: &MigrationPlan,
     baseline: &[TableDef],
 ) -> DropResolution {
-    let baseline_columns: Vec<String> = baseline
+    let baseline_columns: Vec<&str> = baseline
         .iter()
         .find(|t| t.name == table)
-        .map(|t| t.columns.iter().map(|c| c.name.to_string()).collect())
+        .map(|t| t.columns.iter().map(|c| c.name.as_str()).collect())
         .unwrap_or_default();
 
     let mut candidates: Vec<RenameCandidate> = plan
@@ -300,31 +300,25 @@ fn column_candidate(dropped: Option<&ColumnDef>, added: &ColumnDef) -> RenameCan
 }
 
 fn table_candidate(
-    baseline_columns: &[String],
+    baseline_columns: &[&str],
     new_name: &str,
     new_columns: &[ColumnDef],
 ) -> RenameCandidate {
-    let added_names: Vec<String> = new_columns.iter().map(|c| c.name.to_string()).collect();
-
-    let baseline_set: std::collections::HashSet<&str> =
-        baseline_columns.iter().map(String::as_str).collect();
+    let baseline_set: std::collections::HashSet<&str> = baseline_columns.iter().copied().collect();
     let added_set: std::collections::HashSet<&str> =
-        added_names.iter().map(String::as_str).collect();
+        new_columns.iter().map(|c| c.name.as_str()).collect();
 
-    let only_in_baseline: Vec<&&str> = baseline_set.difference(&added_set).collect();
-    let only_in_new: Vec<&&str> = added_set.difference(&baseline_set).collect();
+    let mut only_in_baseline: Vec<&str> = baseline_set.difference(&added_set).copied().collect();
+    let mut only_in_new: Vec<&str> = added_set.difference(&baseline_set).copied().collect();
 
     let mut differences = Vec::new();
     if !only_in_baseline.is_empty() {
-        let mut names: Vec<String> =
-            vespertide_core::schema::names::names_to_strings(&only_in_baseline);
-        names.sort_unstable();
-        differences.push(format!("removed columns: {}", names.join(", ")));
+        only_in_baseline.sort_unstable();
+        differences.push(format!("removed columns: {}", only_in_baseline.join(", ")));
     }
     if !only_in_new.is_empty() {
-        let mut names: Vec<String> = vespertide_core::schema::names::names_to_strings(&only_in_new);
-        names.sort_unstable();
-        differences.push(format!("added columns: {}", names.join(", ")));
+        only_in_new.sort_unstable();
+        differences.push(format!("added columns: {}", only_in_new.join(", ")));
     }
 
     let match_quality = if differences.is_empty() {

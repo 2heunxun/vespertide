@@ -1,8 +1,16 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use vespertide_config::VespertideConfig;
+
+/// Read and parse a vespertide.json file that is known to exist.
+fn read_config(path: &Path) -> Result<VespertideConfig> {
+    let content = fs::read_to_string(path).context("read vespertide.json")?;
+    let config: VespertideConfig =
+        serde_json::from_str(&content).context("parse vespertide.json")?;
+    Ok(config)
+}
 
 /// Load vespertide.json config from current directory.
 pub fn load_config() -> Result<VespertideConfig> {
@@ -11,23 +19,17 @@ pub fn load_config() -> Result<VespertideConfig> {
         anyhow::bail!("vespertide.json not found. Run 'vespertide init' first.");
     }
 
-    let content = fs::read_to_string(&path).context("read vespertide.json")?;
-    let config: VespertideConfig =
-        serde_json::from_str(&content).context("parse vespertide.json")?;
-    Ok(config)
+    read_config(&path)
 }
 
 /// Load config from a specific path.
-pub fn load_config_from_path(path: PathBuf) -> Result<VespertideConfig> {
-    let path = path.into_boxed_path();
+pub fn load_config_from_path(path: impl AsRef<Path>) -> Result<VespertideConfig> {
+    let path = path.as_ref();
     if !path.exists() {
         anyhow::bail!("vespertide.json not found at: {}", path.display());
     }
 
-    let content = fs::read_to_string(&path).context("read vespertide.json")?;
-    let config: VespertideConfig =
-        serde_json::from_str(&content).context("parse vespertide.json")?;
-    Ok(config)
+    read_config(path)
 }
 
 /// Load config from project root, with fallback to defaults.
