@@ -3,12 +3,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use rayon::prelude::*;
 use vespertide_config::VespertideConfig;
 use vespertide_core::MigrationPlan;
 use vespertide_planner::validate_migration_plan;
 
-use crate::parallel_config::{LOAD_FILES_PAR_MIN_LEN, LOAD_FILES_PAR_THRESHOLD};
+use crate::parallel_config::map_paths_with_threshold;
 
 /// Load all migration plans from the migrations directory, sorted by version.
 pub fn load_migrations(config: &VespertideConfig) -> Result<Vec<MigrationPlan>> {
@@ -18,15 +17,7 @@ pub fn load_migrations(config: &VespertideConfig) -> Result<Vec<MigrationPlan>> 
     }
 
     let paths = collect_migration_paths(migrations_dir)?;
-    let results: Vec<Result<MigrationPlan>> = if paths.len() < LOAD_FILES_PAR_THRESHOLD {
-        paths.iter().map(|path| load_migration_file(path)).collect()
-    } else {
-        paths
-            .par_iter()
-            .with_min_len(LOAD_FILES_PAR_MIN_LEN)
-            .map(|path| load_migration_file(path))
-            .collect()
-    };
+    let results = map_paths_with_threshold(&paths, load_migration_file);
 
     let mut plans = Vec::with_capacity(results.len());
     for result in results {
@@ -62,18 +53,7 @@ pub fn load_migrations_from_dir(
     }
 
     let paths = collect_migration_paths_internal(&migrations_dir)?;
-    let results: Vec<Result<MigrationPlan, String>> = if paths.len() < LOAD_FILES_PAR_THRESHOLD {
-        paths
-            .iter()
-            .map(|path| load_migration_file_internal(path))
-            .collect()
-    } else {
-        paths
-            .par_iter()
-            .with_min_len(LOAD_FILES_PAR_MIN_LEN)
-            .map(|path| load_migration_file_internal(path))
-            .collect()
-    };
+    let results = map_paths_with_threshold(&paths, load_migration_file_internal);
 
     let mut plans = Vec::with_capacity(results.len());
     for result in results {

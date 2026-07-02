@@ -2,12 +2,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use rayon::prelude::*;
 use vespertide_config::VespertideConfig;
 use vespertide_core::TableDef;
 use vespertide_planner::validate_schema;
 
-use crate::parallel_config::{LOAD_FILES_PAR_MIN_LEN, LOAD_FILES_PAR_THRESHOLD};
+use crate::parallel_config::map_paths_with_threshold;
 
 /// Load all model definitions from the models directory (recursively).
 pub fn load_models(config: &VespertideConfig) -> Result<Vec<TableDef>> {
@@ -40,15 +39,7 @@ pub fn load_models(config: &VespertideConfig) -> Result<Vec<TableDef>> {
 /// Recursively walk directory and load model files.
 fn load_models_recursive(dir: &Path, tables: &mut Vec<TableDef>) -> Result<()> {
     let paths = collect_model_paths(dir)?;
-    let results: Vec<Result<TableDef>> = if paths.len() < LOAD_FILES_PAR_THRESHOLD {
-        paths.iter().map(|path| load_model_file(path)).collect()
-    } else {
-        paths
-            .par_iter()
-            .with_min_len(LOAD_FILES_PAR_MIN_LEN)
-            .map(|path| load_model_file(path))
-            .collect()
-    };
+    let results = map_paths_with_threshold(&paths, load_model_file);
 
     for result in results {
         tables.push(result?);
@@ -142,18 +133,7 @@ fn load_models_recursive_internal(
     tables: &mut Vec<TableDef>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let paths = collect_model_paths_internal(dir)?;
-    let results: Vec<Result<TableDef, String>> = if paths.len() < LOAD_FILES_PAR_THRESHOLD {
-        paths
-            .iter()
-            .map(|path| load_normalized_model_file_internal(path))
-            .collect()
-    } else {
-        paths
-            .par_iter()
-            .with_min_len(LOAD_FILES_PAR_MIN_LEN)
-            .map(|path| load_normalized_model_file_internal(path))
-            .collect()
-    };
+    let results = map_paths_with_threshold(&paths, load_normalized_model_file_internal);
 
     for result in results {
         tables.push(result.map_err(|e| -> Box<dyn std::error::Error> { e.into() })?);

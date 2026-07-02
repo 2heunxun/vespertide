@@ -2823,6 +2823,7 @@ dependencies = [
  "predicates",
  "rayon",
  "rstest",
+ "serde",
  "serde_json",
  "serde_yaml",
  "serial_test",
