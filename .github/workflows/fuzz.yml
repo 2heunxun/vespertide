@@ -76,6 +76,7 @@ jobs:
         with:
           name: fuzz-artifacts-${{ matrix.target }}
           path: fuzz/artifacts/${{ matrix.target }}/
+          retention-days: 1
 
       - name: Upload corpus
         if: always()
@@ -83,3 +84,4 @@ jobs:
         with:
           name: fuzz-corpus-${{ matrix.target }}
           path: fuzz/corpus/${{ matrix.target }}/
+          retention-days: 1
