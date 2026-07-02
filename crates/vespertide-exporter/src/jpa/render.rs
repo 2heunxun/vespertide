@@ -10,10 +10,6 @@ use vespertide_core::{ColumnDef, TableDef};
 use crate::jpa::types::{UsedImports, java_type_for_column};
 
 pub(super) fn render_entity_inner(table: &TableDef) -> String {
-    render_entity_with_imports(table).0
-}
-
-pub(super) fn render_entity_with_imports(table: &TableDef) -> (String, UsedImports) {
     let mut lines: Vec<String> = Vec::new();
 
     // Collect enums for this table
@@ -114,7 +110,7 @@ pub(super) fn render_entity_with_imports(table: &TableDef) -> (String, UsedImpor
     lines.push("}".into());
     lines.push(String::new());
 
-    (lines.join("\n"), used_imports)
+    lines.join("\n")
 }
 
 // ---------------------------------------------------------------------------
@@ -215,11 +211,7 @@ fn render_table_annotation(
     if !unique_constraints.is_empty() {
         annotation.push_str(", uniqueConstraints = {\n");
         for (i, (name, columns)) in unique_constraints.iter().enumerate() {
-            let cols = columns
-                .iter()
-                .map(|c| format!("\"{c}\""))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let cols = crate::utils::common::join_quoted(columns);
             let comma = if i < unique_constraints.len() - 1 {
                 ","
             } else {

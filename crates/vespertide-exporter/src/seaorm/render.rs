@@ -305,11 +305,7 @@ pub(super) fn render_indexes_and_uniques(lines: &mut Vec<String>, constraints: &
         );
         lines.push("pub const COMPOSITE_UNIQUES: &[&[&str]] = &[".into());
         for (name, columns) in composite_uniques {
-            let cols_str = columns
-                .iter()
-                .map(|c| format!("\"{c}\""))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let cols_str = crate::utils::common::join_quoted(columns);
             let comment = name
                 .as_deref()
                 .map(|n| format!(" // {n}"))

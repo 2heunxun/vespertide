@@ -3,6 +3,7 @@ use rayon::prelude::*;
 use crate::parallel_config::{
     PYTHON_EXPORT_PAR_TABLE_MIN_LEN, SQLMODEL_EXPORT_PAR_TABLE_THRESHOLD,
 };
+use crate::utils::common::join_quoted;
 use crate::utils::python::{CompositeFk, collect_composite_fks};
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
 use vespertide_core::schema::constraint::TableConstraint;
@@ -342,11 +343,7 @@ fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Ve
         lines.push("    __table_args__ = (".into());
 
         for (name, columns) in &composite_indexes {
-            let cols_str = columns
-                .iter()
-                .map(|c| format!("\"{c}\""))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let cols_str = join_quoted(columns);
             if let Some(idx_name) = name {
                 lines.push(format!("        Index(\"{idx_name}\", {cols_str}),"));
             } else {
@@ -355,11 +352,7 @@ fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Ve
         }
 
         for (name, columns) in &composite_uniques {
-            let cols_str = columns
-                .iter()
-                .map(|c| format!("\"{c}\""))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let cols_str = join_quoted(columns);
             if let Some(uq_name) = name {
                 lines.push(format!(
                     "        UniqueConstraint({cols_str}, name=\"{uq_name}\"),"
@@ -370,12 +363,7 @@ fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Ve
         }
 
         for fk in composite_fks {
-            let local_cols = fk
-                .local_cols
-                .iter()
-                .map(|col| format!("\"{col}\""))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let local_cols = join_quoted(&fk.local_cols);
             let ref_cols = fk
                 .ref_cols
                 .iter()

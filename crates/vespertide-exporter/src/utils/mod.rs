@@ -6,12 +6,11 @@
 //! without polluting the crate root with a flat list of `*_common.rs` files.
 //!
 //! Cross-language helpers (case conversion, naming sanitization that is
-//! language-agnostic) belong in `crate::utils::common` once they exist;
-//! for now keep them in their language submodule until a second user appears.
+//! language-agnostic) belong in `crate::utils::common`.
 
+pub(crate) mod common;
 pub(crate) mod python;
 // Add future language helpers as siblings, e.g.
 // pub(crate) mod rust;
 // pub(crate) mod typescript;
 // pub(crate) mod java;
-// pub(crate) mod common;

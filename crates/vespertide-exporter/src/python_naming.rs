@@ -31,22 +31,19 @@ pub fn to_pascal_case(s: &str) -> String {
 /// non-alphanumeric character with `_` so the result is safe as a Python
 /// `enum.Enum` member name.
 pub(crate) fn to_screaming_snake_case(s: &str) -> String {
-    let mut result = String::new();
+    let mut result = String::with_capacity(s.len() + 4);
     for (i, ch) in s.chars().enumerate() {
         if ch.is_uppercase() && i > 0 {
             result.push('_');
         }
-        result.push(ch.to_ascii_uppercase());
+        let upper = ch.to_ascii_uppercase();
+        // Sanitise in the same pass: any non-alphanumeric becomes `_` so the
+        // result is safe as a Python `enum.Enum` member name.
+        if upper.is_alphanumeric() || upper == '_' {
+            result.push(upper);
+        } else {
+            result.push('_');
+        }
     }
-    // Replace any non-alphanumeric with underscore
     result
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
 }

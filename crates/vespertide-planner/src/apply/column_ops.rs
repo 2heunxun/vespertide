@@ -26,7 +26,7 @@ pub(super) fn add_column(
         let table_to_normalize = std::mem::replace(
             tbl,
             TableDef {
-                name: table.to_string().into(),
+                name: table.into(),
                 description: None,
                 columns: Vec::new(),
                 constraints: Vec::new(),

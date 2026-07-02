@@ -14,7 +14,7 @@ pub(super) fn create_table(
     }
 
     let table_def = TableDef {
-        name: table.to_string().into(),
+        name: table.into(),
         description: None,
         columns: columns.to_vec(),
         constraints: constraints.to_vec(),

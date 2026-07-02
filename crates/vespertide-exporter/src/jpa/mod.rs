@@ -6,8 +6,6 @@ use crate::parallel_config::{JPA_EXPORT_PAR_TABLE_MIN_LEN, JPA_EXPORT_PAR_TABLE_
 use rayon::prelude::*;
 use vespertide_core::TableDef;
 
-use self::types::UsedImports;
-
 pub struct JpaExporter;
 
 impl OrmExporter for JpaExporter {
@@ -36,21 +34,17 @@ pub fn render_entities(schema: &[TableDef]) -> Result<Vec<String>, String> {
     let rendered = if schema.len() < JPA_EXPORT_PAR_TABLE_THRESHOLD {
         schema
             .iter()
-            .map(render::render_entity_with_imports)
+            .map(render::render_entity_inner)
             .collect::<Vec<_>>()
     } else {
         schema
             .par_iter()
             .with_min_len(JPA_EXPORT_PAR_TABLE_MIN_LEN)
-            .map(render::render_entity_with_imports)
+            .map(render::render_entity_inner)
             .collect::<Vec<_>>()
     };
 
-    Ok(merge_rendered_entities(rendered))
-}
-
-fn merge_rendered_entities(rendered: Vec<(String, UsedImports)>) -> Vec<String> {
-    rendered.into_iter().map(|(entity, _)| entity).collect()
+    Ok(rendered)
 }
 
 #[cfg(test)]

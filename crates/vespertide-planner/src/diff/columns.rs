@@ -58,8 +58,8 @@ fn diff_integer_enum_remappings(
             continue;
         }
         actions.push(MigrationAction::RemapEnumValues {
-            table: table_name.to_string().into(),
-            column: (*col).to_string().into(),
+            table: table_name.into(),
+            column: (*col).into(),
             mapping,
         });
     }
@@ -116,7 +116,7 @@ fn diff_deleted_columns(
 
     for col in &deleted_columns {
         actions.push(MigrationAction::DeleteColumn {
-            table: table_name.to_string().into(),
+            table: table_name.into(),
             column: col.clone().into(),
         });
     }
@@ -152,8 +152,8 @@ fn diff_column_types(
 
             if needs_type_migration || needs_enum_rename {
                 actions.push(MigrationAction::ModifyColumnType {
-                    table: table_name.to_string().into(),
-                    column: (*col).to_string().into(),
+                    table: table_name.into(),
+                    column: (*col).into(),
                     new_type: to_def.r#type.clone(),
                     fill_with: None,
                     // Set by `cmd_revision` after the user picks a strategy
@@ -179,8 +179,8 @@ fn diff_column_nullability(
             && from_def.nullable != to_def.nullable
         {
             actions.push(MigrationAction::ModifyColumnNullable {
-                table: table_name.to_string().into(),
-                column: (*col).to_string().into(),
+                table: table_name.into(),
+                column: (*col).into(),
                 nullable: to_def.nullable,
                 fill_with: None,
                 delete_null_rows: None,
@@ -207,8 +207,8 @@ fn diff_column_defaults(
                 .map(vespertide_core::DefaultValue::to_sql);
             if from_default != to_default {
                 actions.push(MigrationAction::ModifyColumnDefault {
-                    table: table_name.to_string().into(),
-                    column: (*col).to_string().into(),
+                    table: table_name.into(),
+                    column: (*col).into(),
                     new_default: to_default,
                     backfill: None,
                 });
@@ -228,8 +228,8 @@ fn diff_column_comments(
             && from_def.comment != to_def.comment
         {
             actions.push(MigrationAction::ModifyColumnComment {
-                table: table_name.to_string().into(),
-                column: (*col).to_string().into(),
+                table: table_name.into(),
+                column: (*col).into(),
                 new_comment: to_def.comment.clone(),
             });
         }
@@ -250,7 +250,7 @@ fn diff_added_columns(
             col_def.index = None;
             col_def.foreign_key = None;
             actions.push(MigrationAction::AddColumn {
-                table: table_name.to_string().into(),
+                table: table_name.into(),
                 column: Box::new(col_def),
                 fill_with: None,
             });

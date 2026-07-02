@@ -222,7 +222,7 @@ pub(super) fn rewrite_plan_for_recreation(
             .find(|m| m.name.as_str() == *table_name)
         {
             plan.actions.push(MigrationAction::DeleteTable {
-                table: table_name.to_string().into(),
+                table: (*table_name).into(),
             });
             plan.actions.push(MigrationAction::CreateTable {
                 table: model.name.clone(),
