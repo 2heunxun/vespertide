@@ -157,55 +157,56 @@ fn walk_check_expr(
     out: &mut Vec<CheckTypeMismatchWarning>,
 ) {
     match expr_node {
+        // For each predicate node the column type is resolved ONCE here;
+        // unknown columns skip silently (other validators diagnose them),
+        // and `check_one` becomes a pure literal-vs-type check.
         CheckExpr::Compare { column, value, .. } => {
-            check_one(
-                action_index,
-                table,
-                check_name,
-                column,
-                value,
-                expr_text,
-                type_map,
-                out,
-            );
-        }
-        CheckExpr::In { column, values, .. } => {
-            for v in values {
+            if let Some(&col_type) = type_map.get(&(table, column.as_str())) {
                 check_one(
                     action_index,
                     table,
                     check_name,
                     column,
-                    v,
+                    col_type,
+                    value,
                     expr_text,
-                    type_map,
                     out,
                 );
+            }
+        }
+        CheckExpr::In { column, values, .. } => {
+            if let Some(&col_type) = type_map.get(&(table, column.as_str())) {
+                for v in values {
+                    check_one(
+                        action_index,
+                        table,
+                        check_name,
+                        column,
+                        col_type,
+                        v,
+                        expr_text,
+                        out,
+                    );
+                }
             }
         }
         CheckExpr::Between {
             column, low, high, ..
         } => {
-            check_one(
-                action_index,
-                table,
-                check_name,
-                column,
-                low,
-                expr_text,
-                type_map,
-                out,
-            );
-            check_one(
-                action_index,
-                table,
-                check_name,
-                column,
-                high,
-                expr_text,
-                type_map,
-                out,
-            );
+            if let Some(&col_type) = type_map.get(&(table, column.as_str())) {
+                for boundary in [low, high] {
+                    check_one(
+                        action_index,
+                        table,
+                        check_name,
+                        column,
+                        col_type,
+                        boundary,
+                        expr_text,
+                        out,
+                    );
+                }
+            }
         }
         CheckExpr::And(parts) | CheckExpr::Or(parts) => {
             for p in parts {
@@ -229,21 +230,18 @@ fn walk_check_expr(
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "F-novel-4 per-literal checker threads context (table / check_name / column / literal / expr / type_map / out) through a single call; bundling into a struct would scatter the call sites without aiding clarity"
+    reason = "F-novel-4 per-literal checker threads context (table / check_name / column / col_type / literal / expr / out) through a single call; bundling into a struct would scatter the call sites without aiding clarity"
 )]
 fn check_one(
     action_index: usize,
     table: &str,
     check_name: &str,
     column: &str,
+    col_type: &ColumnType,
     literal: &Literal,
     expr_text: &str,
-    type_map: &HashMap<(&str, &str), &ColumnType>,
     out: &mut Vec<CheckTypeMismatchWarning>,
 ) {
-    let Some(&col_type) = type_map.get(&(table, column)) else {
-        return; // unknown column - other validators handle it
-    };
     if !is_definitely_mismatch(col_type, literal) {
         return;
     }
@@ -260,8 +258,9 @@ fn check_one(
 }
 
 /// Borrow-keyed lookup map: `(table, column) -> column type`, borrowing
-/// from `plan` + `baseline` so per-literal lookups in [`check_one`] are
-/// allocation-free. Owned strings are produced only when a warning fires.
+/// from `plan` + `baseline` so per-predicate lookups in
+/// [`walk_check_expr`] are allocation-free. Owned strings are produced
+/// only when a warning fires.
 fn build_column_type_map<'a>(
     plan: &'a MigrationPlan,
     baseline: &'a [TableDef],
@@ -702,6 +701,21 @@ mod tests {
             vec![col("age", ColumnType::Simple(SimpleColumnType::Integer))],
         )];
         let p = plan(vec![add_check("t", "chk", "missing_col = 'x'")]);
+        assert!(find_check_type_mismatches(&p, &baseline).is_empty());
+    }
+
+    /// Unknown-column skip is decided ONCE per predicate node — pin the
+    /// `In` and `Between` arms of `walk_check_expr` (not just `Compare`).
+    #[test]
+    fn unknown_column_in_list_and_between_silently_pass() {
+        let baseline = vec![baseline_table(
+            "t",
+            vec![col("age", ColumnType::Simple(SimpleColumnType::Integer))],
+        )];
+        let p = plan(vec![
+            add_check("t", "chk_in", "missing_col IN ('a', 'b')"),
+            add_check("t", "chk_between", "missing_col BETWEEN 'x' AND 'y'"),
+        ]);
         assert!(find_check_type_mismatches(&p, &baseline).is_empty());
     }
 

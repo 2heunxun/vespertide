@@ -225,17 +225,18 @@ fn check_pair(column: &str, a: &CheckExpr, b: &CheckExpr) -> Option<Contradictio
         });
     }
     // IsNull (positive) vs Compare on same column: AND is unsatisfiable.
-    if let Some((isnull_neg, isnull_form, other_form)) = is_null_vs_other(column, a, b) {
-        // Only positive `IS NULL` is contradictory with a non-null
-        // comparison; `IS NOT NULL` is the *expected* companion of a
-        // Compare and never contradicts.
-        if !isnull_neg {
-            return Some(Contradiction {
-                column: column.to_string(),
-                first: isnull_form,
-                second: other_form,
-            });
-        }
+    // Only positive `IS NULL` is contradictory with a non-null comparison;
+    // `IS NOT NULL` is the *expected* companion of a Compare and never
+    // contradicts — display Strings are built only once that (rare)
+    // contradiction is confirmed.
+    if let Some((isnull_neg, op, value)) = is_null_vs_other(a, b)
+        && !isnull_neg
+    {
+        return Some(Contradiction {
+            column: column.to_string(),
+            first: format_is_null(column, isnull_neg),
+            second: format_compare(column, op, &value.display_value()),
+        });
     }
     None
 }
@@ -283,22 +284,20 @@ fn compare_pair_contradicts(
 }
 
 /// When one of `(a, b)` is `IsNull(negated)` and the other is any
-/// `Compare`, return the IsNull's `negated` flag plus formatted
-/// labels for the user. Returns `None` otherwise.
-fn is_null_vs_other(column: &str, a: &CheckExpr, b: &CheckExpr) -> Option<(bool, String, String)> {
+/// `Compare`, return the structural facts: the IsNull's `negated`
+/// flag plus the Compare's op and literal. Returns `None` otherwise.
+/// The caller formats display labels only after a contradiction is
+/// confirmed, so the common healthy `IS NOT NULL AND col > X` shape
+/// allocates nothing here.
+fn is_null_vs_other<'a>(a: &'a CheckExpr, b: &'a CheckExpr) -> Option<(bool, Op, &'a Literal)> {
     // Normalise to (IsNull, Compare) ordering so the body is written once.
-    let (negated, op, value) = match (a, b) {
+    match (a, b) {
         (CheckExpr::IsNull { negated, .. }, CheckExpr::Compare { op, value, .. })
         | (CheckExpr::Compare { op, value, .. }, CheckExpr::IsNull { negated, .. }) => {
-            (*negated, *op, value)
+            Some((*negated, *op, value))
         }
-        _ => return None,
-    };
-    Some((
-        negated,
-        format_is_null(column, negated),
-        format_compare(column, op, &value.display_value()),
-    ))
+        _ => None,
+    }
 }
 
 fn format_compare(column: &str, op: Op, value_text: &str) -> String {
@@ -858,11 +857,10 @@ mod tests {
         );
     }
 
-    /// L254 / L257 `return None;` `let-else` guards inside
-    /// is_null_vs_other are provably unreachable: the outer match at
-    /// L248-252 already restricts (a, b) to (IsNull, Compare) or
-    /// (Compare, IsNull). After normalisation, the destructuring let
-    /// patterns cannot fail. Direct unit-test pins this invariant.
+    /// is_null_vs_other normalises (a, b) to (IsNull, Compare) ordering
+    /// and returns the structural facts (negated flag, op, literal)
+    /// without formatting. Direct unit-test pins both orderings and the
+    /// `_ => None` fallthrough.
     #[test]
     fn is_null_vs_other_normalises_both_orderings() {
         let isnull = CheckExpr::IsNull {
@@ -875,18 +873,18 @@ mod tests {
             value: Literal::Integer(5),
         };
         // (IsNull, Compare) order
-        let res = is_null_vs_other("x", &isnull, &compare);
-        assert!(res.is_some());
-        // (Compare, IsNull) order — swap arm at L250
-        let res = is_null_vs_other("x", &compare, &isnull);
-        assert!(res.is_some());
+        let res = is_null_vs_other(&isnull, &compare);
+        assert_eq!(res, Some((false, Op::Eq, &Literal::Integer(5))));
+        // (Compare, IsNull) order — swap arm
+        let res = is_null_vs_other(&compare, &isnull);
+        assert_eq!(res, Some((false, Op::Eq, &Literal::Integer(5))));
         // Neither is IsNull/Compare combo — None via the `_ => None` arm
         let in_expr = CheckExpr::In {
             column: "x".into(),
             values: vec![Literal::Integer(1)],
             negated: false,
         };
-        assert!(is_null_vs_other("x", &compare, &in_expr).is_none());
+        assert!(is_null_vs_other(&compare, &in_expr).is_none());
     }
 
     // ── Coverage-closure: defensive arms in find_contradiction & friends ──

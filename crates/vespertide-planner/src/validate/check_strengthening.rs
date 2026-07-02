@@ -227,9 +227,15 @@ fn classify_strengthening(
     if old_expr_str.trim() == new_expr_str.trim() {
         return None;
     }
+    // Parse old first and short-circuit: when the old CHECK is outside
+    // the recognized grammar the classification is `None` regardless of
+    // the new expression, so its lex+parse is skipped entirely.
     let old = parse(old_expr_str);
+    if matches!(old, CheckExpr::Unparseable) {
+        return None;
+    }
     let new = parse(new_expr_str);
-    if matches!(old, CheckExpr::Unparseable) || matches!(new, CheckExpr::Unparseable) {
+    if matches!(new, CheckExpr::Unparseable) {
         return None;
     }
     if old == new {

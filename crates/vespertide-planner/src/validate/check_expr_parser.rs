@@ -271,7 +271,7 @@ pub fn parse(expr: &str) -> CheckExpr {
     if trimmed.is_empty() {
         return CheckExpr::Unparseable;
     }
-    let Some(tokens) = tokenize(trimmed) else {
+    let Some(tokens) = tokenize_spanned(trimmed) else {
         return CheckExpr::Unparseable;
     };
     let mut parser = Parser {
@@ -490,10 +490,6 @@ fn tokenize_spanned(input: &str) -> Option<Vec<SpannedToken>> {
     Some(out)
 }
 
-fn tokenize(input: &str) -> Option<Vec<Token>> {
-    tokenize_spanned(input).map(|tokens| tokens.into_iter().map(|st| st.token).collect())
-}
-
 /// True when the next token sits in a position that may legally
 /// hold a literal (start of input, after an operator, after `(`,
 /// after `,`, after `BETWEEN`/`AND`/`OR`/`NOT`/`IN`/`IS`). Used to
@@ -545,7 +541,11 @@ fn classify_word(word: &str) -> Token {
 // -- Parser ----------------------------------------------------------------
 
 struct Parser {
-    tokens: Vec<Token>,
+    /// Spanned tokens straight from [`tokenize_spanned`] — the parser
+    /// only ever inspects `.token` (via [`Parser::peek`]), so holding the
+    /// spanned form avoids re-collecting a second span-stripped `Vec` on
+    /// every parse.
+    tokens: Vec<SpannedToken>,
     pos: usize,
     depth: usize,
 }
@@ -556,7 +556,7 @@ impl Parser {
     }
 
     fn peek(&self) -> Option<&Token> {
-        self.tokens.get(self.pos)
+        self.tokens.get(self.pos).map(|st| &st.token)
     }
 
     fn eat_keyword(&mut self, kw: Keyword) -> bool {
