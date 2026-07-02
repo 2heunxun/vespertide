@@ -12,8 +12,9 @@ use super::super::imports::{
     resolve_relation_entity_module_path, sanitize_field_name, to_pascal_case, to_snake_case,
     unique_name,
 };
-use super::super::render::{primary_key_columns, single_column_unique_set};
+use super::super::render::primary_key_columns;
 use super::naming::{generate_relation_enum_name, pluralize, unique_relation_enum_name};
+use crate::constraint_scan::single_column_uniques;
 
 /// Information about a reverse relation to be generated.
 struct ReverseRelation {
@@ -203,7 +204,7 @@ fn reverse_relation_field_defs_inner(ctx: ReverseRelationFieldCtx<'_>) -> Vec<St
 
         // Get PK and unique columns for the other table
         let other_pk = primary_key_columns(other_table);
-        let other_unique = single_column_unique_set(&other_table.constraints);
+        let other_unique = single_column_uniques(&other_table.constraints);
 
         // Check if this is a junction table (composite PK with multiple FKs)
         if let Some(m2m_relations) =

@@ -44,8 +44,7 @@ pub(super) async fn folding_range_impl(
 ) -> Result<Option<Vec<FoldingRange>>> {
     let uri = params.text_document.uri;
     let folds = backend.store.docs_iter_for_uri(&uri, |state| {
-        let text = state.text();
-        let domain = crate::file_features::compute_folding_ranges(text, state.tree.as_ref());
+        let domain = crate::file_features::compute_folding_ranges(state.tree.as_ref());
         domain
             .into_iter()
             .filter_map(|f| {
@@ -121,11 +120,8 @@ pub(super) async fn selection_range_impl(
             .map(|pos_ls| {
                 let pos_lsp = crate::position::ls_to_lsp_position(pos_ls);
                 let byte = crate::position::lsp_position_to_byte(&state.doc, pos_lsp);
-                let chain = crate::file_features::compute_selection_ranges(
-                    state.text(),
-                    state.tree.as_ref(),
-                    byte,
-                );
+                let chain =
+                    crate::file_features::compute_selection_ranges(state.tree.as_ref(), byte);
                 let mut acc: Option<Box<SelectionRange>> = None;
                 for entry in chain.into_iter().rev() {
                     let lsp_range = Range {

@@ -233,8 +233,9 @@ where
     let mut remaining = Vec::new();
 
     for item in missing.drain(..) {
-        if item.has_foreign_key && !delete_set.contains(&(item.table.clone(), item.column.clone()))
-        {
+        let key = (item.table.clone(), item.column.clone());
+        let in_delete_set = delete_set.contains(&key);
+        if item.has_foreign_key && !in_delete_set {
             // FK column without CLI arg — prompt user
             println!(
                 "  {} {}.{} has a foreign key constraint — fill_with may not work.",
@@ -243,12 +244,12 @@ where
                 item.column.bright_green()
             );
             if prompt_fn(&item.table, &item.column)? {
-                to_delete.push((item.table.clone(), item.column.clone()));
+                to_delete.push(key);
             } else {
                 remaining.push(item);
             }
-        } else if delete_set.contains(&(item.table.clone(), item.column.clone())) {
-            to_delete.push((item.table.clone(), item.column.clone()));
+        } else if in_delete_set {
+            to_delete.push(key);
         } else {
             remaining.push(item);
         }

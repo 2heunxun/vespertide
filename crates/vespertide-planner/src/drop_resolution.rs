@@ -318,12 +318,12 @@ fn table_candidate(
     if !only_in_baseline.is_empty() {
         let mut names: Vec<String> =
             vespertide_core::schema::names::names_to_strings(&only_in_baseline);
-        names.sort();
+        names.sort_unstable();
         differences.push(format!("removed columns: {}", names.join(", ")));
     }
     if !only_in_new.is_empty() {
         let mut names: Vec<String> = vespertide_core::schema::names::names_to_strings(&only_in_new);
-        names.sort();
+        names.sort_unstable();
         differences.push(format!("added columns: {}", names.join(", ")));
     }
 

@@ -4,7 +4,6 @@ use crate::text_util::strip_quotes;
 use crate::tree_util::{
     ancestor_pair, direct_child_value, enclosing_string, node_at_byte, skip_yaml_wrappers,
 };
-use tower_lsp_server::ls_types::Uri;
 
 use super::ReferenceSymbol;
 
@@ -13,10 +12,8 @@ use super::ReferenceSymbol;
 pub(super) fn resolve(
     source: &str,
     tree: Option<&tree_sitter::Tree>,
-    current_uri: &Uri,
     byte_offset: usize,
 ) -> Option<ReferenceSymbol> {
-    let _ = current_uri;
     let tree = tree?;
     let node = node_at_byte(tree, byte_offset)?;
     let string_node = enclosing_string(node)?;
@@ -178,7 +175,7 @@ mod tests {
     fn resolve_returns_none_when_tree_is_none() {
         let src = r#"{"name":"u"}"#;
 
-        assert!(resolve(src, None, &uri("u.json"), 0).is_none());
+        assert!(resolve(src, None, 0).is_none());
     }
 
     #[rstest]
@@ -200,7 +197,7 @@ mod tests {
         let tree = parse_json(src);
         let pos = src.find(needle).unwrap() + cursor_delta;
 
-        assert_eq!(resolve(src, Some(&tree), &uri("u.json"), pos), expected);
+        assert_eq!(resolve(src, Some(&tree), pos), expected);
     }
 
     #[rstest]
@@ -215,10 +212,7 @@ mod tests {
         let tree = parse_yaml(src);
         let pos = src.find(needle).unwrap() + cursor_delta;
 
-        assert_eq!(
-            resolve(src, Some(&tree), &uri("u.yaml"), pos),
-            Some(expected)
-        );
+        assert_eq!(resolve(src, Some(&tree), pos), Some(expected));
     }
 
     fn first_node<'tree>(
@@ -247,7 +241,7 @@ mod tests {
         let tree = parse_json(src);
         let pos = src.find("hello").unwrap();
 
-        assert!(resolve(src, Some(&tree), &uri("u.json"), pos).is_none());
+        assert!(resolve(src, Some(&tree), pos).is_none());
     }
 
     #[test]

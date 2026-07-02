@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use vespertide_core::schema::column::{
@@ -79,19 +79,7 @@ pub(super) fn render_entity_with_imports(table: &TableDef) -> (String, UsedImpor
     lines.push(String::new());
 
     // Collect primary key columns
-    let pk_columns: HashSet<String> = table
-        .constraints
-        .iter()
-        .filter_map(|c| {
-            if let TableConstraint::PrimaryKey { columns, .. } = c {
-                Some(columns.clone())
-            } else {
-                None
-            }
-        })
-        .flatten()
-        .map(|col| col.to_string())
-        .collect();
+    let pk_columns = crate::constraint_scan::primary_key_columns(&table.constraints);
 
     let auto_increment = table.constraints.iter().any(|c| {
         matches!(
@@ -104,21 +92,7 @@ pub(super) fn render_entity_with_imports(table: &TableDef) -> (String, UsedImpor
     });
 
     // Collect single-column unique constraints
-    let unique_columns: HashSet<String> = table
-        .constraints
-        .iter()
-        .filter_map(|c| {
-            if let TableConstraint::Unique { columns, .. } = c {
-                if columns.len() == 1 {
-                    Some(columns[0].to_string())
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .collect();
+    let unique_columns = crate::constraint_scan::single_column_uniques(&table.constraints);
 
     // --- Render fields ---
     for col in &table.columns {

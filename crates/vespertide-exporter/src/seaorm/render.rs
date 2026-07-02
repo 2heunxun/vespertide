@@ -26,7 +26,7 @@ pub fn render_entity_with_config_and_paths(
         relation_field_defs_with_schema(table, schema, module_paths, crate_prefix);
 
     // Build sets of columns with single-column unique constraints and indexes
-    let unique_columns = single_column_unique_set(&table.constraints);
+    let unique_columns = crate::constraint_scan::single_column_uniques(&table.constraints);
     let indexed_columns = single_column_index_set(&table.constraints);
 
     // Check if any columns use enum types (enums derive Serialize/Deserialize)
@@ -134,19 +134,6 @@ pub fn render_entity_with_config_and_paths(
     lines.push(String::new());
 
     lines.join("\n")
-}
-
-/// Build a set of column names that have single-column unique constraints.
-pub(super) fn single_column_unique_set(constraints: &[TableConstraint]) -> HashSet<String> {
-    let mut unique_cols = HashSet::new();
-    for constraint in constraints {
-        if let TableConstraint::Unique { columns, .. } = constraint
-            && columns.len() == 1
-        {
-            unique_cols.insert(columns[0].to_string());
-        }
-    }
-    unique_cols
 }
 
 /// Build a set of column names that have single-column indexes from constraints.

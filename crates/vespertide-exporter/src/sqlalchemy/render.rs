@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use super::enums::render_enum;
 use super::types::{UsedTypes, column_type_to_python, column_type_to_sqlalchemy};
@@ -132,36 +132,10 @@ fn render_entity_part(table: &TableDef, used_types: &mut UsedTypes<'static>) -> 
     lines.push(String::new());
 
     // Collect primary key columns; lookup-only, ordering unused.
-    let pk_columns: HashSet<String> = table
-        .constraints
-        .iter()
-        .filter_map(|c| {
-            if let TableConstraint::PrimaryKey { columns, .. } = c {
-                Some(columns.clone())
-            } else {
-                None
-            }
-        })
-        .flatten()
-        .map(|col| col.to_string())
-        .collect();
+    let pk_columns = crate::constraint_scan::primary_key_columns(&table.constraints);
 
     // Collect unique columns (single-column unique constraints); lookup-only, ordering unused.
-    let unique_columns: HashSet<String> = table
-        .constraints
-        .iter()
-        .filter_map(|c| {
-            if let TableConstraint::Unique { columns, .. } = c {
-                if columns.len() == 1 {
-                    Some(columns[0].to_string())
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .collect();
+    let unique_columns = crate::constraint_scan::single_column_uniques(&table.constraints);
 
     // Collect foreign key info; lookup-only, ordering unused.
     let fk_info: HashMap<String, (String, String)> = table

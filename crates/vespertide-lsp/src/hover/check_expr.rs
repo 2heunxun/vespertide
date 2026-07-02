@@ -578,9 +578,8 @@ constraints:
         let needle = "age > 0 AND";
         let pos = src.find(needle).expect("needle present") + needle.len() - 2;
 
-        let hover =
-            super::super::compute(src, DocumentFormat::Json, tree.as_ref(), &idx, &docs, pos)
-                .expect("hover inside parseable CHECK expression");
+        let hover = super::super::compute(src, tree.as_ref(), &idx, &docs, pos)
+            .expect("hover inside parseable CHECK expression");
 
         assert!(
             hover.markdown.contains("AND"),
@@ -623,8 +622,7 @@ constraints:
         let tree = pool.parse(src, DocumentFormat::Json);
         let pos = src.find("LOWER(").expect("needle present") + 2;
 
-        let hover =
-            super::super::compute(src, DocumentFormat::Json, tree.as_ref(), &idx, &docs, pos);
+        let hover = super::super::compute(src, tree.as_ref(), &idx, &docs, pos);
 
         if let Some(h) = hover {
             let lower = h.markdown.to_lowercase();
@@ -650,15 +648,8 @@ constraints:
         let post_tree = pool.parse(post_src, DocumentFormat::Json);
         let pos = post_src.find(r#""ref_table":"user""#).unwrap() + 14;
 
-        let hover = super::super::compute(
-            post_src,
-            DocumentFormat::Json,
-            post_tree.as_ref(),
-            &idx,
-            &docs,
-            pos,
-        )
-        .expect("hover on ref_table must still resolve");
+        let hover = super::super::compute(post_src, post_tree.as_ref(), &idx, &docs, pos)
+            .expect("hover on ref_table must still resolve");
 
         assert!(
             hover.markdown.contains("Target table"),

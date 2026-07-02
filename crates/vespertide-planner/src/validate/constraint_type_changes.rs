@@ -175,7 +175,7 @@ struct ConstraintKey {
 
 impl ConstraintKey {
     fn new(table: &str, mut columns: Vec<String>) -> Self {
-        columns.sort();
+        columns.sort_unstable();
         Self {
             table: table.to_string(),
             columns,

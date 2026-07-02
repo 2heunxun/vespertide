@@ -63,14 +63,14 @@ pub(super) async fn prepare_rename_impl(
     let uri = params.text_document.uri;
     let pos_ls = params.position;
     let pos_lsp = crate::position::ls_to_lsp_position(pos_ls);
-    let Some(format) = DocumentFormat::from_uri(&uri) else {
+    if DocumentFormat::from_uri(&uri).is_none() {
         return Ok(None);
-    };
+    }
 
     let domain = backend.store.docs_iter_for_uri(&uri, |state| {
         let text = state.text();
         let byte = crate::position::lsp_position_to_byte(&state.doc, pos_lsp);
-        crate::rename::prepare(text, format, state.tree.as_ref(), &uri, byte)
+        crate::rename::prepare(text, state.tree.as_ref(), byte)
     });
     let Some(Some(domain)) = domain else {
         log_prepare_rename_not_renameable(&uri);
@@ -110,19 +110,17 @@ pub(super) async fn rename_impl(
     let pos_ls = params.text_document_position.position;
     let pos_lsp = crate::position::ls_to_lsp_position(pos_ls);
     let new_name = params.new_name;
-    let Some(format) = DocumentFormat::from_uri(&uri) else {
+    if DocumentFormat::from_uri(&uri).is_none() {
         return Ok(None);
-    };
+    }
 
     let domain = backend.store.docs_iter_for_uri(&uri, |state| {
         let text = state.text();
         let byte = crate::position::lsp_position_to_byte(&state.doc, pos_lsp);
         crate::rename::compute(
             text,
-            format,
             state.tree.as_ref(),
             &uri,
-            backend.index.as_ref(),
             backend.store.as_ref(),
             Some(backend.workspace_tables.as_ref()),
             byte,

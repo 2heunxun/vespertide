@@ -118,11 +118,7 @@ pub fn compute_document_symbols(
 // =====================================================================
 
 #[must_use]
-pub fn compute_folding_ranges(
-    source: &str,
-    tree: Option<&tree_sitter::Tree>,
-) -> Vec<DomainFoldingRange> {
-    let _ = source;
+pub fn compute_folding_ranges(tree: Option<&tree_sitter::Tree>) -> Vec<DomainFoldingRange> {
     let mut out = Vec::new();
     if let Some(tree) = tree {
         collect_foldable(tree.root_node(), &mut out);
@@ -220,11 +216,9 @@ fn collect_matching_strings(
 /// collapsed so the LSP client doesn't show the same selection twice.
 #[must_use]
 pub fn compute_selection_ranges(
-    source: &str,
     tree: Option<&tree_sitter::Tree>,
     cursor_byte: usize,
 ) -> Vec<DomainSelectionRange> {
-    let _ = source;
     let mut chain = Vec::new();
     if let Some(tree) = tree
         && let Some(start) = node_at_byte(tree, cursor_byte)
@@ -388,7 +382,7 @@ mod tests {
             ]
         }"#;
         let tree = parse_json(src);
-        let ranges = compute_folding_ranges(src, Some(&tree));
+        let ranges = compute_folding_ranges(Some(&tree));
         // At minimum: top-level object + columns array + each column.
         assert!(ranges.len() >= 4, "got: {ranges:?}");
     }
@@ -416,7 +410,7 @@ mod tests {
         let src = r#"{"name":"u","columns":[{"name":"id","type":"integer"}]}"#;
         let tree = parse_json(src);
         let cursor = src.find(r#""id""#).unwrap() + 1;
-        let chain = compute_selection_ranges(src, Some(&tree), cursor);
+        let chain = compute_selection_ranges(Some(&tree), cursor);
         assert!(
             chain.len() >= 3,
             "expected token → pair → object → ..., got: {chain:?}"
@@ -516,9 +510,9 @@ mod tests {
     #[test]
     fn none_tree_returns_empty_for_all_file_features() {
         assert!(compute_document_symbols("x", None).is_empty());
-        assert!(compute_folding_ranges("x", None).is_empty());
+        assert!(compute_folding_ranges(None).is_empty());
         assert!(compute_document_highlight("x", None, 0).is_empty());
-        assert!(compute_selection_ranges("x", None, 0).is_empty());
+        assert!(compute_selection_ranges(None, 0).is_empty());
     }
 
     #[rstest]
@@ -545,6 +539,6 @@ mod tests {
         let tree = parse_json(src);
         let cursor = src.find(r#""id""#).unwrap() + 1;
 
-        assert!(compute_selection_ranges(src, Some(&tree), cursor).len() >= 2);
+        assert!(compute_selection_ranges(Some(&tree), cursor).len() >= 2);
     }
 }

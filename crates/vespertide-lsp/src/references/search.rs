@@ -6,21 +6,15 @@ use std::path::PathBuf;
 use tower_lsp_server::ls_types::Uri;
 
 use crate::store::DocumentStore;
-use crate::workspace_index::WorkspaceIndex;
 use crate::workspace_tables::WorkspaceTables;
 
 use super::{DomainReference, ReferenceSymbol};
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "reference search needs target symbol, current document, open/disk workspace stores, and declaration policy; ReferenceSearchContext is deferred"
-)]
 pub(super) fn find_all(
     symbol: &ReferenceSymbol,
     current_uri: &Uri,
     current_source: &str,
     current_tree: Option<&tree_sitter::Tree>,
-    index: &WorkspaceIndex,
     docs: &DocumentStore,
     disk_tables: Option<&WorkspaceTables>,
     include_declaration: bool,
@@ -80,10 +74,6 @@ pub(super) fn find_all(
     });
     out.dedup();
 
-    // Resolved declarations are valuable to surface even without
-    // include_declaration via cross-file lookups (some clients ignore the
-    // flag and rely on us to be authoritative). Keep callsite explicit.
-    let _ = index;
     out
 }
 
@@ -598,7 +588,6 @@ mod tests {
             &current_uri,
             src,
             Some(&current_tree),
-            &WorkspaceIndex::new(),
             &docs,
             None,
             false,

@@ -6,7 +6,6 @@ use std::ops::Range;
 
 use tower_lsp_server::ls_types::Uri;
 
-use crate::parser::DocumentFormat;
 use crate::store::DocumentStore;
 use crate::tree_util::node_at_byte;
 use crate::workspace_index::WorkspaceIndex;
@@ -23,13 +22,12 @@ pub struct DomainLocation {
 #[must_use]
 pub fn compute(
     source: &str,
-    format: DocumentFormat,
     tree: Option<&tree_sitter::Tree>,
     index: &WorkspaceIndex,
     docs: &DocumentStore,
     byte_offset: usize,
 ) -> Option<DomainLocation> {
-    compute_with_workspace_tables(source, format, tree, index, docs, None, byte_offset)
+    compute_with_workspace_tables(source, tree, index, docs, None, byte_offset)
 }
 
 /// Compute definition target including disk-discovered tables. Falls back to
@@ -37,14 +35,12 @@ pub fn compute(
 #[must_use]
 pub fn compute_with_workspace_tables(
     source: &str,
-    format: DocumentFormat,
     tree: Option<&tree_sitter::Tree>,
     index: &WorkspaceIndex,
     docs: &DocumentStore,
     disk_tables: Option<&WorkspaceTables>,
     byte_offset: usize,
 ) -> Option<DomainLocation> {
-    let _ = format;
     let tree = tree?;
     let node = node_at_byte(tree, byte_offset)?;
     foreign_key::try_definition(node, source, index, docs, disk_tables)
@@ -79,14 +75,7 @@ mod tests {
         let post_tree = pool.parse(post_src, DocumentFormat::Json);
 
         let pos = post_src.find(r#""ref_table":"user""#).unwrap() + 14;
-        let location = compute(
-            post_src,
-            DocumentFormat::Json,
-            post_tree.as_ref(),
-            &idx,
-            &docs,
-            pos,
-        );
+        let location = compute(post_src, post_tree.as_ref(), &idx, &docs, pos);
         assert!(location.is_some(), "definition should resolve to user.json");
         assert_eq!(location.unwrap().uri, user_uri);
     }
@@ -99,7 +88,7 @@ mod tests {
         let src = r#"{"name":"x","columns":[{"name":"a","type":"integer","nullable":false,"foreign_key":{"ref_table":"nonexistent","ref_columns":["id"]}}]}"#;
         let tree = pool.parse(src, DocumentFormat::Json);
         let pos = src.find("nonexistent").unwrap() + 2;
-        let location = compute(src, DocumentFormat::Json, tree.as_ref(), &idx, &docs, pos);
+        let location = compute(src, tree.as_ref(), &idx, &docs, pos);
         assert!(location.is_none());
     }
 
@@ -125,15 +114,8 @@ mod tests {
         // Cursor INSIDE the `"email"` element of ref_columns.
         let pos = post_src.find(r#""email""#).unwrap() + 3;
 
-        let location = compute(
-            post_src,
-            DocumentFormat::Json,
-            post_tree.as_ref(),
-            &idx,
-            &docs,
-            pos,
-        )
-        .expect("ref_columns entry should resolve to its target column");
+        let location = compute(post_src, post_tree.as_ref(), &idx, &docs, pos)
+            .expect("ref_columns entry should resolve to its target column");
         assert_eq!(location.uri, user_uri);
         // Range should pinpoint the user.email column's `name` value, not 0..0.
         let snippet = &user_src[location.byte_range.clone()];
@@ -165,15 +147,8 @@ mod tests {
         let post_tree = pool.parse(post_src, DocumentFormat::Yaml);
         let pos = post_src.find("ref_table: user").unwrap() + 12;
 
-        let location = compute(
-            post_src,
-            DocumentFormat::Yaml,
-            post_tree.as_ref(),
-            &idx,
-            &docs,
-            pos,
-        )
-        .expect("YAML ref_table should resolve to user.yaml");
+        let location = compute(post_src, post_tree.as_ref(), &idx, &docs, pos)
+            .expect("YAML ref_table should resolve to user.yaml");
         assert_eq!(location.uri, user_uri);
         let snippet = &user_src[location.byte_range.clone()];
         assert!(
@@ -203,15 +178,8 @@ mod tests {
         let post_tree = pool.parse(post_src, DocumentFormat::Yaml);
         let pos = post_src.find("[email]").unwrap() + 2;
 
-        let location = compute(
-            post_src,
-            DocumentFormat::Yaml,
-            post_tree.as_ref(),
-            &idx,
-            &docs,
-            pos,
-        )
-        .expect("YAML ref_columns entry should resolve to user.email");
+        let location = compute(post_src, post_tree.as_ref(), &idx, &docs, pos)
+            .expect("YAML ref_columns entry should resolve to user.email");
         assert_eq!(location.uri, user_uri);
         let snippet = &user_src[location.byte_range.clone()];
         assert!(
@@ -246,7 +214,6 @@ mod tests {
 
         let location = super::compute_with_workspace_tables(
             post_src,
-            DocumentFormat::Json,
             post_tree.as_ref(),
             &idx,
             &docs,

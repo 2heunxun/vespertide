@@ -1,6 +1,7 @@
 //! Helpers to convert `TableDef` models into ORM-specific representations
 //! such as `SeaORM`, `SQLAlchemy`, `SQLModel`, and JPA.
 
+mod constraint_scan;
 pub mod jpa;
 pub mod orm;
 mod parallel_config;
