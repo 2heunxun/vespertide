@@ -219,7 +219,11 @@ fn check_owning_table_matches(
 }
 
 /// Look up a sibling pair's scalar value within the same constraint object.
-fn sibling_value(source: &[u8], pair: tree_sitter::Node<'_>, target_key: &str) -> Option<String> {
+fn sibling_value<'a>(
+    source: &'a [u8],
+    pair: tree_sitter::Node<'_>,
+    target_key: &str,
+) -> Option<&'a str> {
     let object_raw = pair.parent()?;
     let object = match object_raw.kind() {
         "flow_node" | "block_node" => object_raw.named_child(0)?,
@@ -242,14 +246,14 @@ fn sibling_value(source: &[u8], pair: tree_sitter::Node<'_>, target_key: &str) -
             let text = source
                 .get(actual.byte_range())
                 .and_then(|bytes| std::str::from_utf8(bytes).ok())?;
-            return Some(strip_quotes(text).to_string());
+            return Some(strip_quotes(text));
         }
     }
     None
 }
 
 /// Walk up to the document's outermost mapping and return its `name` value.
-fn outer_table_name(source: &[u8], node: tree_sitter::Node<'_>) -> Option<String> {
+fn outer_table_name<'a>(source: &'a [u8], node: tree_sitter::Node<'_>) -> Option<&'a str> {
     let mut current = node.parent();
     let mut outer = None;
     while let Some(candidate) = current {
@@ -279,7 +283,7 @@ fn outer_table_name(source: &[u8], node: tree_sitter::Node<'_>) -> Option<String
             let text = source
                 .get(actual.byte_range())
                 .and_then(|bytes| std::str::from_utf8(bytes).ok())?;
-            return Some(strip_quotes(text).to_string());
+            return Some(strip_quotes(text));
         }
     }
     None
