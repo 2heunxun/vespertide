@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use vespertide_core::{TableConstraint, TableDef};
+use vespertide_core::{ColumnName, TableConstraint, TableDef, TableName};
 
 use super::super::imports::{
     resolve_relation_entity_module_path, sanitize_field_name, to_pascal_case, to_snake_case,
@@ -85,7 +85,7 @@ fn collect_many_to_many_targets(
         return None;
     }
 
-    let fks: Vec<_> = junction_table
+    let fks: Vec<(&[ColumnName], &TableName)> = junction_table
         .constraints
         .iter()
         .filter_map(|c| {
@@ -93,7 +93,7 @@ fn collect_many_to_many_targets(
                 columns, ref_table, ..
             } = c
             {
-                Some((columns.clone(), ref_table.clone()))
+                Some((columns.as_slice(), ref_table))
             } else {
                 None
             }
@@ -113,7 +113,7 @@ fn collect_many_to_many_targets(
     }
 
     fks.iter()
-        .find(|(_, ref_table)| ref_table == &current_table.name)?;
+        .find(|(_, ref_table)| **ref_table == current_table.name)?;
 
     let mut targets = Vec::new();
 
@@ -122,10 +122,10 @@ fn collect_many_to_many_targets(
 
     // Target tables via M2M
     for (_, ref_table) in &fks {
-        if ref_table == &current_table.name {
+        if **ref_table == current_table.name {
             continue;
         }
-        let target_exists = schema.iter().any(|t| &t.name == ref_table);
+        let target_exists = schema.iter().any(|t| &t.name == *ref_table);
         if target_exists {
             targets.push(ref_table.to_string());
         }

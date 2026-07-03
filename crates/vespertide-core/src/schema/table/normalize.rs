@@ -246,15 +246,15 @@ fn parse_foreign_key_reference(
     column_name: &str,
     reference: &str,
 ) -> Result<(TableName, Vec<ColumnName>), TableValidationError> {
-    let parts: Vec<&str> = reference.split('.').collect();
-    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
-        return Err(TableValidationError::InvalidForeignKeyFormat {
+    let (head, tail) = reference
+        .split_once('.')
+        .filter(|(head, tail)| !head.is_empty() && !tail.is_empty() && !tail.contains('.'))
+        .ok_or_else(|| TableValidationError::InvalidForeignKeyFormat {
             column_name: column_name.to_string(),
             value: reference.to_string(),
-        });
-    }
+        })?;
 
-    Ok((parts[0].into(), vec![parts[1].into()]))
+    Ok((head.into(), vec![tail.into()]))
 }
 
 fn foreign_key_constraint_exists(constraints: &[TableConstraint], column_name: &str) -> bool {
