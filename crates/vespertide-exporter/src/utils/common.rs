@@ -7,7 +7,14 @@
 /// result in a single buffer instead of collecting an intermediate
 /// `Vec<String>` per call site.
 pub(crate) fn join_quoted<T: AsRef<str>>(items: &[T]) -> String {
-    let mut out = String::new();
+    // Pre-size exactly: each item contributes 2 quotes + its own length, and
+    // every item after the first adds a 2-byte ", " separator. Mirrors the
+    // `String::with_capacity` + buffer-push convention used by the sibling
+    // helpers in `query/helpers.rs`, `vespertide-naming`, and
+    // `seaorm/relations/naming.rs`. Output stays byte-identical.
+    let content_len: usize = items.iter().map(|i| i.as_ref().len()).sum();
+    let capacity = content_len + 2 * items.len() + 2 * items.len().saturating_sub(1);
+    let mut out = String::with_capacity(capacity);
     for item in items {
         if !out.is_empty() {
             out.push_str(", ");
@@ -42,7 +49,15 @@ pub(crate) fn push_attr(buf: &mut String, fragment: &str) {
 /// renderers, and builds the result in a single buffer instead of collecting an
 /// intermediate `Vec<String>` (one `String` per column) per call site.
 pub(crate) fn join_qualified_refs(ref_table: &str, ref_cols: &[&str]) -> String {
-    let mut out = String::new();
+    // Pre-size exactly: each column renders as `"<ref_table>.<col>"` — 2 quotes
+    // + `ref_table.len()` + 1 dot + `col.len()` — and every column after the
+    // first adds a 2-byte ", " separator. Matches the buffer-push pre-sizing
+    // convention used across the workspace. Output stays byte-identical.
+    let cols_len: usize = ref_cols.iter().map(|c| c.len()).sum();
+    let per_col_fixed = 2 + ref_table.len() + 1;
+    let capacity =
+        per_col_fixed * ref_cols.len() + cols_len + 2 * ref_cols.len().saturating_sub(1);
+    let mut out = String::with_capacity(capacity);
     for col in ref_cols {
         if !out.is_empty() {
             out.push_str(", ");

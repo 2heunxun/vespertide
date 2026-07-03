@@ -161,41 +161,43 @@ pub(super) fn render_column(
         }
     }
 
-    // Build attribute parts
-    let mut attrs: Vec<String> = Vec::new();
+    // Build attribute parts in a single buffer via the shared `push_attr`
+    // helper (comma-separated, no intermediate `Vec<String>`). Output is
+    // byte-identical to the previous `Vec<String>` + `.join(", ")`.
+    let mut attrs = String::new();
 
     if is_pk {
-        attrs.push("primary_key".into());
+        crate::utils::common::push_attr(&mut attrs, "primary_key");
         // Only show auto_increment = false for integer types that support auto_increment
         if composite_pk && column.r#type.supports_auto_increment() {
-            attrs.push("auto_increment = false".into());
+            crate::utils::common::push_attr(&mut attrs, "auto_increment = false");
         }
     }
 
     if is_unique && !is_pk {
         // unique is redundant if it's already a primary key
-        attrs.push("unique".into());
+        crate::utils::common::push_attr(&mut attrs, "unique");
     }
 
     if is_indexed && !is_pk && !is_unique {
         // indexed is redundant if it's already a primary key or unique
-        attrs.push("indexed".into());
+        crate::utils::common::push_attr(&mut attrs, "indexed");
     }
 
     if has_default && let Some(ref default_val) = column.default {
         // Format the default value for SeaORM
         let formatted = format_default_value(default_val, &column.r#type);
-        attrs.push(formatted);
+        crate::utils::common::push_attr(&mut attrs, &formatted);
     }
 
     // For custom types, add column_type attribute with the custom type value
     if let ColumnType::Complex(ComplexColumnType::Custom { custom_type }) = &column.r#type {
-        attrs.push(format!("column_type = \"{custom_type}\""));
+        crate::utils::common::push_attr(&mut attrs, &format!("column_type = \"{custom_type}\""));
     }
 
     // Output attribute if any
     if !attrs.is_empty() {
-        lines.push(format!("    #[sea_orm({})]", attrs.join(", ")));
+        lines.push(format!("    #[sea_orm({attrs})]"));
     }
 
     let field_name = sanitize_field_name(&column.name);
@@ -243,53 +245,45 @@ pub(super) fn primary_key_columns(table: &TableDef) -> HashSet<&str> {
     keys
 }
 pub(super) fn render_indexes_and_uniques(lines: &mut Vec<String>, constraints: &[TableConstraint]) {
-    let index_constraints: Vec<_> = constraints
+    // Classify without materializing throwaway `Vec`s: the two flags drive the
+    // section headers and the inline `filter_map` loops below iterate the
+    // constraints directly. A composite unique is one with more than one column.
+    let has_index = constraints
         .iter()
-        .filter_map(|c| {
-            if let TableConstraint::Index { name, columns } = c {
-                Some((name, columns))
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    let composite_uniques: Vec<_> = constraints
+        .any(|c| matches!(c, TableConstraint::Index { .. }));
+    let has_composite_unique = constraints
         .iter()
-        .filter_map(|c| {
-            if let TableConstraint::Unique { name, columns, .. } = c {
-                if columns.len() > 1 {
-                    Some((name, columns))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .collect();
+        .any(|c| matches!(c, TableConstraint::Unique { columns, .. } if columns.len() > 1));
 
-    if index_constraints.is_empty() && composite_uniques.is_empty() {
+    if !has_index && !has_composite_unique {
         return;
     }
 
-    if !index_constraints.is_empty() {
+    if has_index {
         lines.push("// Index definitions (SeaORM uses Statement builders externally)".into());
-        for (name, columns) in index_constraints {
+        for (name, columns) in constraints.iter().filter_map(|c| match c {
+            TableConstraint::Index { name, columns } => Some((name, columns)),
+            _ => None,
+        }) {
             let cols = vespertide_core::schema::names::join_column_names(columns, ", ");
             let idx_name = name.clone().unwrap_or_else(|| "(unnamed)".to_string());
             lines.push(format!("// {idx_name} on [{cols}]"));
         }
     }
 
-    if !composite_uniques.is_empty() {
+    if has_composite_unique {
         lines.push(String::new());
         lines.push(
             "/// Composite unique constraints — declare in migrations or use Statement builder."
                 .into(),
         );
         lines.push("pub const COMPOSITE_UNIQUES: &[&[&str]] = &[".into());
-        for (name, columns) in composite_uniques {
+        for (name, columns) in constraints.iter().filter_map(|c| match c {
+            TableConstraint::Unique { name, columns, .. } if columns.len() > 1 => {
+                Some((name, columns))
+            }
+            _ => None,
+        }) {
             let cols_str = crate::utils::common::join_quoted(columns);
             let comment = name
                 .as_deref()

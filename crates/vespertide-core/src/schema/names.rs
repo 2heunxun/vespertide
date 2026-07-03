@@ -263,7 +263,13 @@ pub fn names_to_strings<T: ToString>(names: &[T]) -> Vec<String> {
 /// ```
 #[must_use]
 pub fn join_column_names(columns: &[ColumnName], separator: &str) -> String {
-    let mut out = String::new();
+    // Pre-size exactly: sum of column-name lengths plus one separator between
+    // each adjacent pair. Finishes matching the buffer-push pattern this
+    // helper's doc-comment claims to follow — `quote_ident` already pre-sizes
+    // via `out.reserve(name.len() + 2)`. Output stays byte-identical.
+    let cap = columns.iter().map(|c| c.as_str().len()).sum::<usize>()
+        + separator.len() * columns.len().saturating_sub(1);
+    let mut out = String::with_capacity(cap);
     for (i, c) in columns.iter().enumerate() {
         if i > 0 {
             out.push_str(separator);
