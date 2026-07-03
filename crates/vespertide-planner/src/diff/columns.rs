@@ -197,6 +197,15 @@ fn diff_column_defaults(
 ) {
     for (col, to_def) in to_cols {
         if let Some(from_def) = from_cols.get(col) {
+            // Fast path: byte-identical raw defaults can never differ once
+            // lowered to SQL, so skip the two `to_sql()` allocations for the
+            // overwhelmingly common unchanged-column case. Structurally
+            // distinct defaults still fall through to the SQL-level compare
+            // below, so no `ModifyColumnDefault` is ever spuriously added or
+            // dropped.
+            if from_def.default == to_def.default {
+                continue;
+            }
             let from_default = from_def
                 .default
                 .as_ref()
