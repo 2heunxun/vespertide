@@ -61,13 +61,21 @@ pub(super) fn diff_constraints(
     let mut replaced_from: Vec<usize> = Vec::new();
     let mut replaced_to: Vec<usize> = Vec::new();
 
+    // Build the exact-match constraint sets ONCE and share them across the
+    // removed/added passes so every "does the other table contain this exact
+    // constraint?" test is an O(log n) `BTreeSet::contains` rather than a linear
+    // `Vec::contains` scan (quadratic on wide tables).
+    let exact_from: BTreeSet<&TableConstraint> = from_tbl.constraints.iter().collect();
+    let exact_to: BTreeSet<&TableConstraint> = to_tbl.constraints.iter().collect();
+
     diff_replaced_constraints(
         actions,
         table_name,
         from_tbl,
         to_tbl,
-        &mut replaced_from,
-        &mut replaced_to,
+        &exact_from,
+        &exact_to,
+        (&mut replaced_from, &mut replaced_to),
     );
     // Promote the "already handled by a replacement" index lists to sets so the
     // per-constraint membership tests in the removed/added passes are O(log n)
@@ -79,11 +87,11 @@ pub(super) fn diff_constraints(
         actions,
         table_name,
         from_tbl,
-        to_tbl,
+        &exact_to,
         deleted_columns,
         &replaced_from,
     );
-    diff_added_constraints(actions, table_name, from_tbl, to_tbl, &replaced_to);
+    diff_added_constraints(actions, table_name, to_tbl, &exact_from, &replaced_to);
 }
 
 fn diff_replaced_constraints(
@@ -91,11 +99,11 @@ fn diff_replaced_constraints(
     table_name: &str,
     from_tbl: &TableDef,
     to_tbl: &TableDef,
-    replaced_from: &mut Vec<usize>,
-    replaced_to: &mut Vec<usize>,
+    exact_from: &BTreeSet<&TableConstraint>,
+    exact_to: &BTreeSet<&TableConstraint>,
+    replaced: (&mut Vec<usize>, &mut Vec<usize>),
 ) {
-    let exact_from: BTreeSet<&TableConstraint> = from_tbl.constraints.iter().collect();
-    let exact_to: BTreeSet<&TableConstraint> = to_tbl.constraints.iter().collect();
+    let (replaced_from, replaced_to) = replaced;
     let mut to_index: BTreeMap<ConstraintIdentityKey<'_>, Vec<usize>> = BTreeMap::new();
 
     for (ti, to_constraint) in to_tbl.constraints.iter().enumerate() {
@@ -134,12 +142,12 @@ fn diff_removed_constraints(
     actions: &mut Vec<MigrationAction>,
     table_name: &str,
     from_tbl: &TableDef,
-    to_tbl: &TableDef,
+    exact_to: &BTreeSet<&TableConstraint>,
     deleted_columns: &BTreeSet<String>,
     replaced_from: &BTreeSet<usize>,
 ) {
     for (fi, from_constraint) in from_tbl.constraints.iter().enumerate() {
-        if to_tbl.constraints.contains(from_constraint) || replaced_from.contains(&fi) {
+        if exact_to.contains(from_constraint) || replaced_from.contains(&fi) {
             continue;
         }
         let constraint_columns = from_constraint.columns();
@@ -160,12 +168,12 @@ fn diff_removed_constraints(
 fn diff_added_constraints(
     actions: &mut Vec<MigrationAction>,
     table_name: &str,
-    from_tbl: &TableDef,
     to_tbl: &TableDef,
+    exact_from: &BTreeSet<&TableConstraint>,
     replaced_to: &BTreeSet<usize>,
 ) {
     for (ti, to_constraint) in to_tbl.constraints.iter().enumerate() {
-        if from_tbl.constraints.contains(to_constraint) || replaced_to.contains(&ti) {
+        if exact_from.contains(to_constraint) || replaced_to.contains(&ti) {
             continue;
         }
         actions.push(MigrationAction::AddConstraint {

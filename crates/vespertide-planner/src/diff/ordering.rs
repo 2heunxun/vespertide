@@ -93,10 +93,14 @@ pub(super) fn topological_sort_tables<'a>(
 
     // Check for cycles
     if result.len() != tables.len() {
+        // Collect the already-placed table names once so the `remaining` filter
+        // is an O(log n) set lookup instead of a nested `result.iter().any(...)`
+        // rescan per table. Cold error path, so this is a clarity/complexity win.
+        let placed: BTreeSet<&str> = result.iter().map(|t| t.name.as_str()).collect();
         let remaining: Vec<&str> = tables
             .iter()
             .map(|t| t.name.as_str())
-            .filter(|name| !result.iter().any(|t| t.name.as_str() == *name))
+            .filter(|name| !placed.contains(name))
             .collect();
         return Err(PlannerError::TableValidation(format!(
             "Circular foreign key dependency detected among tables: {remaining:?}"

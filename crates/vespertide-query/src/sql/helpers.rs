@@ -561,9 +561,14 @@ pub(crate) fn collect_all_check_clauses(
     constraints: &[TableConstraint],
 ) -> Vec<String> {
     let mut clauses = collect_sqlite_enum_check_clauses(table, columns);
+    // Track membership in a set so each explicit clause is a single O(log n)
+    // lookup rather than a linear `Vec::contains` rescan (quadratic on tables
+    // with many CHECK constraints). Insertion order is preserved: enum clauses
+    // first, then explicit clauses in source order.
+    let mut seen: std::collections::BTreeSet<String> = clauses.iter().cloned().collect();
     let explicit = extract_check_clauses(constraints);
     for clause in explicit {
-        if !clauses.contains(&clause) {
+        if seen.insert(clause.clone()) {
             clauses.push(clause);
         }
     }

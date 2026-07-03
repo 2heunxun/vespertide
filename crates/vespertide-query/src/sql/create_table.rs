@@ -218,10 +218,10 @@ pub fn build_create_table(
 
     // Create enum types first (PostgreSQL only)
     // Collect unique enum types to avoid duplicates
-    let mut created_enums = std::collections::HashSet::new();
+    let mut created_enums: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for column in columns {
         if let ColumnType::Complex(ComplexColumnType::Enum { name, .. }) = &column.r#type
-            && created_enums.insert(name.clone())
+            && created_enums.insert(name.as_str())
             && let Some(create_type_sql) = build_create_enum_type_sql(table, &column.r#type)
         {
             queries.push(BuiltQuery::Raw(create_type_sql));
