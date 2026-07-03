@@ -95,6 +95,11 @@ fn check_expr_actions(
 /// lexicographically, anything mixed or non-orderable (bool/null) skipped.
 /// `NOT BETWEEN` is skipped — a reversed `NOT BETWEEN` is always-true and
 /// therefore harmless.
+/// Fixed title for the reversed-`BETWEEN` swap refactor. Hoisted to a
+/// module-scope constant so the string literal is not re-materialised on each
+/// match found by the scan loop below.
+const SWAP_REVERSED_BETWEEN_TITLE: &str = "Swap reversed BETWEEN bounds";
+
 fn swap_reversed_between(expr_text: &str, base: usize) -> Vec<DomainCodeAction> {
     use vespertide_planner::{CheckTokenKind, lex_check_expr};
 
@@ -129,7 +134,7 @@ fn swap_reversed_between(expr_text: &str, base: usize) -> Vec<DomainCodeAction> 
             && literal_greater(low_text, high_text)
         {
             out.push(DomainCodeAction {
-                title: "Swap reversed BETWEEN bounds".to_string(),
+                title: SWAP_REVERSED_BETWEEN_TITLE.to_string(),
                 kind: CodeActionKind::Refactor,
                 edits: vec![
                     DomainTextEdit {

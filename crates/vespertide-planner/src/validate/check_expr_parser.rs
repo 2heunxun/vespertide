@@ -524,17 +524,29 @@ fn parse_number_token(raw: &str) -> Option<Token> {
 }
 
 fn classify_word(word: &str) -> Token {
-    match word.to_ascii_uppercase().as_str() {
-        "AND" => Token::Keyword(Keyword::And),
-        "OR" => Token::Keyword(Keyword::Or),
-        "NOT" => Token::Keyword(Keyword::Not),
-        "IN" => Token::Keyword(Keyword::In),
-        "BETWEEN" => Token::Keyword(Keyword::Between),
-        "IS" => Token::Keyword(Keyword::Is),
-        "NULL" => Token::Keyword(Keyword::Null),
-        "TRUE" => Token::Keyword(Keyword::True),
-        "FALSE" => Token::Keyword(Keyword::False),
-        _ => Token::Ident(word.to_string()),
+    // Case-insensitive keyword recognition without allocating: identifiers
+    // (the common token) fall straight through to the `Token::Ident` arm with
+    // no `to_ascii_uppercase` String churn on the hot path.
+    if word.eq_ignore_ascii_case("AND") {
+        Token::Keyword(Keyword::And)
+    } else if word.eq_ignore_ascii_case("OR") {
+        Token::Keyword(Keyword::Or)
+    } else if word.eq_ignore_ascii_case("NOT") {
+        Token::Keyword(Keyword::Not)
+    } else if word.eq_ignore_ascii_case("IN") {
+        Token::Keyword(Keyword::In)
+    } else if word.eq_ignore_ascii_case("BETWEEN") {
+        Token::Keyword(Keyword::Between)
+    } else if word.eq_ignore_ascii_case("IS") {
+        Token::Keyword(Keyword::Is)
+    } else if word.eq_ignore_ascii_case("NULL") {
+        Token::Keyword(Keyword::Null)
+    } else if word.eq_ignore_ascii_case("TRUE") {
+        Token::Keyword(Keyword::True)
+    } else if word.eq_ignore_ascii_case("FALSE") {
+        Token::Keyword(Keyword::False)
+    } else {
+        Token::Ident(word.to_string())
     }
 }
 
