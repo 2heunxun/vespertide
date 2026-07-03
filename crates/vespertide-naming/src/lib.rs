@@ -113,7 +113,14 @@ pub fn build_check_constraint_name(table: &str, column: &str) -> String {
 /// This prevents conflicts when multiple tables use the same enum name
 /// (e.g., "status" or "gender") with potentially different values.
 pub fn build_enum_type_name(table: &str, enum_name: &str) -> String {
-    format!("{table}_{enum_name}")
+    // Build in one exact-size allocation like the sibling constraint-name
+    // builders above, instead of routing through `format!`. Output is
+    // byte-identical: `{table}_{enum_name}` (`'_'` = 1 byte).
+    let mut out = String::with_capacity(table.len() + 1 + enum_name.len());
+    out.push_str(table);
+    out.push('_');
+    out.push_str(enum_name);
+    out
 }
 
 #[cfg(test)]

@@ -262,10 +262,17 @@ pub fn build_create_table(
     // separate CREATE UNIQUE INDEX statements, so partition off the uniques only
     // in that branch (the MySQL path discards both halves, so allocating them
     // there is pure waste).
-    let create_table_stmt = if matches!(backend, DatabaseBackend::MySql) {
+    let has_unique_constraints = constraints
+        .iter()
+        .any(|c| matches!(c, TableConstraint::Unique { .. }));
+    let create_table_stmt = if matches!(backend, DatabaseBackend::MySql) || !has_unique_constraints {
+        // MySQL keeps uniques inline; the PG/SQLite path emits them as separate
+        // CREATE UNIQUE INDEX statements below, so when there are no uniques to
+        // strip the constraint slice can pass straight through with no clone.
         build_create_table_for_backend(backend, table, columns, constraints)
     } else {
-        // Convert references to owned values for build_create_table_for_backend
+        // PG/SQLite with at least one unique: partition off the uniques into an
+        // owned Vec so they are excluded from the inline CREATE TABLE.
         let table_constraints_owned: Vec<TableConstraint> = constraints
             .iter()
             .filter(|c| !matches!(c, TableConstraint::Unique { .. }))

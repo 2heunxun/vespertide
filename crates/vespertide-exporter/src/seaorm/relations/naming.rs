@@ -85,7 +85,14 @@ pub(in crate::seaorm) fn infer_field_name_from_fk_column(
     // If the FK column exactly matches the referenced column name, treat it as a natural-key
     // relation and expose the target entity name instead of the raw column name.
     // Also handle compact forms like `username` for `user.name`.
-    if sanitized_lower == to_lower || sanitized_lower == format!("{table_lower}{to_lower}") {
+    // The second disjunct checks whether `sanitized_lower` equals `table_lower`
+    // concatenated with `to_lower` (e.g. "username" for table "user", col "name").
+    // Compare allocation-free via a prefix strip instead of building a joined
+    // `String` on every call: it is exactly equal iff `sanitized_lower` starts
+    // with `table_lower` and the remainder is `to_lower`.
+    if sanitized_lower == to_lower
+        || sanitized_lower.strip_prefix(table_lower.as_str()) == Some(to_lower.as_str())
+    {
         return sanitize_field_name(table_name);
     }
 
