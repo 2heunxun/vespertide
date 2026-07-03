@@ -218,25 +218,27 @@ fn check_owning_table_matches(
     outer_table_name(source, expr_pair).is_some_and(|name| name == expected_table)
 }
 
-/// Look up a sibling pair's scalar value within the same constraint object.
-fn sibling_value<'a>(
+/// Scan a mapping node's DIRECT child pairs (non-recursive) for the pair
+/// whose key equals `key`, then return its value's scalar text with the
+/// `flow_node`/`block_node` wrapper peeled and surrounding quotes stripped.
+///
+/// Shared by `sibling_value`, `outer_table_name`, `sibling_ref_table_matches`,
+/// and `is_column_pair`, which each open-coded this exact walk before. The
+/// crate's `tree_util::find_pair_with_key` is the *recursive* variant; this is
+/// the *direct-child* one.
+fn direct_child_scalar<'a>(
+    object: tree_sitter::Node<'_>,
     source: &'a [u8],
-    pair: tree_sitter::Node<'_>,
-    target_key: &str,
+    key: &str,
 ) -> Option<&'a str> {
-    let object_raw = pair.parent()?;
-    let object = match object_raw.kind() {
-        "flow_node" | "block_node" => object_raw.named_child(0)?,
-        _ => object_raw,
-    };
     let mut cursor = object.walk();
     for child in object.children(&mut cursor) {
         if matches!(child.kind(), "pair" | "block_mapping_pair")
-            && let Some(key) = child.named_child(0)
+            && let Some(key_node) = child.named_child(0)
             && let Some(key_text) = source
-                .get(key.byte_range())
+                .get(key_node.byte_range())
                 .and_then(|bytes| std::str::from_utf8(bytes).ok())
-            && strip_quotes(key_text) == target_key
+            && strip_quotes(key_text) == key
         {
             let value = child.named_child(1)?;
             let actual = match value.kind() {
@@ -250,6 +252,20 @@ fn sibling_value<'a>(
         }
     }
     None
+}
+
+/// Look up a sibling pair's scalar value within the same constraint object.
+fn sibling_value<'a>(
+    source: &'a [u8],
+    pair: tree_sitter::Node<'_>,
+    target_key: &str,
+) -> Option<&'a str> {
+    let object_raw = pair.parent()?;
+    let object = match object_raw.kind() {
+        "flow_node" | "block_node" => object_raw.named_child(0)?,
+        _ => object_raw,
+    };
+    direct_child_scalar(object, source, target_key)
 }
 
 /// Walk up to the document's outermost mapping and return its `name` value.
@@ -266,27 +282,7 @@ fn outer_table_name<'a>(source: &'a [u8], node: tree_sitter::Node<'_>) -> Option
         current = candidate.parent();
     }
     let outer = outer?;
-    let mut cursor = outer.walk();
-    for child in outer.children(&mut cursor) {
-        if matches!(child.kind(), "pair" | "block_mapping_pair")
-            && let Some(key) = child.named_child(0)
-            && let Some(key_text) = source
-                .get(key.byte_range())
-                .and_then(|bytes| std::str::from_utf8(bytes).ok())
-            && strip_quotes(key_text) == "name"
-        {
-            let value = child.named_child(1)?;
-            let actual = match value.kind() {
-                "flow_node" | "block_node" => value.named_child(0).unwrap_or(value),
-                _ => value,
-            };
-            let text = source
-                .get(actual.byte_range())
-                .and_then(|bytes| std::str::from_utf8(bytes).ok())?;
-            return Some(strip_quotes(text));
-        }
-    }
-    None
+    direct_child_scalar(outer, source, "name")
 }
 
 /// Lex the CHECK expression in `value` and push a reference for every bare
@@ -326,23 +322,9 @@ fn sibling_ref_table_matches(
         "flow_node" | "block_node" => raw.named_child(0),
         _ => Some(raw),
     });
-    if let Some(fk_object) = fk_object {
-        let mut cursor = fk_object.walk();
-        for child in fk_object.children(&mut cursor) {
-            if matches!(child.kind(), "pair" | "block_mapping_pair")
-                && let Some(key) = child.named_child(0)
-                && let Some(key_text) = source
-                    .get(key.byte_range())
-                    .and_then(|bytes| std::str::from_utf8(bytes).ok())
-                && strip_quotes(key_text) == "ref_table"
-            {
-                return child
-                    .named_child(1)
-                    .is_some_and(|value| value_matches(source, value, table_name));
-            }
-        }
-    }
-    false
+    fk_object
+        .and_then(|obj| direct_child_scalar(obj, source, "ref_table"))
+        .is_some_and(|ref_table| ref_table == table_name)
 }
 
 fn push_array_matches(
@@ -476,20 +458,8 @@ fn is_column_pair(name_pair: tree_sitter::Node<'_>, source: &[u8], expected_tabl
         if let Some(outer) = outer
             && outer.id() != column_object.id()
         {
-            let mut cursor = outer.walk();
-            for child in outer.children(&mut cursor) {
-                if matches!(child.kind(), "pair" | "block_mapping_pair")
-                    && let Some(key) = child.named_child(0)
-                    && let Some(key_text) = source
-                        .get(key.byte_range())
-                        .and_then(|bytes| std::str::from_utf8(bytes).ok())
-                    && strip_quotes(key_text) == "name"
-                {
-                    return child
-                        .named_child(1)
-                        .is_some_and(|value| value_matches(source, value, expected_table));
-                }
-            }
+            return direct_child_scalar(outer, source, "name")
+                .is_some_and(|name| name == expected_table);
         }
     }
     false

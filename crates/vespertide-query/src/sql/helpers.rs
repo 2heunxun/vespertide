@@ -568,17 +568,32 @@ pub(crate) fn collect_all_check_clauses(
     constraints: &[TableConstraint],
 ) -> Vec<String> {
     let mut clauses = collect_sqlite_enum_check_clauses(table, columns);
-    // Track membership in a set so each explicit clause is a single O(log n)
-    // lookup rather than a linear `Vec::contains` rescan (quadratic on tables
-    // with many CHECK constraints). Insertion order is preserved: enum clauses
+    // Enum clauses are already unique among themselves (one per column), so the
+    // membership set only needs to reject explicit clauses that collide with an
+    // enum clause or with an earlier-kept explicit clause. Build the dedup set
+    // from borrowed `&str` views of the enum clauses (no per-enum-clause `String`
+    // clone) plus each kept explicit clause's `&str`, filtering the explicit list
+    // into `retained` BEFORE touching `clauses` so no borrow into `clauses`
+    // overlaps its later mutation. Insertion order is preserved: enum clauses
     // first, then explicit clauses in source order.
-    let mut seen: std::collections::BTreeSet<String> = clauses.iter().cloned().collect();
     let explicit = extract_check_clauses(constraints);
-    for clause in explicit {
-        if seen.insert(clause.clone()) {
-            clauses.push(clause);
+    let mut retained: Vec<String> = Vec::with_capacity(explicit.len());
+    {
+        // `seen` borrows the enum clauses out of `clauses`, so keep it in an
+        // inner scope whose borrows end before `clauses` is mutated below. This
+        // seeds the dedup set from borrowed `&str` — no per-enum-clause `String`
+        // clone (the win) — and interns each kept explicit clause's `&str` so
+        // explicit-vs-explicit dedup stays a single O(log n) lookup. Only the
+        // explicit clauses actually kept are moved into `retained`.
+        let mut seen: std::collections::BTreeSet<&str> =
+            clauses.iter().map(String::as_str).collect();
+        for clause in &explicit {
+            if seen.insert(clause.as_str()) {
+                retained.push(clause.clone());
+            }
         }
     }
+    clauses.extend(retained);
     clauses
 }
 

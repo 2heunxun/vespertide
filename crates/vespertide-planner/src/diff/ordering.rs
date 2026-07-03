@@ -183,11 +183,7 @@ pub(super) fn sort_delete_tables(
         .collect();
 
     // Reorder the DeleteTable actions among their existing slots according to
-    // `sorted_positions`, WITHOUT cloning each action. We reorder the *slot
-    // indices* (cheap `usize` copies) by each slot's table position in
-    // `sorted_positions`, then apply that permutation to the `DeleteTable`
-    // entries in place with `slice::swap` — moving each action's payload rather
-    // than deep-cloning it.
+    // `sorted_positions`, WITHOUT cloning each action.
     //
     // `delete_indices` is ascending (it comes from `.enumerate()`). `order[k]`
     // holds the ORIGINAL slot whose action belongs at the k-th delete slot; the
@@ -200,17 +196,34 @@ pub(super) fn sort_delete_tables(
     });
 
     // Apply the permutation `order` onto the delete slots via selection-style
-    // swaps: this writes each action into its destination with owned moves and
-    // no clone. `where_now[rank]` tracks which original slot currently occupies
-    // the rank-th delete slot so swaps stay consistent as we go.
+    // swaps, moving each action into its destination with owned moves and no
+    // clone. We keep two mutually-inverse index arrays and update BOTH in O(1)
+    // per swap, so resolving "which rank currently holds the wanted action" is a
+    // direct array read instead of the previous inner `where_now.position(..)`
+    // linear rescan — making the apply O(k) instead of O(k²):
+    //   * `where_now[rank]`  — original slot currently occupying that delete rank
+    //   * `slot_at_rank`     — its inverse, keyed by rank offset within the run
+    // The reordered `DeleteTable` payloads stay byte-identical to before.
+    //
+    // Delete slots are ascending, so `delete_indices[0]` is the lowest slot;
+    // `rank_base` lets us index the inverse array by `slot - rank_base` cheaply.
     let mut where_now: Vec<usize> = delete_indices.clone();
+    let rank_base = delete_indices[0];
+    let span = delete_indices[delete_indices.len() - 1] - rank_base + 1;
+    let mut slot_to_rank = vec![usize::MAX; span];
+    for (rank, &slot) in delete_indices.iter().enumerate() {
+        slot_to_rank[slot - rank_base] = rank;
+    }
     for dst_rank in 0..delete_indices.len() {
         let want_slot = order[dst_rank];
-        // Current rank holding the wanted action.
-        let src_rank = where_now.iter().position(|&s| s == want_slot).unwrap();
+        let src_rank = slot_to_rank[want_slot - rank_base];
         if src_rank != dst_rank {
             actions.swap(delete_indices[dst_rank], delete_indices[src_rank]);
+            // Swap the two slots' bookkeeping so both arrays stay consistent.
+            let displaced_slot = where_now[dst_rank];
             where_now.swap(dst_rank, src_rank);
+            slot_to_rank[want_slot - rank_base] = dst_rank;
+            slot_to_rank[displaced_slot - rank_base] = src_rank;
         }
     }
 }

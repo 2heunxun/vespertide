@@ -87,6 +87,11 @@ fn compute_integer_enum_remapping(from: &ColumnType, to: &ColumnType) -> BTreeMa
     else {
         return BTreeMap::new();
     };
+    // Fast path: identical variant lists can never remap — skip the map build.
+    // This is the overwhelmingly common case (unchanged integer enum).
+    if from_items == to_items {
+        return BTreeMap::new();
+    }
     let to_by_name: BTreeMap<&str, i64> = to_items
         .iter()
         .map(|nv| (nv.name.as_str(), nv.value))
