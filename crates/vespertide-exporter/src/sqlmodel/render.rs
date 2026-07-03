@@ -268,30 +268,7 @@ fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Ve
         .collect();
 
     // Collect foreign key info; lookup-only, ordering unused.
-    let fk_info: std::collections::HashMap<String, (String, String)> = table
-        .constraints
-        .iter()
-        .filter_map(|c| {
-            if let TableConstraint::ForeignKey {
-                columns,
-                ref_table,
-                ref_columns,
-                ..
-            } = c
-            {
-                if columns.len() == 1 && ref_columns.len() == 1 {
-                    Some((
-                        columns[0].to_string(),
-                        (ref_table.to_string(), ref_columns[0].to_string()),
-                    ))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .collect();
+    let fk_info = crate::constraint_scan::single_column_fk_targets(&table.constraints);
 
     // Render columns
     for col in &table.columns {

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use super::enums::render_enum;
 use super::types::{UsedTypes, column_type_to_python, column_type_to_sqlalchemy};
 use crate::parallel_config::{
@@ -139,30 +137,7 @@ fn render_entity_part(table: &TableDef, used_types: &mut UsedTypes<'static>) -> 
     let unique_columns = crate::constraint_scan::single_column_uniques(&table.constraints);
 
     // Collect foreign key info; lookup-only, ordering unused.
-    let fk_info: HashMap<String, (String, String)> = table
-        .constraints
-        .iter()
-        .filter_map(|c| {
-            if let TableConstraint::ForeignKey {
-                columns,
-                ref_table,
-                ref_columns,
-                ..
-            } = c
-            {
-                if columns.len() == 1 && ref_columns.len() == 1 {
-                    Some((
-                        columns[0].to_string(),
-                        (ref_table.to_string(), ref_columns[0].to_string()),
-                    ))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .collect();
+    let fk_info = crate::constraint_scan::single_column_fk_targets(&table.constraints);
 
     // Render columns
     for col in &table.columns {

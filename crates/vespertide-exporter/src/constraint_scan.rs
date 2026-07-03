@@ -6,7 +6,7 @@
 //! a single-column index. Centralising the scans keeps the four
 //! renderers from drifting apart.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use vespertide_core::{ColumnName, TableConstraint};
 
@@ -63,4 +63,32 @@ pub(crate) fn single_column_indexes(constraints: &[TableConstraint]) -> HashSet<
         TableConstraint::Index { columns, .. } => Some(columns.as_slice()),
         _ => None,
     })
+}
+
+/// Map each single-column foreign key's column name to its
+/// `(ref_table, ref_col)` target. Only foreign keys with exactly one owning
+/// column and one referenced column are included; composite FKs are skipped.
+///
+/// Lookup-only, ordering unused.
+pub(crate) fn single_column_fk_targets(
+    constraints: &[TableConstraint],
+) -> HashMap<String, (String, String)> {
+    let mut map = HashMap::new();
+    for constraint in constraints {
+        if let TableConstraint::ForeignKey {
+            columns,
+            ref_table,
+            ref_columns,
+            ..
+        } = constraint
+            && columns.len() == 1
+            && ref_columns.len() == 1
+        {
+            map.insert(
+                columns[0].to_string(),
+                (ref_table.to_string(), ref_columns[0].to_string()),
+            );
+        }
+    }
+    map
 }
