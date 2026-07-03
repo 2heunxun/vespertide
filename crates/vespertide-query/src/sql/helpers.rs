@@ -612,7 +612,11 @@ pub(crate) fn build_create_with_checks(
         let mut modified_sql = base_sql;
         if let Some(pos) = modified_sql.rfind(')') {
             let check_sql = check_clauses.join(", ");
-            modified_sql.insert_str(pos, &format!(", {check_sql}"));
+            // Insert `", " + check_sql` at `pos` without an extra `format!`
+            // allocation: the joined text goes in first, then the separator is
+            // inserted BEFORE it at the same `pos`, yielding `", <check_sql>`.
+            modified_sql.insert_str(pos, &check_sql);
+            modified_sql.insert_str(pos, ", ");
         }
         BuiltQuery::Raw(RawSql::uniform(modified_sql))
     }

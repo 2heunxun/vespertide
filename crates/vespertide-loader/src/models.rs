@@ -57,9 +57,18 @@ fn collect_model_paths(dir: &Path) -> Result<Vec<PathBuf>> {
         let entry = entry.context("read directory entry")?;
         let path = entry.path();
 
-        if path.is_dir() {
+        // `DirEntry::file_type()` answers dir/file from the single `readdir`
+        // result on most platforms (no extra stat). It does NOT follow
+        // symlinks, whereas `Path::is_dir`/`is_file` DO — so for symlinked
+        // entries we fall back to the path checks to keep behavior identical.
+        let ft = entry.file_type().ok();
+        let is_symlink = ft.is_some_and(|t| t.is_symlink());
+
+        if ft.is_some_and(|t| t.is_dir()) || (is_symlink && path.is_dir()) {
             paths.extend(collect_model_paths(&path)?);
-        } else if path.is_file() && crate::has_supported_extension(&path) {
+        } else if (ft.is_some_and(|t| t.is_file()) || (is_symlink && path.is_file()))
+            && crate::has_supported_extension(&path)
+        {
             paths.push(path);
         }
     }
