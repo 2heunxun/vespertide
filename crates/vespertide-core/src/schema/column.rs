@@ -386,29 +386,39 @@ impl SimpleColumnType {
         )
     }
 
-    /// Convert to human-readable display string
-    pub fn to_display_string(&self) -> String {
+    /// Borrow the human-readable display label as a `&'static str`.
+    ///
+    /// Prefer this over [`Self::to_display_string`] when the caller only needs
+    /// to read the label — it avoids an allocation for a compile-time constant.
+    #[must_use]
+    pub fn display_str(&self) -> &'static str {
         match self {
-            SimpleColumnType::SmallInt => "smallint".to_string(),
-            SimpleColumnType::Integer => "integer".to_string(),
-            SimpleColumnType::BigInt => "bigint".to_string(),
-            SimpleColumnType::Real => "real".to_string(),
-            SimpleColumnType::DoublePrecision => "double precision".to_string(),
-            SimpleColumnType::Text => "text".to_string(),
-            SimpleColumnType::Boolean => "boolean".to_string(),
-            SimpleColumnType::Date => "date".to_string(),
-            SimpleColumnType::Time => "time".to_string(),
-            SimpleColumnType::Timestamp => "timestamp".to_string(),
-            SimpleColumnType::Timestamptz => "timestamptz".to_string(),
-            SimpleColumnType::Interval => "interval".to_string(),
-            SimpleColumnType::Bytea => "bytea".to_string(),
-            SimpleColumnType::Uuid => "uuid".to_string(),
-            SimpleColumnType::Json => "json".to_string(),
-            SimpleColumnType::Inet => "inet".to_string(),
-            SimpleColumnType::Cidr => "cidr".to_string(),
-            SimpleColumnType::Macaddr => "macaddr".to_string(),
-            SimpleColumnType::Xml => "xml".to_string(),
+            SimpleColumnType::SmallInt => "smallint",
+            SimpleColumnType::Integer => "integer",
+            SimpleColumnType::BigInt => "bigint",
+            SimpleColumnType::Real => "real",
+            SimpleColumnType::DoublePrecision => "double precision",
+            SimpleColumnType::Text => "text",
+            SimpleColumnType::Boolean => "boolean",
+            SimpleColumnType::Date => "date",
+            SimpleColumnType::Time => "time",
+            SimpleColumnType::Timestamp => "timestamp",
+            SimpleColumnType::Timestamptz => "timestamptz",
+            SimpleColumnType::Interval => "interval",
+            SimpleColumnType::Bytea => "bytea",
+            SimpleColumnType::Uuid => "uuid",
+            SimpleColumnType::Json => "json",
+            SimpleColumnType::Inet => "inet",
+            SimpleColumnType::Cidr => "cidr",
+            SimpleColumnType::Macaddr => "macaddr",
+            SimpleColumnType::Xml => "xml",
         }
+    }
+
+    /// Convert to human-readable display string
+    #[must_use]
+    pub fn to_display_string(&self) -> String {
+        self.display_str().to_string()
     }
 
     /// Get the default fill value for this type

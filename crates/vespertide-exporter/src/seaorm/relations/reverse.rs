@@ -259,11 +259,11 @@ fn reverse_relation_field_defs_inner(ctx: ReverseRelationFieldCtx<'_>) -> Vec<St
                         target_entity: other_table.name.to_string(),
                         is_one_to_one,
                         field_base,
-                        base_relation_enum,
+                        base_relation_enum: base_relation_enum.clone(),
                         source_table: other_table.name.to_string(),
                         has_multiple_fks,
                         via: None,
-                        via_rel: Some(generate_relation_enum_name(columns)),
+                        via_rel: Some(base_relation_enum),
                         is_m2m: false,
                     });
                 }
@@ -412,12 +412,13 @@ fn collect_many_to_many_relations(
     }
 
     // First, add has_many to the junction table itself (direct relation, not M2M)
+    let junction_pascal = to_pascal_case(&junction_table.name);
     let junction_base = pluralize(&sanitize_field_name(&junction_table.name));
     relations.push(ReverseRelation {
         target_entity: junction_table.name.to_string(),
         is_one_to_one: false,
         field_base: junction_base,
-        base_relation_enum: to_pascal_case(&junction_table.name),
+        base_relation_enum: junction_pascal.clone(),
         source_table: junction_table.name.to_string(),
         has_multiple_fks: false,
         via: None,
@@ -441,11 +442,7 @@ fn collect_many_to_many_relations(
             pluralize(&sanitize_field_name(ref_table)),
             sanitize_field_name(&junction_table.name)
         );
-        let base_relation_enum = format!(
-            "{}Via{}",
-            to_pascal_case(ref_table),
-            to_pascal_case(&junction_table.name)
-        );
+        let base_relation_enum = format!("{}Via{}", to_pascal_case(ref_table), junction_pascal);
 
         relations.push(ReverseRelation {
             target_entity: ref_table.to_string(),
