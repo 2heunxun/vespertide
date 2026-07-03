@@ -29,19 +29,18 @@ pub(in crate::seaorm) fn unique_relation_enum_name(
         return preferred;
     }
 
-    let source_prefixed = format!("{}{}", to_pascal_case(source_table), base_relation_enum);
+    // `to_pascal_case(source_table)` is a loop-invariant: compute it once and
+    // reuse it for the source-prefixed candidate and every indexed candidate,
+    // instead of re-allocating the identical pascal string per attempt.
+    let source_pascal = to_pascal_case(source_table);
+    let source_prefixed = format!("{source_pascal}{base_relation_enum}");
     if !used_relation_enums.contains(&source_prefixed) {
         return source_prefixed;
     }
 
     let mut index = 2;
     loop {
-        let candidate = format!(
-            "{}{}{}",
-            to_pascal_case(source_table),
-            base_relation_enum,
-            index
-        );
+        let candidate = format!("{source_pascal}{base_relation_enum}{index}");
         if !used_relation_enums.contains(&candidate) {
             return candidate;
         }
@@ -104,16 +103,26 @@ pub(in crate::seaorm) fn infer_field_name_from_fk_column(
 pub(in crate::seaorm) fn pluralize(name: &str) -> String {
     if name.ends_with('s') {
         name.to_string()
-    } else if name.ends_with('y')
-        && !name.ends_with("ay")
-        && !name.ends_with("ey")
-        && !name.ends_with("oy")
-        && !name.ends_with("uy")
-    {
+    } else if name.ends_with('y') && !ends_with_vowel_y(name) {
         format!("{}ies", name.strip_suffix('y').unwrap_or(name))
     } else {
         format!("{name}s")
     }
+}
+
+/// True when `name` ends in a vowel immediately followed by `y` (e.g. `day`,
+/// `key`, `boy`, `guy`). Answers the `y`→`ies` guard with a single lookup of
+/// the character before the trailing `y` instead of four separate 2-byte
+/// suffix scans. The vowel set is exactly `{a, e, o, u}` (not `i`), so `iy`
+/// still pluralizes to `ies`; a bare `"y"` (no preceding char) is treated as a
+/// consonant-`y` and pluralizes to `ys`. Byte-identical to the prior chain.
+fn ends_with_vowel_y(name: &str) -> bool {
+    name.ends_with('y')
+        && name
+            .chars()
+            .rev()
+            .nth(1)
+            .is_some_and(|c| matches!(c, 'a' | 'e' | 'o' | 'u'))
 }
 
 pub(super) fn fk_attr_value<T: AsRef<str>>(cols: &[T]) -> String {

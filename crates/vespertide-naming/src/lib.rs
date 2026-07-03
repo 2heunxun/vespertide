@@ -95,7 +95,15 @@ fn write_sorted_columns<T: AsRef<str>>(out: &mut String, columns: &[T]) {
 /// Uses double underscore to separate table name from the rest.
 /// Format: chk_{table}__{column}
 pub fn build_check_constraint_name(table: &str, column: &str) -> String {
-    format!("chk_{table}__{column}")
+    // Build in one exact-size allocation like the sibling constraint-name
+    // builders above, instead of routing through `format!`. Output is
+    // byte-identical: `chk_{table}__{column}` (`"chk_"` = 4 bytes, `"__"` = 2).
+    let mut out = String::with_capacity(4 + table.len() + 2 + column.len());
+    out.push_str("chk_");
+    out.push_str(table);
+    out.push_str("__");
+    out.push_str(column);
+    out
 }
 
 /// Generate enum type name with table prefix to avoid conflicts.

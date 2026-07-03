@@ -65,7 +65,9 @@ pub(super) const RUST_KEYWORDS: &[&str] = &[
 ];
 
 pub(super) fn sanitize_field_name(name: &str) -> String {
-    let mut result = String::new();
+    // Output is bounded by `name.len()` (+1 only in the leading-digit case);
+    // pre-size to collapse the small-string growth ladder into one allocation.
+    let mut result = String::with_capacity(name.len() + 1);
 
     for (idx, ch) in name.chars().enumerate() {
         if (ch.is_ascii_alphanumeric() && (idx > 0 || ch.is_ascii_alphabetic())) || ch == '_' {
@@ -98,7 +100,8 @@ pub(super) fn unique_name(base: &str, used: &mut HashSet<String>) -> String {
     name
 }
 pub(super) fn to_pascal_case(s: &str) -> String {
-    let mut result = String::new();
+    // Separators are dropped, so the output never exceeds `s.len()`.
+    let mut result = String::with_capacity(s.len());
     let mut capitalize = true;
     for c in s.chars() {
         let is_separator = c == '_' || c == '-';
@@ -120,7 +123,9 @@ pub(super) fn to_pascal_case(s: &str) -> String {
 /// Convert `PascalCase` to `snake_case`.
 /// For "`CreatorUser`", generates "`creator_user`".
 pub(super) fn to_snake_case(s: &str) -> String {
-    let mut result = String::new();
+    // Each uppercase run inserts one `_`; a small slack over `s.len()` avoids a
+    // realloc for typical PascalCase input without over-sizing.
+    let mut result = String::with_capacity(s.len() + 4);
     for (i, c) in s.chars().enumerate() {
         if i > 0 && c.is_ascii_uppercase() {
             result.push('_');

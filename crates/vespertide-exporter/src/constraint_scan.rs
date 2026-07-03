@@ -8,7 +8,27 @@
 
 use std::collections::HashSet;
 
-use vespertide_core::TableConstraint;
+use vespertide_core::{ColumnName, TableConstraint};
+
+/// Collect the column names from every single-column constraint that `extract`
+/// matches. Shared body for [`single_column_uniques`] and
+/// [`single_column_indexes`], which differ only in the matched
+/// `TableConstraint` variant. `extract` returns the constraint's column slice
+/// for the variant it cares about, or `None` for every other variant.
+fn single_column_scan(
+    constraints: &[TableConstraint],
+    extract: impl Fn(&TableConstraint) -> Option<&[ColumnName]>,
+) -> HashSet<String> {
+    let mut cols = HashSet::new();
+    for constraint in constraints {
+        if let Some(columns) = extract(constraint)
+            && columns.len() == 1
+        {
+            cols.insert(columns[0].to_string());
+        }
+    }
+    cols
+}
 
 /// Collect the column names covered by table-level `PrimaryKey` constraints.
 ///
@@ -29,28 +49,18 @@ pub(crate) fn primary_key_columns(constraints: &[TableConstraint]) -> HashSet<St
 ///
 /// Lookup-only, ordering unused.
 pub(crate) fn single_column_uniques(constraints: &[TableConstraint]) -> HashSet<String> {
-    let mut unique_cols = HashSet::new();
-    for constraint in constraints {
-        if let TableConstraint::Unique { columns, .. } = constraint
-            && columns.len() == 1
-        {
-            unique_cols.insert(columns[0].to_string());
-        }
-    }
-    unique_cols
+    single_column_scan(constraints, |c| match c {
+        TableConstraint::Unique { columns, .. } => Some(columns.as_slice()),
+        _ => None,
+    })
 }
 
 /// Collect the column names that carry a single-column `Index` constraint.
 ///
 /// Lookup-only, ordering unused.
 pub(crate) fn single_column_indexes(constraints: &[TableConstraint]) -> HashSet<String> {
-    let mut indexed_cols = HashSet::new();
-    for constraint in constraints {
-        if let TableConstraint::Index { columns, .. } = constraint
-            && columns.len() == 1
-        {
-            indexed_cols.insert(columns[0].to_string());
-        }
-    }
-    indexed_cols
+    single_column_scan(constraints, |c| match c {
+        TableConstraint::Index { columns, .. } => Some(columns.as_slice()),
+        _ => None,
+    })
 }
