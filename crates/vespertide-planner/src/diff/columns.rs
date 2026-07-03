@@ -92,6 +92,12 @@ fn compute_integer_enum_remapping(from: &ColumnType, to: &ColumnType) -> BTreeMa
     if from_items == to_items {
         return BTreeMap::new();
     }
+    // Fast path: a remap pairs a `from` variant with a same-named `to` variant
+    // whose value shifted. If either side is empty there can be no shared name,
+    // so the result is always empty — skip building `to_by_name` entirely.
+    if from_items.is_empty() || to_items.is_empty() {
+        return BTreeMap::new();
+    }
     let to_by_name: BTreeMap<&str, i64> = to_items
         .iter()
         .map(|nv| (nv.name.as_str(), nv.value))
