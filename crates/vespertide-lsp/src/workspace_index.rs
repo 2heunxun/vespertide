@@ -127,9 +127,12 @@ impl WorkspaceIndex {
     }
 
     /// `true` if no tables are indexed.
+    ///
+    /// # Panics
+    /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.read_inner().by_name.is_empty()
     }
 }
 
@@ -311,6 +314,19 @@ mod tests {
         idx.upsert(&uri("scalar.yaml"), src, &tree);
 
         assert!(idx.is_empty());
+    }
+
+    #[test]
+    fn is_empty_tracks_population() {
+        let idx = WorkspaceIndex::new();
+        assert!(idx.is_empty());
+
+        let pool = ParserPool::new();
+        let src = r#"{"name":"user"}"#;
+        let tree = pool.parse(src, DocumentFormat::Json).unwrap();
+        idx.upsert(&uri("user.json"), src, &tree);
+
+        assert!(!idx.is_empty());
     }
 
     #[test]
