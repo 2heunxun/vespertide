@@ -267,11 +267,14 @@ fn render_row(out: &mut String, bx: &TableBox, idx: usize, row: &RowSpec) {
         name = escape_xml(&row.name),
     );
 
-    // Type, right-aligned in monospace.
-    let type_display = if row.nullable {
-        format!("{}?", row.type_str)
+    // Type, right-aligned in monospace. The nullable branch needs an owned
+    // `String` (it appends `?`, then escapes it); the non-nullable branch
+    // escapes the borrowed `type_str` directly via `Cow`, so no clone is paid
+    // on the common path.
+    let type_display: std::borrow::Cow<'_, str> = if row.nullable {
+        std::borrow::Cow::Owned(escape_xml(&format!("{}?", row.type_str)).into_owned())
     } else {
-        row.type_str.clone()
+        escape_xml(&row.type_str)
     };
     let _ = writeln!(
         out,
@@ -282,7 +285,7 @@ fn render_row(out: &mut String, bx: &TableBox, idx: usize, row: &RowSpec) {
         fg = ROW_FG_MUTED,
         fs = TYPE_FS,
         ff = MONO_FAMILY,
-        t = escape_xml(&type_display),
+        t = type_display,
     );
 }
 
