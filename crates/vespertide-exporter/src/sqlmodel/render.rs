@@ -275,7 +275,7 @@ fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Ve
         .filter_map(|c| {
             if let TableConstraint::Index { name, columns } = c {
                 if columns.len() > 1 {
-                    Some((name.clone(), columns.clone()))
+                    Some((name, columns))
                 } else {
                     None
                 }
@@ -291,7 +291,7 @@ fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Ve
         .filter_map(|c| {
             if let TableConstraint::Unique { name, columns, .. } = c {
                 if columns.len() > 1 {
-                    Some((name.clone(), columns.clone()))
+                    Some((name, columns))
                 } else {
                     None
                 }
@@ -305,7 +305,7 @@ fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Ve
         lines.push(String::new());
         lines.push("    __table_args__ = (".into());
 
-        for (name, columns) in &composite_indexes {
+        for &(name, columns) in &composite_indexes {
             let cols_str = join_quoted(columns);
             if let Some(idx_name) = name {
                 lines.push(format!("        Index(\"{idx_name}\", {cols_str}),"));
@@ -314,7 +314,7 @@ fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Ve
             }
         }
 
-        for (name, columns) in &composite_uniques {
+        for &(name, columns) in &composite_uniques {
             let cols_str = join_quoted(columns);
             if let Some(uq_name) = name {
                 lines.push(format!(

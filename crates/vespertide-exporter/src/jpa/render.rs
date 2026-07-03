@@ -163,7 +163,7 @@ fn render_table_annotation(
         .iter()
         .filter_map(|c| {
             if let TableConstraint::Index { name, columns } = c {
-                Some((name.clone(), columns.clone()))
+                Some((name, columns))
             } else {
                 None
             }
@@ -175,7 +175,7 @@ fn render_table_annotation(
         .filter_map(|c| {
             if let TableConstraint::Unique { name, columns, .. } = c {
                 if columns.len() > 1 {
-                    Some((name.clone(), columns.clone()))
+                    Some((name, columns))
                 } else {
                     None
                 }
@@ -194,7 +194,7 @@ fn render_table_annotation(
 
     if !indexes.is_empty() {
         annotation.push_str(", indexes = {\n");
-        for (i, (name, columns)) in indexes.iter().enumerate() {
+        for (i, &(name, columns)) in indexes.iter().enumerate() {
             let col_list = columns.join(", ");
             let comma = if i < indexes.len() - 1 { "," } else { "" };
             if let Some(idx_name) = name {
@@ -211,7 +211,7 @@ fn render_table_annotation(
 
     if !unique_constraints.is_empty() {
         annotation.push_str(", uniqueConstraints = {\n");
-        for (i, (name, columns)) in unique_constraints.iter().enumerate() {
+        for (i, &(name, columns)) in unique_constraints.iter().enumerate() {
             let cols = crate::utils::common::join_quoted(columns);
             let comma = if i < unique_constraints.len() - 1 {
                 ","

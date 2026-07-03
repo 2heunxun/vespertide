@@ -438,12 +438,12 @@ fn are_columns_unique(table: &TableDef, columns: &[String]) -> bool {
 fn primary_key_columns(table: &TableDef) -> Vec<String> {
     if let Some(columns) = table.constraints.iter().find_map(|constraint| {
         if let TableConstraint::PrimaryKey { columns, .. } = constraint {
-            Some(columns.clone())
+            Some(columns.as_slice())
         } else {
             None
         }
     }) {
-        return names_to_strings(&columns);
+        return names_to_strings(columns);
     }
 
     table
