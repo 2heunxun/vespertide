@@ -10,11 +10,7 @@ use super::super::imports::{sanitize_field_name, to_pascal_case};
 pub(in crate::seaorm) fn generate_relation_enum_name<T: AsRef<str>>(columns: &[T]) -> String {
     // Take the first column and remove common FK suffixes like "_id"
     let first_col = columns[0].as_ref();
-    let without_id = if let Some(stripped) = first_col.strip_suffix("_id") {
-        stripped
-    } else {
-        first_col
-    };
+    let without_id = first_col.strip_suffix("_id").unwrap_or(first_col);
 
     to_pascal_case(without_id)
 }
