@@ -202,7 +202,7 @@ fn rel_path_to_module_segments(rel_path: &Path) -> Vec<String> {
             if let std::path::Component::Normal(name) = component
                 && let Some(s) = name.to_str()
             {
-                segments.push(sanitize_filename(s).clone());
+                segments.push(sanitize_filename(s));
             }
         }
     }
@@ -215,7 +215,7 @@ fn rel_path_to_module_segments(rel_path: &Path) -> Vec<String> {
             (file_name, "")
         };
         let stem = stem.strip_suffix(".vespertide").unwrap_or(stem);
-        segments.push(sanitize_filename(stem).clone());
+        segments.push(sanitize_filename(stem));
     }
 
     segments
@@ -380,7 +380,7 @@ async fn ensure_mod_chain(root: &Path, rel_path: &Path) -> Result<()> {
     };
     let mut comps: Vec<String> = path_stripped
         .components()
-        .filter_map(|c| c.as_os_str().to_str().map(|s| sanitize_filename(s).clone()))
+        .filter_map(|c| c.as_os_str().to_str().map(sanitize_filename))
         .collect();
     if comps.is_empty() {
         return Ok(());

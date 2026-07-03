@@ -129,7 +129,7 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
 }
 
 fn write_raw_sql_action(f: &mut fmt::Formatter<'_>, sql: &str) -> fmt::Result {
-    if sql.chars().count() > 50 {
+    if sql.chars().nth(50).is_some() {
         let head = truncate_chars(sql, 47);
         write!(f, "RawSql: {head}...")
     } else {
