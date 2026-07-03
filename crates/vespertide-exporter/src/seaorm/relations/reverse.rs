@@ -179,8 +179,7 @@ fn reverse_relation_field_defs_inner(ctx: ReverseRelationFieldCtx<'_>) -> Vec<St
     let mut relations: Vec<ReverseRelation> = Vec::new();
 
     // Count how many FKs from each table reference this table
-    let mut fk_count_per_table: std::collections::HashMap<String, usize> =
-        std::collections::HashMap::new();
+    let mut fk_count_per_table: HashMap<&str, usize> = HashMap::new();
     for other_table in schema {
         if other_table.name == table.name {
             continue;
@@ -190,7 +189,7 @@ fn reverse_relation_field_defs_inner(ctx: ReverseRelationFieldCtx<'_>) -> Vec<St
                 && ref_table == &table.name
             {
                 *fk_count_per_table
-                    .entry(other_table.name.to_string())
+                    .entry(other_table.name.as_str())
                     .or_insert(0) += 1;
             }
         }
@@ -366,7 +365,7 @@ fn collect_many_to_many_relations(
     }
 
     // Collect all FKs from the junction table
-    let fks: Vec<_> = junction_table
+    let fks: Vec<(&[ColumnName], &TableName)> = junction_table
         .constraints
         .iter()
         .filter_map(|c| {
@@ -374,7 +373,7 @@ fn collect_many_to_many_relations(
                 columns, ref_table, ..
             } = c
             {
-                Some((columns.clone(), ref_table.clone()))
+                Some((columns.as_slice(), ref_table))
             } else {
                 None
             }
@@ -397,17 +396,16 @@ fn collect_many_to_many_relations(
 
     // Find which FK references the current table
     fks.iter()
-        .find(|(_, ref_table)| ref_table == &current_table.name)?;
+        .find(|(_, ref_table)| **ref_table == current_table.name)?;
 
     let mut relations = Vec::new();
 
-    let self_ref_fks: Vec<_> = fks
+    // All FKs point back at the current table ⇒ pure self-ref junction, not an
+    // M2M junction linking two distinct tables.
+    if fks
         .iter()
-        .filter(|(_, ref_table)| ref_table == &current_table.name)
-        .cloned()
-        .collect();
-
-    if self_ref_fks.len() == fks.len() {
+        .all(|(_, ref_table)| **ref_table == current_table.name)
+    {
         return None;
     }
 
@@ -428,11 +426,11 @@ fn collect_many_to_many_relations(
 
     // Then add has_many with via for the target tables (M2M relations)
     for (_columns, ref_table) in &fks {
-        if ref_table == &current_table.name {
+        if **ref_table == current_table.name {
             continue;
         }
 
-        let target_exists = schema.iter().any(|t| &t.name == ref_table);
+        let target_exists = schema.iter().any(|t| &t.name == *ref_table);
         if !target_exists {
             continue;
         }

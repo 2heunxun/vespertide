@@ -7,7 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use vespertide_core::{TableConstraint, TableDef};
+use vespertide_core::{ColumnName, TableConstraint, TableDef, TableName};
 
 use super::super::imports::{
     absolute_module_path, sanitize_field_name, to_pascal_case, unique_name,
@@ -30,7 +30,7 @@ pub(super) fn collect_self_ref_junction(
         return None;
     }
 
-    let fks: Vec<_> = junction_table
+    let fks: Vec<(&[ColumnName], &TableName)> = junction_table
         .constraints
         .iter()
         .filter_map(|c| {
@@ -38,7 +38,7 @@ pub(super) fn collect_self_ref_junction(
                 columns, ref_table, ..
             } = c
             {
-                Some((columns.clone(), ref_table.clone()))
+                Some((columns.as_slice(), ref_table))
             } else {
                 None
             }
@@ -58,7 +58,7 @@ pub(super) fn collect_self_ref_junction(
 
     if !fks
         .iter()
-        .all(|(_, ref_table)| ref_table == &current_table.name)
+        .all(|(_, ref_table)| **ref_table == current_table.name)
     {
         return None;
     }
