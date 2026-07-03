@@ -4,8 +4,8 @@ use sea_query::{
 };
 
 use vespertide_core::{
-    ColumnDef, ColumnType, ComplexColumnType, ReferenceAction, SimpleColumnType, TableConstraint,
-    TableDef,
+    ColumnDef, ColumnType, ComplexColumnType, EnumValues, ReferenceAction, SimpleColumnType,
+    TableConstraint, TableDef,
 };
 
 use super::create_table::build_create_table_for_backend;
@@ -175,15 +175,22 @@ fn apply_complex_column_type(
             } else {
                 // Use table-prefixed enum type name to avoid conflicts
                 let type_name = build_enum_type_name(table, name);
-                let variants = values
-                    .variant_names()
-                    .into_iter()
-                    .map(Alias::new)
-                    .collect::<Vec<Alias>>();
+                // Map each variant name straight into `Alias::new`, skipping the
+                // intermediate `Vec<&str>` that `variant_names()` would allocate.
+                let variants = enum_variant_aliases(values);
                 col.enumeration(Alias::new(&type_name), variants);
             }
         }
         _ => unreachable!("ComplexColumnType is #[non_exhaustive]; all variants are matched above"),
+    }
+}
+
+/// Build the `sea_query` `Alias` list for a string enum's variants without the
+/// intermediate `Vec<&str>` that `EnumValues::variant_names()` would allocate.
+fn enum_variant_aliases(values: &EnumValues) -> Vec<Alias> {
+    match values {
+        EnumValues::String(variants) => variants.iter().map(Alias::new).collect(),
+        EnumValues::Integer(variants) => variants.iter().map(|v| Alias::new(&v.name)).collect(),
     }
 }
 

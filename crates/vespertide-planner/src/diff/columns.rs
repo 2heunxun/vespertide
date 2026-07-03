@@ -253,11 +253,23 @@ fn diff_added_columns(
 ) {
     for (col, def) in to_cols {
         if !from_cols.contains_key(col) {
-            let mut col_def = (*def).clone();
-            col_def.primary_key = None;
-            col_def.unique = None;
-            col_def.index = None;
-            col_def.foreign_key = None;
+            // Build the stripped column directly instead of cloning the full
+            // `ColumnDef` then clearing the four inline-constraint fields — the
+            // clone would deep-copy those `Option` payloads (usually `Some(..)`
+            // on freshly-authored columns) only to discard them. Emitted payload
+            // is byte-identical. An exhaustive struct literal keeps this in sync
+            // with `ColumnDef` (a new field fails to compile until handled here).
+            let col_def = ColumnDef {
+                name: def.name.clone(),
+                r#type: def.r#type.clone(),
+                nullable: def.nullable,
+                default: def.default.clone(),
+                comment: def.comment.clone(),
+                primary_key: None,
+                unique: None,
+                index: None,
+                foreign_key: None,
+            };
             actions.push(MigrationAction::AddColumn {
                 table: table_name.into(),
                 column: Box::new(col_def),

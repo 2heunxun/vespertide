@@ -31,7 +31,17 @@ fn add_create_table_columns(
     let has_table_primary_key = constraints
         .iter()
         .any(|c| matches!(c, TableConstraint::PrimaryKey { .. }));
-    let auto_increment_columns = collect_auto_increment_columns(constraints);
+    // The vast majority of tables have no `PrimaryKey { auto_increment: true }`
+    // constraint, so skip the `HashSet` allocation + constraint scan entirely in
+    // that common case; an empty set produces byte-identical output.
+    let auto_increment_columns = if constraints
+        .iter()
+        .any(|c| matches!(c, TableConstraint::PrimaryKey { auto_increment: true, .. }))
+    {
+        collect_auto_increment_columns(constraints)
+    } else {
+        std::collections::HashSet::new()
+    };
 
     for column in columns {
         let mut col = build_sea_column_def_with_table(backend, table, column);
@@ -131,10 +141,9 @@ fn should_skip_sqlite_auto_increment_pk(
     matches!(backend, DatabaseBackend::Sqlite)
         && auto_increment
         && pk_cols.iter().all(|col_name| {
-            columns
-                .iter()
-                .find(|c| c.name == col_name.as_ref())
-                .is_some_and(|c| c.r#type.supports_auto_increment())
+            columns.iter().any(|c| {
+                c.name == col_name.as_ref() && c.r#type.supports_auto_increment()
+            })
         })
 }
 
