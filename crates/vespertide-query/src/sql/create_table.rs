@@ -61,7 +61,7 @@ fn add_create_table_columns(
             }
             col.auto_increment();
         }
-        *stmt = stmt.col(col).to_owned();
+        stmt.col(col);
     }
 }
 
@@ -133,7 +133,7 @@ fn add_primary_key_constraint(
     for c in pk_cols {
         pk_idx.col(Alias::new(c.as_ref()));
     }
-    *stmt = stmt.primary_key(&mut pk_idx).to_owned();
+    stmt.primary_key(&mut pk_idx);
 }
 
 fn should_skip_sqlite_auto_increment_pk(
@@ -167,7 +167,7 @@ fn add_mysql_unique_constraint(
     for col in unique_cols {
         idx.col(Alias::new(col.as_ref()));
     }
-    *stmt = stmt.index(&mut idx).to_owned();
+    stmt.index(&mut idx);
 }
 
 fn add_foreign_key_constraint(
@@ -201,7 +201,7 @@ fn add_foreign_key_constraint(
         if let Some(action) = on_update {
             fk.on_update(to_sea_fk_action(action));
         }
-        *stmt = stmt.foreign_key(&mut fk).to_owned();
+        stmt.foreign_key(&mut fk);
     }
 }
 
