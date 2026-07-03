@@ -103,10 +103,9 @@ fn add_create_table_constraints(
             TableConstraint::ForeignKey { .. } => {
                 add_foreign_key_constraint(stmt, table, constraint);
             }
-            TableConstraint::Check { name, expr, .. } => {
-                let _ = (name, expr);
-            }
-            TableConstraint::Index { .. } => {}
+            // CHECK is emitted elsewhere; indexes are created separately. Both
+            // are no-ops during CREATE TABLE constraint assembly.
+            TableConstraint::Check { .. } | TableConstraint::Index { .. } => {}
             _ => {
                 unreachable!("TableConstraint is #[non_exhaustive]; all variants are matched above")
             }

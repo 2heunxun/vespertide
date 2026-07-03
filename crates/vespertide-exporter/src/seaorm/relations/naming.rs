@@ -120,11 +120,20 @@ pub(super) fn fk_attr_value<T: AsRef<str>>(cols: &[T]) -> String {
     if cols.len() == 1 {
         cols[0].as_ref().to_string()
     } else {
-        let joined = cols
-            .iter()
-            .map(AsRef::as_ref)
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!("({joined})")
+        // Write straight into one pre-sized buffer instead of allocating a
+        // throwaway `Vec<&str>` just to `join(", ")` it (mirrors the
+        // `quote_idents` idiom in vespertide-query). Output is byte-identical:
+        // `(a, b, c)`.
+        let content_len: usize = cols.iter().map(|c| c.as_ref().len()).sum();
+        let mut out = String::with_capacity(content_len + 2 * cols.len());
+        out.push('(');
+        for (i, c) in cols.iter().enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(c.as_ref());
+        }
+        out.push(')');
+        out
     }
 }
