@@ -101,41 +101,41 @@ impl ColumnType {
 
     /// Convert column type to Rust type string (for `SeaORM` entity generation)
     pub fn to_rust_type(&self, nullable: bool) -> String {
-        let base = match self {
+        let base: &'static str = match self {
             ColumnType::Simple(ty) => match ty {
-                SimpleColumnType::SmallInt => "i16".to_string(),
-                SimpleColumnType::Integer => "i32".to_string(),
-                SimpleColumnType::BigInt => "i64".to_string(),
-                SimpleColumnType::Real => "f32".to_string(),
-                SimpleColumnType::DoublePrecision => "f64".to_string(),
+                SimpleColumnType::SmallInt => "i16",
+                SimpleColumnType::Integer => "i32",
+                SimpleColumnType::BigInt => "i64",
+                SimpleColumnType::Real => "f32",
+                SimpleColumnType::DoublePrecision => "f64",
                 SimpleColumnType::Text
                 | SimpleColumnType::Interval
                 | SimpleColumnType::Inet
                 | SimpleColumnType::Cidr
                 | SimpleColumnType::Macaddr
-                | SimpleColumnType::Xml => "String".to_string(),
-                SimpleColumnType::Boolean => "bool".to_string(),
-                SimpleColumnType::Date => "Date".to_string(),
-                SimpleColumnType::Time => "Time".to_string(),
-                SimpleColumnType::Timestamp => "DateTime".to_string(),
-                SimpleColumnType::Timestamptz => "DateTimeWithTimeZone".to_string(),
-                SimpleColumnType::Bytea => "Vec<u8>".to_string(),
-                SimpleColumnType::Uuid => "Uuid".to_string(),
-                SimpleColumnType::Json => "Json".to_string(),
+                | SimpleColumnType::Xml => "String",
+                SimpleColumnType::Boolean => "bool",
+                SimpleColumnType::Date => "Date",
+                SimpleColumnType::Time => "Time",
+                SimpleColumnType::Timestamp => "DateTime",
+                SimpleColumnType::Timestamptz => "DateTimeWithTimeZone",
+                SimpleColumnType::Bytea => "Vec<u8>",
+                SimpleColumnType::Uuid => "Uuid",
+                SimpleColumnType::Json => "Json",
             },
             ColumnType::Complex(ty) => match ty {
-                ComplexColumnType::Numeric { .. } => "Decimal".to_string(),
+                ComplexColumnType::Numeric { .. } => "Decimal",
                 ComplexColumnType::Varchar { .. }
                 | ComplexColumnType::Char { .. }
                 | ComplexColumnType::Custom { .. }
-                | ComplexColumnType::Enum { .. } => "String".to_string(),
+                | ComplexColumnType::Enum { .. } => "String",
             },
         };
 
         if nullable {
             format!("Option<{base}>")
         } else {
-            base
+            base.to_string()
         }
     }
 
@@ -497,6 +497,53 @@ impl EnumValues {
         }
     }
 
+    /// Join every variant *name* with `separator`, writing straight into one
+    /// buffer — no intermediate `Vec<&str>` allocation.
+    ///
+    /// Unlike [`Self::sql_values_joined`] (which emits SQL literals: quoted
+    /// strings / integer values), this emits the human-readable variant
+    /// *names* for diagnostics such as "allowed values are: a, b, c". For an
+    /// integer enum the member names are used, matching `variant_names()`.
+    ///
+    /// ```rust
+    /// use vespertide_core::{EnumValues, NumValue};
+    ///
+    /// let s = EnumValues::String(vec!["active".into(), "inactive".into()]);
+    /// assert_eq!(s.variant_names_joined(", "), "active, inactive");
+    ///
+    /// let i = EnumValues::Integer(vec![
+    ///     NumValue { name: "low".into(),  value: 0  },
+    ///     NumValue { name: "high".into(), value: 10 },
+    /// ]);
+    /// assert_eq!(i.variant_names_joined(", "), "low, high");
+    ///
+    /// let empty = EnumValues::String(vec![]);
+    /// assert_eq!(empty.variant_names_joined(", "), "");
+    /// ```
+    #[must_use]
+    pub fn variant_names_joined(&self, separator: &str) -> String {
+        let mut out = String::new();
+        match self {
+            EnumValues::String(values) => {
+                for (i, s) in values.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(separator);
+                    }
+                    out.push_str(s);
+                }
+            }
+            EnumValues::Integer(values) => {
+                for (i, v) in values.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(separator);
+                    }
+                    out.push_str(&v.name);
+                }
+            }
+        }
+        out
+    }
+
     /// Get the number of variants
     pub fn len(&self) -> usize {
         match self {
@@ -516,8 +563,8 @@ impl EnumValues {
     /// Returns `true` when `value` matches any variant of this enum.
     ///
     /// For string enums the comparison is exact-string against each variant.
-    /// For integer enums the value is first parsed as `i32` (matching the
-    /// underlying DB representation): successful parses match against
+    /// For integer enums the value is first parsed as `i64` (matching the
+    /// `NumValue::value` storage type): successful parses match against
     /// `NumValue::value`, failed parses fall back to matching against
     /// `NumValue::name`. Mirrors the loose JSON-default behaviour expected by
     /// the planner validator so a model author can write either the numeric
@@ -527,9 +574,9 @@ impl EnumValues {
     pub fn contains_value(&self, value: &str) -> bool {
         match self {
             EnumValues::String(variants) => variants.iter().any(|v| v == value),
-            EnumValues::Integer(variants) => value.parse::<i32>().map_or_else(
+            EnumValues::Integer(variants) => value.parse::<i64>().map_or_else(
                 |_| variants.iter().any(|v| v.name == value),
-                |n| variants.iter().any(|v| v.value == i64::from(n)),
+                |n| variants.iter().any(|v| v.value == n),
             ),
         }
     }

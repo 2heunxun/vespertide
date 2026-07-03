@@ -96,6 +96,7 @@ mod tests {
 
     #[rstest::rstest]
     #[case("created_at", "createdAt")]
+    #[case("user_id", "userId")]
     #[case("id", "id")]
     #[case("user_profile_image", "userProfileImage")]
     #[case("", "")]

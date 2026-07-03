@@ -8,6 +8,7 @@ use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ColumnDef, TableDef};
 
 use crate::jpa::types::{UsedImports, java_type_for_column};
+use crate::utils::common::push_attr;
 
 pub(super) fn render_entity_inner(table: &TableDef) -> String {
     let mut lines: Vec<String> = Vec::new();
@@ -352,12 +353,13 @@ fn render_fk_field(
     // @ManyToOne
     lines.push("    @ManyToOne(fetch = FetchType.LAZY)".into());
 
-    // @JoinColumn
-    let mut join_attrs: Vec<String> = vec![format!("name = \"{}\"", col.name)];
+    // @JoinColumn — at most two attrs (`name` always, `nullable` optionally),
+    // built inline into one buffer instead of a throwaway `Vec<String>` + join.
+    let mut join_attrs = format!("name = \"{}\"", col.name);
     if !col.nullable {
-        join_attrs.push("nullable = false".into());
+        join_attrs.push_str(", nullable = false");
     }
-    lines.push(format!("    @JoinColumn({})", join_attrs.join(", ")));
+    lines.push(format!("    @JoinColumn({join_attrs})"));
 
     // Field declaration
     lines.push(format!("    private {entity_type} {field_name};"));
@@ -368,16 +370,20 @@ fn render_fk_field(
 // ---------------------------------------------------------------------------
 
 fn build_column_attrs(col: &ColumnDef, is_pk: bool, is_unique: bool) -> String {
-    let mut attrs: Vec<String> = vec![format!("name = \"{}\"", col.name)];
+    // Build the comma-separated attribute list directly into one buffer
+    // (preserving the exact fragment order) instead of collecting a
+    // `Vec<String>` + `.join(", ")`.
+    let mut attrs = String::new();
+    push_attr(&mut attrs, &format!("name = \"{}\"", col.name));
 
     // nullable (skip for PK — always not-null)
     if !is_pk && !col.nullable {
-        attrs.push("nullable = false".into());
+        push_attr(&mut attrs, "nullable = false");
     }
 
     // unique (skip for PK)
     if is_unique && !is_pk {
-        attrs.push("unique = true".into());
+        push_attr(&mut attrs, "unique = true");
     }
 
     // Type-specific attributes
@@ -385,31 +391,31 @@ fn build_column_attrs(col: &ColumnDef, is_pk: bool, is_unique: bool) -> String {
         ColumnType::Complex(
             ComplexColumnType::Varchar { length } | ComplexColumnType::Char { length },
         ) => {
-            attrs.push(format!("length = {length}"));
+            push_attr(&mut attrs, &format!("length = {length}"));
         }
         ColumnType::Complex(ComplexColumnType::Numeric { precision, scale }) => {
-            attrs.push(format!("precision = {precision}"));
-            attrs.push(format!("scale = {scale}"));
+            push_attr(&mut attrs, &format!("precision = {precision}"));
+            push_attr(&mut attrs, &format!("scale = {scale}"));
         }
         ColumnType::Simple(SimpleColumnType::Text | SimpleColumnType::Xml) => {
-            attrs.push("columnDefinition = \"TEXT\"".into());
+            push_attr(&mut attrs, "columnDefinition = \"TEXT\"");
         }
         ColumnType::Simple(SimpleColumnType::Json) => {
-            attrs.push("columnDefinition = \"JSON\"".into());
+            push_attr(&mut attrs, "columnDefinition = \"JSON\"");
         }
         ColumnType::Simple(SimpleColumnType::Bytea) => {
-            attrs.push("columnDefinition = \"BYTEA\"".into());
+            push_attr(&mut attrs, "columnDefinition = \"BYTEA\"");
         }
         ColumnType::Simple(SimpleColumnType::Interval) => {
-            attrs.push("columnDefinition = \"INTERVAL\"".into());
+            push_attr(&mut attrs, "columnDefinition = \"INTERVAL\"");
         }
         ColumnType::Complex(ComplexColumnType::Custom { custom_type }) => {
-            attrs.push(format!("columnDefinition = \"{custom_type}\""));
+            push_attr(&mut attrs, &format!("columnDefinition = \"{custom_type}\""));
         }
         _ => {}
     }
 
-    attrs.join(", ")
+    attrs
 }
 
 // ---------------------------------------------------------------------------
@@ -460,15 +466,21 @@ fn build_default_initializer(col: &ColumnDef) -> Option<String> {
 pub(super) use crate::python_naming::to_pascal_case;
 
 pub(super) fn to_camel_case(s: &str) -> String {
-    let pascal = to_pascal_case(s);
-    let mut chars = pascal.chars();
-    match chars.next() {
-        None => String::new(),
-        Some(first) => {
-            let lower: String = first.to_lowercase().collect();
-            format!("{lower}{}", chars.collect::<String>())
-        }
+    let mut pascal = to_pascal_case(s);
+    // Lowercase only the leading character in place, preserving the exact
+    // `char::to_lowercase()` semantics of the previous implementation (Unicode
+    // multi-char lowercase mappings included) without the extra
+    // `chars.collect::<String>()` + `format!` allocations.
+    let Some(first) = pascal.chars().next() else {
+        return pascal;
+    };
+    let lower: String = first.to_lowercase().collect();
+    // Fast path: single-char, unchanged leading char needs no rebuild.
+    if lower.len() == first.len_utf8() && lower.starts_with(first) {
+        return pascal;
     }
+    pascal.replace_range(0..first.len_utf8(), &lower);
+    pascal
 }
 
 pub(super) fn infer_fk_field_name(column_name: &str) -> String {

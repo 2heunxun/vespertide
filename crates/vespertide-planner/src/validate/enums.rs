@@ -49,7 +49,7 @@ pub(super) fn validate_enum_value(
     let is_valid = enum_values.contains_value(extracted);
 
     if !is_valid {
-        let allowed = enum_values.variant_names().join(", ");
+        let allowed = enum_values.variant_names_joined(", ");
         return Err(Box::new(InvalidEnumDefaultError {
             enum_name: enum_name.to_string(),
             table_name: table_name.to_string(),

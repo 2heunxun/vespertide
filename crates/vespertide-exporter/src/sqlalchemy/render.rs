@@ -5,7 +5,7 @@ use super::types::{UsedTypes, column_type_to_python, column_type_to_sqlalchemy};
 use crate::parallel_config::{
     PYTHON_EXPORT_PAR_TABLE_MIN_LEN, SQLALCHEMY_EXPORT_PAR_TABLE_THRESHOLD,
 };
-use crate::utils::common::join_quoted;
+use crate::utils::common::{join_qualified_refs, join_quoted, push_attr};
 use crate::utils::python::collect_composite_fks;
 use rayon::prelude::*;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
@@ -231,12 +231,7 @@ fn render_entity_part(table: &TableDef, used_types: &mut UsedTypes<'static>) -> 
 
         for fk in &composite_fks {
             let local_cols = join_quoted(&fk.local_cols);
-            let ref_cols = fk
-                .ref_cols
-                .iter()
-                .map(|col| format!("\"{}.{}\"", fk.ref_table, col))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let ref_cols = join_qualified_refs(fk.ref_table, &fk.ref_cols);
             lines.push(format!(
                 "        ForeignKeyConstraint([{local_cols}], [{ref_cols}]),"
             ));
@@ -309,32 +304,42 @@ fn render_column(
     let python_type = column_type_to_python(&col.r#type, col.nullable);
     let sa_type = column_type_to_sqlalchemy(&col.r#type);
 
-    let mut attrs: Vec<String> = Vec::new();
+    // Build the comma-separated attribute list directly into one buffer
+    // (preserving the exact fragment order) instead of collecting a
+    // `Vec<String>` + `.join(", ")`.
+    let mut attrs = String::new();
 
     // Add SQLAlchemy type
-    attrs.push(sa_type);
+    push_attr(&mut attrs, &sa_type);
 
     // Foreign key
     if let Some((ref_table, ref_col)) = fk_info {
-        attrs.push(format!("ForeignKey(\"{ref_table}.{ref_col}\")"));
+        push_attr(
+            &mut attrs,
+            &format!("ForeignKey(\"{ref_table}.{ref_col}\")"),
+        );
     }
 
     // Primary key
     if is_pk {
-        attrs.push("primary_key=True".into());
+        push_attr(&mut attrs, "primary_key=True");
     }
 
     // Nullable
     if !is_pk {
-        attrs.push(format!(
-            "nullable={}",
-            if col.nullable { "True" } else { "False" }
-        ));
+        push_attr(
+            &mut attrs,
+            if col.nullable {
+                "nullable=True"
+            } else {
+                "nullable=False"
+            },
+        );
     }
 
     // Unique
     if is_unique && !is_pk {
-        attrs.push("unique=True".into());
+        push_attr(&mut attrs, "unique=True");
     }
 
     // Default value
@@ -344,18 +349,17 @@ fn render_column(
         let escaped = default_str.replace('"', "\\\"");
         // Check if it's a function call or literal
         if default_str.contains('(') {
-            attrs.push(format!("server_default=text(\"{escaped}\")"));
+            push_attr(&mut attrs, &format!("server_default=text(\"{escaped}\")"));
         } else if default_str.starts_with('\'') || default_str.starts_with('"') {
-            attrs.push(format!("server_default={default_str}"));
+            push_attr(&mut attrs, &format!("server_default={default_str}"));
         } else {
-            attrs.push(format!("server_default=\"{escaped}\""));
+            push_attr(&mut attrs, &format!("server_default=\"{escaped}\""));
         }
     }
 
-    let attrs_str = attrs.join(", ");
     lines.push(format!(
         "    {}: Mapped[{}] = mapped_column({})",
-        col.name, python_type, attrs_str
+        col.name, python_type, attrs
     ));
 }
 

@@ -3,7 +3,7 @@ use rayon::prelude::*;
 use crate::parallel_config::{
     PYTHON_EXPORT_PAR_TABLE_MIN_LEN, SQLMODEL_EXPORT_PAR_TABLE_THRESHOLD,
 };
-use crate::utils::common::join_quoted;
+use crate::utils::common::{join_qualified_refs, join_quoted};
 use crate::utils::python::{CompositeFk, collect_composite_fks};
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
 use vespertide_core::schema::constraint::TableConstraint;
@@ -364,12 +364,7 @@ fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Ve
 
         for fk in composite_fks {
             let local_cols = join_quoted(&fk.local_cols);
-            let ref_cols = fk
-                .ref_cols
-                .iter()
-                .map(|col| format!("\"{}.{}\"", fk.ref_table, col))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let ref_cols = join_qualified_refs(fk.ref_table, &fk.ref_cols);
             lines.push(format!(
                 "        ForeignKeyConstraint([{local_cols}], [{ref_cols}]),"
             ));
