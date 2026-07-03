@@ -270,18 +270,7 @@ fn sibling_value<'a>(
 
 /// Walk up to the document's outermost mapping and return its `name` value.
 fn outer_table_name<'a>(source: &'a [u8], node: tree_sitter::Node<'_>) -> Option<&'a str> {
-    let mut current = node.parent();
-    let mut outer = None;
-    while let Some(candidate) = current {
-        if matches!(
-            candidate.kind(),
-            "object" | "block_mapping" | "flow_mapping"
-        ) {
-            outer = Some(candidate);
-        }
-        current = candidate.parent();
-    }
-    let outer = outer?;
+    let outer = crate::tree_util::outermost_ancestor_mapping(node)?;
     direct_child_scalar(outer, source, "name")
 }
 
@@ -388,46 +377,22 @@ fn inner_content_range(node: tree_sitter::Node<'_>) -> std::ops::Range<usize> {
         // tree-sitter-json: `string` is `"…"`. Its first named child is
         // `string_content` (absent when the literal is empty).
         "string" => node.named_child(0).map_or_else(
-            || trim_one_byte_each_side(node.byte_range()),
+            || crate::tree_util::trim_one_byte_each_side(&node.byte_range()),
             |inner| inner.byte_range(),
         ),
         // tree-sitter-yaml quoted scalars include their delimiters; trim
         // one byte on each side.
-        "double_quote_scalar" | "single_quote_scalar" => trim_one_byte_each_side(node.byte_range()),
+        "double_quote_scalar" | "single_quote_scalar" => {
+            crate::tree_util::trim_one_byte_each_side(&node.byte_range())
+        }
         // Unquoted scalars (YAML plain / string_scalar, or anything else)
         // have no delimiters — the full range is the identifier.
         _ => node.byte_range(),
     }
 }
 
-fn trim_one_byte_each_side(range: std::ops::Range<usize>) -> std::ops::Range<usize> {
-    if range.end.saturating_sub(range.start) >= 2 {
-        (range.start + 1)..(range.end - 1)
-    } else {
-        range
-    }
-}
-
 fn is_top_level(pair: tree_sitter::Node<'_>) -> bool {
-    if let Some(parent) = pair.parent() {
-        if matches!(parent.kind(), "object" | "block_mapping" | "flow_mapping") {
-            let mut current = parent.parent();
-            while let Some(candidate) = current {
-                if matches!(
-                    candidate.kind(),
-                    "object" | "block_mapping" | "flow_mapping"
-                ) {
-                    return false;
-                }
-                current = candidate.parent();
-            }
-            true
-        } else {
-            false
-        }
-    } else {
-        false
-    }
+    crate::tree_util::is_top_level_pair(pair)
 }
 
 /// Check that this `name` pair lives directly inside a column object whose
@@ -443,19 +408,7 @@ fn is_column_pair(name_pair: tree_sitter::Node<'_>, source: &[u8], expected_tabl
     {
         // The column object is not allowed to be the outermost mapping — that's
         // the table itself.
-        let mut current = column_object.parent();
-        let mut outer = None;
-        while let Some(candidate) = current {
-            if matches!(
-                candidate.kind(),
-                "object" | "block_mapping" | "flow_mapping"
-            ) {
-                outer = Some(candidate);
-            }
-            current = candidate.parent();
-        }
-
-        if let Some(outer) = outer
+        if let Some(outer) = crate::tree_util::outermost_ancestor_mapping(column_object)
             && outer.id() != column_object.id()
         {
             return direct_child_scalar(outer, source, "name")
@@ -604,7 +557,7 @@ mod tests {
 
     #[test]
     fn range_and_top_level_helpers_cover_defensive_branches() {
-        assert_eq!(trim_one_byte_each_side(4..5), 4..5);
+        assert_eq!(crate::tree_util::trim_one_byte_each_side(&(4..5)), 4..5);
 
         let src = r#"{"name":"user","columns":[{"name":"id","type":"integer"}]}"#;
         let tree = parse_json(src);

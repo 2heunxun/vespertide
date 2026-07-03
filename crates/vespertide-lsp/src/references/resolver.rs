@@ -2,7 +2,8 @@
 
 use crate::text_util::strip_quotes;
 use crate::tree_util::{
-    ancestor_pair, direct_child_value, enclosing_string, node_at_byte, skip_yaml_wrappers,
+    ancestor_pair, direct_child_value, enclosing_string, is_top_level_pair, node_at_byte,
+    outermost_ancestor_mapping, skip_yaml_wrappers,
 };
 
 use super::ReferenceSymbol;
@@ -106,50 +107,11 @@ fn resolve_check_expr_column(
     })
 }
 
-/// A pair is "top level" when its direct ancestor mapping is itself the
-/// outermost mapping of the document. This is how we distinguish the
-/// table's own `name: ...` from a column's `name: ...`.
-fn is_top_level_pair(pair: tree_sitter::Node<'_>) -> bool {
-    let Some(parent_mapping) = pair.parent() else {
-        return false;
-    };
-    if !matches!(
-        parent_mapping.kind(),
-        "object" | "block_mapping" | "flow_mapping"
-    ) {
-        return false;
-    }
-    // Walk above the parent mapping; if we encounter another mapping with
-    // the same kind, we are nested and therefore not top level.
-    let mut current = parent_mapping.parent();
-    while let Some(candidate) = current {
-        if matches!(
-            candidate.kind(),
-            "object" | "block_mapping" | "flow_mapping"
-        ) {
-            return false;
-        }
-        current = candidate.parent();
-    }
-    true
-}
-
 /// Given a column's `name` pair, find the owning table's top-level name.
 fn enclosing_table_name(name_pair: tree_sitter::Node<'_>, source: &str) -> Option<String> {
     // The pair we got is inside a column object. Walk up to the document's
     // outermost mapping and return its direct `name` value.
-    let mut current = name_pair.parent();
-    let mut outer = None;
-    while let Some(candidate) = current {
-        if matches!(
-            candidate.kind(),
-            "object" | "block_mapping" | "flow_mapping"
-        ) {
-            outer = Some(candidate);
-        }
-        current = candidate.parent();
-    }
-    let outer = outer?;
+    let outer = outermost_ancestor_mapping(name_pair)?;
 
     let mut cursor = outer.walk();
     for child in outer.children(&mut cursor) {

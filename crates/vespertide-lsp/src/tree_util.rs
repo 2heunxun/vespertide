@@ -87,10 +87,10 @@ pub(crate) fn unwrap_yaml_node(node: tree_sitter::Node<'_>) -> tree_sitter::Node
 /// `single_quote_scalar` byte ranges (and JSON `string` ranges when the
 /// `string_content` named child is absent — the empty-string case).
 ///
-/// Centralises the three byte-identical private copies that lived in
-/// `file_features`, `rename`, and `symbols` pre-this-hoist. The
-/// `references::search::trim_one_byte_each_side` variant takes `Range`
-/// by value and stays put; its signature change is a separate decision.
+/// Centralises the four byte-identical private copies that lived in
+/// `file_features`, `rename`, `symbols`, and `references::search`
+/// pre-this-hoist (the last took `Range` by value; call sites now pass a
+/// reference).
 pub(crate) fn trim_one_byte_each_side(range: &std::ops::Range<usize>) -> std::ops::Range<usize> {
     if range.end.saturating_sub(range.start) >= 2 {
         (range.start + 1)..(range.end - 1)
@@ -287,6 +287,68 @@ pub(crate) fn find_pair_with_key<'tree>(
                 .map(crate::text_util::strip_quotes)
                 == Some(target_key)
     })
+}
+
+/// A pair is "top level" when its direct ancestor mapping is itself the
+/// outermost mapping of the document — this is how an LSP feature tells the
+/// table's own `name: ...` apart from a column's `name: ...`. The `pair`'s
+/// parent must be a mapping kind (`object` / `block_mapping` /
+/// `flow_mapping`); walking above that parent must encounter NO further
+/// mapping ancestor.
+///
+/// Centralises the two byte-equivalent copies that lived in
+/// `references::search::is_top_level` and
+/// `references::resolver::is_top_level_pair` pre-this-hoist.
+pub(crate) fn is_top_level_pair(pair: tree_sitter::Node<'_>) -> bool {
+    let Some(parent_mapping) = pair.parent() else {
+        return false;
+    };
+    if !matches!(
+        parent_mapping.kind(),
+        "object" | "block_mapping" | "flow_mapping"
+    ) {
+        return false;
+    }
+    // Walk above the parent mapping; if we encounter another mapping with
+    // the same kind, we are nested and therefore not top level.
+    let mut current = parent_mapping.parent();
+    while let Some(candidate) = current {
+        if matches!(
+            candidate.kind(),
+            "object" | "block_mapping" | "flow_mapping"
+        ) {
+            return false;
+        }
+        current = candidate.parent();
+    }
+    true
+}
+
+/// Walk strictly the PARENT chain of `node` and return the OUTERMOST
+/// ancestor whose kind is a mapping (`object` / `block_mapping` /
+/// `flow_mapping`) — i.e. the last mapping-kind node encountered before the
+/// parent chain runs out. Returns `None` when no ancestor is a mapping.
+///
+/// This is the UPWARD counterpart to [`find_outer_mapping`], which descends
+/// DFS to find the topmost mapping. Centralises the three byte-identical
+/// upward walks that lived in `references::search::outer_table_name`,
+/// `references::search::is_column_pair`, and
+/// `references::resolver::enclosing_table_name` pre-this-hoist.
+pub(crate) fn outermost_ancestor_mapping(
+    node: tree_sitter::Node<'_>,
+) -> Option<tree_sitter::Node<'_>> {
+    let mut current = node.parent();
+    let mut outer = None;
+    while let Some(candidate) = current {
+        if matches!(
+            candidate.kind(),
+            "object" | "block_mapping" | "flow_mapping"
+        ) {
+            outer = Some(candidate);
+        }
+        current = candidate.parent();
+    }
+    outer
 }
 
 /// True when any ancestor pair of `node` has key `"constraints"`. Shared LSP
