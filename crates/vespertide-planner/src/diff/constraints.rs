@@ -60,7 +60,7 @@ pub(super) fn diff_constraints(
     table_name: &str,
     from_tbl: &TableDef,
     to_tbl: &TableDef,
-    deleted_columns: &BTreeSet<String>,
+    deleted_columns: &BTreeSet<&str>,
 ) {
     let mut replaced_from: Vec<usize> = Vec::new();
     let mut replaced_to: Vec<usize> = Vec::new();
@@ -147,7 +147,7 @@ fn diff_removed_constraints(
     table_name: &str,
     from_tbl: &TableDef,
     exact_to: &BTreeSet<&TableConstraint>,
-    deleted_columns: &BTreeSet<String>,
+    deleted_columns: &BTreeSet<&str>,
     replaced_from: &BTreeSet<usize>,
 ) {
     for (fi, from_constraint) in from_tbl.constraints.iter().enumerate() {

@@ -4,12 +4,12 @@ use vespertide_core::{
     ColumnDef, ColumnType, ComplexColumnType, EnumValues, MigrationAction, TableDef,
 };
 
-pub(super) fn diff_columns(
+pub(super) fn diff_columns<'a>(
     actions: &mut Vec<MigrationAction>,
     table_name: &str,
-    from_tbl: &TableDef,
+    from_tbl: &'a TableDef,
     to_tbl: &TableDef,
-) -> BTreeSet<String> {
+) -> BTreeSet<&'a str> {
     // Columns - use BTreeMap for consistent ordering
     let from_cols: BTreeMap<_, _> = from_tbl
         .columns
@@ -107,23 +107,25 @@ fn compute_integer_enum_remapping(from: &ColumnType, to: &ColumnType) -> BTreeMa
         .collect()
 }
 
-fn diff_deleted_columns(
+fn diff_deleted_columns<'a>(
     actions: &mut Vec<MigrationAction>,
     table_name: &str,
-    from_cols: &BTreeMap<&str, &ColumnDef>,
+    from_cols: &BTreeMap<&'a str, &ColumnDef>,
     to_cols: &BTreeMap<&str, &ColumnDef>,
-) -> BTreeSet<String> {
+) -> BTreeSet<&'a str> {
     // `from_cols` is a `BTreeMap`, so its keys are already in sorted order —
     // iterating them once yields the same order a `BTreeSet` would, letting us
     // emit each `DeleteColumn` action and populate the returned set in a single
-    // pass without the extra `col.clone().into()` per deleted column.
+    // pass. The set borrows the column names straight from the normalized
+    // `TableDef` (they outlive the whole diff), so no `String` allocation per
+    // deleted column is needed — the only consumer looks each name up by `&str`.
     let mut deleted_columns = BTreeSet::new();
     for col in from_cols.keys().filter(|col| !to_cols.contains_key(*col)) {
         actions.push(MigrationAction::DeleteColumn {
             table: table_name.into(),
             column: (*col).into(),
         });
-        deleted_columns.insert((*col).to_string());
+        deleted_columns.insert(*col);
     }
 
     deleted_columns
