@@ -65,10 +65,16 @@ pub fn build_add_column(
             &table_def.constraints,
         );
 
-        // Copy existing data, filling new column
+        // Copy existing data, filling new column. Build the existing-column
+        // aliases once and reuse them for both the SELECT column list and the
+        // INSERT column list (the new column's alias is appended for the INSERT
+        // only, since its value comes from `expr_as(fill_expr, ...)`).
+        let mut columns_alias: Vec<Alias> = Vec::with_capacity(table_def.columns.len() + 1);
         let mut select_query = Query::select();
         for col in &table_def.columns {
-            select_query.column(Alias::new(&col.name));
+            let alias = Alias::new(&col.name);
+            select_query.column(alias.clone());
+            columns_alias.push(alias);
         }
         let fill_expr = if let Some(fill) = normalize_fill_with(fill_with) {
             let converted = convert_default_for_backend(fill, backend);
@@ -83,11 +89,6 @@ pub fn build_add_column(
             .expr_as(fill_expr, Alias::new(&column.name))
             .from(Alias::new(table));
 
-        let mut columns_alias: Vec<Alias> = table_def
-            .columns
-            .iter()
-            .map(|c| Alias::new(&c.name))
-            .collect();
         columns_alias.push(Alias::new(&column.name));
         let insert_stmt = Query::insert()
             .into_table(Alias::new(&temp_table))

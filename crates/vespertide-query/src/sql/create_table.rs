@@ -62,7 +62,7 @@ fn collect_auto_increment_columns(
                 ..
             } = c
             {
-                Some(pk_cols.iter().map(AsRef::as_ref).collect::<Vec<_>>())
+                Some(pk_cols.iter().map(AsRef::as_ref))
             } else {
                 None
             }
@@ -228,22 +228,21 @@ pub fn build_create_table(
         }
     }
 
-    // Separate unique constraints for Postgres and SQLite (they need separate CREATE INDEX statements)
-    // For MySQL, unique constraints are added directly in CREATE TABLE via build_create_table_for_backend
-    let (table_constraints, unique_constraints): (Vec<&TableConstraint>, Vec<&TableConstraint>) =
-        constraints
-            .iter()
-            .partition(|c| !matches!(c, TableConstraint::Unique { .. }));
-
     // Build CREATE TABLE
-    // For MySQL, include unique constraints in CREATE TABLE
-    // For Postgres and SQLite, exclude them (will be added as separate CREATE INDEX statements)
+    // For MySQL, include unique constraints in CREATE TABLE (no partition needed).
+    // For Postgres and SQLite, exclude them here — they are emitted below as
+    // separate CREATE UNIQUE INDEX statements, so partition off the uniques only
+    // in that branch (the MySQL path discards both halves, so allocating them
+    // there is pure waste).
     let create_table_stmt = if matches!(backend, DatabaseBackend::MySql) {
         build_create_table_for_backend(backend, table, columns, constraints)
     } else {
         // Convert references to owned values for build_create_table_for_backend
-        let table_constraints_owned: Vec<TableConstraint> =
-            table_constraints.iter().copied().cloned().collect();
+        let table_constraints_owned: Vec<TableConstraint> = constraints
+            .iter()
+            .filter(|c| !matches!(c, TableConstraint::Unique { .. }))
+            .cloned()
+            .collect();
         build_create_table_for_backend(backend, table, columns, &table_constraints_owned)
     };
 
@@ -267,7 +266,7 @@ pub fn build_create_table(
 
     // For Postgres and SQLite, add unique constraints as separate CREATE UNIQUE INDEX statements
     if matches!(backend, DatabaseBackend::Postgres | DatabaseBackend::Sqlite) {
-        for constraint in unique_constraints {
+        for constraint in constraints {
             if let TableConstraint::Unique {
                 name,
                 columns: unique_cols,
