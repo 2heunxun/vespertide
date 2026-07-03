@@ -144,10 +144,10 @@ pub fn render_entity_with_config_and_paths(
 pub(super) fn render_column(
     lines: &mut Vec<String>,
     column: &ColumnDef,
-    primary_keys: &HashSet<String>,
+    primary_keys: &HashSet<&str>,
     composite_pk: bool,
-    unique_columns: &HashSet<String>,
-    indexed_columns: &HashSet<String>,
+    unique_columns: &HashSet<&str>,
+    indexed_columns: &HashSet<&str>,
 ) {
     let is_pk = primary_keys.contains(column.name.as_str());
     let is_unique = unique_columns.contains(column.name.as_str());
@@ -224,7 +224,7 @@ pub(super) fn render_column(
 
     lines.push(format!("    pub {field_name}: {ty},"));
 }
-pub(super) fn primary_key_columns(table: &TableDef) -> HashSet<String> {
+pub(super) fn primary_key_columns(table: &TableDef) -> HashSet<&str> {
     use vespertide_core::schema::primary_key::PrimaryKeySyntax;
 
     // Table-level constraints via the shared scan (single source of truth).
@@ -236,7 +236,7 @@ pub(super) fn primary_key_columns(table: &TableDef) -> HashSet<String> {
         if let Some(PrimaryKeySyntax::Bool(true) | PrimaryKeySyntax::Object(_)) =
             &column.primary_key
         {
-            keys.insert(column.name.to_string());
+            keys.insert(column.name.as_str());
         }
     }
 

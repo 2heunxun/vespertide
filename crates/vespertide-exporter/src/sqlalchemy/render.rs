@@ -269,7 +269,7 @@ fn render_column(
     col: &ColumnDef,
     is_pk: bool,
     is_unique: bool,
-    fk_info: Option<&(String, String)>,
+    fk_info: Option<&(&str, &str)>,
 ) {
     // Add column comment
     if let Some(ref comment) = col.comment {

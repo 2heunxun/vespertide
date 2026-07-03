@@ -78,7 +78,7 @@ pub(super) fn collect_reverse_relation_targets(
 fn collect_many_to_many_targets(
     current_table: &TableDef,
     junction_table: &TableDef,
-    junction_pk: &HashSet<String>,
+    junction_pk: &HashSet<&str>,
     schema: &[TableDef],
 ) -> Option<Vec<String>> {
     if junction_pk.len() < 2 {
@@ -357,7 +357,7 @@ fn reverse_relation_field_defs_inner(ctx: ReverseRelationFieldCtx<'_>) -> Vec<St
 fn collect_many_to_many_relations(
     current_table: &TableDef,
     junction_table: &TableDef,
-    junction_pk: &HashSet<String>,
+    junction_pk: &HashSet<&str>,
     schema: &[TableDef],
 ) -> Option<Vec<ReverseRelation>> {
     // Junction table must have composite PK (2+ columns)

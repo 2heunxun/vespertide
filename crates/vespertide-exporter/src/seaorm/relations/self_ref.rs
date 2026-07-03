@@ -24,7 +24,7 @@ pub(super) struct SelfRefJunction {
 pub(super) fn collect_self_ref_junction(
     current_table: &TableDef,
     junction_table: &TableDef,
-    junction_pk: &HashSet<String>,
+    junction_pk: &HashSet<&str>,
 ) -> Option<SelfRefJunction> {
     if junction_pk.len() < 2 {
         return None;

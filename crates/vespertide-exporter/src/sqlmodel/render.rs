@@ -361,7 +361,7 @@ pub(super) fn render_column(
     is_pk: bool,
     is_unique: bool,
     is_indexed: bool,
-    fk_info: Option<&(String, String)>,
+    fk_info: Option<&(&str, &str)>,
 ) {
     // Add column comment
     if let Some(ref comment) = col.comment {

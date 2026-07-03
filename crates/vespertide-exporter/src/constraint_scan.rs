@@ -15,16 +15,16 @@ use vespertide_core::{ColumnName, TableConstraint};
 /// [`single_column_indexes`], which differ only in the matched
 /// `TableConstraint` variant. `extract` returns the constraint's column slice
 /// for the variant it cares about, or `None` for every other variant.
-fn single_column_scan(
-    constraints: &[TableConstraint],
-    extract: impl Fn(&TableConstraint) -> Option<&[ColumnName]>,
-) -> HashSet<String> {
+fn single_column_scan<'a>(
+    constraints: &'a [TableConstraint],
+    extract: impl Fn(&'a TableConstraint) -> Option<&'a [ColumnName]>,
+) -> HashSet<&'a str> {
     let mut cols = HashSet::new();
     for constraint in constraints {
         if let Some(columns) = extract(constraint)
             && columns.len() == 1
         {
-            cols.insert(columns[0].to_string());
+            cols.insert(columns[0].as_str());
         }
     }
     cols
@@ -33,12 +33,12 @@ fn single_column_scan(
 /// Collect the column names covered by table-level `PrimaryKey` constraints.
 ///
 /// Lookup-only, ordering unused.
-pub(crate) fn primary_key_columns(constraints: &[TableConstraint]) -> HashSet<String> {
+pub(crate) fn primary_key_columns(constraints: &[TableConstraint]) -> HashSet<&str> {
     let mut keys = HashSet::new();
     for constraint in constraints {
         if let TableConstraint::PrimaryKey { columns, .. } = constraint {
             for col in columns {
-                keys.insert(col.to_string());
+                keys.insert(col.as_str());
             }
         }
     }
@@ -48,7 +48,7 @@ pub(crate) fn primary_key_columns(constraints: &[TableConstraint]) -> HashSet<St
 /// Collect the column names that carry a single-column `Unique` constraint.
 ///
 /// Lookup-only, ordering unused.
-pub(crate) fn single_column_uniques(constraints: &[TableConstraint]) -> HashSet<String> {
+pub(crate) fn single_column_uniques(constraints: &[TableConstraint]) -> HashSet<&str> {
     single_column_scan(constraints, |c| match c {
         TableConstraint::Unique { columns, .. } => Some(columns.as_slice()),
         _ => None,
@@ -58,7 +58,7 @@ pub(crate) fn single_column_uniques(constraints: &[TableConstraint]) -> HashSet<
 /// Collect the column names that carry a single-column `Index` constraint.
 ///
 /// Lookup-only, ordering unused.
-pub(crate) fn single_column_indexes(constraints: &[TableConstraint]) -> HashSet<String> {
+pub(crate) fn single_column_indexes(constraints: &[TableConstraint]) -> HashSet<&str> {
     single_column_scan(constraints, |c| match c {
         TableConstraint::Index { columns, .. } => Some(columns.as_slice()),
         _ => None,
@@ -72,7 +72,7 @@ pub(crate) fn single_column_indexes(constraints: &[TableConstraint]) -> HashSet<
 /// Lookup-only, ordering unused.
 pub(crate) fn single_column_fk_targets(
     constraints: &[TableConstraint],
-) -> HashMap<String, (String, String)> {
+) -> HashMap<&str, (&str, &str)> {
     let mut map = HashMap::new();
     for constraint in constraints {
         if let TableConstraint::ForeignKey {
@@ -85,8 +85,8 @@ pub(crate) fn single_column_fk_targets(
             && ref_columns.len() == 1
         {
             map.insert(
-                columns[0].to_string(),
-                (ref_table.to_string(), ref_columns[0].to_string()),
+                columns[0].as_str(),
+                (ref_table.as_str(), ref_columns[0].as_str()),
             );
         }
     }
