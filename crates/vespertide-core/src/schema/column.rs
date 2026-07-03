@@ -489,21 +489,13 @@ impl EnumValues {
         matches!(self, EnumValues::Integer(_))
     }
 
-    /// Get all variant names
-    pub fn variant_names(&self) -> Vec<&str> {
-        match self {
-            EnumValues::String(values) => values.iter().map(std::string::String::as_str).collect(),
-            EnumValues::Integer(values) => values.iter().map(|v| v.name.as_str()).collect(),
-        }
-    }
-
     /// Join every variant *name* with `separator`, writing straight into one
     /// buffer — no intermediate `Vec<&str>` allocation.
     ///
     /// Unlike [`Self::sql_values_joined`] (which emits SQL literals: quoted
     /// strings / integer values), this emits the human-readable variant
     /// *names* for diagnostics such as "allowed values are: a, b, c". For an
-    /// integer enum the member names are used, matching `variant_names()`.
+    /// integer enum the member names are used.
     ///
     /// ```rust
     /// use vespertide_core::{EnumValues, NumValue};

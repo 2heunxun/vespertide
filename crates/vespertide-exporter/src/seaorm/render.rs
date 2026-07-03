@@ -276,7 +276,7 @@ pub(super) fn render_indexes_and_uniques(lines: &mut Vec<String>, constraints: &
     if !index_constraints.is_empty() {
         lines.push("// Index definitions (SeaORM uses Statement builders externally)".into());
         for (name, columns) in index_constraints {
-            let cols = columns.join(", ");
+            let cols = vespertide_core::schema::names::join_column_names(columns, ", ");
             let idx_name = name.clone().unwrap_or_else(|| "(unnamed)".to_string());
             lines.push(format!("// {idx_name} on [{cols}]"));
         }

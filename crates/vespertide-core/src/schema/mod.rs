@@ -220,27 +220,6 @@ mod tests {
             assert!(int_vals.is_integer());
         }
 
-        #[test]
-        fn test_enum_values_variant_names_string() {
-            let vals = EnumValues::String(vec!["pending".into(), "active".into()]);
-            assert_eq!(vals.variant_names(), vec!["pending", "active"]);
-        }
-
-        #[test]
-        fn test_enum_values_variant_names_integer() {
-            let vals = EnumValues::Integer(vec![
-                NumValue {
-                    name: "Low".into(),
-                    value: 0,
-                },
-                NumValue {
-                    name: "High".into(),
-                    value: 10,
-                },
-            ]);
-            assert_eq!(vals.variant_names(), vec!["Low", "High"]);
-        }
-
         #[rstest]
         // String match: exact-string check against each variant.
         #[case::string_match(
@@ -253,7 +232,7 @@ mod tests {
             "banned",
             false,
         )]
-        // Integer enum, numeric input: parses as i32 then matches `NumValue::value`.
+        // Integer enum, numeric input: parses as i64 then matches `NumValue::value`.
         #[case::integer_numeric_match(
             EnumValues::Integer(vec![
                 NumValue { name: "Low".into(),  value: 0  },
@@ -269,6 +248,15 @@ mod tests {
             ]),
             "99",
             false,
+        )]
+        // Integer enum, value beyond i32::MAX: must still parse (i64) and match.
+        #[case::integer_numeric_beyond_i32(
+            EnumValues::Integer(vec![
+                NumValue { name: "small".into(), value: 1             },
+                NumValue { name: "big".into(),   value: 3_000_000_000 },
+            ]),
+            "3000000000",
+            true,
         )]
         // Integer enum, non-numeric input: falls back to matching `NumValue::name`.
         #[case::integer_name_match(
