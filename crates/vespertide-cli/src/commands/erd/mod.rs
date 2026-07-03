@@ -110,17 +110,23 @@ pub(super) fn filter_tables_with_warnings(
     // Layered BFS: each round expands only the names discovered in the
     // previous round instead of re-scanning (and re-cloning) all of `kept`,
     // so every node's adjacency is walked at most once regardless of depth.
-    let mut frontier: Vec<String> = kept.iter().cloned().collect();
+    // The discovered-neighbor frontier borrows `&str` into the owned `String`s
+    // that live in `adjacency`, so only the `kept` set membership needs an
+    // owned clone (the frontier itself no longer clones every neighbor name).
+    // The seed must be a snapshot detached from `kept` so the frontier borrow
+    // does not collide with the `kept.insert` below; `seed_names` owns it.
+    let seed_names: Vec<String> = kept.iter().cloned().collect();
+    let mut frontier: Vec<&str> = seed_names.iter().map(String::as_str).collect();
     for _ in 0..depth {
         if frontier.is_empty() {
             break;
         }
-        let mut next = Vec::new();
+        let mut next: Vec<&str> = Vec::new();
         for name in frontier {
-            if let Some(neighbors) = adjacency.get(&name) {
+            if let Some(neighbors) = adjacency.get(name) {
                 for neighbor in neighbors {
                     if all_names.contains(neighbor) && kept.insert(neighbor.clone()) {
-                        next.push(neighbor.clone());
+                        next.push(neighbor.as_str());
                     }
                 }
             }

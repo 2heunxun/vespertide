@@ -7,7 +7,12 @@ use std::collections::{HashMap, HashSet};
 ///
 /// Returns a path like `crate::models::admin::admin`.
 pub(super) fn absolute_module_path(crate_prefix: &str, to_module: &[String]) -> String {
-    let mut path = crate_prefix.to_string();
+    // Pre-size to the exact final length (`crate_prefix` + `"::" + seg` per
+    // segment) so multi-segment paths allocate once instead of climbing the
+    // doubling ladder. Output byte-identical.
+    let cap = crate_prefix.len() + to_module.iter().map(|s| s.len() + 2).sum::<usize>();
+    let mut path = String::with_capacity(cap);
+    path.push_str(crate_prefix);
     for seg in to_module {
         path.push_str("::");
         path.push_str(seg);
@@ -83,7 +88,11 @@ pub(super) fn sanitize_field_name(name: &str) -> String {
     if result.is_empty() {
         "_col".into()
     } else if RUST_KEYWORDS.contains(&result.as_str()) {
-        format!("r#{result}")
+        // Reuse the already-allocated `result` buffer instead of allocating a
+        // second `String` via `format!`. The pre-sized capacity (`name.len() + 1`)
+        // usually holds the 2-byte `"r#"` prefix with a single memmove and no realloc.
+        result.insert_str(0, "r#");
+        result
     } else {
         result
     }

@@ -111,7 +111,16 @@ pub(in crate::seaorm) fn pluralize(name: &str) -> String {
     if name.ends_with('s') {
         name.to_string()
     } else if name.ends_with('y') && !ends_with_vowel_y(name) {
-        format!("{}ies", name.strip_suffix('y').unwrap_or(name))
+        // Build `<stem>ies` directly into one exact-size buffer instead of
+        // routing through the `format!` formatter machinery (mirrors the
+        // buffer-push idiom used by `fk_attr_value` / `quote_idents`). The
+        // `strip_suffix('y')` is guarded by `ends_with('y')` above, so
+        // `unwrap_or(name)` is dead-defensive but harmless. Byte-identical.
+        let stem = name.strip_suffix('y').unwrap_or(name);
+        let mut out = String::with_capacity(stem.len() + 3);
+        out.push_str(stem);
+        out.push_str("ies");
+        out
     } else {
         format!("{name}s")
     }
