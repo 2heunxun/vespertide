@@ -73,9 +73,12 @@ fn render_entity_part(table: &TableDef, used_types: &mut UsedTypes<'static>) -> 
 
     let composite_fks = collect_composite_fks(table);
 
+    // Collect single-column foreign key targets once; the import flag below and
+    // the per-column render lookups both read from this single scan.
+    let fk_info = crate::constraint_scan::single_column_fk_targets(&table.constraints);
+
     // Check for single-column foreign keys
-    let has_single_fk = table.constraints.iter().any(|c| matches!(c, TableConstraint::ForeignKey { columns, ref_columns, .. } if columns.len() == 1 && ref_columns.len() == 1));
-    if has_single_fk {
+    if !fk_info.is_empty() {
         used_types.sa_types.insert("ForeignKey");
     }
 
@@ -135,9 +138,6 @@ fn render_entity_part(table: &TableDef, used_types: &mut UsedTypes<'static>) -> 
 
     // Collect unique columns (single-column unique constraints); lookup-only, ordering unused.
     let unique_columns = crate::constraint_scan::single_column_uniques(&table.constraints);
-
-    // Collect foreign key info; lookup-only, ordering unused.
-    let fk_info = crate::constraint_scan::single_column_fk_targets(&table.constraints);
 
     // Render columns
     for col in &table.columns {

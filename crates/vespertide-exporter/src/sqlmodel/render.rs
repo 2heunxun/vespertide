@@ -251,21 +251,7 @@ fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Ve
     let unique_columns = crate::constraint_scan::single_column_uniques(&table.constraints);
 
     // Collect indexed columns (single-column indexes); lookup-only, ordering unused.
-    let indexed_columns: std::collections::HashSet<String> = table
-        .constraints
-        .iter()
-        .filter_map(|c| {
-            if let TableConstraint::Index { columns, .. } = c {
-                if columns.len() == 1 {
-                    Some(columns[0].to_string())
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .collect();
+    let indexed_columns = crate::constraint_scan::single_column_indexes(&table.constraints);
 
     // Collect foreign key info; lookup-only, ordering unused.
     let fk_info = crate::constraint_scan::single_column_fk_targets(&table.constraints);
