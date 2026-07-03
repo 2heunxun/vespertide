@@ -117,19 +117,18 @@ pub(in crate::seaorm) fn pluralize(name: &str) -> String {
     }
 }
 
-/// True when `name` ends in a vowel immediately followed by `y` (e.g. `day`,
-/// `key`, `boy`, `guy`). Answers the `y`→`ies` guard with a single lookup of
-/// the character before the trailing `y` instead of four separate 2-byte
-/// suffix scans. The vowel set is exactly `{a, e, o, u}` (not `i`), so `iy`
-/// still pluralizes to `ies`; a bare `"y"` (no preceding char) is treated as a
-/// consonant-`y` and pluralizes to `ys`. Byte-identical to the prior chain.
+/// True when the character *before* the trailing `y` is a vowel (e.g. `day`,
+/// `key`, `boy`, `guy`). The sole caller (`pluralize`) already gates this on
+/// `name.ends_with('y')`, so this helper owns only the "preceding char is a
+/// vowel" test — a single lookup of the character before the trailing `y`. The
+/// vowel set is exactly `{a, e, o, u}` (not `i`), so `iy` still pluralizes to
+/// `ies`; a bare `"y"` (no preceding char) is treated as a consonant-`y` and
+/// pluralizes to `ys`. Byte-identical to the prior chain.
 fn ends_with_vowel_y(name: &str) -> bool {
-    name.ends_with('y')
-        && name
-            .chars()
-            .rev()
-            .nth(1)
-            .is_some_and(|c| matches!(c, 'a' | 'e' | 'o' | 'u'))
+    name.chars()
+        .rev()
+        .nth(1)
+        .is_some_and(|c| matches!(c, 'a' | 'e' | 'o' | 'u'))
 }
 
 pub(super) fn fk_attr_value<T: AsRef<str>>(cols: &[T]) -> String {

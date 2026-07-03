@@ -108,17 +108,17 @@ fn diff_deleted_columns(
     from_cols: &BTreeMap<&str, &ColumnDef>,
     to_cols: &BTreeMap<&str, &ColumnDef>,
 ) -> BTreeSet<String> {
-    let deleted_columns: BTreeSet<String> = from_cols
-        .keys()
-        .filter(|col| !to_cols.contains_key(*col))
-        .map(|col| (*col).to_string())
-        .collect();
-
-    for col in &deleted_columns {
+    // `from_cols` is a `BTreeMap`, so its keys are already in sorted order —
+    // iterating them once yields the same order a `BTreeSet` would, letting us
+    // emit each `DeleteColumn` action and populate the returned set in a single
+    // pass without the extra `col.clone().into()` per deleted column.
+    let mut deleted_columns = BTreeSet::new();
+    for col in from_cols.keys().filter(|col| !to_cols.contains_key(*col)) {
         actions.push(MigrationAction::DeleteColumn {
             table: table_name.into(),
-            column: col.clone().into(),
+            column: (*col).into(),
         });
+        deleted_columns.insert((*col).to_string());
     }
 
     deleted_columns

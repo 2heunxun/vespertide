@@ -23,7 +23,11 @@ enum ConstraintIdentityKey<'a> {
 
 fn sorted_column_refs<T: AsRef<str>>(columns: &[T]) -> Vec<&str> {
     let mut columns: Vec<&str> = columns.iter().map(AsRef::as_ref).collect();
-    columns.sort_unstable();
+    // A 0- or 1-element slice is already sorted; skip the sort call for the
+    // overwhelmingly common single-column PK/FK/Unique/Index case.
+    if columns.len() > 1 {
+        columns.sort_unstable();
+    }
     columns
 }
 
