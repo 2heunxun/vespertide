@@ -261,18 +261,17 @@ pub(super) fn is_foreign_key_column(table: &TableDef, column_name: &str) -> bool
 }
 
 pub(super) fn column_markers(table: &TableDef, column: &ColumnDef) -> String {
-    let mut markers = Vec::new();
-    if is_primary_key_column(table, &column.name) {
-        markers.push("PK");
-    }
-    if is_foreign_key_column(table, &column.name) {
-        markers.push("FK");
-    }
-
-    if markers.is_empty() {
-        String::new()
-    } else {
-        format!(" ({})", markers.join(", "))
+    // The marker set is at most two fixed strings ("PK", "FK"), so the output is
+    // exactly one of four values. A direct match returning a &'static str for the
+    // three non-empty cases removes the Vec + join + format! allocations.
+    match (
+        is_primary_key_column(table, &column.name),
+        is_foreign_key_column(table, &column.name),
+    ) {
+        (true, true) => " (PK, FK)".to_string(),
+        (true, false) => " (PK)".to_string(),
+        (false, true) => " (FK)".to_string(),
+        (false, false) => String::new(),
     }
 }
 
@@ -529,6 +528,11 @@ fn is_nullable_column(table: &TableDef, column_name: &str) -> bool {
 }
 
 fn same_column_set<T: AsRef<str>, U: AsRef<str>>(left: &[T], right: &[U]) -> bool {
+    // Differing lengths can never yield equal sets, so skip building both
+    // BTreeSets on the common mismatched-arity case (e.g. single-col vs composite).
+    if left.len() != right.len() {
+        return false;
+    }
     let left: BTreeSet<&str> = left.iter().map(AsRef::as_ref).collect();
     let right: BTreeSet<&str> = right.iter().map(AsRef::as_ref).collect();
     left == right
