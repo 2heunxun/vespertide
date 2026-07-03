@@ -34,10 +34,15 @@ fn add_create_table_columns(
     // The vast majority of tables have no `PrimaryKey { auto_increment: true }`
     // constraint, so skip the `HashSet` allocation + constraint scan entirely in
     // that common case; an empty set produces byte-identical output.
-    let auto_increment_columns = if constraints
-        .iter()
-        .any(|c| matches!(c, TableConstraint::PrimaryKey { auto_increment: true, .. }))
-    {
+    let auto_increment_columns = if constraints.iter().any(|c| {
+        matches!(
+            c,
+            TableConstraint::PrimaryKey {
+                auto_increment: true,
+                ..
+            }
+        )
+    }) {
         collect_auto_increment_columns(constraints)
     } else {
         std::collections::HashSet::new()
@@ -140,9 +145,9 @@ fn should_skip_sqlite_auto_increment_pk(
     matches!(backend, DatabaseBackend::Sqlite)
         && auto_increment
         && pk_cols.iter().all(|col_name| {
-            columns.iter().any(|c| {
-                c.name == col_name.as_ref() && c.r#type.supports_auto_increment()
-            })
+            columns
+                .iter()
+                .any(|c| c.name == col_name.as_ref() && c.r#type.supports_auto_increment())
         })
 }
 
@@ -222,17 +227,32 @@ pub fn build_create_table(
     let columns = &normalized.columns;
     let constraints = &normalized.constraints;
 
-    let mut queries = Vec::new();
+    // Pre-size for the CREATE TABLE statement plus up to one CREATE INDEX per
+    // constraint (uniques + indexes); enum-type `Raw`s are rare and bounded by
+    // the enum-column count, so a small over/under-estimate costs at most one
+    // realloc, never correctness.
+    let mut queries = Vec::with_capacity(1 + constraints.len());
 
     // Create enum types first (PostgreSQL only)
-    // Collect unique enum types to avoid duplicates
-    let mut created_enums: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    for column in columns {
-        if let ColumnType::Complex(ComplexColumnType::Enum { name, .. }) = &column.r#type
-            && created_enums.insert(name.as_str())
-            && let Some(create_type_sql) = build_create_enum_type_sql(table, &column.r#type)
-        {
-            queries.push(BuiltQuery::Raw(create_type_sql));
+    // Collect unique enum types to avoid duplicates.
+    // The vast majority of tables have no enum columns, so skip the `HashSet`
+    // allocation + column scan entirely in that common case; the loop pushes
+    // nothing when there are no enum columns, so the output is byte-identical.
+    let has_enum_columns = columns.iter().any(|c| {
+        matches!(
+            c.r#type,
+            ColumnType::Complex(ComplexColumnType::Enum { .. })
+        )
+    });
+    if has_enum_columns {
+        let mut created_enums: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for column in columns {
+            if let ColumnType::Complex(ComplexColumnType::Enum { name, .. }) = &column.r#type
+                && created_enums.insert(name.as_str())
+                && let Some(create_type_sql) = build_create_enum_type_sql(table, &column.r#type)
+            {
+                queries.push(BuiltQuery::Raw(create_type_sql));
+            }
         }
     }
 

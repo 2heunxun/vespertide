@@ -44,14 +44,19 @@ pub fn render_entity_with_config_and_paths(
     }
     lines.push(String::new());
 
-    // Generate Enum definitions first
-    let mut processed_enums = HashSet::new();
-    for column in &table.columns {
-        if let ColumnType::Complex(ComplexColumnType::Enum { name, values }) = &column.r#type {
-            // Avoid duplicate enum definitions if multiple columns use the same enum
-            if !processed_enums.contains(name) {
-                render_enum(&mut lines, &table.name, name, values, config);
-                processed_enums.insert(name.clone());
+    // Generate Enum definitions first. Reuse the already-computed `has_enums`
+    // flag: enum-free tables (the common case) skip the `HashSet` allocation
+    // and the second column walk entirely. Output is byte-identical — with no
+    // enum columns the loop body never fires and no lines are pushed.
+    if has_enums {
+        let mut processed_enums = HashSet::new();
+        for column in &table.columns {
+            if let ColumnType::Complex(ComplexColumnType::Enum { name, values }) = &column.r#type {
+                // Avoid duplicate enum definitions if multiple columns use the same enum
+                if !processed_enums.contains(name) {
+                    render_enum(&mut lines, &table.name, name, values, config);
+                    processed_enums.insert(name.clone());
+                }
             }
         }
     }
