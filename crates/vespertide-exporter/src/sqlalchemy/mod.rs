@@ -27,8 +27,8 @@ pub(crate) fn to_pascal_case_for_tests(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::render::to_screaming_snake_case;
     use super::types::UsedTypes;
+    use crate::python_naming::to_screaming_snake_case;
     use vespertide_core::schema::column::{
         ColumnType, ComplexColumnType, EnumValues, NumValue, SimpleColumnType,
     };

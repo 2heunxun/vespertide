@@ -343,4 +343,4 @@ fn render_column(
 // SCREAMING_SNAKE_CASE enum member names, so the implementation lives in
 // `crate::python_naming` and we re-export it here to keep every existing
 // `super::render::to_*` path working without churn.
-pub(super) use crate::python_naming::{to_pascal_case, to_screaming_snake_case};
+pub(super) use crate::python_naming::to_pascal_case;
