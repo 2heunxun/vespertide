@@ -69,6 +69,12 @@ pub(super) fn diff_constraints(
         &mut replaced_from,
         &mut replaced_to,
     );
+    // Promote the "already handled by a replacement" index lists to sets so the
+    // per-constraint membership tests in the removed/added passes are O(log n)
+    // instead of a linear `Vec::contains` scan (quadratic on wide tables).
+    let replaced_from: BTreeSet<usize> = replaced_from.into_iter().collect();
+    let replaced_to: BTreeSet<usize> = replaced_to.into_iter().collect();
+
     diff_removed_constraints(
         actions,
         table_name,
@@ -130,7 +136,7 @@ fn diff_removed_constraints(
     from_tbl: &TableDef,
     to_tbl: &TableDef,
     deleted_columns: &BTreeSet<String>,
-    replaced_from: &[usize],
+    replaced_from: &BTreeSet<usize>,
 ) {
     for (fi, from_constraint) in from_tbl.constraints.iter().enumerate() {
         if to_tbl.constraints.contains(from_constraint) || replaced_from.contains(&fi) {
@@ -156,7 +162,7 @@ fn diff_added_constraints(
     table_name: &str,
     from_tbl: &TableDef,
     to_tbl: &TableDef,
-    replaced_to: &[usize],
+    replaced_to: &BTreeSet<usize>,
 ) {
     for (ti, to_constraint) in to_tbl.constraints.iter().enumerate() {
         if from_tbl.constraints.contains(to_constraint) || replaced_to.contains(&ti) {

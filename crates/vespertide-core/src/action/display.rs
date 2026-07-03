@@ -129,12 +129,12 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
 }
 
 fn write_raw_sql_action(f: &mut fmt::Formatter<'_>, sql: &str) -> fmt::Result {
-    let display_sql = if sql.chars().count() > 50 {
-        format!("{}...", truncate_chars(sql, 47))
+    if sql.chars().count() > 50 {
+        let head = truncate_chars(sql, 47);
+        write!(f, "RawSql: {head}...")
     } else {
-        sql.to_string()
-    };
-    write!(f, "RawSql: {display_sql}")
+        write!(f, "RawSql: {sql}")
+    }
 }
 
 fn write_constraint_action(
