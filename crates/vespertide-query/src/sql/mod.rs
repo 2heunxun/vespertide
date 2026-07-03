@@ -155,11 +155,11 @@ pub fn build_action_queries_with_pending(
             table,
             column,
             new_comment,
-        } => build_comment_action_queries(
+        } => build_modify_column_comment(
             backend,
             table,
             column,
-            new_comment.as_ref(),
+            new_comment.as_deref(),
             current_schema,
         ),
 
@@ -181,22 +181,6 @@ pub fn build_action_queries_with_pending(
 
         _ => unreachable!("MigrationAction is #[non_exhaustive]; all variants are matched above"),
     }
-}
-
-fn build_comment_action_queries(
-    backend: DatabaseBackend,
-    table: &str,
-    column: &str,
-    new_comment: Option<&String>,
-    current_schema: &[TableDef],
-) -> Result<Vec<BuiltQuery>, QueryError> {
-    build_modify_column_comment(
-        backend,
-        table,
-        column,
-        new_comment.map(String::as_str),
-        current_schema,
-    )
 }
 
 fn build_constraint_action_queries(

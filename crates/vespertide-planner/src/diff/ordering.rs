@@ -182,24 +182,36 @@ pub(super) fn sort_delete_tables(
         .map(|(idx, &name)| (name, idx))
         .collect();
 
-    // Reorder the DeleteTable actions according to sorted order
-    let mut delete_actions: Vec<MigrationAction> =
-        delete_indices.iter().map(|&i| actions[i].clone()).collect();
-
-    delete_actions.sort_by(|a, b| {
-        let a_name = extract_delete_table_name(a);
-        let b_name = extract_delete_table_name(b);
-
-        let a_pos = sorted_positions.get(a_name).copied().unwrap_or(0);
-        let b_pos = sorted_positions.get(b_name).copied().unwrap_or(0);
-        a_pos.cmp(&b_pos)
+    // Reorder the DeleteTable actions among their existing slots according to
+    // `sorted_positions`, WITHOUT cloning each action. We reorder the *slot
+    // indices* (cheap `usize` copies) by each slot's table position in
+    // `sorted_positions`, then apply that permutation to the `DeleteTable`
+    // entries in place with `slice::swap` — moving each action's payload rather
+    // than deep-cloning it.
+    //
+    // `delete_indices` is ascending (it comes from `.enumerate()`). `order[k]`
+    // holds the ORIGINAL slot whose action belongs at the k-th delete slot; the
+    // stable sort keeps equal-position actions in their original relative order,
+    // matching the previous stable `sort_by` byte-for-byte.
+    let mut order: Vec<usize> = delete_indices.clone();
+    order.sort_by_key(|&i| {
+        let name = extract_delete_table_name(&actions[i]);
+        sorted_positions.get(name).copied().unwrap_or(0)
     });
 
-    // Put them back (move-back instead of clone-back — `delete_actions` is owned
-    // and unused afterwards, so each `MigrationAction` is moved into place
-    // without an extra deep clone of its enum payload).
-    for (idx, action) in delete_indices.iter().zip(delete_actions) {
-        actions[*idx] = action;
+    // Apply the permutation `order` onto the delete slots via selection-style
+    // swaps: this writes each action into its destination with owned moves and
+    // no clone. `where_now[rank]` tracks which original slot currently occupies
+    // the rank-th delete slot so swaps stay consistent as we go.
+    let mut where_now: Vec<usize> = delete_indices.clone();
+    for dst_rank in 0..delete_indices.len() {
+        let want_slot = order[dst_rank];
+        // Current rank holding the wanted action.
+        let src_rank = where_now.iter().position(|&s| s == want_slot).unwrap();
+        if src_rank != dst_rank {
+            actions.swap(delete_indices[dst_rank], delete_indices[src_rank]);
+            where_now.swap(dst_rank, src_rank);
+        }
     }
 }
 
