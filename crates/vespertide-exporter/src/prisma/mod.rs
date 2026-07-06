@@ -134,7 +134,6 @@ pub fn to_pascal_case_for_tests(s: &str) -> String {
 mod tests {
     use super::*;
     use crate::tests::fixtures::basic_single_pk;
-    use vespertide_config::RelationMode;
 
     #[test]
     fn render_schema_hardcodes_postgresql_provider_and_omits_client_output() {
@@ -149,10 +148,10 @@ mod tests {
 
     #[test]
     fn render_schema_emits_relation_mode_when_configured() {
-        let config = PrismaConfig {
-            relation_mode: Some(RelationMode::Prisma),
-            ..Default::default()
-        };
+        // `PrismaConfig` is `#[non_exhaustive]` in a different crate, so it can't be
+        // built with a struct literal here — go through its real construction path
+        // (JSON deserialization, same as loading `vespertide.json`) instead.
+        let config: PrismaConfig = serde_json::from_str(r#"{"relationMode":"prisma"}"#).unwrap();
         let tables = vec![basic_single_pk()];
         let schema = PrismaExporterWithConfig::new(&config).render_schema(&tables);
 

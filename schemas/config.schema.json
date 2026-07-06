@@ -118,10 +118,17 @@
     },
     "RelationMode": {
       "description": "Prisma `relationMode` datasource setting.\n\nControls whether Prisma relies on real database-level foreign key\nconstraints or emulates referential integrity in Prisma Client.",
-      "type": "string",
-      "enum": [
-        "foreignKeys",
-        "prisma"
+      "oneOf": [
+        {
+          "description": "Use real database-level foreign key constraints. This is Prisma's\ndefault and is correct for any backend that supports FKs (e.g.\nPostgreSQL, MySQL, SQLite).",
+          "type": "string",
+          "const": "foreignKeys"
+        },
+        {
+          "description": "Emulate referential integrity in Prisma Client instead of relying on\ndatabase-level foreign keys. Needed for datastores that don't support\nFK constraints (e.g. PlanetScale, MongoDB).",
+          "type": "string",
+          "const": "prisma"
+        }
       ]
     },
     "SeaOrmConfig": {
