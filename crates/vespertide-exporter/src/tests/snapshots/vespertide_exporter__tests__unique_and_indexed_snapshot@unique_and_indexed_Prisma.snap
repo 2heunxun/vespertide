@@ -9,6 +9,6 @@ model Users {
   department String? @db.Text
   status String @default("active") @db.Text
 
-  @@index([department], name: "idx_department")
+  @@index([department], map: "idx_department")
   @@map("users")
 }

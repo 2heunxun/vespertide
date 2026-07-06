@@ -9,7 +9,7 @@ enum TaskStatus {
 
 model Tasks {
   id Int
-  status TaskStatus @default(1)
+  status TaskStatus @default(dbgenerated("1"))
 
   @@map("tasks")
 }

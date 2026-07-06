@@ -9,7 +9,7 @@ enum TaskRunStatus {
 
 model TaskRuns {
   id Int
-  status TaskRunStatus @default(dbgenerated("Completed"))
+  status TaskRunStatus @default(COMPLETED)
 
   @@map("task_runs")
 }
