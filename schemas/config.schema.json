@@ -47,9 +47,7 @@
     "prisma": {
       "description": "Prisma-specific export configuration.",
       "$ref": "#/$defs/PrismaConfig",
-      "default": {
-        "provider": "postgresql"
-      }
+      "default": {}
     },
     "seaorm": {
       "description": "SeaORM-specific export configuration.",
@@ -102,29 +100,29 @@
       ]
     },
     "PrismaConfig": {
-      "description": "Prisma-specific export configuration.",
+      "description": "Prisma-specific export configuration.\n\nThe `datasource` provider is always PostgreSQL (the exporter only emits\nPostgreSQL-native `@db.*` types), and the generated Prisma Client's output\npath is left to Prisma's own default — neither is configurable here, since\nvespertide only manages the schema/model definition, not Prisma Client\ncodegen. See `RelationMode` for the one setting that is configurable.",
       "type": "object",
       "properties": {
-        "clientOutput": {
-          "description": "Optional output path for the generated Prisma client.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "provider": {
-          "description": "Database provider: postgresql, mysql, sqlite, sqlserver, mongodb, cockroachdb.",
-          "type": "string",
-          "default": "postgresql"
-        },
         "relationMode": {
-          "description": "Optional relationMode override (\"foreignKeys\" or \"prisma\").",
-          "type": [
-            "string",
-            "null"
+          "description": "Override for the `datasource` `relationMode` setting. `None` (default)\nomits the line and lets Prisma use its own default (`foreignKeys`).\nSee [`RelationMode`] for what each variant means.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RelationMode"
+            },
+            {
+              "type": "null"
+            }
           ]
         }
       }
+    },
+    "RelationMode": {
+      "description": "Prisma `relationMode` datasource setting.\n\nControls whether Prisma relies on real database-level foreign key\nconstraints or emulates referential integrity in Prisma Client.",
+      "type": "string",
+      "enum": [
+        "foreignKeys",
+        "prisma"
+      ]
     },
     "SeaOrmConfig": {
       "description": "SeaORM-specific export configuration.",

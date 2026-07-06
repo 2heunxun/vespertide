@@ -53,27 +53,20 @@ impl<'a> PrismaExporterWithConfig<'a> {
 
         let mut parts: Vec<String> = Vec::new();
 
-        let provider = self.config.provider();
+        // Provider is always PostgreSQL: the exporter only emits PostgreSQL-native
+        // `@db.*` types (see `types::column_type_to_prisma`), so it isn't configurable.
         let mut datasource = vec![
             "datasource db {".to_string(),
-            format!("  provider = \"{provider}\""),
+            "  provider = \"postgresql\"".to_string(),
             "  url      = env(\"DATABASE_URL\")".to_string(),
         ];
         if let Some(rm) = self.config.relation_mode() {
-            datasource.push(format!("  relationMode = \"{rm}\""));
+            datasource.push(format!("  relationMode = \"{}\"", rm.as_str()));
         }
         datasource.push("}".to_string());
         parts.push(datasource.join("\n"));
 
-        let mut generator = vec![
-            "generator client {".to_string(),
-            "  provider = \"prisma-client-js\"".to_string(),
-        ];
-        if let Some(output) = self.config.client_output() {
-            generator.push(format!("  output   = \"{output}\""));
-        }
-        generator.push("}".to_string());
-        parts.push(generator.join("\n"));
+        parts.push("generator client {\n  provider = \"prisma-client-js\"\n}".to_string());
 
         parts.extend(enum_blocks);
 
@@ -135,4 +128,34 @@ pub fn export(schema: &[TableDef]) -> Result<String, String> {
 #[cfg(test)]
 pub fn to_pascal_case_for_tests(s: &str) -> String {
     enums::to_pascal_case(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::fixtures::basic_single_pk;
+    use vespertide_config::RelationMode;
+
+    #[test]
+    fn render_schema_hardcodes_postgresql_provider_and_omits_client_output() {
+        let config = PrismaConfig::default();
+        let tables = vec![basic_single_pk()];
+        let schema = PrismaExporterWithConfig::new(&config).render_schema(&tables);
+
+        assert!(schema.contains("provider = \"postgresql\""));
+        assert!(!schema.contains("output"));
+        assert!(!schema.contains("relationMode"));
+    }
+
+    #[test]
+    fn render_schema_emits_relation_mode_when_configured() {
+        let config = PrismaConfig {
+            relation_mode: Some(RelationMode::Prisma),
+            ..Default::default()
+        };
+        let tables = vec![basic_single_pk()];
+        let schema = PrismaExporterWithConfig::new(&config).render_schema(&tables);
+
+        assert!(schema.contains("relationMode = \"prisma\""));
+    }
 }

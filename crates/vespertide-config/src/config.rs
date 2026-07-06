@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::file_format::FileFormat;
 use crate::name_case::NameCase;
+use crate::relation_mode::RelationMode;
 
 /// Default migration filename pattern: zero-padded version + sanitized comment.
 pub fn default_migration_filename_pattern() -> String {
@@ -79,47 +80,28 @@ impl SeaOrmConfig {
 }
 
 /// Prisma-specific export configuration.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// The `datasource` provider is always PostgreSQL (the exporter only emits
+/// PostgreSQL-native `@db.*` types), and the generated Prisma Client's output
+/// path is left to Prisma's own default — neither is configurable here, since
+/// vespertide only manages the schema/model definition, not Prisma Client
+/// codegen. See `RelationMode` for the one setting that is configurable.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct PrismaConfig {
-    /// Database provider: postgresql, mysql, sqlite, sqlserver, mongodb, cockroachdb.
-    #[serde(default = "default_prisma_provider")]
-    pub provider: String,
-    /// Optional output path for the generated Prisma client.
+    /// Override for the `datasource` `relationMode` setting. `None` (default)
+    /// omits the line and lets Prisma use its own default (`foreignKeys`).
+    /// See [`RelationMode`] for what each variant means.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub client_output: Option<String>,
-    /// Optional relationMode override ("foreignKeys" or "prisma").
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub relation_mode: Option<String>,
-}
-
-fn default_prisma_provider() -> String {
-    "postgresql".to_string()
-}
-
-impl Default for PrismaConfig {
-    fn default() -> Self {
-        Self {
-            provider: default_prisma_provider(),
-            client_output: None,
-            relation_mode: None,
-        }
-    }
+    pub relation_mode: Option<RelationMode>,
 }
 
 impl PrismaConfig {
-    pub fn provider(&self) -> &str {
-        &self.provider
-    }
-
-    pub fn client_output(&self) -> Option<&str> {
-        self.client_output.as_deref()
-    }
-
-    pub fn relation_mode(&self) -> Option<&str> {
-        self.relation_mode.as_deref()
+    /// The configured `relationMode` override, if any.
+    pub fn relation_mode(&self) -> Option<RelationMode> {
+        self.relation_mode
     }
 }
 
@@ -344,5 +326,29 @@ mod tests {
 
         assert_eq!(config.prefix(), "");
         assert_eq!(config.apply_prefix("users"), "users");
+    }
+
+    #[test]
+    fn prisma_config_default_has_no_relation_mode() {
+        let config = PrismaConfig::default();
+        assert_eq!(config.relation_mode(), None);
+    }
+
+    #[test]
+    fn prisma_config_deserializes_from_empty_object() {
+        let config: PrismaConfig = serde_json::from_str("{}").unwrap();
+        assert_eq!(config.relation_mode(), None);
+    }
+
+    #[test]
+    fn prisma_config_relation_mode_roundtrips() {
+        let config = PrismaConfig {
+            relation_mode: Some(RelationMode::Prisma),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        assert_eq!(json, "{\"relationMode\":\"prisma\"}");
+        let back: PrismaConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.relation_mode(), Some(RelationMode::Prisma));
     }
 }
