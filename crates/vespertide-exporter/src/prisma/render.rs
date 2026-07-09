@@ -6,6 +6,7 @@ use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::schema::names::ColumnName;
 use vespertide_core::schema::reference::ReferenceAction;
 
+use super::PrismaProvider;
 use super::enums::{to_pascal_case, to_screaming_snake};
 use super::types::column_type_to_prisma;
 
@@ -127,7 +128,11 @@ pub(super) fn collect_back_relations(target_table: &str, schema: &[TableDef]) ->
     result
 }
 
-pub(super) fn render_model(table: &TableDef, schema: &[TableDef]) -> String {
+pub(super) fn render_model(
+    table: &TableDef,
+    schema: &[TableDef],
+    provider: PrismaProvider,
+) -> String {
     let mut lines: Vec<String> = Vec::new();
 
     if let Some(desc) = &table.description {
@@ -212,7 +217,7 @@ pub(super) fn render_model(table: &TableDef, schema: &[TableDef]) -> String {
             lines.push(format!("  /// {comment}"));
         }
 
-        let (type_str, native_attr) = column_type_to_prisma(&col.r#type, col.nullable);
+        let (type_str, native_attr) = column_type_to_prisma(&col.r#type, col.nullable, provider);
         let mut attrs: Vec<String> = Vec::new();
 
         if is_single_pk {
@@ -223,7 +228,11 @@ pub(super) fn render_model(table: &TableDef, schema: &[TableDef]) -> String {
         }
 
         if !auto_inc && let Some(ref default) = col.default {
-            attrs.push(prisma_default_attr(&default.to_sql(), &col.r#type));
+            attrs.push(prisma_default_attr(
+                &default.to_sql(),
+                &col.r#type,
+                provider,
+            ));
         }
 
         if let Some(unique_name) = is_unique
@@ -358,7 +367,11 @@ pub(super) fn render_model(table: &TableDef, schema: &[TableDef]) -> String {
     lines.join("\n")
 }
 
-fn prisma_default_attr(default_sql: &str, col_type: &ColumnType) -> String {
+fn prisma_default_attr(
+    default_sql: &str,
+    col_type: &ColumnType,
+    provider: PrismaProvider,
+) -> String {
     // Integer-backed enum: resolve to a variant identifier (SCREAMING_SNAKE), never a bare int.
     if let ColumnType::Complex(ComplexColumnType::Enum {
         values: EnumValues::Integer(int_values),
@@ -396,7 +409,12 @@ fn prisma_default_attr(default_sql: &str, col_type: &ColumnType) -> String {
         || lower.contains("uuid_generate_v4()")
         || lower.contains("newid()")
     {
-        return "@default(uuid())".into();
+        // On MySQL the uuid column is BINARY(16) and Prisma's uuid() only
+        // applies to String fields — mirror the DDL's DB-side default instead.
+        return match provider {
+            PrismaProvider::MySql => "@default(dbgenerated(\"(uuid())\"))".into(),
+            _ => "@default(uuid())".into(),
+        };
     }
 
     // Any remaining function call → dbgenerated

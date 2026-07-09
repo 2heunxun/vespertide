@@ -11,6 +11,31 @@ use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues}
 
 pub struct PrismaExporter;
 
+/// Target database provider for the generated `schema.prisma`.
+///
+/// A Prisma schema declares exactly one datasource provider, and native
+/// `@db.*` type attributes are validated against that provider's connector —
+/// so the same tables render differently per backend. Mirrors the backends
+/// supported by `vespertide-query`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PrismaProvider {
+    #[default]
+    Postgres,
+    MySql,
+    Sqlite,
+}
+
+impl PrismaProvider {
+    /// The `provider = "..."` string used in the `datasource` block.
+    pub fn as_datasource_str(self) -> &'static str {
+        match self {
+            PrismaProvider::Postgres => "postgresql",
+            PrismaProvider::MySql => "mysql",
+            PrismaProvider::Sqlite => "sqlite",
+        }
+    }
+}
+
 impl OrmExporter for PrismaExporter {
     fn render_entity(&self, table: &TableDef) -> Result<String, String> {
         Ok(render_entity(table))
@@ -30,11 +55,16 @@ impl OrmExporter for PrismaExporter {
 /// Assembles a complete `schema.prisma` file from a full table list.
 pub struct PrismaExporterWithConfig<'a> {
     pub config: &'a PrismaConfig,
+    pub provider: PrismaProvider,
 }
 
 impl<'a> PrismaExporterWithConfig<'a> {
     pub fn new(config: &'a PrismaConfig) -> Self {
-        Self { config }
+        Self::with_provider(config, PrismaProvider::default())
+    }
+
+    pub fn with_provider(config: &'a PrismaConfig, provider: PrismaProvider) -> Self {
+        Self { config, provider }
     }
 
     /// Render a complete `schema.prisma` file for all tables.
@@ -53,11 +83,9 @@ impl<'a> PrismaExporterWithConfig<'a> {
 
         let mut parts: Vec<String> = Vec::new();
 
-        // Provider is always PostgreSQL: the exporter only emits PostgreSQL-native
-        // `@db.*` types (see `types::column_type_to_prisma`), so it isn't configurable.
         let mut datasource = vec![
             "datasource db {".to_string(),
-            "  provider = \"postgresql\"".to_string(),
+            format!("  provider = \"{}\"", self.provider.as_datasource_str()),
             "  url      = env(\"DATABASE_URL\")".to_string(),
         ];
         if let Some(rm) = self.config.relation_mode() {
@@ -71,7 +99,7 @@ impl<'a> PrismaExporterWithConfig<'a> {
         parts.extend(enum_blocks);
 
         for table in tables {
-            parts.push(render::render_model(table, tables));
+            parts.push(render::render_model(table, tables, self.provider));
         }
 
         parts.join("\n\n") + "\n"
@@ -101,12 +129,19 @@ pub fn render_entity(table: &TableDef) -> String {
 }
 
 /// Render enum blocks + model block with full schema context (includes back-relations).
+///
+/// Uses the default provider (PostgreSQL) — provider-specific output goes
+/// through [`PrismaExporterWithConfig::with_provider`].
 pub fn render_entity_with_schema(table: &TableDef, schema: &[TableDef]) -> String {
     let mut parts: Vec<String> = Vec::new();
     for (name, values) in collect_table_enums(table) {
         parts.push(enums::render_enum(name, values));
     }
-    parts.push(render::render_model(table, schema));
+    parts.push(render::render_model(
+        table,
+        schema,
+        PrismaProvider::default(),
+    ));
     parts.join("\n\n")
 }
 
@@ -132,18 +167,36 @@ pub fn to_pascal_case_for_tests(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
     use crate::tests::fixtures::basic_single_pk;
 
+    #[rstest]
+    #[case::postgres(PrismaProvider::Postgres, "provider = \"postgresql\"")]
+    #[case::mysql(PrismaProvider::MySql, "provider = \"mysql\"")]
+    #[case::sqlite(PrismaProvider::Sqlite, "provider = \"sqlite\"")]
+    fn render_schema_emits_configured_provider(
+        #[case] provider: PrismaProvider,
+        #[case] expected_line: &str,
+    ) {
+        let config = PrismaConfig::default();
+        let tables = vec![basic_single_pk()];
+        let schema =
+            PrismaExporterWithConfig::with_provider(&config, provider).render_schema(&tables);
+
+        assert!(schema.contains(expected_line));
+        assert!(!schema.contains("output"));
+        assert!(!schema.contains("relationMode"));
+    }
+
     #[test]
-    fn render_schema_hardcodes_postgresql_provider_and_omits_client_output() {
+    fn new_defaults_to_postgresql_provider() {
         let config = PrismaConfig::default();
         let tables = vec![basic_single_pk()];
         let schema = PrismaExporterWithConfig::new(&config).render_schema(&tables);
 
         assert!(schema.contains("provider = \"postgresql\""));
-        assert!(!schema.contains("output"));
-        assert!(!schema.contains("relationMode"));
     }
 
     #[test]

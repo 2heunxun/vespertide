@@ -1,45 +1,78 @@
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, SimpleColumnType};
 
+use super::PrismaProvider;
 use super::enums::to_pascal_case;
 
-pub(super) fn column_type_to_prisma(ty: &ColumnType, nullable: bool) -> (String, Option<String>) {
+pub(super) fn column_type_to_prisma(
+    ty: &ColumnType,
+    nullable: bool,
+    provider: PrismaProvider,
+) -> (String, Option<String>) {
     let q = if nullable { "?" } else { "" };
 
     match ty {
+        // vespertide stores MySQL UUIDs as BINARY(16) (see vespertide-query's
+        // uuid mapping), so the Prisma scalar itself differs per provider.
+        ColumnType::Simple(SimpleColumnType::Uuid) => {
+            let (base, native) = match provider {
+                PrismaProvider::Postgres => ("String", Some("@db.Uuid")),
+                PrismaProvider::MySql => ("Bytes", Some("@db.Binary(16)")),
+                PrismaProvider::Sqlite => ("String", None),
+            };
+            (format!("{base}{q}"), native.map(str::to_string))
+        }
         ColumnType::Simple(simple) => {
-            let (base, native) = match simple {
-                SimpleColumnType::SmallInt => ("Int", Some("@db.SmallInt")),
-                SimpleColumnType::Integer => ("Int", None),
-                SimpleColumnType::BigInt => ("BigInt", None),
-                SimpleColumnType::Real => ("Float", Some("@db.Real")),
-                SimpleColumnType::DoublePrecision => ("Float", None),
-                SimpleColumnType::Text => ("String", Some("@db.Text")),
-                SimpleColumnType::Boolean => ("Boolean", None),
-                SimpleColumnType::Date => ("DateTime", Some("@db.Date")),
-                SimpleColumnType::Time => ("DateTime", Some("@db.Time")),
-                SimpleColumnType::Timestamp => ("DateTime", Some("@db.Timestamp")),
-                SimpleColumnType::Timestamptz => ("DateTime", Some("@db.Timestamptz")),
-                SimpleColumnType::Bytea => ("Bytes", None),
-                SimpleColumnType::Uuid => ("String", Some("@db.Uuid")),
-                SimpleColumnType::Json => ("Json", None),
-                SimpleColumnType::Inet => ("String", Some("@db.Inet")),
-                SimpleColumnType::Xml => ("String", Some("@db.Xml")),
-                // Interval/Cidr/Macaddr have no Prisma native type; they and
-                // unknown/future simple types fall back to a plain String column.
-                _ => ("String", None),
+            // (scalar, postgres native attr, mysql native attr) — mirrors the
+            // per-backend DDL mapping in vespertide-query's `apply_simple_column_type`.
+            // SQLite never gets native attrs (its connector supports none).
+            let (base, pg_native, mysql_native) = match simple {
+                SimpleColumnType::SmallInt => ("Int", Some("@db.SmallInt"), Some("@db.SmallInt")),
+                SimpleColumnType::Integer => ("Int", None, None),
+                SimpleColumnType::BigInt => ("BigInt", None, None),
+                SimpleColumnType::Real => ("Float", Some("@db.Real"), Some("@db.Float")),
+                SimpleColumnType::DoublePrecision => ("Float", None, None),
+                SimpleColumnType::Text => ("String", Some("@db.Text"), Some("@db.Text")),
+                SimpleColumnType::Boolean => ("Boolean", None, None),
+                SimpleColumnType::Date => ("DateTime", Some("@db.Date"), Some("@db.Date")),
+                SimpleColumnType::Time => ("DateTime", Some("@db.Time"), Some("@db.Time")),
+                SimpleColumnType::Timestamp => {
+                    ("DateTime", Some("@db.Timestamp"), Some("@db.Timestamp"))
+                }
+                // MySQL has no TIMESTAMPTZ; the DDL degrades it to TIMESTAMP.
+                SimpleColumnType::Timestamptz => {
+                    ("DateTime", Some("@db.Timestamptz"), Some("@db.Timestamp"))
+                }
+                SimpleColumnType::Bytea => ("Bytes", None, None),
+                SimpleColumnType::Json => ("Json", None, None),
+                SimpleColumnType::Inet => ("String", Some("@db.Inet"), Some("@db.Text")),
+                SimpleColumnType::Xml => ("String", Some("@db.Xml"), Some("@db.Text")),
+                // Interval/Cidr/Macaddr have no Prisma native type on PostgreSQL;
+                // the MySQL DDL degrades all three to TEXT.
+                SimpleColumnType::Interval | SimpleColumnType::Cidr | SimpleColumnType::Macaddr => {
+                    ("String", None, Some("@db.Text"))
+                }
+                // Unknown/future simple types fall back to a plain String column.
+                _ => ("String", None, None),
+            };
+            let native = match provider {
+                PrismaProvider::Postgres => pg_native,
+                PrismaProvider::MySql => mysql_native,
+                PrismaProvider::Sqlite => None,
             };
             (format!("{base}{q}"), native.map(str::to_string))
         }
         ColumnType::Complex(complex) => match complex {
-            ComplexColumnType::Varchar { length } => {
-                (format!("String{q}"), Some(format!("@db.VarChar({length})")))
-            }
-            ComplexColumnType::Char { length } => {
-                (format!("String{q}"), Some(format!("@db.Char({length})")))
-            }
+            ComplexColumnType::Varchar { length } => (
+                format!("String{q}"),
+                sized_native(provider, format!("@db.VarChar({length})")),
+            ),
+            ComplexColumnType::Char { length } => (
+                format!("String{q}"),
+                sized_native(provider, format!("@db.Char({length})")),
+            ),
             ComplexColumnType::Numeric { precision, scale } => (
                 format!("Decimal{q}"),
-                Some(format!("@db.Decimal({precision}, {scale})")),
+                sized_native(provider, format!("@db.Decimal({precision}, {scale})")),
             ),
             ComplexColumnType::Custom { custom_type } => {
                 (format!("Unsupported(\"{custom_type}\"){q}"), None)
@@ -51,5 +84,93 @@ pub(super) fn column_type_to_prisma(ty: &ColumnType, nullable: bool) -> (String,
             // Unknown/future complex types fall back to a plain String column.
             _ => (format!("String{q}"), None),
         },
+    }
+}
+
+/// VarChar/Char/Decimal natives are spelled identically on PostgreSQL and
+/// MySQL; SQLite supports no native attrs at all.
+fn sized_native(provider: PrismaProvider, attr: String) -> Option<String> {
+    match provider {
+        PrismaProvider::Postgres | PrismaProvider::MySql => Some(attr),
+        PrismaProvider::Sqlite => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vespertide_core::schema::column::{ColumnType, ComplexColumnType, SimpleColumnType};
+
+    use super::*;
+
+    #[rstest]
+    #[case::postgres(PrismaProvider::Postgres, "String", Some("@db.Uuid"))]
+    #[case::mysql(PrismaProvider::MySql, "Bytes", Some("@db.Binary(16)"))]
+    #[case::sqlite(PrismaProvider::Sqlite, "String", None)]
+    fn uuid_scalar_and_native_follow_provider(
+        #[case] provider: PrismaProvider,
+        #[case] scalar: &str,
+        #[case] native: Option<&str>,
+    ) {
+        let ty = ColumnType::Simple(SimpleColumnType::Uuid);
+        let (rendered, attr) = column_type_to_prisma(&ty, false, provider);
+        assert_eq!(rendered, scalar);
+        assert_eq!(attr.as_deref(), native);
+    }
+
+    #[rstest]
+    #[case::postgres(PrismaProvider::Postgres, Some("@db.Timestamptz"))]
+    #[case::mysql(PrismaProvider::MySql, Some("@db.Timestamp"))]
+    #[case::sqlite(PrismaProvider::Sqlite, None)]
+    fn timestamptz_native_follows_provider(
+        #[case] provider: PrismaProvider,
+        #[case] native: Option<&str>,
+    ) {
+        let ty = ColumnType::Simple(SimpleColumnType::Timestamptz);
+        let (rendered, attr) = column_type_to_prisma(&ty, false, provider);
+        assert_eq!(rendered, "DateTime");
+        assert_eq!(attr.as_deref(), native);
+    }
+
+    #[rstest]
+    #[case::postgres(PrismaProvider::Postgres, None)]
+    #[case::mysql(PrismaProvider::MySql, Some("@db.Text"))]
+    #[case::sqlite(PrismaProvider::Sqlite, None)]
+    fn interval_native_follows_provider(
+        #[case] provider: PrismaProvider,
+        #[case] native: Option<&str>,
+    ) {
+        let ty = ColumnType::Simple(SimpleColumnType::Interval);
+        let (rendered, attr) = column_type_to_prisma(&ty, false, provider);
+        assert_eq!(rendered, "String");
+        assert_eq!(attr.as_deref(), native);
+    }
+
+    #[rstest]
+    #[case::postgres(PrismaProvider::Postgres, Some("@db.Inet"))]
+    #[case::mysql(PrismaProvider::MySql, Some("@db.Text"))]
+    #[case::sqlite(PrismaProvider::Sqlite, None)]
+    fn inet_native_follows_provider(
+        #[case] provider: PrismaProvider,
+        #[case] native: Option<&str>,
+    ) {
+        let ty = ColumnType::Simple(SimpleColumnType::Inet);
+        let (rendered, attr) = column_type_to_prisma(&ty, true, provider);
+        assert_eq!(rendered, "String?");
+        assert_eq!(attr.as_deref(), native);
+    }
+
+    #[rstest]
+    #[case::postgres(PrismaProvider::Postgres, Some("@db.VarChar(255)"))]
+    #[case::mysql(PrismaProvider::MySql, Some("@db.VarChar(255)"))]
+    #[case::sqlite(PrismaProvider::Sqlite, None)]
+    fn varchar_native_follows_provider(
+        #[case] provider: PrismaProvider,
+        #[case] native: Option<&str>,
+    ) {
+        let ty = ColumnType::Complex(ComplexColumnType::Varchar { length: 255 });
+        let (rendered, attr) = column_type_to_prisma(&ty, false, provider);
+        assert_eq!(rendered, "String");
+        assert_eq!(attr.as_deref(), native);
     }
 }
