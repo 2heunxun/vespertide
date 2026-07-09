@@ -9,7 +9,7 @@ use tokio::fs;
 use vespertide_config::VespertideConfig;
 use vespertide_core::TableDef;
 use vespertide_exporter::{
-    Orm, render_entity_with_schema, prisma::PrismaExporterWithConfig,
+    Orm, prisma::PrismaExporterWithConfig, render_entity_with_schema,
     seaorm::SeaOrmExporterWithConfig,
 };
 
