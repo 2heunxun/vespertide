@@ -463,3 +463,25 @@ fn reference_action_to_prisma(action: &ReferenceAction) -> &'static str {
 fn infer_relation_field_name(fk_col: &str) -> String {
     fk_col.strip_suffix("_id").unwrap_or(fk_col).to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vespertide_core::schema::column::SimpleColumnType;
+
+    use super::*;
+
+    #[rstest]
+    #[case::postgres(PrismaProvider::Postgres, "@default(uuid())")]
+    #[case::mysql(PrismaProvider::MySql, "@default(dbgenerated(\"(uuid())\"))")]
+    #[case::sqlite(PrismaProvider::Sqlite, "@default(uuid())")]
+    fn uuid_generating_default_follows_provider(
+        #[case] provider: PrismaProvider,
+        #[case] expected: &str,
+    ) {
+        let ty = ColumnType::Simple(SimpleColumnType::Uuid);
+        for default_sql in ["gen_random_uuid()", "uuid_generate_v4()", "NEWID()"] {
+            assert_eq!(prisma_default_attr(default_sql, &ty, provider), expected);
+        }
+    }
+}

@@ -173,4 +173,126 @@ mod tests {
         assert_eq!(rendered, "String");
         assert_eq!(attr.as_deref(), native);
     }
+
+    /// Exhaustive oracle for every simple type except `Uuid` (whose scalar
+    /// itself is provider-dependent — covered by its dedicated test above).
+    /// Each row is independent test data, so flipping any production mapping
+    /// tuple (mutation testing) fails here immediately.
+    #[rstest]
+    #[case::postgres(PrismaProvider::Postgres)]
+    #[case::mysql(PrismaProvider::MySql)]
+    #[case::sqlite(PrismaProvider::Sqlite)]
+    fn simple_type_mapping_matrix(#[case] provider: PrismaProvider) {
+        use SimpleColumnType as S;
+        // (type, scalar, postgres attr, mysql attr) — sqlite is always attr-less.
+        let rows: &[(S, &str, Option<&str>, Option<&str>)] = &[
+            (
+                S::SmallInt,
+                "Int",
+                Some("@db.SmallInt"),
+                Some("@db.SmallInt"),
+            ),
+            (S::Integer, "Int", None, None),
+            (S::BigInt, "BigInt", None, None),
+            (S::Real, "Float", Some("@db.Real"), Some("@db.Float")),
+            (S::DoublePrecision, "Float", None, None),
+            (S::Text, "String", Some("@db.Text"), Some("@db.Text")),
+            (S::Boolean, "Boolean", None, None),
+            (S::Date, "DateTime", Some("@db.Date"), Some("@db.Date")),
+            (S::Time, "DateTime", Some("@db.Time"), Some("@db.Time")),
+            (
+                S::Timestamp,
+                "DateTime",
+                Some("@db.Timestamp"),
+                Some("@db.Timestamp"),
+            ),
+            (
+                S::Timestamptz,
+                "DateTime",
+                Some("@db.Timestamptz"),
+                Some("@db.Timestamp"),
+            ),
+            (S::Interval, "String", None, Some("@db.Text")),
+            (S::Bytea, "Bytes", None, None),
+            (S::Json, "Json", None, None),
+            (S::Inet, "String", Some("@db.Inet"), Some("@db.Text")),
+            (S::Cidr, "String", None, Some("@db.Text")),
+            (S::Macaddr, "String", None, Some("@db.Text")),
+            (S::Xml, "String", Some("@db.Xml"), Some("@db.Text")),
+        ];
+
+        for (ty, scalar, pg, mysql) in rows {
+            let expected = match provider {
+                PrismaProvider::Postgres => *pg,
+                PrismaProvider::MySql => *mysql,
+                PrismaProvider::Sqlite => None,
+            };
+            let (rendered, attr) = column_type_to_prisma(&ColumnType::Simple(*ty), false, provider);
+            assert_eq!(rendered, *scalar, "{ty:?} scalar under {provider:?}");
+            assert_eq!(attr.as_deref(), expected, "{ty:?} attr under {provider:?}");
+        }
+    }
+
+    #[rstest]
+    #[case::postgres(
+        PrismaProvider::Postgres,
+        Some("@db.Char(3)"),
+        Some("@db.Decimal(10, 2)")
+    )]
+    #[case::mysql(PrismaProvider::MySql, Some("@db.Char(3)"), Some("@db.Decimal(10, 2)"))]
+    #[case::sqlite(PrismaProvider::Sqlite, None, None)]
+    fn char_and_numeric_natives_follow_provider(
+        #[case] provider: PrismaProvider,
+        #[case] char_native: Option<&str>,
+        #[case] numeric_native: Option<&str>,
+    ) {
+        let (rendered, attr) = column_type_to_prisma(
+            &ColumnType::Complex(ComplexColumnType::Char { length: 3 }),
+            false,
+            provider,
+        );
+        assert_eq!(rendered, "String");
+        assert_eq!(attr.as_deref(), char_native);
+
+        let (rendered, attr) = column_type_to_prisma(
+            &ColumnType::Complex(ComplexColumnType::Numeric {
+                precision: 10,
+                scale: 2,
+            }),
+            true,
+            provider,
+        );
+        assert_eq!(rendered, "Decimal?");
+        assert_eq!(attr.as_deref(), numeric_native);
+    }
+
+    #[rstest]
+    #[case::postgres(PrismaProvider::Postgres)]
+    #[case::mysql(PrismaProvider::MySql)]
+    #[case::sqlite(PrismaProvider::Sqlite)]
+    fn custom_and_enum_types_are_provider_invariant(#[case] provider: PrismaProvider) {
+        let (rendered, attr) = column_type_to_prisma(
+            &ColumnType::Complex(ComplexColumnType::Custom {
+                custom_type: "ltree".into(),
+            }),
+            false,
+            provider,
+        );
+        assert_eq!(rendered, "Unsupported(\"ltree\")");
+        assert_eq!(attr, None);
+
+        let (rendered, attr) = column_type_to_prisma(
+            &ColumnType::Complex(ComplexColumnType::Enum {
+                name: "order_status".into(),
+                values: vespertide_core::schema::column::EnumValues::String(vec![
+                    "open".into(),
+                    "closed".into(),
+                ]),
+            }),
+            false,
+            provider,
+        );
+        assert_eq!(rendered, "OrderStatus");
+        assert_eq!(attr, None);
+    }
 }

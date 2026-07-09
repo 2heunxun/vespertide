@@ -351,4 +351,19 @@ mod tests {
         let back: PrismaConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(back.relation_mode(), Some(RelationMode::Prisma));
     }
+
+    #[test]
+    fn vespertide_config_prisma_accessor_returns_deserialized_value() {
+        let config: VespertideConfig = serde_json::from_str(
+            r#"{
+                "modelsDir": "models",
+                "migrationsDir": "migrations",
+                "tableNamingCase": "snake",
+                "columnNamingCase": "snake",
+                "prisma": {"relationMode": "prisma"}
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(config.prisma().relation_mode(), Some(RelationMode::Prisma));
+    }
 }
