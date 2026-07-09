@@ -100,6 +100,9 @@ enum Commands {
         /// Output directory (defaults to config modelsDir or src/models).
         #[arg(short = 'd', long = "export-dir")]
         export_dir: Option<std::path::PathBuf>,
+        /// Database backend for Prisma schema generation (other ORMs ignore this).
+        #[arg(short = 'b', long = "backend", value_enum, default_value = "postgres")]
+        backend: BackendArg,
     },
     /// Export schema as ERD diagrams (SVG, Mermaid, Graphviz DOT).
     Erd {
@@ -143,7 +146,11 @@ async fn main() -> Result<()> {
             delete_null_rows,
         }) => cmd_revision(message, fill_with, delete_null_rows).await,
         Some(Commands::Init) => cmd_init().await,
-        Some(Commands::Export { orm, export_dir }) => cmd_export(orm, export_dir).await,
+        Some(Commands::Export {
+            orm,
+            export_dir,
+            backend,
+        }) => cmd_export(orm, export_dir, backend.into()).await,
         Some(Commands::Erd {
             format,
             output,

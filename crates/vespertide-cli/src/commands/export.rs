@@ -9,9 +9,12 @@ use tokio::fs;
 use vespertide_config::VespertideConfig;
 use vespertide_core::TableDef;
 use vespertide_exporter::{
-    Orm, prisma::PrismaExporterWithConfig, render_entity_with_schema,
+    Orm,
+    prisma::{PrismaExporterWithConfig, PrismaProvider},
+    render_entity_with_schema,
     seaorm::SeaOrmExporterWithConfig,
 };
+use vespertide_query::DatabaseBackend;
 
 use crate::parallel_config::{EXPORT_RENDER_PAR_MIN_LEN, EXPORT_RENDER_PAR_THRESHOLD};
 use crate::utils::load_config;
@@ -37,7 +40,21 @@ impl From<OrmArg> for Orm {
     }
 }
 
-pub async fn cmd_export(orm: OrmArg, export_dir: Option<PathBuf>) -> Result<()> {
+/// A Prisma schema is provider-specific (`datasource` provider + `@db.*`
+/// native attrs), so the export backend maps onto the Prisma provider.
+fn prisma_provider_for_backend(backend: DatabaseBackend) -> PrismaProvider {
+    match backend {
+        DatabaseBackend::Postgres => PrismaProvider::Postgres,
+        DatabaseBackend::MySql => PrismaProvider::MySql,
+        DatabaseBackend::Sqlite => PrismaProvider::Sqlite,
+    }
+}
+
+pub async fn cmd_export(
+    orm: OrmArg,
+    export_dir: Option<PathBuf>,
+    backend: DatabaseBackend,
+) -> Result<()> {
     let config = load_config()?;
     let models = load_models_recursive(config.models_dir())
         .await
@@ -58,7 +75,8 @@ pub async fn cmd_export(orm: OrmArg, export_dir: Option<PathBuf>) -> Result<()> 
 
     // Prisma uses a single-file output strategy
     if matches!(orm, OrmArg::Prisma) {
-        return cmd_export_prisma(config, normalized_models, target_root).await;
+        let provider = prisma_provider_for_backend(backend);
+        return cmd_export_prisma(config, normalized_models, target_root, provider).await;
     }
 
     // Clean the export directory before regenerating
@@ -183,7 +201,7 @@ fn render_export_entity(
 
 /// Derive `crate::` prefix from the export directory path.
 ///
-/// For example: `src/models` → `crate::models`, `src/db/entities` → `crate::db::entities`.
+/// For example: `src/models` ??`crate::models`, `src/db/entities` ??`crate::db::entities`.
 /// If the path doesn't start with `src/`, returns empty string (fallback to `super::` behavior).
 fn export_dir_to_crate_prefix(export_dir: &Path) -> String {
     let normalized = export_dir.to_string_lossy().replace('\\', "/");
@@ -199,8 +217,8 @@ fn export_dir_to_crate_prefix(export_dir: &Path) -> String {
 
 /// Convert a relative model file path to Rust module path segments.
 ///
-/// For example: `admin/admin.json` → `["admin", "admin"]`
-/// `estimate/estimate_checker.vespertide.json` → `["estimate", "estimate_checker"]`
+/// For example: `admin/admin.json` ??`["admin", "admin"]`
+/// `estimate/estimate_checker.vespertide.json` ??`["estimate", "estimate_checker"]`
 fn rel_path_to_module_segments(rel_path: &Path) -> Vec<String> {
     let mut segments = Vec::new();
 
@@ -442,9 +460,11 @@ async fn cmd_export_prisma(
     config: VespertideConfig,
     normalized_models: Vec<(TableDef, PathBuf)>,
     target_root: PathBuf,
+    provider: PrismaProvider,
 ) -> Result<()> {
     let all_tables: Vec<TableDef> = normalized_models.iter().map(|(t, _)| t.clone()).collect();
-    let content = PrismaExporterWithConfig::new(config.prisma()).render_schema(&all_tables);
+    let content = PrismaExporterWithConfig::with_provider(config.prisma(), provider)
+        .render_schema(&all_tables);
 
     clean_export_dir(&target_root, Orm::Prisma).await?;
 
@@ -560,7 +580,9 @@ mod tests {
         let model = sample_table("users");
         write_model(Path::new("models/users.json"), &model);
 
-        cmd_export(OrmArg::Seaorm, None).await.unwrap();
+        cmd_export(OrmArg::Seaorm, None, DatabaseBackend::Postgres)
+            .await
+            .unwrap();
 
         let out = PathBuf::from("src/models/users.rs");
         assert!(out.exists());
@@ -585,9 +607,13 @@ mod tests {
         write_model(Path::new("models/blog/posts.json"), &model);
 
         let custom = PathBuf::from("out_dir");
-        cmd_export(OrmArg::Seaorm, Some(custom.clone()))
-            .await
-            .unwrap();
+        cmd_export(
+            OrmArg::Seaorm,
+            Some(custom.clone()),
+            DatabaseBackend::Postgres,
+        )
+        .await
+        .unwrap();
 
         let out = custom.join("blog/posts.rs");
         assert!(out.exists());
@@ -615,7 +641,9 @@ mod tests {
         let model = sample_table("items");
         write_model(Path::new("models/items.json"), &model);
 
-        cmd_export(OrmArg::Sqlalchemy, None).await.unwrap();
+        cmd_export(OrmArg::Sqlalchemy, None, DatabaseBackend::Postgres)
+            .await
+            .unwrap();
 
         let out = PathBuf::from("src/models/items.py");
         assert!(out.exists());
@@ -633,12 +661,71 @@ mod tests {
         let model = sample_table("orders");
         write_model(Path::new("models/orders.json"), &model);
 
-        cmd_export(OrmArg::Sqlmodel, None).await.unwrap();
+        cmd_export(OrmArg::Sqlmodel, None, DatabaseBackend::Postgres)
+            .await
+            .unwrap();
 
         let out = PathBuf::from("src/models/orders.py");
         assert!(out.exists());
         let content = std_fs::read_to_string(out).unwrap();
         assert!(content.contains("orders"));
+    }
+
+    #[rstest]
+    #[case::postgres(
+        DatabaseBackend::Postgres,
+        "provider = \"postgresql\"",
+        "@db.Timestamptz",
+        None
+    )]
+    #[case::mysql(
+        DatabaseBackend::MySql,
+        "provider = \"mysql\"",
+        "@db.Timestamp",
+        Some("@db.Timestamptz")
+    )]
+    #[case::sqlite(
+        DatabaseBackend::Sqlite,
+        "provider = \"sqlite\"",
+        "DateTime",
+        Some("@db.")
+    )]
+    #[tokio::test]
+    #[serial]
+    async fn export_prisma_writes_provider_specific_schema(
+        #[case] backend: DatabaseBackend,
+        #[case] provider_line: &str,
+        #[case] expected: &str,
+        #[case] absent: Option<&str>,
+    ) {
+        let tmp = tempdir().unwrap();
+        let _guard = CwdGuard::new(&tmp.path().to_path_buf());
+        write_config();
+
+        let mut model = sample_table("events");
+        model.columns.push(ColumnDef {
+            name: "occurred_at".into(),
+            r#type: ColumnType::Simple(SimpleColumnType::Timestamptz),
+            nullable: false,
+            default: None,
+            comment: None,
+            primary_key: None,
+            unique: None,
+            index: None,
+            foreign_key: None,
+        });
+        write_model(Path::new("models/events.json"), &model);
+
+        cmd_export(OrmArg::Prisma, None, backend).await.unwrap();
+
+        let out = PathBuf::from("src/models/schema.prisma");
+        assert!(out.exists());
+        let content = std_fs::read_to_string(out).unwrap();
+        assert!(content.contains(provider_line));
+        assert!(content.contains(expected));
+        if let Some(absent) = absent {
+            assert!(!content.contains(absent));
+        }
     }
 
     #[tokio::test]
@@ -730,6 +817,7 @@ mod tests {
     #[case(OrmArg::Sqlalchemy, Orm::SqlAlchemy)]
     #[case(OrmArg::Sqlmodel, Orm::SqlModel)]
     #[case(OrmArg::Jpa, Orm::Jpa)]
+    #[case(OrmArg::Prisma, Orm::Prisma)]
     fn orm_arg_maps_to_enum(#[case] arg: OrmArg, #[case] expected: Orm) {
         assert_eq!(Orm::from(arg), expected);
     }
@@ -979,7 +1067,7 @@ mod tests {
         use std::path::Path;
         let root = Path::new("src/models");
 
-        // snake_case model → PascalCase .java
+        // snake_case model ??PascalCase .java
         let rel_path = Path::new("order_item.json");
         let out = build_output_path(root, rel_path, Orm::Jpa);
         assert_eq!(out, Path::new("src/models/OrderItem.java"));
