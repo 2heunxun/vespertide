@@ -83,10 +83,12 @@ impl<'a> PrismaExporterWithConfig<'a> {
 
         let mut parts: Vec<String> = Vec::new();
 
+        // No `url` here: current Prisma moved connection config out of the
+        // schema file (`prisma.config.ts`), which also matches vespertide's
+        // models-only scope.
         let mut datasource = vec![
             "datasource db {".to_string(),
             format!("  provider = \"{}\"", self.provider.as_datasource_str()),
-            "  url      = env(\"DATABASE_URL\")".to_string(),
         ];
         if let Some(rm) = self.config.relation_mode() {
             datasource.push(format!("  relationMode = \"{}\"", rm.as_str()));
