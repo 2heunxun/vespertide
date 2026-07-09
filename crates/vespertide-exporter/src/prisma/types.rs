@@ -52,6 +52,9 @@ pub(super) fn column_type_to_prisma(
                     ("String", None, Some("@db.Text"))
                 }
                 // Unknown/future simple types fall back to a plain String column.
+                // `SimpleColumnType` is #[non_exhaustive]; every current variant is
+                // matched above, so this arm is currently unreachable.
+                #[cfg(not(tarpaulin_include))]
                 _ => ("String", None, None),
             };
             let native = match provider {
@@ -82,6 +85,9 @@ pub(super) fn column_type_to_prisma(
                 (format!("{pascal}{q}"), None)
             }
             // Unknown/future complex types fall back to a plain String column.
+            // `ComplexColumnType` is #[non_exhaustive]; every current variant is
+            // matched above, so this arm is currently unreachable.
+            #[cfg(not(tarpaulin_include))]
             _ => (format!("String{q}"), None),
         },
     }

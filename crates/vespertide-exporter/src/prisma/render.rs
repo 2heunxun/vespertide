@@ -351,10 +351,11 @@ pub(super) fn render_model(
     for c in &table.constraints {
         if let TableConstraint::Index { name, columns } = c {
             let cols = columns.join(", ");
-            if let Some(n) = name {
-                lines.push(format!("  @@index([{cols}], map: \"{n}\")"));
-            } else {
-                lines.push(format!("  @@index([{cols}])"));
+            // `match` instead of `if let Some`: LLVM coverage attributes match
+            // arms reliably where this if/else was misattributed as uncovered.
+            match name {
+                Some(n) => lines.push(format!("  @@index([{cols}], map: \"{n}\")")),
+                None => lines.push(format!("  @@index([{cols}])")),
             }
         }
     }
@@ -467,9 +468,64 @@ fn infer_relation_field_name(fk_col: &str) -> String {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vespertide_core::schema::column::SimpleColumnType;
+    use vespertide_core::schema::column::{NumValue, SimpleColumnType};
 
     use super::*;
+
+    #[rstest]
+    #[case::cascade(ReferenceAction::Cascade, "Cascade")]
+    #[case::restrict(ReferenceAction::Restrict, "Restrict")]
+    #[case::set_null(ReferenceAction::SetNull, "SetNull")]
+    #[case::set_default(ReferenceAction::SetDefault, "SetDefault")]
+    #[case::no_action(ReferenceAction::NoAction, "NoAction")]
+    fn reference_actions_map_to_prisma(#[case] action: ReferenceAction, #[case] expected: &str) {
+        assert_eq!(reference_action_to_prisma(&action), expected);
+    }
+
+    #[test]
+    fn integer_enum_default_resolves_numeric_value_to_variant_name() {
+        let ty = ColumnType::Complex(ComplexColumnType::Enum {
+            name: "priority".into(),
+            values: EnumValues::Integer(vec![
+                NumValue {
+                    name: "low".into(),
+                    value: 100,
+                },
+                NumValue {
+                    name: "high".into(),
+                    value: 200,
+                },
+            ]),
+        });
+        assert_eq!(
+            prisma_default_attr("100", &ty, PrismaProvider::Postgres),
+            "@default(LOW)"
+        );
+    }
+
+    #[test]
+    fn fk_on_update_action_is_rendered() {
+        let mut table = crate::tests::fixtures::table_with_fk();
+        for c in &mut table.constraints {
+            if let TableConstraint::ForeignKey { on_update, .. } = c {
+                *on_update = Some(ReferenceAction::Cascade);
+            }
+        }
+        let rendered = render_model(
+            &table,
+            std::slice::from_ref(&table),
+            PrismaProvider::default(),
+        );
+        assert!(rendered.contains("onUpdate: Cascade"));
+    }
+
+    #[test]
+    fn named_index_is_rendered_with_map() {
+        let table = crate::tests::fixtures::table_with_indexes();
+        let rendered = render_model(&table, &[], PrismaProvider::default());
+        assert!(rendered.contains("@@index([created_at], map: \"idx_articles_created_at\")"));
+        assert!(rendered.contains("@@index([title])"));
+    }
 
     #[rstest]
     #[case::postgres(PrismaProvider::Postgres, "@default(uuid())")]

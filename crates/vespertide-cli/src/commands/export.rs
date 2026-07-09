@@ -860,6 +860,29 @@ mod tests {
     }
 
     #[test]
+    fn build_output_path_prisma_uses_prisma_extension() {
+        use std::path::Path;
+        let root = Path::new("src/models");
+        let out = build_output_path(root, Path::new("user.json"), Orm::Prisma);
+        assert_eq!(out, Path::new("src/models/user.prisma"));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn clean_export_dir_removes_stale_prisma_files() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().join("out");
+        std_fs::create_dir_all(&root).unwrap();
+        std_fs::write(root.join("schema.prisma"), "stale").unwrap();
+        std_fs::write(root.join("keep.txt"), "keep").unwrap();
+
+        clean_export_dir(&root, Orm::Prisma).await.unwrap();
+
+        assert!(!root.join("schema.prisma").exists());
+        assert!(root.join("keep.txt").exists());
+    }
+
+    #[test]
     fn build_output_path_handles_special_path_components() {
         use std::path::Path;
         let root = Path::new("src/models");

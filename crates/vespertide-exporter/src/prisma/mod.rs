@@ -202,6 +202,17 @@ mod tests {
     }
 
     #[test]
+    fn render_schema_emits_shared_enum_block_once() {
+        let config = PrismaConfig::default();
+        let t1 = crate::tests::fixtures::enum_shared();
+        let mut t2 = crate::tests::fixtures::enum_shared();
+        t2.name = "archived_documents".into();
+        let schema = PrismaExporterWithConfig::new(&config).render_schema(&[t1, t2]);
+
+        assert_eq!(schema.matches("enum DocStatus {").count(), 1);
+    }
+
+    #[test]
     fn render_schema_emits_relation_mode_when_configured() {
         // `PrismaConfig` is `#[non_exhaustive]` in a different crate, so it can't be
         // built with a struct literal here — go through its real construction path
