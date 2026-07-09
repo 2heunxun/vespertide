@@ -19,15 +19,13 @@ pub(super) fn column_type_to_prisma(ty: &ColumnType, nullable: bool) -> (String,
                 SimpleColumnType::Time => ("DateTime", Some("@db.Time")),
                 SimpleColumnType::Timestamp => ("DateTime", Some("@db.Timestamp")),
                 SimpleColumnType::Timestamptz => ("DateTime", Some("@db.Timestamptz")),
-                SimpleColumnType::Interval => ("String", Some("@db.Interval")),
                 SimpleColumnType::Bytea => ("Bytes", None),
                 SimpleColumnType::Uuid => ("String", Some("@db.Uuid")),
                 SimpleColumnType::Json => ("Json", None),
                 SimpleColumnType::Inet => ("String", Some("@db.Inet")),
-                SimpleColumnType::Cidr => ("String", Some("@db.Cidr")),
-                SimpleColumnType::Macaddr => ("String", Some("@db.Macaddr")),
                 SimpleColumnType::Xml => ("String", Some("@db.Xml")),
-                // Unknown/future simple types fall back to a plain String column.
+                // Interval/Cidr/Macaddr have no Prisma native type; they and
+                // unknown/future simple types fall back to a plain String column.
                 _ => ("String", None),
             };
             (format!("{base}{q}"), native.map(str::to_string))
