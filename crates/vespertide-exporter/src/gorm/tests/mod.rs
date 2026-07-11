@@ -742,3 +742,271 @@ fn test_has_many_with_constraint() {
     assert!(result.contains("OnUpdate:RESTRICT"));
     assert_snapshot!(result);
 }
+
+// -----------------------------------------------------------------------
+// Numeric column: add_column_type needs_decimal, build_gorm_tag Numeric, decimal import
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_numeric_column_gorm() {
+    let table = TableDef {
+        name: "prices".into(),
+        description: None,
+        columns: vec![
+            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col("amount", ColumnType::Complex(ComplexColumnType::Numeric { precision: 10, scale: 2 })),
+        ],
+        constraints: vec![TableConstraint::PrimaryKey {
+            auto_increment: true,
+            columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+        }],
+    };
+    let result = render_entity(&table).unwrap();
+    assert!(result.contains("type:numeric(10,2)"), "expected numeric GORM tag");
+    assert!(result.contains("decimal.Decimal"), "expected decimal.Decimal type");
+    assert!(result.contains("github.com/shopspring/decimal"), "expected decimal import");
+}
+
+// -----------------------------------------------------------------------
+// Unnamed Index: build_gorm_tag unnamed index tag + collect_index_info inner body
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_unnamed_index_gorm() {
+    let table = TableDef {
+        name: "searches".into(),
+        description: None,
+        columns: vec![
+            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col("query", ColumnType::Simple(SimpleColumnType::Text)),
+        ],
+        constraints: vec![
+            TableConstraint::PrimaryKey {
+                auto_increment: true,
+                columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+            },
+            TableConstraint::Index { name: None, columns: vec!["query".into()] },
+        ],
+    };
+    let result = render_entity(&table).unwrap();
+    assert!(result.contains(";index\""), "expected unnamed index tag");
+}
+
+// -----------------------------------------------------------------------
+// Named Index: build_gorm_tag named index tag + collect_index_info name closure
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_named_index_gorm() {
+    let table = TableDef {
+        name: "searches".into(),
+        description: None,
+        columns: vec![
+            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col("query", ColumnType::Simple(SimpleColumnType::Text)),
+        ],
+        constraints: vec![
+            TableConstraint::PrimaryKey {
+                auto_increment: true,
+                columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+            },
+            TableConstraint::Index {
+                name: Some("ix_searches__query".into()),
+                columns: vec!["query".into()],
+            },
+        ],
+    };
+    let result = render_entity(&table).unwrap();
+    assert!(result.contains("index:ix_searches__query"), "expected named index tag");
+}
+
+// -----------------------------------------------------------------------
+// Unnamed composite unique: collect_composite_unique_info auto-name (uq_{cols})
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_unnamed_composite_unique_gorm() {
+    let table = TableDef {
+        name: "order_lines".into(),
+        description: None,
+        columns: vec![
+            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col("order_id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col("sku", ColumnType::Complex(ComplexColumnType::Varchar { length: 50 })),
+        ],
+        constraints: vec![
+            TableConstraint::PrimaryKey {
+                auto_increment: true,
+                columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+            },
+            TableConstraint::Unique {
+                name: None,
+                columns: vec!["order_id".into(), "sku".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                    keep: vespertide_core::KeepPolicy::First,
+                },
+            },
+        ],
+    };
+    let result = render_entity(&table).unwrap();
+    assert!(
+        result.contains("uniqueIndex:uq_order_id_sku"),
+        "expected auto-generated uniqueIndex name"
+    );
+}
+
+// -----------------------------------------------------------------------
+// Singular source table name: find_reverse_relations appends 's' for non-plural
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_singular_source_table_name() {
+    let user = TableDef {
+        name: "user".into(),
+        description: None,
+        columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
+        constraints: vec![TableConstraint::PrimaryKey {
+            auto_increment: true,
+            columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+        }],
+    };
+    let comment = TableDef {
+        name: "comment".into(),
+        description: None,
+        columns: vec![
+            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col("user_id", ColumnType::Simple(SimpleColumnType::Integer)),
+        ],
+        constraints: vec![
+            TableConstraint::PrimaryKey {
+                auto_increment: true,
+                columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+            },
+            TableConstraint::ForeignKey {
+                name: None,
+                columns: vec!["user_id".into()],
+                ref_table: "user".into(),
+                ref_columns: vec!["id".into()],
+                on_delete: None,
+                on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
+            },
+        ],
+    };
+    let schema = vec![user.clone(), comment];
+    let result = render_entity_with_schema(&user, &schema).unwrap();
+    // "comment" → pascal "Comment" → doesn't end with 's' → appended 's' → "Comments"
+    assert!(result.contains("Comments"), "expected 'Comments' plural for singular 'comment' table");
+}
+
+// -----------------------------------------------------------------------
+// FK with on_update + nullable column: render_fk_relation_field lines 547, 559-560
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_fk_with_on_update_and_nullable() {
+    let posts = TableDef {
+        name: "posts".into(),
+        description: None,
+        columns: vec![
+            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+            ColumnDef {
+                name: "author_id".into(),
+                r#type: ColumnType::Simple(SimpleColumnType::Integer),
+                nullable: true,
+                default: None,
+                comment: None,
+                primary_key: None,
+                unique: None,
+                index: None,
+                foreign_key: None,
+            },
+        ],
+        constraints: vec![
+            TableConstraint::PrimaryKey {
+                auto_increment: true,
+                columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+            },
+            TableConstraint::ForeignKey {
+                name: None,
+                columns: vec!["author_id".into()],
+                ref_table: "users".into(),
+                ref_columns: vec!["id".into()],
+                on_delete: Some(ReferenceAction::Cascade),
+                on_update: Some(ReferenceAction::Restrict),
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
+            },
+        ],
+    };
+    let result = render_entity(&posts).unwrap();
+    assert!(result.contains("OnUpdate:RESTRICT"), "expected OnUpdate constraint");
+    assert!(result.contains("*Users"), "expected nullable FK pointer type");
+}
+
+// -----------------------------------------------------------------------
+// reference_action_str: SetNull, SetDefault, NoAction (via FK on_delete)
+// -----------------------------------------------------------------------
+
+#[rstest]
+#[case(ReferenceAction::SetNull, "SET NULL")]
+#[case(ReferenceAction::SetDefault, "SET DEFAULT")]
+#[case(ReferenceAction::NoAction, "NO ACTION")]
+fn test_gorm_fk_on_delete_actions(#[case] action: ReferenceAction, #[case] expected: &str) {
+    let table = TableDef {
+        name: "posts".into(),
+        description: None,
+        columns: vec![
+            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col("author_id", ColumnType::Simple(SimpleColumnType::Integer)),
+        ],
+        constraints: vec![
+            TableConstraint::PrimaryKey {
+                auto_increment: true,
+                columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+            },
+            TableConstraint::ForeignKey {
+                name: None,
+                columns: vec!["author_id".into()],
+                ref_table: "users".into(),
+                ref_columns: vec!["id".into()],
+                on_delete: Some(action),
+                on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
+            },
+        ],
+    };
+    let result = render_entity(&table).unwrap();
+    assert!(
+        result.contains(&format!("OnDelete:{expected}")),
+        "expected OnDelete:{expected} in:\n{result}"
+    );
+}
+
+// -----------------------------------------------------------------------
+// to_pascal_case: None arm via double-underscore table name
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_gorm_double_underscore_table_name() {
+    // "order__item" splits into ["order", "", "item"] → empty word hits None => String::new()
+    let table = TableDef {
+        name: "order__item".into(),
+        description: None,
+        columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
+        constraints: vec![TableConstraint::PrimaryKey {
+            auto_increment: true,
+            columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+        }],
+    };
+    let result = render_entity(&table).unwrap();
+    assert!(result.contains("type OrderItem struct"), "expected pascal-cased struct with double underscore");
+}

@@ -387,4 +387,12 @@ mod tests {
         assert_eq!(field, expected_field);
         assert_eq!(db_col.as_deref(), expected_db_col);
     }
+
+    #[test]
+    fn test_to_pascal_case_double_underscore() {
+        // Double underscore produces an empty word, triggering the None arm in to_pascal_case
+        assert_eq!(to_pascal_case("order__item"), "OrderItem");
+        assert_eq!(to_pascal_case("_leading"), "Leading");
+        assert_eq!(to_pascal_case("trailing_"), "Trailing");
+    }
 }

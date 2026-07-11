@@ -452,4 +452,120 @@ mod tests {
             "expected blank=True for nullable FK"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // build_default: Boolean false → "False"
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_bool_false_default() {
+        let mut flag = col("enabled", ColumnType::Simple(SimpleColumnType::Boolean));
+        flag.default = Some(DefaultValue::Bool(false));
+        let table = TableDef {
+            name: "settings".into(),
+            description: None,
+            columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer)), flag],
+            constraints: vec![auto_pk(&["id"])],
+        };
+        let result = render_entity(&table).unwrap();
+        assert!(result.contains("default=False"), "expected default=False");
+    }
+
+    // -----------------------------------------------------------------------
+    // build_default: functional default on non-Timestamp/UUID type → None (omitted)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_functional_default_non_special() {
+        let mut seq_id = col("seq_id", ColumnType::Simple(SimpleColumnType::Integer));
+        seq_id.default = Some(DefaultValue::String("nextval('my_seq')".into()));
+        let table = TableDef {
+            name: "items".into(),
+            description: None,
+            columns: vec![seq_id],
+            constraints: vec![pk(&["seq_id"])],
+        };
+        let result = render_entity(&table).unwrap();
+        assert!(!result.contains("default="), "functional default should be omitted");
+    }
+
+    // -----------------------------------------------------------------------
+    // reference_action_str: Restrict, SetDefault, NoAction
+    // -----------------------------------------------------------------------
+
+    #[rstest]
+    #[case(ReferenceAction::Restrict, "models.RESTRICT")]
+    #[case(ReferenceAction::SetDefault, "models.SET_DEFAULT")]
+    #[case(ReferenceAction::NoAction, "models.DO_NOTHING")]
+    fn test_fk_on_delete_actions(#[case] action: ReferenceAction, #[case] expected: &str) {
+        let table = TableDef {
+            name: "comments".into(),
+            description: None,
+            columns: vec![
+                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+                col("post_id", ColumnType::Simple(SimpleColumnType::Integer)),
+            ],
+            constraints: vec![auto_pk(&["id"]), fk("post_id", "posts", Some(action))],
+        };
+        let result = render_entity(&table).unwrap();
+        assert!(result.contains(expected), "expected {expected} in:\n{result}");
+    }
+
+    // -----------------------------------------------------------------------
+    // Column comment → emits "# ..." line before the field
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_column_comment() {
+        let mut c = col("name", ColumnType::Simple(SimpleColumnType::Text));
+        c.comment = Some("The user's full name".into());
+        let table = TableDef {
+            name: "users".into(),
+            description: None,
+            columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer)), c],
+            constraints: vec![auto_pk(&["id"])],
+        };
+        let result = render_entity(&table).unwrap();
+        assert!(
+            result.contains("    # The user's full name"),
+            "expected column comment in output"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Unnamed index and unnamed composite unique in Meta
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_index_and_unique_no_name() {
+        let table = TableDef {
+            name: "entries".into(),
+            description: None,
+            columns: vec![
+                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+                col("slug", ColumnType::Complex(ComplexColumnType::Varchar { length: 100 })),
+                col("tag", ColumnType::Complex(ComplexColumnType::Varchar { length: 50 })),
+            ],
+            constraints: vec![
+                auto_pk(&["id"]),
+                TableConstraint::Index { name: None, columns: vec!["slug".into()] },
+                TableConstraint::Unique {
+                    name: None,
+                    columns: vec!["slug".into(), "tag".into()],
+                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                        keep: vespertide_core::KeepPolicy::First,
+                    },
+                },
+            ],
+        };
+        let result = render_entity(&table).unwrap();
+        assert!(
+            result.contains("models.Index(fields=[\"slug\"]),"),
+            "expected unnamed Index"
+        );
+        assert!(
+            result.contains("models.UniqueConstraint(fields=[\"slug\", \"tag\"]),"),
+            "expected unnamed UniqueConstraint"
+        );
+    }
 }
