@@ -665,6 +665,24 @@ fn malformed_inline_fk_reference_is_ignored() {
 }
 
 #[test]
+fn table_level_fk_to_missing_table_is_ignored() {
+    let mut orphan = table(
+        "orphan",
+        vec![primary_key("id", integer()), column("ghost_id", integer())],
+    );
+    orphan.constraints.push(TableConstraint::ForeignKey {
+        name: Some("fk_orphan_ghost".into()),
+        columns: vec!["ghost_id".into()],
+        ref_table: "ghost".into(),
+        ref_columns: vec!["id".into()],
+        on_delete: None,
+        on_update: None,
+        orphan_strategy: Default::default(),
+    });
+    assert!(collect_foreign_key_relations(&[orphan]).is_empty());
+}
+
+#[test]
 fn inline_unique_group_variants_drive_one_to_one_detection() {
     let users = normalize(&table("users", vec![primary_key("id", integer())]));
     let child = table(
