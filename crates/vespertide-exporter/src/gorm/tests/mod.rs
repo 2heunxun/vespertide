@@ -754,7 +754,13 @@ fn test_numeric_column_gorm() {
         description: None,
         columns: vec![
             col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-            col("amount", ColumnType::Complex(ComplexColumnType::Numeric { precision: 10, scale: 2 })),
+            col(
+                "amount",
+                ColumnType::Complex(ComplexColumnType::Numeric {
+                    precision: 10,
+                    scale: 2,
+                }),
+            ),
         ],
         constraints: vec![TableConstraint::PrimaryKey {
             auto_increment: true,
@@ -763,9 +769,18 @@ fn test_numeric_column_gorm() {
         }],
     };
     let result = render_entity(&table).unwrap();
-    assert!(result.contains("type:numeric(10,2)"), "expected numeric GORM tag");
-    assert!(result.contains("decimal.Decimal"), "expected decimal.Decimal type");
-    assert!(result.contains("github.com/shopspring/decimal"), "expected decimal import");
+    assert!(
+        result.contains("type:numeric(10,2)"),
+        "expected numeric GORM tag"
+    );
+    assert!(
+        result.contains("decimal.Decimal"),
+        "expected decimal.Decimal type"
+    );
+    assert!(
+        result.contains("github.com/shopspring/decimal"),
+        "expected decimal import"
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -787,7 +802,10 @@ fn test_unnamed_index_gorm() {
                 columns: vec!["id".into()],
                 strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             },
-            TableConstraint::Index { name: None, columns: vec!["query".into()] },
+            TableConstraint::Index {
+                name: None,
+                columns: vec!["query".into()],
+            },
         ],
     };
     let result = render_entity(&table).unwrap();
@@ -820,7 +838,10 @@ fn test_named_index_gorm() {
         ],
     };
     let result = render_entity(&table).unwrap();
-    assert!(result.contains("index:ix_searches__query"), "expected named index tag");
+    assert!(
+        result.contains("index:ix_searches__query"),
+        "expected named index tag"
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -835,7 +856,10 @@ fn test_unnamed_composite_unique_gorm() {
         columns: vec![
             col("id", ColumnType::Simple(SimpleColumnType::Integer)),
             col("order_id", ColumnType::Simple(SimpleColumnType::Integer)),
-            col("sku", ColumnType::Complex(ComplexColumnType::Varchar { length: 50 })),
+            col(
+                "sku",
+                ColumnType::Complex(ComplexColumnType::Varchar { length: 50 }),
+            ),
         ],
         constraints: vec![
             TableConstraint::PrimaryKey {
@@ -902,7 +926,10 @@ fn test_singular_source_table_name() {
     let schema = vec![user.clone(), comment];
     let result = render_entity_with_schema(&user, &schema).unwrap();
     // "comment" → pascal "Comment" → doesn't end with 's' → appended 's' → "Comments"
-    assert!(result.contains("Comments"), "expected 'Comments' plural for singular 'comment' table");
+    assert!(
+        result.contains("Comments"),
+        "expected 'Comments' plural for singular 'comment' table"
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -946,8 +973,14 @@ fn test_fk_with_on_update_and_nullable() {
         ],
     };
     let result = render_entity(&posts).unwrap();
-    assert!(result.contains("OnUpdate:RESTRICT"), "expected OnUpdate constraint");
-    assert!(result.contains("*Users"), "expected nullable FK pointer type");
+    assert!(
+        result.contains("OnUpdate:RESTRICT"),
+        "expected OnUpdate constraint"
+    );
+    assert!(
+        result.contains("*Users"),
+        "expected nullable FK pointer type"
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -1008,5 +1041,8 @@ fn test_gorm_double_underscore_table_name() {
         }],
     };
     let result = render_entity(&table).unwrap();
-    assert!(result.contains("type OrderItem struct"), "expected pascal-cased struct with double underscore");
+    assert!(
+        result.contains("type OrderItem struct"),
+        "expected pascal-cased struct with double underscore"
+    );
 }

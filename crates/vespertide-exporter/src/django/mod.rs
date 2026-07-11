@@ -464,7 +464,10 @@ mod tests {
         let table = TableDef {
             name: "settings".into(),
             description: None,
-            columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer)), flag],
+            columns: vec![
+                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+                flag,
+            ],
             constraints: vec![auto_pk(&["id"])],
         };
         let result = render_entity(&table).unwrap();
@@ -486,7 +489,10 @@ mod tests {
             constraints: vec![pk(&["seq_id"])],
         };
         let result = render_entity(&table).unwrap();
-        assert!(!result.contains("default="), "functional default should be omitted");
+        assert!(
+            !result.contains("default="),
+            "functional default should be omitted"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -508,7 +514,10 @@ mod tests {
             constraints: vec![auto_pk(&["id"]), fk("post_id", "posts", Some(action))],
         };
         let result = render_entity(&table).unwrap();
-        assert!(result.contains(expected), "expected {expected} in:\n{result}");
+        assert!(
+            result.contains(expected),
+            "expected {expected} in:\n{result}"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -543,12 +552,21 @@ mod tests {
             description: None,
             columns: vec![
                 col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-                col("slug", ColumnType::Complex(ComplexColumnType::Varchar { length: 100 })),
-                col("tag", ColumnType::Complex(ComplexColumnType::Varchar { length: 50 })),
+                col(
+                    "slug",
+                    ColumnType::Complex(ComplexColumnType::Varchar { length: 100 }),
+                ),
+                col(
+                    "tag",
+                    ColumnType::Complex(ComplexColumnType::Varchar { length: 50 }),
+                ),
             ],
             constraints: vec![
                 auto_pk(&["id"]),
-                TableConstraint::Index { name: None, columns: vec!["slug".into()] },
+                TableConstraint::Index {
+                    name: None,
+                    columns: vec!["slug".into()],
+                },
                 TableConstraint::Unique {
                     name: None,
                     columns: vec!["slug".into(), "tag".into()],
