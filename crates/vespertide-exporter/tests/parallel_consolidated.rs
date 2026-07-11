@@ -37,6 +37,7 @@ fn render_schema(orm: Orm, schema: &[TableDef]) -> Result<String, String> {
         Orm::Jpa => {
             vespertide_exporter::jpa::render_entities(schema).map(|entities| entities.join("\n"))
         }
+        _ => unreachable!("parallel test only exercises the four multi-table ORM backends"),
     }
 }
 

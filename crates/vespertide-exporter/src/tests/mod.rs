@@ -17,6 +17,7 @@ fn render_schema(orm: Orm, schema: &[TableDef]) -> Result<String, String> {
         Orm::SqlAlchemy => crate::sqlalchemy::export(schema),
         Orm::SqlModel => crate::sqlmodel::render_entities(schema),
         Orm::Jpa => crate::jpa::render_entities(schema).map(|entities| entities.join("\n")),
+        _ => unreachable!("orm_cases! macro only covers the four multi-table ORMs"),
     }
 }
 
@@ -299,6 +300,7 @@ fn to_pascal_case_for(orm: Orm, s: &str) -> String {
         Orm::SqlAlchemy => crate::sqlalchemy::to_pascal_case_for_tests(s),
         Orm::SqlModel => crate::sqlmodel::to_pascal_case_for_tests(s),
         Orm::Jpa => crate::jpa::to_pascal_case_for_tests(s),
+        _ => unreachable!("to_pascal_case consolidation test only covers the four ORM backends"),
     }
 }
 

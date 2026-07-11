@@ -1,0 +1,17 @@
+---
+source: crates/vespertide-exporter/src/orm.rs
+assertion_line: 91
+expression: result.unwrap()
+---
+from __future__ import annotations
+
+from typing import Optional
+
+from sqlmodel import Field, SQLModel
+
+
+class Users(SQLModel, table=True):
+    __tablename__ = "users"
+
+    id: int = Field(primary_key=True)
+    display_name: Optional[str] = Field(default=None)

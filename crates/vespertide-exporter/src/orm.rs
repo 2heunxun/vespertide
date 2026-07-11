@@ -1,7 +1,7 @@
 use vespertide_core::TableDef;
 
 use crate::{
-    gorm::GormExporter, jpa::JpaExporter, seaorm::SeaOrmExporter,
+    django::DjangoExporter, gorm::GormExporter, jpa::JpaExporter, seaorm::SeaOrmExporter,
     sqlalchemy::SqlAlchemyExporter, sqlmodel::SqlModelExporter,
 };
 
@@ -13,6 +13,7 @@ pub enum Orm {
     SqlModel,
     Jpa,
     Gorm,
+    Django,
 }
 
 /// Standardized exporter interface for all supported ORMs.
@@ -38,6 +39,7 @@ pub fn render_entity(orm: Orm, table: &TableDef) -> Result<String, String> {
         Orm::SqlModel => SqlModelExporter.render_entity(table),
         Orm::Jpa => JpaExporter.render_entity(table),
         Orm::Gorm => GormExporter.render_entity(table),
+        Orm::Django => DjangoExporter.render_entity(table),
     }
 }
 
@@ -53,6 +55,7 @@ pub fn render_entity_with_schema(
         Orm::SqlModel => SqlModelExporter.render_entity_with_schema(table, schema),
         Orm::Jpa => JpaExporter.render_entity_with_schema(table, schema),
         Orm::Gorm => GormExporter.render_entity_with_schema(table, schema),
+        Orm::Django => DjangoExporter.render_entity_with_schema(table, schema),
     }
 }
 
@@ -79,6 +82,7 @@ mod tests {
     #[case("sqlmodel", Orm::SqlModel)]
     #[case("jpa", Orm::Jpa)]
     #[case("gorm", Orm::Gorm)]
+    #[case("django", Orm::Django)]
     fn test_render_entity_snapshots(#[case] name: &str, #[case] orm: Orm) {
         let table = basic_single_pk();
         let result = render_entity(orm, &table);
@@ -94,6 +98,7 @@ mod tests {
     #[case("sqlmodel", Orm::SqlModel)]
     #[case("jpa", Orm::Jpa)]
     #[case("gorm", Orm::Gorm)]
+    #[case("django", Orm::Django)]
     fn test_render_entity_with_schema_snapshots(#[case] name: &str, #[case] orm: Orm) {
         let table = basic_single_pk();
         let schema = vec![table.clone()];

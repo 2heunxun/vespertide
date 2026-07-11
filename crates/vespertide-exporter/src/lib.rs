@@ -1,6 +1,7 @@
 //! Helpers to convert `TableDef` models into ORM-specific representations
-//! such as `SeaORM`, `SQLAlchemy`, `SQLModel`, JPA, and GORM.
+//! such as `SeaORM`, `SQLAlchemy`, `SQLModel`, JPA, GORM, and Django.
 
+pub mod django;
 pub mod gorm;
 pub mod jpa;
 pub mod orm;
@@ -12,6 +13,7 @@ pub mod sqlmodel;
 mod tests;
 mod utils;
 
+pub use django::DjangoExporter;
 pub use gorm::GormExporter;
 pub use jpa::JpaExporter;
 pub use orm::{Orm, OrmExporter, render_entity, render_entity_with_schema};

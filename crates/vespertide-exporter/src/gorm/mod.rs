@@ -140,6 +140,7 @@ fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> Result<String, 
             }
         })
         .flatten()
+        .map(|c| c.as_str().to_owned())
         .collect();
 
     let auto_increment = table.constraints.iter().any(|c| {
@@ -153,7 +154,7 @@ fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> Result<String, 
         .iter()
         .filter_map(|c| {
             if let TableConstraint::Unique { columns, .. } = c {
-                if columns.len() == 1 { Some(columns[0].clone()) } else { None }
+                if columns.len() == 1 { Some(columns[0].as_str().to_owned()) } else { None }
             } else {
                 None
             }
@@ -214,10 +215,10 @@ fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> Result<String, 
     lines.push(format!("type {struct_name} struct {{"));
 
     for col in &table.columns {
-        let is_pk = pk_columns.contains(&col.name);
-        let is_unique = single_unique_columns.contains(&col.name);
-        let indexes = index_map.get(&col.name).map(|v| v.as_slice()).unwrap_or(&[]);
-        let composite_unique_name = composite_unique_map.get(&col.name);
+        let is_pk = pk_columns.contains(col.name.as_str());
+        let is_unique = single_unique_columns.contains(col.name.as_str());
+        let indexes = index_map.get(col.name.as_str()).map(|v| v.as_slice()).unwrap_or(&[]);
+        let composite_unique_name = composite_unique_map.get(col.name.as_str());
 
         if let Some(ref comment) = col.comment {
             lines.push(format!("    // {}", comment.replace('\n', " ")));
@@ -234,7 +235,7 @@ fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> Result<String, 
             &enum_name_map,
         );
 
-        if let Some(fk) = fk_by_column.get(&col.name) {
+        if let Some(fk) = fk_by_column.get(col.name.as_str()) {
             render_fk_relation_field(&mut lines, col, fk);
         }
     }
@@ -301,9 +302,9 @@ fn collect_fk_info(constraints: &[TableConstraint]) -> HashMap<String, FkInfo> {
             {
                 if columns.len() == 1 && ref_columns.len() == 1 {
                     Some((
-                        columns[0].clone(),
+                        columns[0].as_str().to_owned(),
                         FkInfo {
-                            ref_table: ref_table.clone(),
+                            ref_table: ref_table.as_str().to_owned(),
                             on_delete: on_delete.clone(),
                             on_update: on_update.clone(),
                         },
@@ -331,9 +332,9 @@ fn collect_index_info(constraints: &[TableConstraint]) -> HashMap<String, Vec<In
     for c in constraints {
         if let TableConstraint::Index { name, columns } = c {
             for col in columns {
-                map.entry(col.clone())
+                map.entry(col.as_str().to_owned())
                     .or_default()
-                    .push(IndexInfo { name: name.clone() });
+                    .push(IndexInfo { name: name.as_ref().map(|n| n.as_str().to_owned()) });
             }
         }
     }
@@ -343,13 +344,17 @@ fn collect_index_info(constraints: &[TableConstraint]) -> HashMap<String, Vec<In
 fn collect_composite_unique_info(constraints: &[TableConstraint]) -> HashMap<String, String> {
     let mut map = HashMap::new();
     for c in constraints {
-        if let TableConstraint::Unique { name, columns } = c {
+        if let TableConstraint::Unique { name, columns, .. } = c {
             if columns.len() > 1 {
                 let uq_name = name
-                    .clone()
-                    .unwrap_or_else(|| format!("uq_{}", columns.join("_")));
+                    .as_ref()
+                    .map(|n| n.as_str().to_owned())
+                    .unwrap_or_else(|| {
+                        let parts: Vec<&str> = columns.iter().map(|c| c.as_str()).collect();
+                        format!("uq_{}", parts.join("_"))
+                    });
                 for col in columns {
-                    map.insert(col.clone(), uq_name.clone());
+                    map.insert(col.as_str().to_owned(), uq_name.clone());
                 }
             }
         }
@@ -386,12 +391,12 @@ fn find_reverse_relations(table_name: &str, schema: &[TableDef]) -> Vec<ReverseR
             } = c
             {
                 if ref_table.as_str() == table_name && columns.len() == 1 {
-                    let fk_col = columns[0].clone();
-                    let pascal = to_pascal_case(&other.name);
+                    let fk_col = columns[0].as_str().to_owned();
+                    let pascal = to_pascal_case(other.name.as_str());
                     let base_name =
                         if pascal.ends_with('s') { pascal } else { format!("{pascal}s") };
                     raw.push((
-                        other.name.clone(),
+                        other.name.as_str().to_owned(),
                         fk_col,
                         base_name,
                         on_delete.clone(),
@@ -590,10 +595,6 @@ fn build_default_tag(default: &DefaultValue) -> Option<String> {
 // Type mapping
 // ---------------------------------------------------------------------------
 
-fn go_type_for_column(col_type: &ColumnType, nullable: bool) -> String {
-    go_type_for_column_mapped(col_type, nullable, &HashMap::new())
-}
-
 fn go_type_for_column_mapped(col_type: &ColumnType, nullable: bool, enum_map: &HashMap<&str, String>) -> String {
     let base = match col_type {
         ColumnType::Complex(ComplexColumnType::Enum { name, .. }) => {
@@ -626,6 +627,7 @@ fn go_base_type(col_type: &ColumnType) -> String {
             SimpleColumnType::Bytea => "[]byte".to_string(),
             SimpleColumnType::Uuid => "uuid.UUID".to_string(),
             SimpleColumnType::Json => "datatypes.JSON".to_string(),
+            _ => unreachable!("SimpleColumnType is #[non_exhaustive]; all variants matched"),
         },
         ColumnType::Complex(ty) => match ty {
             ComplexColumnType::Varchar { .. } | ComplexColumnType::Char { .. } => {
@@ -640,6 +642,7 @@ fn go_base_type(col_type: &ColumnType) -> String {
             }
             ComplexColumnType::Numeric { .. } => "decimal.Decimal".to_string(),
             ComplexColumnType::Enum { name, .. } => to_pascal_case(name),
+            _ => unreachable!("ComplexColumnType is #[non_exhaustive]; all variants matched"),
         },
     }
 }
@@ -651,6 +654,7 @@ fn reference_action_str(action: &ReferenceAction) -> &'static str {
         ReferenceAction::SetNull => "SET NULL",
         ReferenceAction::SetDefault => "SET DEFAULT",
         ReferenceAction::NoAction => "NO ACTION",
+        _ => unreachable!("ReferenceAction is #[non_exhaustive]; all variants matched"),
     }
 }
 
@@ -711,7 +715,7 @@ mod tests {
 
     fn col(name: &str, ty: ColumnType) -> ColumnDef {
         ColumnDef {
-            name: name.to_string(),
+            name: name.into(),
             r#type: ty,
             nullable: false,
             default: None,
@@ -756,7 +760,7 @@ mod tests {
         #[case] nullable: bool,
         #[case] expected: &str,
     ) {
-        assert_eq!(go_type_for_column(&col_type, nullable), expected);
+        assert_eq!(go_type_for_column_mapped(&col_type, nullable, &HashMap::new()), expected);
     }
 
     #[rstest]
@@ -850,10 +854,14 @@ mod tests {
                 TableConstraint::PrimaryKey {
                     auto_increment: true,
                     columns: vec!["id".into()],
+                    strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
                 },
                 TableConstraint::Unique {
                     name: None,
                     columns: vec!["email".into()],
+                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                        keep: vespertide_core::KeepPolicy::First,
+                    },
                 },
             ],
         };
@@ -889,6 +897,7 @@ mod tests {
                 TableConstraint::PrimaryKey {
                     auto_increment: true,
                     columns: vec!["id".into()],
+                    strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
                 },
                 TableConstraint::ForeignKey {
                     name: None,
@@ -897,6 +906,7 @@ mod tests {
                     ref_columns: vec!["id".into()],
                     on_delete: Some(ReferenceAction::Cascade),
                     on_update: None,
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                 },
                 TableConstraint::Index {
                     name: Some("ix_posts__author_id".into()),
@@ -941,6 +951,7 @@ mod tests {
             constraints: vec![TableConstraint::PrimaryKey {
                 auto_increment: true,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             }],
         };
         let result = render_entity(&table).unwrap();
@@ -976,6 +987,7 @@ mod tests {
             constraints: vec![TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             }],
         };
         let result = render_entity(&table).unwrap();
@@ -1021,6 +1033,7 @@ mod tests {
                 TableConstraint::PrimaryKey {
                     auto_increment: false,
                     columns: vec!["order_id".into(), "product_id".into()],
+                    strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
                 },
                 TableConstraint::ForeignKey {
                     name: None,
@@ -1029,6 +1042,7 @@ mod tests {
                     ref_columns: vec!["id".into()],
                     on_delete: None,
                     on_update: None,
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                 },
                 TableConstraint::ForeignKey {
                     name: None,
@@ -1037,10 +1051,14 @@ mod tests {
                     ref_columns: vec!["id".into()],
                     on_delete: None,
                     on_update: None,
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                 },
                 TableConstraint::Unique {
                     name: Some("uq_order_items__order_product".into()),
                     columns: vec!["order_id".into(), "product_id".into()],
+                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                        keep: vespertide_core::KeepPolicy::First,
+                    },
                 },
             ],
         };
@@ -1081,6 +1099,7 @@ mod tests {
             constraints: vec![TableConstraint::PrimaryKey {
                 auto_increment: false,
                 columns: vec!["col_integer".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             }],
         };
         let result = render_entity(&table).unwrap();
@@ -1104,6 +1123,7 @@ mod tests {
             constraints: vec![TableConstraint::PrimaryKey {
                 auto_increment: true,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             }],
         };
         let result = render_entity(&table).unwrap();
@@ -1147,6 +1167,7 @@ mod tests {
             constraints: vec![TableConstraint::PrimaryKey {
                 auto_increment: true,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             }],
         };
         let result = render_entity(&table).unwrap();
@@ -1170,6 +1191,7 @@ mod tests {
             constraints: vec![TableConstraint::PrimaryKey {
                 auto_increment: true,
                 columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
             }],
         };
         let posts = TableDef {
@@ -1183,6 +1205,7 @@ mod tests {
                 TableConstraint::PrimaryKey {
                     auto_increment: true,
                     columns: vec!["id".into()],
+                    strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
                 },
                 TableConstraint::ForeignKey {
                     name: None,
@@ -1191,6 +1214,7 @@ mod tests {
                     ref_columns: vec!["id".into()],
                     on_delete: Some(ReferenceAction::Cascade),
                     on_update: Some(ReferenceAction::Restrict),
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
                 },
             ],
         };

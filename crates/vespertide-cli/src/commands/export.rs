@@ -20,6 +20,7 @@ pub enum OrmArg {
     Sqlmodel,
     Jpa,
     Gorm,
+    Django,
 }
 
 impl From<OrmArg> for Orm {
@@ -30,6 +31,7 @@ impl From<OrmArg> for Orm {
             OrmArg::Sqlmodel => Orm::SqlModel,
             OrmArg::Jpa => Orm::Jpa,
             OrmArg::Gorm => Orm::Gorm,
+            OrmArg::Django => Orm::Django,
         }
     }
 }
@@ -238,7 +240,7 @@ async fn clean_export_dir(root: &Path, orm: Orm) -> Result<()> {
 
     let ext = match orm {
         Orm::SeaOrm => "rs",
-        Orm::SqlAlchemy | Orm::SqlModel => "py",
+        Orm::SqlAlchemy | Orm::SqlModel | Orm::Django => "py",
         Orm::Jpa => "java",
         Orm::Gorm => "go",
     };
@@ -331,7 +333,7 @@ fn build_output_path(root: &Path, rel_path: &Path, orm: Orm) -> PathBuf {
         let sanitized = sanitize_filename(stem);
         let ext = match orm {
             Orm::SeaOrm => "rs",
-            Orm::SqlAlchemy | Orm::SqlModel => "py",
+            Orm::SqlAlchemy | Orm::SqlModel | Orm::Django => "py",
             Orm::Jpa => "java",
             Orm::Gorm => "go",
         };
