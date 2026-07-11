@@ -291,6 +291,7 @@ mod tests {
     #[case::bytea(SimpleColumnType::Bytea, "models.BinaryField")]
     #[case::inet(SimpleColumnType::Inet, "models.GenericIPAddressField")]
     #[case::interval(SimpleColumnType::Interval, "models.DurationField")]
+    #[case::macaddr(SimpleColumnType::Macaddr, "models.CharField")]
     fn test_simple_type_mapping(#[case] ty: SimpleColumnType, #[case] expected: &str) {
         let table = TableDef {
             name: "t".into(),
@@ -305,6 +306,150 @@ mod tests {
         assert!(
             result.contains(expected),
             "expected {expected} in:\n{result}"
+        );
+    }
+
+    #[rstest]
+    #[case::small_auto(SimpleColumnType::SmallInt, "models.SmallAutoField")]
+    #[case::big_auto(SimpleColumnType::BigInt, "models.BigAutoField")]
+    fn test_auto_pk_field_types(#[case] ty: SimpleColumnType, #[case] expected: &str) {
+        let table = TableDef {
+            name: "t".into(),
+            description: None,
+            columns: vec![col("id", ColumnType::Simple(ty))],
+            constraints: vec![auto_pk(&["id"])],
+        };
+        let result = render_entity(&table).unwrap();
+        assert!(
+            result.contains(expected),
+            "expected {expected} in:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_numeric_field() {
+        let table = TableDef {
+            name: "prices".into(),
+            description: None,
+            columns: vec![
+                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+                col(
+                    "amount",
+                    ColumnType::Complex(ComplexColumnType::Numeric {
+                        precision: 10,
+                        scale: 2,
+                    }),
+                ),
+            ],
+            constraints: vec![auto_pk(&["id"])],
+        };
+        let result = render_entity(&table).unwrap();
+        assert!(
+            result.contains("models.DecimalField"),
+            "expected DecimalField"
+        );
+        assert!(result.contains("max_digits=10"), "expected max_digits=10");
+        assert!(
+            result.contains("decimal_places=2"),
+            "expected decimal_places=2"
+        );
+    }
+
+    #[test]
+    fn test_custom_type_field() {
+        let table = TableDef {
+            name: "docs".into(),
+            description: None,
+            columns: vec![
+                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+                col(
+                    "data",
+                    ColumnType::Complex(ComplexColumnType::Custom {
+                        custom_type: "JSONB".into(),
+                    }),
+                ),
+            ],
+            constraints: vec![auto_pk(&["id"])],
+        };
+        let result = render_entity(&table).unwrap();
+        // Custom type → models.TextField (Django has no native JSONB)
+        assert!(
+            result.contains("data = models.TextField()"),
+            "expected Custom→TextField in:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_uuid_default() {
+        let mut id_col = col("id", ColumnType::Simple(SimpleColumnType::Uuid));
+        id_col.default = Some(DefaultValue::String("gen_random_uuid()".into()));
+        let table = TableDef {
+            name: "sessions".into(),
+            description: None,
+            columns: vec![id_col],
+            constraints: vec![pk(&["id"])],
+        };
+        let result = render_entity(&table).unwrap();
+        assert!(result.contains("import uuid"), "expected uuid import");
+        assert!(
+            result.contains("default=uuid.uuid4"),
+            "expected uuid4 callable"
+        );
+    }
+
+    #[test]
+    fn test_export_multi_table() {
+        let users = TableDef {
+            name: "users".into(),
+            description: None,
+            columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
+            constraints: vec![auto_pk(&["id"])],
+        };
+        let posts = TableDef {
+            name: "posts".into(),
+            description: None,
+            columns: vec![
+                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+                col("author_id", ColumnType::Simple(SimpleColumnType::Integer)),
+            ],
+            constraints: vec![
+                auto_pk(&["id"]),
+                fk("author_id", "users", Some(ReferenceAction::Cascade)),
+            ],
+        };
+        let result = export(&[users, posts]).unwrap();
+        assert!(result.contains("class Users(models.Model):"));
+        assert!(result.contains("class Posts(models.Model):"));
+    }
+
+    #[test]
+    fn test_nullable_fk_with_db_column() {
+        // FK column without `_id` suffix → emits db_column kwarg
+        // Nullable FK → emits null=True, blank=True
+        let table = TableDef {
+            name: "comments".into(),
+            description: None,
+            columns: vec![
+                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+                nullable_col("parent", ColumnType::Simple(SimpleColumnType::Integer)),
+            ],
+            constraints: vec![
+                auto_pk(&["id"]),
+                fk("parent", "comments", Some(ReferenceAction::SetNull)),
+            ],
+        };
+        let result = render_entity(&table).unwrap();
+        assert!(
+            result.contains(r#"db_column="parent""#),
+            "expected db_column kwarg"
+        );
+        assert!(
+            result.contains("null=True"),
+            "expected null=True for nullable FK"
+        );
+        assert!(
+            result.contains("blank=True"),
+            "expected blank=True for nullable FK"
         );
     }
 }

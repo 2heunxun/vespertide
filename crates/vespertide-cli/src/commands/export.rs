@@ -695,6 +695,7 @@ mod tests {
     #[case(OrmArg::Sqlmodel, Orm::SqlModel)]
     #[case(OrmArg::Jpa, Orm::Jpa)]
     #[case(OrmArg::Gorm, Orm::Gorm)]
+    #[case(OrmArg::Django, Orm::Django)]
     fn orm_arg_maps_to_enum(#[case] arg: OrmArg, #[case] expected: Orm) {
         assert_eq!(Orm::from(arg), expected);
     }
@@ -978,5 +979,27 @@ mod tests {
     #[case("a__b", "AB")]
     fn test_to_pascal_case(#[case] input: &str, #[case] expected: &str) {
         assert_eq!(to_pascal_case(input), expected);
+    }
+
+    #[test]
+    fn build_output_path_gorm_go_extension() {
+        let root = Path::new("src/models");
+        let out = build_output_path(root, Path::new("user.json"), Orm::Gorm);
+        assert_eq!(out, Path::new("src/models/user.go"));
+    }
+
+    #[tokio::test]
+    async fn clean_export_dir_removes_go_files_for_gorm() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().join("export_dir");
+        std_fs::create_dir_all(&root).unwrap();
+
+        std_fs::write(root.join("model.go"), "// go file").unwrap();
+        std_fs::write(root.join("keep.rs"), "// keep this").unwrap();
+
+        clean_export_dir(&root, Orm::Gorm).await.unwrap();
+
+        assert!(!root.join("model.go").exists());
+        assert!(root.join("keep.rs").exists());
     }
 }

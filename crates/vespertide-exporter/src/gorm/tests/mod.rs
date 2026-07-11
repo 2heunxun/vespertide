@@ -515,6 +515,188 @@ fn test_server_default_skipped() {
 }
 
 // -----------------------------------------------------------------------
+// Conflicting enum names across tables → qualified Go type name
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_conflicting_enum_names_qualified() {
+    let orders = TableDef {
+        name: "orders".into(),
+        description: None,
+        columns: vec![
+            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col(
+                "status",
+                ColumnType::Complex(ComplexColumnType::Enum {
+                    name: "status".into(),
+                    values: EnumValues::String(vec!["pending".into(), "done".into()]),
+                }),
+            ),
+        ],
+        constraints: vec![TableConstraint::PrimaryKey {
+            auto_increment: true,
+            columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+        }],
+    };
+    let tasks = TableDef {
+        name: "tasks".into(),
+        description: None,
+        columns: vec![
+            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col(
+                "status",
+                ColumnType::Complex(ComplexColumnType::Enum {
+                    name: "status".into(),
+                    values: EnumValues::String(vec!["open".into(), "closed".into()]),
+                }),
+            ),
+        ],
+        constraints: vec![TableConstraint::PrimaryKey {
+            auto_increment: true,
+            columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+        }],
+    };
+    let schema = vec![orders.clone(), tasks];
+    let result = render_entity_with_schema(&orders, &schema).unwrap();
+    assert!(
+        result.contains("OrdersStatus"),
+        "Expected qualified enum name 'OrdersStatus' in:\n{result}"
+    );
+}
+
+// -----------------------------------------------------------------------
+// Char column → type:char + size in GORM tag
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_char_type_column() {
+    let table = TableDef {
+        name: "codes".into(),
+        description: None,
+        columns: vec![
+            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col(
+                "code",
+                ColumnType::Complex(ComplexColumnType::Char { length: 3 }),
+            ),
+        ],
+        constraints: vec![TableConstraint::PrimaryKey {
+            auto_increment: true,
+            columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+        }],
+    };
+    let result = render_entity(&table).unwrap();
+    assert!(
+        result.contains("type:char"),
+        "Expected type:char in GORM tag"
+    );
+    assert!(result.contains("size:3"), "Expected size:3 in GORM tag");
+}
+
+// -----------------------------------------------------------------------
+// FK field name collision: infer == go_field → disambiguate with ref struct
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_fk_relation_field_name_collision() {
+    // Column "user" (no _id suffix): infer→"User", go_field→"User" → same → "UserUsers"
+    let table = TableDef {
+        name: "posts".into(),
+        description: None,
+        columns: vec![
+            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col("user", ColumnType::Simple(SimpleColumnType::Integer)),
+        ],
+        constraints: vec![
+            TableConstraint::PrimaryKey {
+                auto_increment: true,
+                columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+            },
+            TableConstraint::ForeignKey {
+                name: None,
+                columns: vec!["user".into()],
+                ref_table: "users".into(),
+                ref_columns: vec!["id".into()],
+                on_delete: None,
+                on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
+            },
+        ],
+    };
+    let result = render_entity(&table).unwrap();
+    assert!(
+        result.contains("UserUsers"),
+        "Expected disambiguated relation name 'UserUsers' in:\n{result}"
+    );
+}
+
+// -----------------------------------------------------------------------
+// Reverse relation disambiguation: two FKs to same target → ByField suffix
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_reverse_relation_disambiguation() {
+    let users = TableDef {
+        name: "users".into(),
+        description: None,
+        columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
+        constraints: vec![TableConstraint::PrimaryKey {
+            auto_increment: true,
+            columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+        }],
+    };
+    let events = TableDef {
+        name: "events".into(),
+        description: None,
+        columns: vec![
+            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col("creator_id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col("attendee_id", ColumnType::Simple(SimpleColumnType::Integer)),
+        ],
+        constraints: vec![
+            TableConstraint::PrimaryKey {
+                auto_increment: true,
+                columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+            },
+            TableConstraint::ForeignKey {
+                name: None,
+                columns: vec!["creator_id".into()],
+                ref_table: "users".into(),
+                ref_columns: vec!["id".into()],
+                on_delete: None,
+                on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
+            },
+            TableConstraint::ForeignKey {
+                name: None,
+                columns: vec!["attendee_id".into()],
+                ref_table: "users".into(),
+                ref_columns: vec!["id".into()],
+                on_delete: None,
+                on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
+            },
+        ],
+    };
+    let schema = vec![users.clone(), events];
+    let result = render_entity_with_schema(&users, &schema).unwrap();
+    assert!(
+        result.contains("EventsByCreatorID"),
+        "Expected 'EventsByCreatorID' in:\n{result}"
+    );
+    assert!(
+        result.contains("EventsByAttendeeID"),
+        "Expected 'EventsByAttendeeID' in:\n{result}"
+    );
+}
+
+// -----------------------------------------------------------------------
 // Snapshot tests (g) HasMany with on_delete/on_update constraint
 // -----------------------------------------------------------------------
 
