@@ -99,7 +99,7 @@ mod tests {
     #[case("jpa", Orm::Jpa)]
     #[case("gorm", Orm::Gorm)]
     #[case("django", Orm::Django)]
-    fn test_render_entity_with_schema_snapshots(#[case] name: &str, #[case] orm: Orm) {
+    fn test_render_entity_with_schema_snapshots(#[case] _name: &str, #[case] orm: Orm) {
         let table = basic_single_pk();
         let schema = vec![table.clone()];
         assert!(render_entity_with_schema(orm, &table, &schema).is_ok());

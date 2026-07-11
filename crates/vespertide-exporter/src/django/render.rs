@@ -30,7 +30,12 @@ fn render_entity_part(table: &TableDef, used: &mut UsedImports) -> String {
         .iter()
         .filter_map(|c| {
             if let TableConstraint::PrimaryKey { columns, .. } = c {
-                Some(columns.iter().map(|c| c.as_str().to_owned()).collect::<Vec<_>>())
+                Some(
+                    columns
+                        .iter()
+                        .map(|c| c.as_str().to_owned())
+                        .collect::<Vec<_>>(),
+                )
             } else {
                 None
             }
@@ -38,10 +43,15 @@ fn render_entity_part(table: &TableDef, used: &mut UsedImports) -> String {
         .flatten()
         .collect();
 
-    let auto_increment = table
-        .constraints
-        .iter()
-        .any(|c| matches!(c, TableConstraint::PrimaryKey { auto_increment: true, .. }));
+    let auto_increment = table.constraints.iter().any(|c| {
+        matches!(
+            c,
+            TableConstraint::PrimaryKey {
+                auto_increment: true,
+                ..
+            }
+        )
+    });
 
     let is_composite_pk = pk_columns.len() > 1;
 
@@ -50,7 +60,11 @@ fn render_entity_part(table: &TableDef, used: &mut UsedImports) -> String {
         .iter()
         .filter_map(|c| {
             if let TableConstraint::Unique { columns, .. } = c {
-                if columns.len() == 1 { Some(columns[0].as_str().to_owned()) } else { None }
+                if columns.len() == 1 {
+                    Some(columns[0].as_str().to_owned())
+                } else {
+                    None
+                }
             } else {
                 None
             }
@@ -58,30 +72,29 @@ fn render_entity_part(table: &TableDef, used: &mut UsedImports) -> String {
         .collect();
 
     // single-column FK info: col_name → (ref_table, on_delete, on_update)
-    let fk_map: HashMap<String, (&str, Option<&ReferenceAction>, Option<&ReferenceAction>)> =
-        table
-            .constraints
-            .iter()
-            .filter_map(|c| {
-                if let TableConstraint::ForeignKey {
-                    columns,
-                    ref_table,
-                    ref_columns,
-                    on_delete,
-                    on_update,
-                    ..
-                } = c
-                {
-                    if columns.len() == 1 && ref_columns.len() == 1 {
-                        return Some((
-                            columns[0].as_str().to_owned(),
-                            (ref_table.as_str(), on_delete.as_ref(), on_update.as_ref()),
-                        ));
-                    }
-                }
-                None
-            })
-            .collect();
+    let fk_map: HashMap<String, (&str, Option<&ReferenceAction>, Option<&ReferenceAction>)> = table
+        .constraints
+        .iter()
+        .filter_map(|c| {
+            if let TableConstraint::ForeignKey {
+                columns,
+                ref_table,
+                ref_columns,
+                on_delete,
+                on_update,
+                ..
+            } = c
+                && columns.len() == 1
+                && ref_columns.len() == 1
+            {
+                return Some((
+                    columns[0].as_str().to_owned(),
+                    (ref_table.as_str(), on_delete.as_ref(), on_update.as_ref()),
+                ));
+            }
+            None
+        })
+        .collect();
 
     // Enum class names for this table's columns
     let enum_class_map: HashMap<&str, String> = table
@@ -128,7 +141,14 @@ fn render_entity_part(table: &TableDef, used: &mut UsedImports) -> String {
         }
 
         if let Some(&(ref_table, on_delete, on_update)) = fk_map.get(col.name.as_str()) {
-            render_fk_field(&mut lines, &col.name, ref_table, on_delete, on_update, col.nullable);
+            render_fk_field(
+                &mut lines,
+                &col.name,
+                ref_table,
+                on_delete,
+                on_update,
+                col.nullable,
+            );
         } else {
             let effective_pk = is_pk && !is_composite_pk;
             let field_type = django_field_type(
@@ -197,7 +217,9 @@ fn render_entity_part(table: &TableDef, used: &mut UsedImports) -> String {
                 .collect::<Vec<_>>()
                 .join(", ");
             if let Some(n) = name {
-                lines.push(format!("            models.Index(fields=[{fields}], name=\"{n}\"),"));
+                lines.push(format!(
+                    "            models.Index(fields=[{fields}], name=\"{n}\"),"
+                ));
             } else {
                 lines.push(format!("            models.Index(fields=[{fields}]),"));
             }
@@ -240,9 +262,7 @@ fn render_fk_field(
 ) {
     let (field_name, db_column) = fk_field_name(col_name);
     let ref_class = to_pascal_case(ref_table);
-    let on_delete_str = on_delete
-        .map(reference_action_str)
-        .unwrap_or("models.RESTRICT");
+    let on_delete_str = on_delete.map_or("models.RESTRICT", reference_action_str);
 
     let _ = on_update; // Django ForeignKey has no on_update param; silently ignored
 

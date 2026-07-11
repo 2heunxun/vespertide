@@ -5,9 +5,14 @@ use vespertide_core::schema::column::{
     ColumnType, ComplexColumnType, EnumValues, SimpleColumnType,
 };
 use vespertide_core::schema::constraint::TableConstraint;
+use vespertide_core::schema::names::ColumnName;
 use vespertide_core::{ColumnDef, DefaultValue, ReferenceAction, TableDef};
 
 /// Track which Go imports are actually used to generate minimal import statements.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "four independent import-presence flags; enum would add verbosity without clarity"
+)]
 #[derive(Default)]
 struct UsedImports {
     needs_time: bool,
@@ -38,10 +43,10 @@ impl UsedImports {
                 if let ComplexColumnType::Numeric { .. } = ty {
                     self.needs_decimal = true;
                 }
-                if let ComplexColumnType::Custom { custom_type } = ty {
-                    if custom_type.to_uppercase() == "JSONB" {
-                        self.needs_datatypes = true;
-                    }
+                if let ComplexColumnType::Custom { custom_type } = ty
+                    && custom_type.to_uppercase() == "JSONB"
+                {
+                    self.needs_datatypes = true;
                 }
             }
         }
@@ -66,15 +71,15 @@ impl OrmExporter for GormExporter {
 
 /// Render a GORM entity for the given table definition.
 pub fn render_entity(table: &TableDef) -> Result<String, String> {
-    render_entity_inner(table, &[])
+    Ok(render_entity_inner(table, &[]))
 }
 
 /// Render a GORM entity with full schema context for reverse-relation (HasMany) generation.
 pub fn render_entity_with_schema(table: &TableDef, schema: &[TableDef]) -> Result<String, String> {
-    render_entity_inner(table, schema)
+    Ok(render_entity_inner(table, schema))
 }
 
-fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> Result<String, String> {
+fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> String {
     let mut lines: Vec<String> = Vec::new();
 
     let struct_name = to_pascal_case(&table.name);
@@ -101,7 +106,11 @@ fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> Result<String, 
                 }
             }
         }
-        counts.into_iter().filter(|(_, c)| *c > 1).map(|(n, _)| n).collect()
+        counts
+            .into_iter()
+            .filter(|(_, c)| *c > 1)
+            .map(|(n, _)| n)
+            .collect()
     };
 
     // Collect enums defined in this table's columns, with qualified names where needed
@@ -144,7 +153,13 @@ fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> Result<String, 
         .collect();
 
     let auto_increment = table.constraints.iter().any(|c| {
-        matches!(c, TableConstraint::PrimaryKey { auto_increment: true, .. })
+        matches!(
+            c,
+            TableConstraint::PrimaryKey {
+                auto_increment: true,
+                ..
+            }
+        )
     });
 
     let is_composite_pk = pk_columns.len() > 1;
@@ -154,7 +169,11 @@ fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> Result<String, 
         .iter()
         .filter_map(|c| {
             if let TableConstraint::Unique { columns, .. } = c {
-                if columns.len() == 1 { Some(columns[0].as_str().to_owned()) } else { None }
+                if columns.len() == 1 {
+                    Some(columns[0].as_str().to_owned())
+                } else {
+                    None
+                }
             } else {
                 None
             }
@@ -217,7 +236,9 @@ fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> Result<String, 
     for col in &table.columns {
         let is_pk = pk_columns.contains(col.name.as_str());
         let is_unique = single_unique_columns.contains(col.name.as_str());
-        let indexes = index_map.get(col.name.as_str()).map(|v| v.as_slice()).unwrap_or(&[]);
+        let indexes = index_map
+            .get(col.name.as_str())
+            .map_or(&[][..], Vec::as_slice);
         let composite_unique_name = composite_unique_map.get(col.name.as_str());
 
         if let Some(ref comment) = col.comment {
@@ -253,7 +274,10 @@ fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> Result<String, 
         let gorm_tag = if constraint_parts.is_empty() {
             format!("foreignKey:{fk_field}")
         } else {
-            format!("foreignKey:{fk_field};constraint:{}", constraint_parts.join(","))
+            format!(
+                "foreignKey:{fk_field};constraint:{}",
+                constraint_parts.join(",")
+            )
         };
         lines.push(format!(
             "    {field_name} []{ref_struct} `gorm:\"{gorm_tag}\" json:\"-\"`",
@@ -274,7 +298,7 @@ fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> Result<String, 
         lines.push(String::new());
     }
 
-    Ok(lines.join("\n"))
+    lines.join("\n")
 }
 
 // ---------------------------------------------------------------------------
@@ -334,7 +358,9 @@ fn collect_index_info(constraints: &[TableConstraint]) -> HashMap<String, Vec<In
             for col in columns {
                 map.entry(col.as_str().to_owned())
                     .or_default()
-                    .push(IndexInfo { name: name.as_ref().map(|n| n.as_str().to_owned()) });
+                    .push(IndexInfo {
+                        name: name.as_ref().map(|n| n.as_str().to_owned()),
+                    });
             }
         }
     }
@@ -344,18 +370,18 @@ fn collect_index_info(constraints: &[TableConstraint]) -> HashMap<String, Vec<In
 fn collect_composite_unique_info(constraints: &[TableConstraint]) -> HashMap<String, String> {
     let mut map = HashMap::new();
     for c in constraints {
-        if let TableConstraint::Unique { name, columns, .. } = c {
-            if columns.len() > 1 {
-                let uq_name = name
-                    .as_ref()
-                    .map(|n| n.as_str().to_owned())
-                    .unwrap_or_else(|| {
-                        let parts: Vec<&str> = columns.iter().map(|c| c.as_str()).collect();
-                        format!("uq_{}", parts.join("_"))
-                    });
-                for col in columns {
-                    map.insert(col.as_str().to_owned(), uq_name.clone());
-                }
+        if let TableConstraint::Unique { name, columns, .. } = c
+            && columns.len() > 1
+        {
+            let uq_name = name.as_ref().map_or_else(
+                || {
+                    let parts: Vec<&str> = columns.iter().map(ColumnName::as_str).collect();
+                    format!("uq_{}", parts.join("_"))
+                },
+                |n| n.as_str().to_owned(),
+            );
+            for col in columns {
+                map.insert(col.as_str().to_owned(), uq_name.clone());
             }
         }
     }
@@ -375,8 +401,14 @@ struct ReverseRelation {
 }
 
 fn find_reverse_relations(table_name: &str, schema: &[TableDef]) -> Vec<ReverseRelation> {
-    let mut raw: Vec<(String, String, String, Option<ReferenceAction>, Option<ReferenceAction>)> =
-        Vec::new();
+    type RawRelation = (
+        String,
+        String,
+        String,
+        Option<ReferenceAction>,
+        Option<ReferenceAction>,
+    );
+    let mut raw: Vec<RawRelation> = Vec::new();
     for other in schema {
         if other.name == table_name {
             continue;
@@ -389,20 +421,23 @@ fn find_reverse_relations(table_name: &str, schema: &[TableDef]) -> Vec<ReverseR
                 on_update,
                 ..
             } = c
+                && ref_table.as_str() == table_name
+                && columns.len() == 1
             {
-                if ref_table.as_str() == table_name && columns.len() == 1 {
-                    let fk_col = columns[0].as_str().to_owned();
-                    let pascal = to_pascal_case(other.name.as_str());
-                    let base_name =
-                        if pascal.ends_with('s') { pascal } else { format!("{pascal}s") };
-                    raw.push((
-                        other.name.as_str().to_owned(),
-                        fk_col,
-                        base_name,
-                        on_delete.clone(),
-                        on_update.clone(),
-                    ));
-                }
+                let fk_col = columns[0].as_str().to_owned();
+                let pascal = to_pascal_case(other.name.as_str());
+                let base_name = if pascal.ends_with('s') {
+                    pascal
+                } else {
+                    format!("{pascal}s")
+                };
+                raw.push((
+                    other.name.as_str().to_owned(),
+                    fk_col,
+                    base_name,
+                    on_delete.clone(),
+                    on_update.clone(),
+                ));
             }
         }
     }
@@ -419,7 +454,13 @@ fn find_reverse_relations(table_name: &str, schema: &[TableDef]) -> Vec<ReverseR
             } else {
                 base_name
             };
-            ReverseRelation { field_name, ref_table, fk_column: fk_col, on_delete, on_update }
+            ReverseRelation {
+                field_name,
+                ref_table,
+                fk_column: fk_col,
+                on_delete,
+                on_update,
+            }
         })
         .collect()
 }
@@ -459,6 +500,10 @@ fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValues) {
 // Field rendering
 // ---------------------------------------------------------------------------
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "all params are independent field-rendering inputs; a context struct would add noise without reducing coupling"
+)]
 fn render_column_field(
     lines: &mut Vec<String>,
     col: &ColumnDef,
@@ -471,7 +516,14 @@ fn render_column_field(
 ) {
     let go_type = go_type_for_column_mapped(&col.r#type, col.nullable, enum_name_map);
     let field_name = to_go_field_name(&col.name);
-    let gorm_tag = build_gorm_tag(col, is_pk, auto_increment, is_unique, indexes, composite_unique_name);
+    let gorm_tag = build_gorm_tag(
+        col,
+        is_pk,
+        auto_increment,
+        is_unique,
+        indexes,
+        composite_unique_name,
+    );
 
     lines.push(format!(
         "    {field_name} {go_type} `gorm:\"{gorm_tag}\" json:\"{json_name}\"`",
@@ -498,7 +550,10 @@ fn render_fk_relation_field(lines: &mut Vec<String>, col: &ColumnDef, fk: &FkInf
     let gorm_tag = if constraint_parts.is_empty() {
         format!("foreignKey:{fk_field_name}")
     } else {
-        format!("foreignKey:{fk_field_name};constraint:{}", constraint_parts.join(","))
+        format!(
+            "foreignKey:{fk_field_name};constraint:{}",
+            constraint_parts.join(",")
+        )
     };
 
     let type_expr = if col.nullable {
@@ -562,10 +617,10 @@ fn build_gorm_tag(
         _ => {}
     }
 
-    if let Some(ref default) = col.default {
-        if let Some(tag) = build_default_tag(default) {
-            parts.push(tag);
-        }
+    if let Some(ref default) = col.default
+        && let Some(tag) = build_default_tag(default)
+    {
+        parts.push(tag);
     }
 
     for idx in indexes {
@@ -595,11 +650,16 @@ fn build_default_tag(default: &DefaultValue) -> Option<String> {
 // Type mapping
 // ---------------------------------------------------------------------------
 
-fn go_type_for_column_mapped(col_type: &ColumnType, nullable: bool, enum_map: &HashMap<&str, String>) -> String {
+pub(super) fn go_type_for_column_mapped(
+    col_type: &ColumnType,
+    nullable: bool,
+    enum_map: &HashMap<&str, String>,
+) -> String {
     let base = match col_type {
-        ColumnType::Complex(ComplexColumnType::Enum { name, .. }) => {
-            enum_map.get(name.as_str()).cloned().unwrap_or_else(|| to_pascal_case(name))
-        }
+        ColumnType::Complex(ComplexColumnType::Enum { name, .. }) => enum_map
+            .get(name.as_str())
+            .cloned()
+            .unwrap_or_else(|| to_pascal_case(name)),
         _ => go_base_type(col_type),
     };
     if nullable { format!("*{base}") } else { base }
@@ -674,13 +734,13 @@ fn to_pascal_case(s: &str) -> String {
         .collect()
 }
 
-fn to_go_field_name(s: &str) -> String {
+pub(super) fn to_go_field_name(s: &str) -> String {
     let pascal = to_pascal_case(s);
     // Apply Go conventions for common abbreviations
     pascal.replace("Id", "ID")
 }
 
-fn infer_relation_field_name(fk_column: &str) -> String {
+pub(super) fn infer_relation_field_name(fk_column: &str) -> String {
     let base = fk_column.strip_suffix("_id").unwrap_or(fk_column);
     to_pascal_case(base)
 }
@@ -696,7 +756,7 @@ fn pascal_to_snake(s: &str) -> String {
     result
 }
 
-fn needs_table_name_method(table_name: &str, struct_name: &str) -> bool {
+pub(super) fn needs_table_name_method(table_name: &str, struct_name: &str) -> bool {
     let snake = pascal_to_snake(struct_name);
     let gorm_default = format!("{snake}s");
     gorm_default != table_name
@@ -707,521 +767,4 @@ fn needs_table_name_method(table_name: &str, struct_name: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use insta::assert_snapshot;
-    use rstest::rstest;
-    use vespertide_core::{DefaultValue, NumValue};
-
-    fn col(name: &str, ty: ColumnType) -> ColumnDef {
-        ColumnDef {
-            name: name.into(),
-            r#type: ty,
-            nullable: false,
-            default: None,
-            comment: None,
-            primary_key: None,
-            unique: None,
-            index: None,
-            foreign_key: None,
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Type mapping unit tests
-    // -----------------------------------------------------------------------
-
-    #[rstest]
-    #[case(ColumnType::Simple(SimpleColumnType::SmallInt), false, "int16")]
-    #[case(ColumnType::Simple(SimpleColumnType::Integer), false, "int32")]
-    #[case(ColumnType::Simple(SimpleColumnType::BigInt), false, "int64")]
-    #[case(ColumnType::Simple(SimpleColumnType::Real), false, "float32")]
-    #[case(ColumnType::Simple(SimpleColumnType::DoublePrecision), false, "float64")]
-    #[case(ColumnType::Simple(SimpleColumnType::Text), false, "string")]
-    #[case(ColumnType::Simple(SimpleColumnType::Boolean), false, "bool")]
-    #[case(ColumnType::Simple(SimpleColumnType::Timestamp), false, "time.Time")]
-    #[case(ColumnType::Simple(SimpleColumnType::Timestamptz), false, "time.Time")]
-    #[case(ColumnType::Simple(SimpleColumnType::Date), false, "time.Time")]
-    #[case(ColumnType::Simple(SimpleColumnType::Time), false, "time.Time")]
-    #[case(ColumnType::Simple(SimpleColumnType::Uuid), false, "uuid.UUID")]
-    #[case(ColumnType::Simple(SimpleColumnType::Json), false, "datatypes.JSON")]
-    #[case(ColumnType::Simple(SimpleColumnType::Bytea), false, "[]byte")]
-    #[case(ColumnType::Simple(SimpleColumnType::Inet), false, "string")]
-    #[case(ColumnType::Complex(ComplexColumnType::Varchar { length: 255 }), false, "string")]
-    #[case(ColumnType::Complex(ComplexColumnType::Numeric { precision: 10, scale: 2 }), false, "decimal.Decimal")]
-    #[case(ColumnType::Complex(ComplexColumnType::Custom { custom_type: "JSONB".into() }), false, "datatypes.JSON")]
-    #[case(ColumnType::Complex(ComplexColumnType::Custom { custom_type: "jsonb".into() }), false, "datatypes.JSON")]
-    #[case(ColumnType::Complex(ComplexColumnType::Custom { custom_type: "TEXT".into() }), false, "string")]
-    #[case(ColumnType::Simple(SimpleColumnType::Integer), true, "*int32")]
-    #[case(ColumnType::Simple(SimpleColumnType::Text), true, "*string")]
-    #[case(ColumnType::Simple(SimpleColumnType::Timestamp), true, "*time.Time")]
-    fn test_go_type_mapping(
-        #[case] col_type: ColumnType,
-        #[case] nullable: bool,
-        #[case] expected: &str,
-    ) {
-        assert_eq!(go_type_for_column_mapped(&col_type, nullable, &HashMap::new()), expected);
-    }
-
-    #[rstest]
-    #[case("user_id", "UserID")]
-    #[case("id", "ID")]
-    #[case("created_at", "CreatedAt")]
-    #[case("profile_image", "ProfileImage")]
-    #[case("media_id", "MediaID")]
-    fn test_to_go_field_name(#[case] input: &str, #[case] expected: &str) {
-        assert_eq!(to_go_field_name(input), expected);
-    }
-
-    #[rstest]
-    #[case("user_id", "User")]
-    #[case("author_id", "Author")]
-    #[case("parent_id", "Parent")]
-    #[case("node", "Node")]
-    fn test_infer_relation_field_name(#[case] input: &str, #[case] expected: &str) {
-        assert_eq!(infer_relation_field_name(input), expected);
-    }
-
-    #[rstest]
-    #[case("User", "user", true)]
-    #[case("User", "users", false)]
-    #[case("OrderItem", "order_items", false)]
-    #[case("OrderItem", "order_item", true)]
-    fn test_needs_table_name_method(
-        #[case] struct_name: &str,
-        #[case] table_name: &str,
-        #[case] expected: bool,
-    ) {
-        assert_eq!(needs_table_name_method(table_name, struct_name), expected);
-    }
-
-    // -----------------------------------------------------------------------
-    // Snapshot tests (a) simple table - columns only
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_basic_table() {
-        let table = TableDef {
-            name: "users".into(),
-            description: Some("User accounts".into()),
-            columns: vec![
-                ColumnDef {
-                    name: "id".into(),
-                    r#type: ColumnType::Simple(SimpleColumnType::Integer),
-                    nullable: false,
-                    default: None,
-                    comment: Some("Primary key".into()),
-                    primary_key: None,
-                    unique: None,
-                    index: None,
-                    foreign_key: None,
-                },
-                ColumnDef {
-                    name: "email".into(),
-                    r#type: ColumnType::Complex(ComplexColumnType::Varchar { length: 255 }),
-                    nullable: false,
-                    default: None,
-                    comment: None,
-                    primary_key: None,
-                    unique: None,
-                    index: None,
-                    foreign_key: None,
-                },
-                ColumnDef {
-                    name: "name".into(),
-                    r#type: ColumnType::Simple(SimpleColumnType::Text),
-                    nullable: true,
-                    default: None,
-                    comment: None,
-                    primary_key: None,
-                    unique: None,
-                    index: None,
-                    foreign_key: None,
-                },
-                ColumnDef {
-                    name: "active".into(),
-                    r#type: ColumnType::Simple(SimpleColumnType::Boolean),
-                    nullable: false,
-                    default: Some(DefaultValue::Bool(true)),
-                    comment: None,
-                    primary_key: None,
-                    unique: None,
-                    index: None,
-                    foreign_key: None,
-                },
-            ],
-            constraints: vec![
-                TableConstraint::PrimaryKey {
-                    auto_increment: true,
-                    columns: vec!["id".into()],
-                    strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-                },
-                TableConstraint::Unique {
-                    name: None,
-                    columns: vec!["email".into()],
-                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
-                        keep: vespertide_core::KeepPolicy::First,
-                    },
-                },
-            ],
-        };
-        let result = render_entity(&table).unwrap();
-        assert_snapshot!(result);
-    }
-
-    // -----------------------------------------------------------------------
-    // Snapshot tests (b) FK
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_table_with_foreign_key() {
-        let table = TableDef {
-            name: "posts".into(),
-            description: None,
-            columns: vec![
-                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-                ColumnDef {
-                    name: "author_id".into(),
-                    r#type: ColumnType::Simple(SimpleColumnType::Integer),
-                    nullable: false,
-                    default: None,
-                    comment: None,
-                    primary_key: None,
-                    unique: None,
-                    index: None,
-                    foreign_key: None,
-                },
-                col("title", ColumnType::Simple(SimpleColumnType::Text)),
-            ],
-            constraints: vec![
-                TableConstraint::PrimaryKey {
-                    auto_increment: true,
-                    columns: vec!["id".into()],
-                    strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-                },
-                TableConstraint::ForeignKey {
-                    name: None,
-                    columns: vec!["author_id".into()],
-                    ref_table: "users".into(),
-                    ref_columns: vec!["id".into()],
-                    on_delete: Some(ReferenceAction::Cascade),
-                    on_update: None,
-                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
-                },
-                TableConstraint::Index {
-                    name: Some("ix_posts__author_id".into()),
-                    columns: vec!["author_id".into()],
-                },
-            ],
-        };
-        let result = render_entity(&table).unwrap();
-        assert_snapshot!(result);
-    }
-
-    // -----------------------------------------------------------------------
-    // Snapshot tests (c) enums
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_table_with_string_enum() {
-        let table = TableDef {
-            name: "orders".into(),
-            description: None,
-            columns: vec![
-                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-                ColumnDef {
-                    name: "status".into(),
-                    r#type: ColumnType::Complex(ComplexColumnType::Enum {
-                        name: "order_status".into(),
-                        values: EnumValues::String(vec![
-                            "pending".into(),
-                            "shipped".into(),
-                            "delivered".into(),
-                        ]),
-                    }),
-                    nullable: false,
-                    default: Some(DefaultValue::String("'pending'".into())),
-                    comment: None,
-                    primary_key: None,
-                    unique: None,
-                    index: None,
-                    foreign_key: None,
-                },
-            ],
-            constraints: vec![TableConstraint::PrimaryKey {
-                auto_increment: true,
-                columns: vec!["id".into()],
-                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-            }],
-        };
-        let result = render_entity(&table).unwrap();
-        assert_snapshot!(result);
-    }
-
-    #[test]
-    fn test_table_with_integer_enum() {
-        let table = TableDef {
-            name: "tasks".into(),
-            description: None,
-            columns: vec![
-                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-                ColumnDef {
-                    name: "priority".into(),
-                    r#type: ColumnType::Complex(ComplexColumnType::Enum {
-                        name: "priority_level".into(),
-                        values: EnumValues::Integer(vec![
-                            NumValue { name: "low".into(), value: 0 },
-                            NumValue { name: "medium".into(), value: 10 },
-                            NumValue { name: "high".into(), value: 20 },
-                        ]),
-                    }),
-                    nullable: false,
-                    default: None,
-                    comment: None,
-                    primary_key: None,
-                    unique: None,
-                    index: None,
-                    foreign_key: None,
-                },
-            ],
-            constraints: vec![TableConstraint::PrimaryKey {
-                auto_increment: false,
-                columns: vec!["id".into()],
-                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-            }],
-        };
-        let result = render_entity(&table).unwrap();
-        assert_snapshot!(result);
-    }
-
-    // -----------------------------------------------------------------------
-    // Snapshot tests (d) composite PK + nullable
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_composite_pk_nullable() {
-        let table = TableDef {
-            name: "order_items".into(),
-            description: None,
-            columns: vec![
-                col("order_id", ColumnType::Simple(SimpleColumnType::Integer)),
-                col("product_id", ColumnType::Simple(SimpleColumnType::Integer)),
-                ColumnDef {
-                    name: "quantity".into(),
-                    r#type: ColumnType::Simple(SimpleColumnType::Integer),
-                    nullable: false,
-                    default: None,
-                    comment: None,
-                    primary_key: None,
-                    unique: None,
-                    index: None,
-                    foreign_key: None,
-                },
-                ColumnDef {
-                    name: "note".into(),
-                    r#type: ColumnType::Simple(SimpleColumnType::Text),
-                    nullable: true,
-                    default: None,
-                    comment: None,
-                    primary_key: None,
-                    unique: None,
-                    index: None,
-                    foreign_key: None,
-                },
-            ],
-            constraints: vec![
-                TableConstraint::PrimaryKey {
-                    auto_increment: false,
-                    columns: vec!["order_id".into(), "product_id".into()],
-                    strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-                },
-                TableConstraint::ForeignKey {
-                    name: None,
-                    columns: vec!["order_id".into()],
-                    ref_table: "orders".into(),
-                    ref_columns: vec!["id".into()],
-                    on_delete: None,
-                    on_update: None,
-                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
-                },
-                TableConstraint::ForeignKey {
-                    name: None,
-                    columns: vec!["product_id".into()],
-                    ref_table: "products".into(),
-                    ref_columns: vec!["id".into()],
-                    on_delete: None,
-                    on_update: None,
-                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
-                },
-                TableConstraint::Unique {
-                    name: Some("uq_order_items__order_product".into()),
-                    columns: vec!["order_id".into(), "product_id".into()],
-                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
-                        keep: vespertide_core::KeepPolicy::First,
-                    },
-                },
-            ],
-        };
-        let result = render_entity(&table).unwrap();
-        assert_snapshot!(result);
-    }
-
-    // -----------------------------------------------------------------------
-    // All simple types
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_all_simple_types() {
-        let table = TableDef {
-            name: "type_test".into(),
-            description: None,
-            columns: vec![
-                col("col_smallint", ColumnType::Simple(SimpleColumnType::SmallInt)),
-                col("col_integer", ColumnType::Simple(SimpleColumnType::Integer)),
-                col("col_bigint", ColumnType::Simple(SimpleColumnType::BigInt)),
-                col("col_real", ColumnType::Simple(SimpleColumnType::Real)),
-                col("col_double", ColumnType::Simple(SimpleColumnType::DoublePrecision)),
-                col("col_text", ColumnType::Simple(SimpleColumnType::Text)),
-                col("col_boolean", ColumnType::Simple(SimpleColumnType::Boolean)),
-                col("col_date", ColumnType::Simple(SimpleColumnType::Date)),
-                col("col_time", ColumnType::Simple(SimpleColumnType::Time)),
-                col("col_timestamp", ColumnType::Simple(SimpleColumnType::Timestamp)),
-                col("col_timestamptz", ColumnType::Simple(SimpleColumnType::Timestamptz)),
-                col("col_interval", ColumnType::Simple(SimpleColumnType::Interval)),
-                col("col_bytea", ColumnType::Simple(SimpleColumnType::Bytea)),
-                col("col_uuid", ColumnType::Simple(SimpleColumnType::Uuid)),
-                col("col_json", ColumnType::Simple(SimpleColumnType::Json)),
-                col("col_inet", ColumnType::Simple(SimpleColumnType::Inet)),
-                col("col_cidr", ColumnType::Simple(SimpleColumnType::Cidr)),
-                col("col_macaddr", ColumnType::Simple(SimpleColumnType::Macaddr)),
-                col("col_xml", ColumnType::Simple(SimpleColumnType::Xml)),
-            ],
-            constraints: vec![TableConstraint::PrimaryKey {
-                auto_increment: false,
-                columns: vec!["col_integer".into()],
-                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-            }],
-        };
-        let result = render_entity(&table).unwrap();
-        assert_snapshot!(result);
-    }
-
-    // -----------------------------------------------------------------------
-    // Snapshot tests (e) JSONB custom type
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_table_with_jsonb_column() {
-        let table = TableDef {
-            name: "documents".into(),
-            description: None,
-            columns: vec![
-                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-                col("data", ColumnType::Complex(ComplexColumnType::Custom { custom_type: "JSONB".into() })),
-                col("meta", ColumnType::Simple(SimpleColumnType::Json)),
-            ],
-            constraints: vec![TableConstraint::PrimaryKey {
-                auto_increment: true,
-                columns: vec!["id".into()],
-                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-            }],
-        };
-        let result = render_entity(&table).unwrap();
-        assert_snapshot!(result);
-    }
-
-    // -----------------------------------------------------------------------
-    // Snapshot tests (f) server-side default skipped
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_server_default_skipped() {
-        let table = TableDef {
-            name: "events".into(),
-            description: None,
-            columns: vec![
-                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-                ColumnDef {
-                    name: "created_at".into(),
-                    r#type: ColumnType::Simple(SimpleColumnType::Timestamptz),
-                    nullable: false,
-                    default: Some(DefaultValue::String("NOW()".into())),
-                    comment: None,
-                    primary_key: None,
-                    unique: None,
-                    index: None,
-                    foreign_key: None,
-                },
-                ColumnDef {
-                    name: "count".into(),
-                    r#type: ColumnType::Simple(SimpleColumnType::Integer),
-                    nullable: false,
-                    default: Some(DefaultValue::Integer(0)),
-                    comment: None,
-                    primary_key: None,
-                    unique: None,
-                    index: None,
-                    foreign_key: None,
-                },
-            ],
-            constraints: vec![TableConstraint::PrimaryKey {
-                auto_increment: true,
-                columns: vec!["id".into()],
-                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-            }],
-        };
-        let result = render_entity(&table).unwrap();
-        // Server-side function calls must not appear as GORM default tags
-        assert!(!result.contains("default:NOW()"));
-        // Literal integer defaults are still included
-        assert!(result.contains("default:0"));
-        assert_snapshot!(result);
-    }
-
-    // -----------------------------------------------------------------------
-    // Snapshot tests (g) HasMany with on_delete/on_update constraint
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_has_many_with_constraint() {
-        let users = TableDef {
-            name: "users".into(),
-            description: None,
-            columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
-            constraints: vec![TableConstraint::PrimaryKey {
-                auto_increment: true,
-                columns: vec!["id".into()],
-                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-            }],
-        };
-        let posts = TableDef {
-            name: "posts".into(),
-            description: None,
-            columns: vec![
-                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-                col("user_id", ColumnType::Simple(SimpleColumnType::Integer)),
-            ],
-            constraints: vec![
-                TableConstraint::PrimaryKey {
-                    auto_increment: true,
-                    columns: vec!["id".into()],
-                    strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-                },
-                TableConstraint::ForeignKey {
-                    name: None,
-                    columns: vec!["user_id".into()],
-                    ref_table: "users".into(),
-                    ref_columns: vec!["id".into()],
-                    on_delete: Some(ReferenceAction::Cascade),
-                    on_update: Some(ReferenceAction::Restrict),
-                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
-                },
-            ],
-        };
-        let schema = vec![users.clone(), posts.clone()];
-        let result = render_entity_with_schema(&users, &schema).unwrap();
-        assert!(result.contains("OnDelete:CASCADE"));
-        assert!(result.contains("OnUpdate:RESTRICT"));
-        assert_snapshot!(result);
-    }
-}
+mod tests;

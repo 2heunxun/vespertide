@@ -16,18 +16,15 @@ impl OrmExporter for DjangoExporter {
 }
 
 #[cfg(test)]
-pub(crate) fn to_pascal_case_for_tests(s: &str) -> String {
-    render::to_pascal_case(s)
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use insta::assert_snapshot;
     use rstest::rstest;
     use vespertide_core::schema::column::{EnumValues, SimpleColumnType};
     use vespertide_core::schema::constraint::TableConstraint;
-    use vespertide_core::{ColumnType, ComplexColumnType, DefaultValue, NumValue, ReferenceAction, TableDef};
+    use vespertide_core::{
+        ColumnType, ComplexColumnType, DefaultValue, NumValue, ReferenceAction, TableDef,
+    };
 
     fn col(name: &str, ty: ColumnType) -> vespertide_core::ColumnDef {
         vespertide_core::ColumnDef::new(name, ty, false)
@@ -76,7 +73,10 @@ mod tests {
             description: Some("User accounts".into()),
             columns: vec![
                 col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-                col("email", ColumnType::Complex(ComplexColumnType::Varchar { length: 255 })),
+                col(
+                    "email",
+                    ColumnType::Complex(ComplexColumnType::Varchar { length: 255 }),
+                ),
                 nullable_col("name", ColumnType::Simple(SimpleColumnType::Text)),
             ],
             constraints: vec![
@@ -124,24 +124,21 @@ mod tests {
         let table = TableDef {
             name: "orders".into(),
             description: None,
-            columns: vec![
-                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-                {
-                    let mut c = col(
-                        "status",
-                        ColumnType::Complex(ComplexColumnType::Enum {
-                            name: "order_status".into(),
-                            values: EnumValues::String(vec![
-                                "pending".into(),
-                                "shipped".into(),
-                                "delivered".into(),
-                            ]),
-                        }),
-                    );
-                    c.default = Some(DefaultValue::String("'pending'".into()));
-                    c
-                },
-            ],
+            columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer)), {
+                let mut c = col(
+                    "status",
+                    ColumnType::Complex(ComplexColumnType::Enum {
+                        name: "order_status".into(),
+                        values: EnumValues::String(vec![
+                            "pending".into(),
+                            "shipped".into(),
+                            "delivered".into(),
+                        ]),
+                    }),
+                );
+                c.default = Some(DefaultValue::String("'pending'".into()));
+                c
+            }],
             constraints: vec![auto_pk(&["id"])],
         };
         assert_snapshot!(render_entity(&table).unwrap());
@@ -163,9 +160,18 @@ mod tests {
                     ColumnType::Complex(ComplexColumnType::Enum {
                         name: "priority_level".into(),
                         values: EnumValues::Integer(vec![
-                            NumValue { name: "low".into(), value: 0 },
-                            NumValue { name: "medium".into(), value: 10 },
-                            NumValue { name: "high".into(), value: 20 },
+                            NumValue {
+                                name: "low".into(),
+                                value: 0,
+                            },
+                            NumValue {
+                                name: "medium".into(),
+                                value: 10,
+                            },
+                            NumValue {
+                                name: "high".into(),
+                                value: 20,
+                            },
                         ]),
                     }),
                 ),
@@ -205,9 +211,15 @@ mod tests {
             description: None,
             columns: vec![
                 col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-                col("slug", ColumnType::Complex(ComplexColumnType::Varchar { length: 200 })),
+                col(
+                    "slug",
+                    ColumnType::Complex(ComplexColumnType::Varchar { length: 200 }),
+                ),
                 col("author_id", ColumnType::Simple(SimpleColumnType::Integer)),
-                col("created_at", ColumnType::Simple(SimpleColumnType::Timestamptz)),
+                col(
+                    "created_at",
+                    ColumnType::Simple(SimpleColumnType::Timestamptz),
+                ),
             ],
             constraints: vec![
                 auto_pk(&["id"]),
@@ -239,7 +251,10 @@ mod tests {
             columns: vec![
                 col("id", ColumnType::Simple(SimpleColumnType::Integer)),
                 {
-                    let mut c = col("created_at", ColumnType::Simple(SimpleColumnType::Timestamptz));
+                    let mut c = col(
+                        "created_at",
+                        ColumnType::Simple(SimpleColumnType::Timestamptz),
+                    );
                     c.default = Some(DefaultValue::String("NOW()".into()));
                     c
                 },
@@ -287,6 +302,9 @@ mod tests {
             constraints: vec![pk(&["id"])],
         };
         let result = render_entity(&table).unwrap();
-        assert!(result.contains(expected), "expected {expected} in:\n{result}");
+        assert!(
+            result.contains(expected),
+            "expected {expected} in:\n{result}"
+        );
     }
 }

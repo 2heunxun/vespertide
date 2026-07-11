@@ -1,5 +1,7 @@
-use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues, SimpleColumnType};
 use vespertide_core::DefaultValue;
+use vespertide_core::schema::column::{
+    ColumnType, ComplexColumnType, EnumValues, SimpleColumnType,
+};
 
 #[derive(Default)]
 pub(super) struct UsedImports {
@@ -15,13 +17,25 @@ pub(super) fn django_field_type(
     match col_type {
         ColumnType::Simple(ty) => match ty {
             SimpleColumnType::SmallInt => {
-                if is_pk && auto_increment { "models.SmallAutoField" } else { "models.SmallIntegerField" }
+                if is_pk && auto_increment {
+                    "models.SmallAutoField"
+                } else {
+                    "models.SmallIntegerField"
+                }
             }
             SimpleColumnType::Integer => {
-                if is_pk && auto_increment { "models.AutoField" } else { "models.IntegerField" }
+                if is_pk && auto_increment {
+                    "models.AutoField"
+                } else {
+                    "models.IntegerField"
+                }
             }
             SimpleColumnType::BigInt => {
-                if is_pk && auto_increment { "models.BigAutoField" } else { "models.BigIntegerField" }
+                if is_pk && auto_increment {
+                    "models.BigAutoField"
+                } else {
+                    "models.BigIntegerField"
+                }
             }
             SimpleColumnType::Real | SimpleColumnType::DoublePrecision => "models.FloatField",
             SimpleColumnType::Text | SimpleColumnType::Xml => "models.TextField",
@@ -38,7 +52,9 @@ pub(super) fn django_field_type(
             _ => unreachable!("SimpleColumnType is #[non_exhaustive]; all variants matched"),
         },
         ColumnType::Complex(ty) => match ty {
-            ComplexColumnType::Varchar { .. } | ComplexColumnType::Char { .. } => "models.CharField",
+            ComplexColumnType::Varchar { .. } | ComplexColumnType::Char { .. } => {
+                "models.CharField"
+            }
             ComplexColumnType::Numeric { .. } => "models.DecimalField",
             ComplexColumnType::Custom { .. } => "models.TextField",
             ComplexColumnType::Enum { values, .. } => match values {
@@ -63,6 +79,14 @@ pub(super) fn is_auto_field(col_type: &ColumnType, is_pk: bool, auto_increment: 
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "all params are independent field-rendering inputs; a context struct would add noise without reducing coupling"
+)]
+#[expect(
+    clippy::fn_params_excessive_bools,
+    reason = "is_pk/auto_increment/is_unique/nullable are independent boolean predicates; enums would add verbosity"
+)]
 pub(super) fn build_field_kwargs(
     col_type: &ColumnType,
     is_pk: bool,
@@ -78,8 +102,9 @@ pub(super) fn build_field_kwargs(
 
     // Size / precision kwargs
     match col_type {
-        ColumnType::Complex(ComplexColumnType::Varchar { length })
-        | ColumnType::Complex(ComplexColumnType::Char { length }) => {
+        ColumnType::Complex(
+            ComplexColumnType::Varchar { length } | ComplexColumnType::Char { length },
+        ) => {
             kwargs.push(format!("max_length={length}"));
         }
         ColumnType::Simple(SimpleColumnType::Macaddr) => {
@@ -92,7 +117,7 @@ pub(super) fn build_field_kwargs(
         ColumnType::Complex(ComplexColumnType::Enum { values, .. }) => {
             if let Some(class) = enum_class_name {
                 if let EnumValues::String(vals) = values {
-                    let max_len = vals.iter().map(|v| v.len()).max().unwrap_or(1);
+                    let max_len = vals.iter().map(String::len).max().unwrap_or(1);
                     kwargs.push(format!("max_length={max_len}"));
                 }
                 kwargs.push(format!("choices={class}.choices"));
@@ -111,10 +136,10 @@ pub(super) fn build_field_kwargs(
     if is_unique && !is_pk {
         kwargs.push("unique=True".into());
     }
-    if let Some(dv) = default {
-        if let Some(expr) = build_default(col_type, &dv.to_sql(), used) {
-            kwargs.push(format!("default={expr}"));
-        }
+    if let Some(dv) = default
+        && let Some(expr) = build_default(col_type, &dv.to_sql(), used)
+    {
+        kwargs.push(format!("default={expr}"));
     }
 
     kwargs
