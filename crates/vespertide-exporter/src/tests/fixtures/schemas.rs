@@ -131,6 +131,8 @@ pub(crate) fn schema_scenario(name: &str) -> (TableDef, Vec<TableDef>) {
             &["created_by_user_id", "updated_by_user_id"],
             true,
         ),
+        // Defensive catch-all for test-infrastructure wiring bugs; unreachable from any test scenario.
+        #[cfg(not(tarpaulin_include))]
         _ => panic!("unknown schema scenario {name}"),
     }
 }

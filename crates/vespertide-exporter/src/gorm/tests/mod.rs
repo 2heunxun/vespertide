@@ -1046,3 +1046,39 @@ fn test_gorm_double_underscore_table_name() {
         "expected pascal-cased struct with double underscore"
     );
 }
+
+// -----------------------------------------------------------------------
+// collect_composite_unique_info: named branch (|n| n.as_str().to_owned())
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_named_composite_unique_gorm() {
+    let table = TableDef {
+        name: "tenants".into(),
+        description: None,
+        columns: vec![
+            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col("tenant_id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col("name", ColumnType::Simple(SimpleColumnType::Text)),
+        ],
+        constraints: vec![
+            TableConstraint::PrimaryKey {
+                auto_increment: true,
+                columns: vec!["id".into()],
+                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+            },
+            TableConstraint::Unique {
+                name: Some("uq_tenant_name".into()),
+                columns: vec!["tenant_id".into(), "name".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                    keep: vespertide_core::KeepPolicy::First,
+                },
+            },
+        ],
+    };
+    let result = render_entity(&table).unwrap();
+    assert!(
+        result.contains("uniqueIndex:uq_tenant_name"),
+        "expected named uniqueIndex tag in GORM output"
+    );
+}

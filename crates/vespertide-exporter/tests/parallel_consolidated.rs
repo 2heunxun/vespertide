@@ -9,6 +9,8 @@ use vespertide_exporter::Orm;
 #[case::sqlalchemy(Orm::SqlAlchemy)]
 #[case::sqlmodel(Orm::SqlModel)]
 #[case::jpa(Orm::Jpa)]
+#[case::gorm(Orm::Gorm)]
+#[case::django(Orm::Django)]
 fn export_is_byte_identical_across_thread_counts(#[case] orm: Orm) {
     let schema = large_schema(100);
 
@@ -37,7 +39,12 @@ fn render_schema(orm: Orm, schema: &[TableDef]) -> Result<String, String> {
         Orm::Jpa => {
             vespertide_exporter::jpa::render_entities(schema).map(|entities| entities.join("\n"))
         }
-        _ => unreachable!("parallel test only exercises the four multi-table ORM backends"),
+        Orm::Gorm => schema
+            .iter()
+            .map(vespertide_exporter::gorm::render_entity)
+            .collect::<Result<Vec<_>, _>>()
+            .map(|v| v.join("\n\n")),
+        Orm::Django => vespertide_exporter::django::export(schema),
     }
 }
 

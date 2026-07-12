@@ -17,7 +17,12 @@ fn render_schema(orm: Orm, schema: &[TableDef]) -> Result<String, String> {
         Orm::SqlAlchemy => crate::sqlalchemy::export(schema),
         Orm::SqlModel => crate::sqlmodel::render_entities(schema),
         Orm::Jpa => crate::jpa::render_entities(schema).map(|entities| entities.join("\n")),
-        _ => unreachable!("orm_cases! macro only covers the four multi-table ORMs"),
+        Orm::Gorm => schema
+            .iter()
+            .map(crate::gorm::render_entity)
+            .collect::<Result<Vec<_>, _>>()
+            .map(|v| v.join("\n\n")),
+        Orm::Django => crate::django::export(schema),
     }
 }
 
@@ -300,7 +305,8 @@ fn to_pascal_case_for(orm: Orm, s: &str) -> String {
         Orm::SqlAlchemy => crate::sqlalchemy::to_pascal_case_for_tests(s),
         Orm::SqlModel => crate::sqlmodel::to_pascal_case_for_tests(s),
         Orm::Jpa => crate::jpa::to_pascal_case_for_tests(s),
-        _ => unreachable!("to_pascal_case consolidation test only covers the four ORM backends"),
+        Orm::Gorm => crate::gorm::to_pascal_case_for_tests(s),
+        Orm::Django => crate::django::to_pascal_case_for_tests(s),
     }
 }
 
@@ -320,6 +326,8 @@ fn to_pascal_case_for(orm: Orm, s: &str) -> String {
 #[case::sqlalchemy(Orm::SqlAlchemy)]
 #[case::sqlmodel(Orm::SqlModel)]
 #[case::jpa(Orm::Jpa)]
+#[case::gorm(Orm::Gorm)]
+#[case::django(Orm::Django)]
 fn to_pascal_case_shared_semantics(
     #[values(
         ("", ""),
@@ -339,6 +347,13 @@ fn to_pascal_case_shared_semantics(
 ) {
     let (input, expected) = case;
     assert_eq!(to_pascal_case_for(orm, input), expected);
+}
+
+#[test]
+fn render_schema_gorm_and_django() {
+    let schema = fixtures::small_multi_schema();
+    assert!(render_schema(Orm::Gorm, &schema).is_ok());
+    assert!(render_schema(Orm::Django, &schema).is_ok());
 }
 
 #[rstest]

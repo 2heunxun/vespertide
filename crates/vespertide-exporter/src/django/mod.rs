@@ -16,6 +16,11 @@ impl OrmExporter for DjangoExporter {
 }
 
 #[cfg(test)]
+pub(crate) fn to_pascal_case_for_tests(s: &str) -> String {
+    render::to_pascal_case(s)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use insta::assert_snapshot;
