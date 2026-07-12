@@ -692,9 +692,11 @@ fn go_base_type(col_type: &ColumnType) -> String {
             SimpleColumnType::Bytea => "[]byte".to_string(),
             SimpleColumnType::Uuid => "uuid.UUID".to_string(),
             SimpleColumnType::Json => "datatypes.JSON".to_string(),
-            // Currently unreachable — `#[non_exhaustive]` future-variant guard.
+            // `#[non_exhaustive]` future-variant guard; unreachable today.
             #[cfg(not(tarpaulin_include))]
-            _ => unreachable!("SimpleColumnType is #[non_exhaustive]; all variants matched"),
+            _ => {
+                unreachable!("SimpleColumnType is #[non_exhaustive]; all variants matched")
+            }
         },
         ColumnType::Complex(ty) => match ty {
             ComplexColumnType::Varchar { .. } | ComplexColumnType::Char { .. } => {
@@ -709,9 +711,11 @@ fn go_base_type(col_type: &ColumnType) -> String {
             }
             ComplexColumnType::Numeric { .. } => "decimal.Decimal".to_string(),
             ComplexColumnType::Enum { name, .. } => to_pascal_case(name),
-            // Currently unreachable — `#[non_exhaustive]` future-variant guard.
+            // `#[non_exhaustive]` future-variant guard; unreachable today.
             #[cfg(not(tarpaulin_include))]
-            _ => unreachable!("ComplexColumnType is #[non_exhaustive]; all variants matched"),
+            _ => {
+                unreachable!("ComplexColumnType is #[non_exhaustive]; all variants matched")
+            }
         },
     }
 }
@@ -723,9 +727,11 @@ fn reference_action_str(action: &ReferenceAction) -> &'static str {
         ReferenceAction::SetNull => "SET NULL",
         ReferenceAction::SetDefault => "SET DEFAULT",
         ReferenceAction::NoAction => "NO ACTION",
-        // Currently unreachable — `#[non_exhaustive]` future-variant guard.
+        // `#[non_exhaustive]` future-variant guard; unreachable today.
         #[cfg(not(tarpaulin_include))]
-        _ => unreachable!("ReferenceAction is #[non_exhaustive]; all variants matched"),
+        _ => {
+            unreachable!("ReferenceAction is #[non_exhaustive]; all variants matched")
+        }
     }
 }
 
