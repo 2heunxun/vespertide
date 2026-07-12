@@ -135,9 +135,8 @@ fn normalize_tables(tables: Vec<TableDef>) -> Result<Vec<TableDef>> {
     tables
         .into_iter()
         .map(|table| {
-            table
-                .normalize()
-                .with_context(|| format!("normalize table '{}'", table.name))
+            let context = format!("normalize table '{}'", table.name);
+            table.normalize().context(context)
         })
         .collect()
 }

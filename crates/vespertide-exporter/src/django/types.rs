@@ -49,6 +49,8 @@ pub(super) fn django_field_type(
             SimpleColumnType::Json => "models.JSONField",
             SimpleColumnType::Inet | SimpleColumnType::Cidr => "models.GenericIPAddressField",
             SimpleColumnType::Macaddr => "models.CharField",
+            // Currently unreachable — `#[non_exhaustive]` future-variant guard.
+            #[cfg(not(tarpaulin_include))]
             _ => unreachable!("SimpleColumnType is #[non_exhaustive]; all variants matched"),
         },
         ColumnType::Complex(ty) => match ty {
@@ -61,6 +63,8 @@ pub(super) fn django_field_type(
                 EnumValues::String(_) => "models.CharField",
                 EnumValues::Integer(_) => "models.IntegerField",
             },
+            // Currently unreachable — `#[non_exhaustive]` future-variant guard.
+            #[cfg(not(tarpaulin_include))]
             _ => unreachable!("ComplexColumnType is #[non_exhaustive]; all variants matched"),
         },
     }
@@ -191,6 +195,8 @@ pub(super) fn reference_action_str(action: &vespertide_core::ReferenceAction) ->
         ReferenceAction::SetNull => "models.SET_NULL",
         ReferenceAction::SetDefault => "models.SET_DEFAULT",
         ReferenceAction::NoAction => "models.DO_NOTHING",
+        // Currently unreachable — `#[non_exhaustive]` future-variant guard.
+        #[cfg(not(tarpaulin_include))]
         _ => unreachable!("ReferenceAction is #[non_exhaustive]; all variants matched"),
     }
 }
