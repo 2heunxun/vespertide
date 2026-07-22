@@ -201,7 +201,7 @@ fn render_export_entity(
 
 /// Derive `crate::` prefix from the export directory path.
 ///
-/// For example: `src/models` ??`crate::models`, `src/db/entities` ??`crate::db::entities`.
+/// For example: `src/models` → `crate::models`, `src/db/entities` → `crate::db::entities`.
 /// If the path doesn't start with `src/`, returns empty string (fallback to `super::` behavior).
 fn export_dir_to_crate_prefix(export_dir: &Path) -> String {
     let normalized = export_dir.to_string_lossy().replace('\\', "/");
@@ -217,8 +217,8 @@ fn export_dir_to_crate_prefix(export_dir: &Path) -> String {
 
 /// Convert a relative model file path to Rust module path segments.
 ///
-/// For example: `admin/admin.json` ??`["admin", "admin"]`
-/// `estimate/estimate_checker.vespertide.json` ??`["estimate", "estimate_checker"]`
+/// For example: `admin/admin.json` → `["admin", "admin"]`
+/// `estimate/estimate_checker.vespertide.json` → `["estimate", "estimate_checker"]`
 fn rel_path_to_module_segments(rel_path: &Path) -> Vec<String> {
     let mut segments = Vec::new();
 
@@ -1090,7 +1090,7 @@ mod tests {
         use std::path::Path;
         let root = Path::new("src/models");
 
-        // snake_case model ??PascalCase .java
+        // snake_case model → PascalCase .java
         let rel_path = Path::new("order_item.json");
         let out = build_output_path(root, rel_path, Orm::Jpa);
         assert_eq!(out, Path::new("src/models/OrderItem.java"));
