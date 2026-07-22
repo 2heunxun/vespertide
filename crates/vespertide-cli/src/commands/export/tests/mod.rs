@@ -137,6 +137,59 @@ async fn export_with_sqlmodel_sets_py_extension() {
 
 #[tokio::test]
 #[serial]
+async fn export_seaorm_uses_absolute_crate_paths_for_cross_directory_fk() {
+    let tmp = tempdir().unwrap();
+    let _guard = CwdGuard::new(&tmp.path().to_path_buf());
+    write_config();
+
+    let user = sample_table("user");
+    write_model(Path::new("models/admin/user.json"), &user);
+
+    let mut post = sample_table("post");
+    post.columns.push(ColumnDef {
+        name: "user_id".into(),
+        r#type: ColumnType::Simple(SimpleColumnType::Integer),
+        nullable: false,
+        default: None,
+        comment: None,
+        primary_key: None,
+        unique: None,
+        index: None,
+        foreign_key: None,
+    });
+    post.constraints.push(TableConstraint::ForeignKey {
+        name: Some("fk_post__user_id".into()),
+        columns: vec!["user_id".into()],
+        ref_table: "user".into(),
+        ref_columns: vec!["id".into()],
+        on_delete: None,
+        on_update: None,
+        orphan_strategy: Default::default(),
+    });
+    write_model(Path::new("models/blog/post.json"), &post);
+
+    cmd_export(OrmArg::Seaorm, None).await.unwrap();
+
+    // Cross-directory FK relations must use the absolute `crate::` module path
+    // derived from the export dir, not a sibling `super::` path.
+    let content = std_fs::read_to_string("src/models/blog/post.rs").unwrap();
+    assert!(content.contains("crate::models::admin::user"));
+}
+
+#[tokio::test]
+#[serial]
+async fn export_creates_output_dir_even_without_models() {
+    let tmp = tempdir().unwrap();
+    let _guard = CwdGuard::new(&tmp.path().to_path_buf());
+    write_config();
+
+    cmd_export(OrmArg::Seaorm, None).await.unwrap();
+
+    assert!(PathBuf::from("src/models").exists());
+}
+
+#[tokio::test]
+#[serial]
 async fn load_models_recursive_returns_empty_when_absent() {
     let tmp = tempdir().unwrap();
     let _guard = CwdGuard::new(&tmp.path().to_path_buf());
@@ -191,11 +244,23 @@ async fn ensure_mod_chain_adds_to_existing_file_without_trailing_newline() {
 
     let root_mod = std_fs::read_to_string(root.join("mod.rs")).unwrap();
     let blog_mod = std_fs::read_to_string(root.join("blog/mod.rs")).unwrap();
-    assert!(root_mod.contains("pub mod existing;"));
-    assert!(root_mod.contains("pub mod blog;"));
-    assert!(blog_mod.contains("pub mod posts;"));
-    // ensure newline appended if missing
-    assert!(root_mod.ends_with('\n'));
+    // exact contents: a newline separates the existing decl from the new one
+    assert_eq!(root_mod, "pub mod existing;\npub mod blog;\n");
+    assert_eq!(blog_mod, "pub mod posts;\n");
+}
+
+#[tokio::test]
+async fn ensure_mod_chain_creates_fresh_mod_rs_without_leading_newline() {
+    let tmp = tempdir().unwrap();
+    let root = tmp.path().join("src/models");
+    std_fs::create_dir_all(&root).unwrap();
+
+    ensure_mod_chain(&root, Path::new("users.json"))
+        .await
+        .unwrap();
+
+    let root_mod = std_fs::read_to_string(root.join("mod.rs")).unwrap();
+    assert_eq!(root_mod, "pub mod users;\n");
 }
 
 #[tokio::test]
