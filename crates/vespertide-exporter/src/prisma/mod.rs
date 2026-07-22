@@ -5,7 +5,6 @@ mod types;
 use std::collections::HashSet;
 
 use crate::orm::OrmExporter;
-use vespertide_config::PrismaConfig;
 use vespertide_core::TableDef;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
 
@@ -50,62 +49,39 @@ impl OrmExporter for PrismaExporter {
     }
 }
 
-/// Prisma exporter with configuration support.
+/// Render a complete `schema.prisma` file for all tables.
 ///
-/// Assembles a complete `schema.prisma` file from a full table list.
-pub struct PrismaExporterWithConfig<'a> {
-    pub config: &'a PrismaConfig,
-    pub provider: PrismaProvider,
-}
-
-impl<'a> PrismaExporterWithConfig<'a> {
-    pub fn new(config: &'a PrismaConfig) -> Self {
-        Self::with_provider(config, PrismaProvider::default())
-    }
-
-    pub fn with_provider(config: &'a PrismaConfig, provider: PrismaProvider) -> Self {
-        Self { config, provider }
-    }
-
-    /// Render a complete `schema.prisma` file for all tables.
-    ///
-    /// Output order: datasource → generator → (globally deduped) enum blocks → model blocks.
-    pub fn render_schema(&self, tables: &[TableDef]) -> String {
-        let mut seen_enums: HashSet<String> = HashSet::new();
-        let mut enum_blocks: Vec<String> = Vec::new();
-        for table in tables {
-            for (name, values) in collect_table_enums(table) {
-                if seen_enums.insert(name.to_string()) {
-                    enum_blocks.push(enums::render_enum(name, values));
-                }
+/// Output order: datasource → generator → (globally deduped) enum blocks → model blocks.
+pub fn render_schema(tables: &[TableDef], provider: PrismaProvider) -> String {
+    let mut seen_enums: HashSet<String> = HashSet::new();
+    let mut enum_blocks: Vec<String> = Vec::new();
+    for table in tables {
+        for (name, values) in collect_table_enums(table) {
+            if seen_enums.insert(name.to_string()) {
+                enum_blocks.push(enums::render_enum(name, values));
             }
         }
-
-        let mut parts: Vec<String> = Vec::new();
-
-        // No `url` here: current Prisma moved connection config out of the
-        // schema file (`prisma.config.ts`), which also matches vespertide's
-        // models-only scope.
-        let mut datasource = vec![
-            "datasource db {".to_string(),
-            format!("  provider = \"{}\"", self.provider.as_datasource_str()),
-        ];
-        if let Some(rm) = self.config.relation_mode() {
-            datasource.push(format!("  relationMode = \"{}\"", rm.as_str()));
-        }
-        datasource.push("}".to_string());
-        parts.push(datasource.join("\n"));
-
-        parts.push("generator client {\n  provider = \"prisma-client-js\"\n}".to_string());
-
-        parts.extend(enum_blocks);
-
-        for table in tables {
-            parts.push(render::render_model(table, tables, self.provider));
-        }
-
-        parts.join("\n\n") + "\n"
     }
+
+    let mut parts: Vec<String> = Vec::new();
+
+    // No `url` here: current Prisma moved connection config out of the
+    // schema file (`prisma.config.ts`), which also matches vespertide's
+    // models-only scope.
+    parts.push(format!(
+        "datasource db {{\n  provider = \"{}\"\n}}",
+        provider.as_datasource_str()
+    ));
+
+    parts.push("generator client {\n  provider = \"prisma-client-js\"\n}".to_string());
+
+    parts.extend(enum_blocks);
+
+    for table in tables {
+        parts.push(render::render_model(table, tables, provider));
+    }
+
+    parts.join("\n\n") + "\n"
 }
 
 fn collect_table_enums(table: &TableDef) -> Vec<(&str, &EnumValues)> {
@@ -133,7 +109,7 @@ pub fn render_entity(table: &TableDef) -> String {
 /// Render enum blocks + model block with full schema context (includes back-relations).
 ///
 /// Uses the default provider (PostgreSQL) — provider-specific output goes
-/// through [`PrismaExporterWithConfig::with_provider`].
+/// through [`render_schema`].
 pub fn render_entity_with_schema(table: &TableDef, schema: &[TableDef]) -> String {
     let mut parts: Vec<String> = Vec::new();
     for (name, values) in collect_table_enums(table) {
@@ -150,7 +126,7 @@ pub fn render_entity_with_schema(table: &TableDef, schema: &[TableDef]) -> Strin
 /// Multi-table entry point: render every table (enum + model blocks) with full
 /// schema context and join them. Mirrors the other ORMs' `export` so the
 /// cross-ORM test harness can dispatch Prisma through a single call. The
-/// `datasource`/`generator` wrapper lives in [`PrismaExporterWithConfig`].
+/// `datasource`/`generator` wrapper lives in [`render_schema`].
 pub fn export(schema: &[TableDef]) -> Result<String, String> {
     Ok(schema
         .iter()
@@ -182,45 +158,20 @@ mod tests {
         #[case] provider: PrismaProvider,
         #[case] expected_line: &str,
     ) {
-        let config = PrismaConfig::default();
         let tables = vec![basic_single_pk()];
-        let schema =
-            PrismaExporterWithConfig::with_provider(&config, provider).render_schema(&tables);
+        let schema = render_schema(&tables, provider);
 
         assert!(schema.contains(expected_line));
         assert!(!schema.contains("output"));
-        assert!(!schema.contains("relationMode"));
-    }
-
-    #[test]
-    fn new_defaults_to_postgresql_provider() {
-        let config = PrismaConfig::default();
-        let tables = vec![basic_single_pk()];
-        let schema = PrismaExporterWithConfig::new(&config).render_schema(&tables);
-
-        assert!(schema.contains("provider = \"postgresql\""));
     }
 
     #[test]
     fn render_schema_emits_shared_enum_block_once() {
-        let config = PrismaConfig::default();
         let t1 = crate::tests::fixtures::enum_shared();
         let mut t2 = crate::tests::fixtures::enum_shared();
         t2.name = "archived_documents".into();
-        let schema = PrismaExporterWithConfig::new(&config).render_schema(&[t1, t2]);
+        let schema = render_schema(&[t1, t2], PrismaProvider::Postgres);
 
         assert_eq!(schema.matches("enum DocStatus {").count(), 1);
-    }
-
-    #[test]
-    fn render_schema_emits_relation_mode_when_configured() {
-        // `PrismaConfig` is `#[non_exhaustive]` in a different crate, so it can't be
-        // built with a struct literal here — go through its real construction path
-        // (JSON deserialization, same as loading `vespertide.json`) instead.
-        let config: PrismaConfig = serde_json::from_str(r#"{"relationMode":"prisma"}"#).unwrap();
-        let tables = vec![basic_single_pk()];
-        let schema = PrismaExporterWithConfig::new(&config).render_schema(&tables);
-
-        assert!(schema.contains("relationMode = \"prisma\""));
     }
 }

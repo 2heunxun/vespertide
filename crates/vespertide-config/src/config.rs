@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::file_format::FileFormat;
 use crate::name_case::NameCase;
-use crate::relation_mode::RelationMode;
 
 /// Default migration filename pattern: zero-padded version + sanitized comment.
 pub fn default_migration_filename_pattern() -> String {
@@ -79,32 +78,6 @@ impl SeaOrmConfig {
     }
 }
 
-/// Prisma-specific export configuration.
-///
-/// The `datasource` provider is always PostgreSQL (the exporter only emits
-/// PostgreSQL-native `@db.*` types), and the generated Prisma Client's output
-/// path is left to Prisma's own default — neither is configurable here, since
-/// vespertide only manages the schema/model definition, not Prisma Client
-/// codegen. See `RelationMode` for the one setting that is configurable.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "camelCase")]
-#[non_exhaustive]
-pub struct PrismaConfig {
-    /// Override for the `datasource` `relationMode` setting. `None` (default)
-    /// omits the line and lets Prisma use its own default (`foreignKeys`).
-    /// See [`RelationMode`] for what each variant means.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub relation_mode: Option<RelationMode>,
-}
-
-impl PrismaConfig {
-    /// The configured `relationMode` override, if any.
-    pub fn relation_mode(&self) -> Option<RelationMode> {
-        self.relation_mode
-    }
-}
-
 /// Top-level vespertide configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -127,9 +100,6 @@ pub struct VespertideConfig {
     /// SeaORM-specific export configuration.
     #[serde(default)]
     pub seaorm: SeaOrmConfig,
-    /// Prisma-specific export configuration.
-    #[serde(default)]
-    pub prisma: PrismaConfig,
     /// Prefix to add to all table names (including migration version table).
     /// Default: "" (no prefix)
     #[serde(default)]
@@ -168,7 +138,6 @@ impl Default for VespertideConfig {
             migration_filename_pattern: default_migration_filename_pattern(),
             model_export_dir: default_model_export_dir(),
             seaorm: SeaOrmConfig::default(),
-            prisma: PrismaConfig::default(),
             prefix: String::new(),
             lock_timeout_ms: None,
             statement_timeout_ms: None,
@@ -220,11 +189,6 @@ impl VespertideConfig {
     /// SeaORM-specific export configuration.
     pub fn seaorm(&self) -> &SeaOrmConfig {
         &self.seaorm
-    }
-
-    /// Prisma-specific export configuration.
-    pub fn prisma(&self) -> &PrismaConfig {
-        &self.prisma
     }
 
     /// Prefix to add to all table names.
@@ -326,44 +290,5 @@ mod tests {
 
         assert_eq!(config.prefix(), "");
         assert_eq!(config.apply_prefix("users"), "users");
-    }
-
-    #[test]
-    fn prisma_config_default_has_no_relation_mode() {
-        let config = PrismaConfig::default();
-        assert_eq!(config.relation_mode(), None);
-    }
-
-    #[test]
-    fn prisma_config_deserializes_from_empty_object() {
-        let config: PrismaConfig = serde_json::from_str("{}").unwrap();
-        assert_eq!(config.relation_mode(), None);
-    }
-
-    #[test]
-    fn prisma_config_relation_mode_roundtrips() {
-        let config = PrismaConfig {
-            relation_mode: Some(RelationMode::Prisma),
-            ..Default::default()
-        };
-        let json = serde_json::to_string(&config).unwrap();
-        assert_eq!(json, "{\"relationMode\":\"prisma\"}");
-        let back: PrismaConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.relation_mode(), Some(RelationMode::Prisma));
-    }
-
-    #[test]
-    fn vespertide_config_prisma_accessor_returns_deserialized_value() {
-        let config: VespertideConfig = serde_json::from_str(
-            r#"{
-                "modelsDir": "models",
-                "migrationsDir": "migrations",
-                "tableNamingCase": "snake",
-                "columnNamingCase": "snake",
-                "prisma": {"relationMode": "prisma"}
-            }"#,
-        )
-        .unwrap();
-        assert_eq!(config.prisma().relation_mode(), Some(RelationMode::Prisma));
     }
 }

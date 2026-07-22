@@ -44,11 +44,6 @@
       "type": "string",
       "default": ""
     },
-    "prisma": {
-      "description": "Prisma-specific export configuration.",
-      "$ref": "#/$defs/PrismaConfig",
-      "default": {}
-    },
     "seaorm": {
       "description": "SeaORM-specific export configuration.",
       "$ref": "#/$defs/SeaOrmConfig",
@@ -97,38 +92,6 @@
         "snake",
         "camel",
         "pascal"
-      ]
-    },
-    "PrismaConfig": {
-      "description": "Prisma-specific export configuration.\n\nThe `datasource` provider is always PostgreSQL (the exporter only emits\nPostgreSQL-native `@db.*` types), and the generated Prisma Client's output\npath is left to Prisma's own default — neither is configurable here, since\nvespertide only manages the schema/model definition, not Prisma Client\ncodegen. See `RelationMode` for the one setting that is configurable.",
-      "type": "object",
-      "properties": {
-        "relationMode": {
-          "description": "Override for the `datasource` `relationMode` setting. `None` (default)\nomits the line and lets Prisma use its own default (`foreignKeys`).\nSee [`RelationMode`] for what each variant means.",
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RelationMode"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      }
-    },
-    "RelationMode": {
-      "description": "Prisma `relationMode` datasource setting.\n\nControls whether Prisma relies on real database-level foreign key\nconstraints or emulates referential integrity in Prisma Client.",
-      "oneOf": [
-        {
-          "description": "Use real database-level foreign key constraints. This is Prisma's\ndefault and is correct for any backend that supports FKs (e.g.\nPostgreSQL, MySQL, SQLite).",
-          "type": "string",
-          "const": "foreignKeys"
-        },
-        {
-          "description": "Emulate referential integrity in Prisma Client instead of relying on\ndatabase-level foreign keys. Needed for datastores that don't support\nFK constraints (e.g. PlanetScale, MongoDB).",
-          "type": "string",
-          "const": "prisma"
-        }
       ]
     },
     "SeaOrmConfig": {
