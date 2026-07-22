@@ -4,9 +4,9 @@ assertion_line: 87
 expression: rendered
 ---
 model ArticleUser {
-  article_id String
+  article_id String // stored as binary(16) on MySQL backends
   article Article @relation(fields: [article_id], references: [id], onDelete: Cascade)
-  user_id String
+  user_id String // stored as binary(16) on MySQL backends
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
   author_order Int @default(1)
   role String @default("contributor")

@@ -12,6 +12,13 @@ pub(super) fn column_type_to_prisma(ty: &ColumnType, nullable: bool) -> (String,
     let q = if nullable { "?" } else { "" };
 
     match ty {
+        // vespertide's MySQL DDL stores uuid as BINARY(16) — the one physical
+        // type that diverges from the neutral scalar, so the field carries a
+        // warning comment instead of a backend-specific type.
+        ColumnType::Simple(SimpleColumnType::Uuid) => (
+            format!("String{q}"),
+            Some("stored as binary(16) on MySQL backends".to_string()),
+        ),
         ColumnType::Simple(simple) => {
             let base = match simple {
                 SimpleColumnType::SmallInt | SimpleColumnType::Integer => "Int",
@@ -24,8 +31,7 @@ pub(super) fn column_type_to_prisma(ty: &ColumnType, nullable: bool) -> (String,
                 | SimpleColumnType::Timestamptz => "DateTime",
                 SimpleColumnType::Bytea => "Bytes",
                 SimpleColumnType::Json => "Json",
-                SimpleColumnType::Uuid
-                | SimpleColumnType::Text
+                SimpleColumnType::Text
                 | SimpleColumnType::Interval
                 | SimpleColumnType::Inet
                 | SimpleColumnType::Cidr
@@ -33,7 +39,7 @@ pub(super) fn column_type_to_prisma(ty: &ColumnType, nullable: bool) -> (String,
                 | SimpleColumnType::Xml => "String",
                 // Unknown/future simple types fall back to a plain String column.
                 // `SimpleColumnType` is #[non_exhaustive]; every current variant is
-                // matched above, so this arm is currently unreachable.
+                // handled above, so this arm is currently unreachable.
                 #[cfg(not(tarpaulin_include))]
                 _ => "String",
             };
@@ -82,7 +88,6 @@ mod tests {
     #[case::timestamptz(SimpleColumnType::Timestamptz, "DateTime")]
     #[case::bytea(SimpleColumnType::Bytea, "Bytes")]
     #[case::json(SimpleColumnType::Json, "Json")]
-    #[case::uuid(SimpleColumnType::Uuid, "String")]
     #[case::text(SimpleColumnType::Text, "String")]
     #[case::interval(SimpleColumnType::Interval, "String")]
     #[case::inet(SimpleColumnType::Inet, "String")]
@@ -93,6 +98,20 @@ mod tests {
         let (rendered, comment) = column_type_to_prisma(&ColumnType::Simple(simple), false);
         assert_eq!(rendered, scalar);
         assert_eq!(comment, None);
+    }
+
+    #[test]
+    fn uuid_maps_to_string_with_mysql_binary16_note() {
+        let ty = ColumnType::Simple(SimpleColumnType::Uuid);
+        let (rendered, comment) = column_type_to_prisma(&ty, false);
+        assert_eq!(rendered, "String");
+        assert_eq!(
+            comment.as_deref(),
+            Some("stored as binary(16) on MySQL backends")
+        );
+
+        let (rendered, _) = column_type_to_prisma(&ty, true);
+        assert_eq!(rendered, "String?");
     }
 
     #[test]

@@ -4,7 +4,7 @@ assertion_line: 376
 expression: rendered
 ---
 model Session {
-  id String @id
+  id String @id // stored as binary(16) on MySQL backends
   username String
   username_rel User @relation(fields: [username], references: [username])
 
