@@ -1,32 +1,8 @@
 use super::*;
 
-#[rstest]
-#[case::postgres(
-    DatabaseBackend::Postgres,
-    "provider = \"postgresql\"",
-    "@db.Timestamptz",
-    None
-)]
-#[case::mysql(
-    DatabaseBackend::MySql,
-    "provider = \"mysql\"",
-    "@db.Timestamp",
-    Some("@db.Timestamptz")
-)]
-#[case::sqlite(
-    DatabaseBackend::Sqlite,
-    "provider = \"sqlite\"",
-    "DateTime",
-    Some("@db.")
-)]
 #[tokio::test]
 #[serial]
-async fn export_prisma_writes_provider_specific_schema(
-    #[case] backend: DatabaseBackend,
-    #[case] provider_line: &str,
-    #[case] expected: &str,
-    #[case] absent: Option<&str>,
-) {
+async fn export_prisma_writes_backend_neutral_schema() {
     let tmp = tempdir().unwrap();
     let _guard = CwdGuard::new(&tmp.path().to_path_buf());
     write_config();
@@ -45,16 +21,14 @@ async fn export_prisma_writes_provider_specific_schema(
     });
     write_model(Path::new("models/events.json"), &model);
 
-    cmd_export(OrmArg::Prisma, None, backend).await.unwrap();
+    cmd_export(OrmArg::Prisma, None).await.unwrap();
 
     let out = PathBuf::from("src/models/schema.prisma");
     assert!(out.exists());
     let content = std_fs::read_to_string(out).unwrap();
-    assert!(content.contains(provider_line));
-    assert!(content.contains(expected));
-    if let Some(absent) = absent {
-        assert!(!content.contains(absent));
-    }
+    assert!(content.contains("provider = \"postgresql\""));
+    assert!(content.contains("occurred_at DateTime"));
+    assert!(!content.contains("@db."));
 }
 
 #[test]

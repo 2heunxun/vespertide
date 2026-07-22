@@ -1,16 +1,17 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
+assertion_line: 87
 expression: rendered
 ---
 model ArticleUser {
-  article_id String @db.Uuid
+  article_id String
   article Article @relation(fields: [article_id], references: [id], onDelete: Cascade)
-  user_id String @db.Uuid
+  user_id String
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
   author_order Int @default(1)
-  role String @default("contributor") @db.VarChar(20)
+  role String @default("contributor")
   is_lead Boolean @default(false)
-  created_at DateTime @default(now()) @db.Timestamptz
+  created_at DateTime @default(now())
 
   @@id([article_id, user_id])
   @@index([article_id])

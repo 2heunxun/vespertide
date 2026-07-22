@@ -1,9 +1,10 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
+assertion_line: 376
 expression: rendered
 ---
 model User {
-  id String @id @db.Uuid
+  id String @id
   preferred_user_profile Profile[] @relation("ProfilePreferredUser")
   backup_user_profile Profile[] @relation("ProfileBackupUser")
 

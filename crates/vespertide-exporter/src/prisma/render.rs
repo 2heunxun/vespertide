@@ -6,8 +6,6 @@ use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::schema::names::ColumnName;
 use vespertide_core::schema::reference::ReferenceAction;
 
-use vespertide_query::DatabaseBackend;
-
 use super::enums::{to_pascal_case, to_screaming_snake};
 use super::types::column_type_to_prisma;
 
@@ -129,11 +127,7 @@ pub(super) fn collect_back_relations(target_table: &str, schema: &[TableDef]) ->
     result
 }
 
-pub(super) fn render_model(
-    table: &TableDef,
-    schema: &[TableDef],
-    provider: DatabaseBackend,
-) -> String {
+pub(super) fn render_model(table: &TableDef, schema: &[TableDef]) -> String {
     let mut lines: Vec<String> = Vec::new();
 
     if let Some(desc) = &table.description {
@@ -218,7 +212,7 @@ pub(super) fn render_model(
             lines.push(format!("  /// {comment}"));
         }
 
-        let (type_str, native_attr) = column_type_to_prisma(&col.r#type, col.nullable, provider);
+        let (type_str, trailing_comment) = column_type_to_prisma(&col.r#type, col.nullable);
         let mut attrs: Vec<String> = Vec::new();
 
         if is_single_pk {
@@ -229,11 +223,7 @@ pub(super) fn render_model(
         }
 
         if !auto_inc && let Some(ref default) = col.default {
-            attrs.push(prisma_default_attr(
-                &default.to_sql(),
-                &col.r#type,
-                provider,
-            ));
+            attrs.push(prisma_default_attr(&default.to_sql(), &col.r#type));
         }
 
         if let Some(unique_name) = is_unique
@@ -245,17 +235,17 @@ pub(super) fn render_model(
             }
         }
 
-        if let Some(ref native) = native_attr {
-            attrs.push(native.clone());
-        }
-
         let attrs_str = if attrs.is_empty() {
             String::new()
         } else {
             format!(" {}", attrs.join(" "))
         };
 
-        lines.push(format!("  {col_name} {type_str}{attrs_str}"));
+        let comment_str = trailing_comment
+            .map(|c| format!(" // {c}"))
+            .unwrap_or_default();
+
+        lines.push(format!("  {col_name} {type_str}{attrs_str}{comment_str}"));
 
         // Emit inline relation field for FK columns
         if let Some(fk) = fk_by_col.get(col_name) {
@@ -369,11 +359,7 @@ pub(super) fn render_model(
     lines.join("\n")
 }
 
-fn prisma_default_attr(
-    default_sql: &str,
-    col_type: &ColumnType,
-    provider: DatabaseBackend,
-) -> String {
+fn prisma_default_attr(default_sql: &str, col_type: &ColumnType) -> String {
     // Integer-backed enum: resolve to a variant identifier (SCREAMING_SNAKE), never a bare int.
     if let ColumnType::Complex(ComplexColumnType::Enum {
         values: EnumValues::Integer(int_values),
@@ -411,12 +397,7 @@ fn prisma_default_attr(
         || lower.contains("uuid_generate_v4()")
         || lower.contains("newid()")
     {
-        // On MySQL the uuid column is BINARY(16) and Prisma's uuid() only
-        // applies to String fields — mirror the DDL's DB-side default instead.
-        return match provider {
-            DatabaseBackend::MySql => "@default(dbgenerated(\"(uuid())\"))".into(),
-            _ => "@default(uuid())".into(),
-        };
+        return "@default(uuid())".into();
     }
 
     // Any remaining function call → dbgenerated
@@ -498,10 +479,7 @@ mod tests {
                 },
             ]),
         });
-        assert_eq!(
-            prisma_default_attr("100", &ty, DatabaseBackend::Postgres),
-            "@default(LOW)"
-        );
+        assert_eq!(prisma_default_attr("100", &ty), "@default(LOW)");
     }
 
     #[test]
@@ -512,33 +490,24 @@ mod tests {
                 *on_update = Some(ReferenceAction::Cascade);
             }
         }
-        let rendered = render_model(
-            &table,
-            std::slice::from_ref(&table),
-            DatabaseBackend::Postgres,
-        );
+        let rendered = render_model(&table, std::slice::from_ref(&table));
         assert!(rendered.contains("onUpdate: Cascade"));
     }
 
     #[test]
     fn named_index_is_rendered_with_map() {
         let table = crate::tests::fixtures::table_with_indexes();
-        let rendered = render_model(&table, &[], DatabaseBackend::Postgres);
+        let rendered = render_model(&table, &[]);
         assert!(rendered.contains("@@index([created_at], map: \"idx_articles_created_at\")"));
         assert!(rendered.contains("@@index([title])"));
     }
 
     #[rstest]
-    #[case::postgres(DatabaseBackend::Postgres, "@default(uuid())")]
-    #[case::mysql(DatabaseBackend::MySql, "@default(dbgenerated(\"(uuid())\"))")]
-    #[case::sqlite(DatabaseBackend::Sqlite, "@default(uuid())")]
-    fn uuid_generating_default_follows_provider(
-        #[case] provider: DatabaseBackend,
-        #[case] expected: &str,
-    ) {
+    #[case::postgres_gen_random_uuid("gen_random_uuid()")]
+    #[case::postgres_uuid_generate_v4("uuid_generate_v4()")]
+    #[case::mssql_newid("NEWID()")]
+    fn uuid_generating_default_maps_to_client_uuid(#[case] default_sql: &str) {
         let ty = ColumnType::Simple(SimpleColumnType::Uuid);
-        for default_sql in ["gen_random_uuid()", "uuid_generate_v4()", "NEWID()"] {
-            assert_eq!(prisma_default_attr(default_sql, &ty, provider), expected);
-        }
+        assert_eq!(prisma_default_attr(default_sql, &ty), "@default(uuid())");
     }
 }

@@ -54,9 +54,7 @@ async fn export_writes_seaorm_files_to_default_dir() {
     let model = sample_table("users");
     write_model(Path::new("models/users.json"), &model);
 
-    cmd_export(OrmArg::Seaorm, None, DatabaseBackend::Postgres)
-        .await
-        .unwrap();
+    cmd_export(OrmArg::Seaorm, None).await.unwrap();
 
     let out = PathBuf::from("src/models/users.rs");
     assert!(out.exists());
@@ -81,13 +79,9 @@ async fn export_respects_custom_output_dir() {
     write_model(Path::new("models/blog/posts.json"), &model);
 
     let custom = PathBuf::from("out_dir");
-    cmd_export(
-        OrmArg::Seaorm,
-        Some(custom.clone()),
-        DatabaseBackend::Postgres,
-    )
-    .await
-    .unwrap();
+    cmd_export(OrmArg::Seaorm, Some(custom.clone()))
+        .await
+        .unwrap();
 
     let out = custom.join("blog/posts.rs");
     assert!(out.exists());
@@ -115,9 +109,7 @@ async fn export_with_sqlalchemy_sets_py_extension() {
     let model = sample_table("items");
     write_model(Path::new("models/items.json"), &model);
 
-    cmd_export(OrmArg::Sqlalchemy, None, DatabaseBackend::Postgres)
-        .await
-        .unwrap();
+    cmd_export(OrmArg::Sqlalchemy, None).await.unwrap();
 
     let out = PathBuf::from("src/models/items.py");
     assert!(out.exists());
@@ -135,9 +127,7 @@ async fn export_with_sqlmodel_sets_py_extension() {
     let model = sample_table("orders");
     write_model(Path::new("models/orders.json"), &model);
 
-    cmd_export(OrmArg::Sqlmodel, None, DatabaseBackend::Postgres)
-        .await
-        .unwrap();
+    cmd_export(OrmArg::Sqlmodel, None).await.unwrap();
 
     let out = PathBuf::from("src/models/orders.py");
     assert!(out.exists());

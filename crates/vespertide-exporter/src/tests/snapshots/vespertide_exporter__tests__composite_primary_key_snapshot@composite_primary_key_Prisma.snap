@@ -1,11 +1,12 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
+assertion_line: 244
 expression: rendered
 ---
 model Membership {
   tenant_id Int
   user_id Int
-  role String @db.Text
+  role String
 
   @@id([tenant_id, user_id])
   @@map("membership")

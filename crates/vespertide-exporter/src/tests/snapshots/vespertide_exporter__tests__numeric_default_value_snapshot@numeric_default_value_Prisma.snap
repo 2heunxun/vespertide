@@ -1,10 +1,11 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
+assertion_line: 259
 expression: rendered
 ---
 model Products {
   id Int
-  price Decimal @default(0.00) @db.Decimal(10, 2)
+  price Decimal @default(0.00)
 
   @@map("products")
 }

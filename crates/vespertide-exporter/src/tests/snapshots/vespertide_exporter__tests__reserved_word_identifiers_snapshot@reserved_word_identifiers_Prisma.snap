@@ -1,10 +1,11 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
+assertion_line: 239
 expression: rendered
 ---
 model Order {
   id Int @id
-  user String @db.Text
+  user String
   select Int
 
   @@map("order")

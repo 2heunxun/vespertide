@@ -1,12 +1,13 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
+assertion_line: 143
 expression: rendered
 ---
 model ComplexTypes {
   id Int @id
-  varchar_col String @db.VarChar(100)
-  char_col String @db.Char(10)
-  numeric_col Decimal @db.Decimal(10, 2)
+  varchar_col String
+  char_col String
+  numeric_col Decimal
   custom_col Unsupported("CUSTOM_TYPE")
 
   @@map("complex_types")

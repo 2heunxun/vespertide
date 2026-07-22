@@ -1,10 +1,11 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
+assertion_line: 86
 expression: rendered
 ---
 model Users {
-  id String @default(uuid()) @db.Uuid
-  email String @db.Text
+  id String @default(uuid())
+  email String
 
   @@map("users")
 }

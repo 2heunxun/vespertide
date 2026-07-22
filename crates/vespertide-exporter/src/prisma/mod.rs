@@ -7,22 +7,8 @@ use std::collections::HashSet;
 use crate::orm::OrmExporter;
 use vespertide_core::TableDef;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
-use vespertide_query::DatabaseBackend;
 
 pub struct PrismaExporter;
-
-/// The `provider = "..."` string used in the `datasource` block.
-///
-/// A Prisma schema declares exactly one datasource provider, and native
-/// `@db.*` type attributes are validated against that provider's connector —
-/// so the same tables render differently per backend.
-fn datasource_provider_str(backend: DatabaseBackend) -> &'static str {
-    match backend {
-        DatabaseBackend::Postgres => "postgresql",
-        DatabaseBackend::MySql => "mysql",
-        DatabaseBackend::Sqlite => "sqlite",
-    }
-}
 
 impl OrmExporter for PrismaExporter {
     fn render_entity(&self, table: &TableDef) -> Result<String, String> {
@@ -41,7 +27,12 @@ impl OrmExporter for PrismaExporter {
 /// Render a complete `schema.prisma` file for all tables.
 ///
 /// Output order: datasource → generator → (globally deduped) enum blocks → model blocks.
-pub fn render_schema(tables: &[TableDef], backend: DatabaseBackend) -> String {
+///
+/// The output is backend-neutral: model bodies carry no `@db.*` native
+/// attributes, so the file stays valid regardless of which backend vespertide
+/// targets. The datasource provider is fixed to `postgresql` (Prisma requires
+/// declaring exactly one); users on another backend only change that one line.
+pub fn render_schema(tables: &[TableDef]) -> String {
     let mut seen_enums: HashSet<String> = HashSet::new();
     let mut enum_blocks: Vec<String> = Vec::new();
     for table in tables {
@@ -57,17 +48,14 @@ pub fn render_schema(tables: &[TableDef], backend: DatabaseBackend) -> String {
     // No `url` here: current Prisma moved connection config out of the
     // schema file (`prisma.config.ts`), which also matches vespertide's
     // models-only scope.
-    parts.push(format!(
-        "datasource db {{\n  provider = \"{}\"\n}}",
-        datasource_provider_str(backend)
-    ));
+    parts.push("datasource db {\n  provider = \"postgresql\"\n}".to_string());
 
     parts.push("generator client {\n  provider = \"prisma-client-js\"\n}".to_string());
 
     parts.extend(enum_blocks);
 
     for table in tables {
-        parts.push(render::render_model(table, tables, backend));
+        parts.push(render::render_model(table, tables));
     }
 
     parts.join("\n\n") + "\n"
@@ -96,19 +84,12 @@ pub fn render_entity(table: &TableDef) -> String {
 }
 
 /// Render enum blocks + model block with full schema context (includes back-relations).
-///
-/// Uses the default backend (PostgreSQL) — backend-specific output goes
-/// through [`render_schema`].
 pub fn render_entity_with_schema(table: &TableDef, schema: &[TableDef]) -> String {
     let mut parts: Vec<String> = Vec::new();
     for (name, values) in collect_table_enums(table) {
         parts.push(enums::render_enum(name, values));
     }
-    parts.push(render::render_model(
-        table,
-        schema,
-        DatabaseBackend::Postgres,
-    ));
+    parts.push(render::render_model(table, schema));
     parts.join("\n\n")
 }
 
@@ -134,23 +115,16 @@ pub fn to_pascal_case_for_tests(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
-
     use super::*;
     use crate::tests::fixtures::basic_single_pk;
 
-    #[rstest]
-    #[case::postgres(DatabaseBackend::Postgres, "provider = \"postgresql\"")]
-    #[case::mysql(DatabaseBackend::MySql, "provider = \"mysql\"")]
-    #[case::sqlite(DatabaseBackend::Sqlite, "provider = \"sqlite\"")]
-    fn render_schema_emits_configured_provider(
-        #[case] backend: DatabaseBackend,
-        #[case] expected_line: &str,
-    ) {
+    #[test]
+    fn render_schema_emits_postgresql_provider() {
         let tables = vec![basic_single_pk()];
-        let schema = render_schema(&tables, backend);
+        let schema = render_schema(&tables);
 
-        assert!(schema.contains(expected_line));
+        assert!(schema.contains("provider = \"postgresql\""));
+        assert!(!schema.contains("@db."));
         assert!(!schema.contains("output"));
     }
 
@@ -159,7 +133,7 @@ mod tests {
         let t1 = crate::tests::fixtures::enum_shared();
         let mut t2 = crate::tests::fixtures::enum_shared();
         t2.name = "archived_documents".into();
-        let schema = render_schema(&[t1, t2], DatabaseBackend::Postgres);
+        let schema = render_schema(&[t1, t2]);
 
         assert_eq!(schema.matches("enum DocStatus {").count(), 1);
     }

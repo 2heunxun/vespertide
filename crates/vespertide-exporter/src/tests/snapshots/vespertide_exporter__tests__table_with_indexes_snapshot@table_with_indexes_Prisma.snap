@@ -1,12 +1,12 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
-assertion_line: 131
+assertion_line: 128
 expression: rendered
 ---
 model Articles {
   id Int @id
-  title String @db.Text
-  created_at DateTime @db.Timestamptz
+  title String
+  created_at DateTime
 
   @@index([created_at], map: "idx_articles_created_at")
   @@index([title])

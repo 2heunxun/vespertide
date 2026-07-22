@@ -11,7 +11,6 @@ use vespertide_core::TableDef;
 use vespertide_exporter::{
     Orm, prisma, render_entity_with_schema, seaorm::SeaOrmExporterWithConfig,
 };
-use vespertide_query::DatabaseBackend;
 
 use crate::parallel_config::{EXPORT_RENDER_PAR_MIN_LEN, EXPORT_RENDER_PAR_THRESHOLD};
 use crate::utils::load_config;
@@ -37,11 +36,7 @@ impl From<OrmArg> for Orm {
     }
 }
 
-pub async fn cmd_export(
-    orm: OrmArg,
-    export_dir: Option<PathBuf>,
-    backend: DatabaseBackend,
-) -> Result<()> {
+pub async fn cmd_export(orm: OrmArg, export_dir: Option<PathBuf>) -> Result<()> {
     let config = load_config()?;
     let models = load_models_recursive(config.models_dir())
         .await
@@ -62,7 +57,7 @@ pub async fn cmd_export(
 
     // Prisma uses a single-file output strategy
     if matches!(orm, OrmArg::Prisma) {
-        return cmd_export_prisma(normalized_models, target_root, backend).await;
+        return cmd_export_prisma(normalized_models, target_root).await;
     }
 
     // Clean the export directory before regenerating
@@ -445,10 +440,9 @@ async fn ensure_mod_chain(root: &Path, rel_path: &Path) -> Result<()> {
 async fn cmd_export_prisma(
     normalized_models: Vec<(TableDef, PathBuf)>,
     target_root: PathBuf,
-    backend: DatabaseBackend,
 ) -> Result<()> {
     let all_tables: Vec<TableDef> = normalized_models.iter().map(|(t, _)| t.clone()).collect();
-    let content = prisma::render_schema(&all_tables, backend);
+    let content = prisma::render_schema(&all_tables);
 
     clean_export_dir(&target_root, Orm::Prisma).await?;
 

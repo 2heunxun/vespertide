@@ -1,10 +1,11 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
+assertion_line: 290
 expression: rendered
 ---
 model Users {
   id Int @id
-  display_name String? @db.Text
+  display_name String?
   posts Posts[]
 
   @@map("users")
@@ -14,7 +15,7 @@ model Posts {
   id Int @id
   user_id Int
   user Users @relation(fields: [user_id], references: [id])
-  title String @db.Text
+  title String
 
   @@map("posts")
 }

@@ -1,27 +1,28 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
+assertion_line: 138
 expression: rendered
 ---
 model AllTypes {
   id Int @id
-  small Int @db.SmallInt
+  small Int
   big BigInt
-  real_num Float @db.Real
+  real_num Float
   double_num Float
-  text_col String @db.Text
+  text_col String
   bool_col Boolean
-  date_col DateTime @db.Date
-  time_col DateTime @db.Time
-  ts_col DateTime @db.Timestamp
-  tstz_col DateTime @db.Timestamptz
+  date_col DateTime
+  time_col DateTime
+  ts_col DateTime
+  tstz_col DateTime
   interval_col String
   bytea_col Bytes
-  uuid_col String @db.Uuid
+  uuid_col String
   json_col Json
-  inet_col String @db.Inet
+  inet_col String
   cidr_col String
   macaddr_col String
-  xml_col String @db.Xml
+  xml_col String
 
   @@map("all_types")
 }

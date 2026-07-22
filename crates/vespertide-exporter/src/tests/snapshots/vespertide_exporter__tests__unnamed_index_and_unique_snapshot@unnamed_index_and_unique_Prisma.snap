@@ -1,11 +1,12 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
+assertion_line: 184
 expression: rendered
 ---
 model Events {
   id Int @id
   venue_id Int
-  date DateTime @db.Date
+  date DateTime
 
   @@unique([venue_id, date])
   @@index([venue_id, date])

@@ -1,12 +1,13 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
+assertion_line: 81
 expression: rendered
 ---
 model LineItems {
   id Int @id
   order_id Int
   order_version Int
-  sku String @db.Text
+  sku String
 
   @@map("line_items")
 }

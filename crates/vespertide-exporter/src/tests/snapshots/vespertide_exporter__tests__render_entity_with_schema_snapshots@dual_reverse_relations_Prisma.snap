@@ -1,9 +1,10 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
+assertion_line: 376
 expression: rendered
 ---
 model Dual {
-  username String @id @db.Text
+  username String @id
   username_dual_rel DualRel[] @relation("DualRelUsername")
   checker_username_dual_rel DualRel[] @relation("DualRelCheckerUsername")
 

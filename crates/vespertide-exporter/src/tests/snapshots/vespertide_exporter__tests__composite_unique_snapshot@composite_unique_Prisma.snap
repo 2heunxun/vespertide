@@ -1,12 +1,12 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
-assertion_line: 177
+assertion_line: 174
 expression: rendered
 ---
 model CompositeUnique {
   id Int @id
   tenant_id Int
-  name String @db.Text
+  name String
 
   @@unique([tenant_id, name], map: "uq_tenant_name")
   @@map("composite_unique")
