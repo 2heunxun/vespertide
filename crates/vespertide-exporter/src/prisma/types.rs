@@ -1,12 +1,13 @@
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, SimpleColumnType};
 
-use super::PrismaProvider;
+use vespertide_query::DatabaseBackend;
+
 use super::enums::to_pascal_case;
 
 pub(super) fn column_type_to_prisma(
     ty: &ColumnType,
     nullable: bool,
-    provider: PrismaProvider,
+    provider: DatabaseBackend,
 ) -> (String, Option<String>) {
     let q = if nullable { "?" } else { "" };
 
@@ -15,9 +16,9 @@ pub(super) fn column_type_to_prisma(
         // uuid mapping), so the Prisma scalar itself differs per provider.
         ColumnType::Simple(SimpleColumnType::Uuid) => {
             let (base, native) = match provider {
-                PrismaProvider::Postgres => ("String", Some("@db.Uuid")),
-                PrismaProvider::MySql => ("Bytes", Some("@db.Binary(16)")),
-                PrismaProvider::Sqlite => ("String", None),
+                DatabaseBackend::Postgres => ("String", Some("@db.Uuid")),
+                DatabaseBackend::MySql => ("Bytes", Some("@db.Binary(16)")),
+                DatabaseBackend::Sqlite => ("String", None),
             };
             (format!("{base}{q}"), native.map(str::to_string))
         }
@@ -58,9 +59,9 @@ pub(super) fn column_type_to_prisma(
                 _ => ("String", None, None),
             };
             let native = match provider {
-                PrismaProvider::Postgres => pg_native,
-                PrismaProvider::MySql => mysql_native,
-                PrismaProvider::Sqlite => None,
+                DatabaseBackend::Postgres => pg_native,
+                DatabaseBackend::MySql => mysql_native,
+                DatabaseBackend::Sqlite => None,
             };
             (format!("{base}{q}"), native.map(str::to_string))
         }
@@ -95,10 +96,10 @@ pub(super) fn column_type_to_prisma(
 
 /// VarChar/Char/Decimal natives are spelled identically on PostgreSQL and
 /// MySQL; SQLite supports no native attrs at all.
-fn sized_native(provider: PrismaProvider, attr: String) -> Option<String> {
+fn sized_native(provider: DatabaseBackend, attr: String) -> Option<String> {
     match provider {
-        PrismaProvider::Postgres | PrismaProvider::MySql => Some(attr),
-        PrismaProvider::Sqlite => None,
+        DatabaseBackend::Postgres | DatabaseBackend::MySql => Some(attr),
+        DatabaseBackend::Sqlite => None,
     }
 }
 
@@ -110,11 +111,11 @@ mod tests {
     use super::*;
 
     #[rstest]
-    #[case::postgres(PrismaProvider::Postgres, "String", Some("@db.Uuid"))]
-    #[case::mysql(PrismaProvider::MySql, "Bytes", Some("@db.Binary(16)"))]
-    #[case::sqlite(PrismaProvider::Sqlite, "String", None)]
+    #[case::postgres(DatabaseBackend::Postgres, "String", Some("@db.Uuid"))]
+    #[case::mysql(DatabaseBackend::MySql, "Bytes", Some("@db.Binary(16)"))]
+    #[case::sqlite(DatabaseBackend::Sqlite, "String", None)]
     fn uuid_scalar_and_native_follow_provider(
-        #[case] provider: PrismaProvider,
+        #[case] provider: DatabaseBackend,
         #[case] scalar: &str,
         #[case] native: Option<&str>,
     ) {
@@ -125,11 +126,11 @@ mod tests {
     }
 
     #[rstest]
-    #[case::postgres(PrismaProvider::Postgres, Some("@db.Timestamptz"))]
-    #[case::mysql(PrismaProvider::MySql, Some("@db.Timestamp"))]
-    #[case::sqlite(PrismaProvider::Sqlite, None)]
+    #[case::postgres(DatabaseBackend::Postgres, Some("@db.Timestamptz"))]
+    #[case::mysql(DatabaseBackend::MySql, Some("@db.Timestamp"))]
+    #[case::sqlite(DatabaseBackend::Sqlite, None)]
     fn timestamptz_native_follows_provider(
-        #[case] provider: PrismaProvider,
+        #[case] provider: DatabaseBackend,
         #[case] native: Option<&str>,
     ) {
         let ty = ColumnType::Simple(SimpleColumnType::Timestamptz);
@@ -139,11 +140,11 @@ mod tests {
     }
 
     #[rstest]
-    #[case::postgres(PrismaProvider::Postgres, None)]
-    #[case::mysql(PrismaProvider::MySql, Some("@db.Text"))]
-    #[case::sqlite(PrismaProvider::Sqlite, None)]
+    #[case::postgres(DatabaseBackend::Postgres, None)]
+    #[case::mysql(DatabaseBackend::MySql, Some("@db.Text"))]
+    #[case::sqlite(DatabaseBackend::Sqlite, None)]
     fn interval_native_follows_provider(
-        #[case] provider: PrismaProvider,
+        #[case] provider: DatabaseBackend,
         #[case] native: Option<&str>,
     ) {
         let ty = ColumnType::Simple(SimpleColumnType::Interval);
@@ -153,11 +154,11 @@ mod tests {
     }
 
     #[rstest]
-    #[case::postgres(PrismaProvider::Postgres, Some("@db.Inet"))]
-    #[case::mysql(PrismaProvider::MySql, Some("@db.Text"))]
-    #[case::sqlite(PrismaProvider::Sqlite, None)]
+    #[case::postgres(DatabaseBackend::Postgres, Some("@db.Inet"))]
+    #[case::mysql(DatabaseBackend::MySql, Some("@db.Text"))]
+    #[case::sqlite(DatabaseBackend::Sqlite, None)]
     fn inet_native_follows_provider(
-        #[case] provider: PrismaProvider,
+        #[case] provider: DatabaseBackend,
         #[case] native: Option<&str>,
     ) {
         let ty = ColumnType::Simple(SimpleColumnType::Inet);
@@ -167,11 +168,11 @@ mod tests {
     }
 
     #[rstest]
-    #[case::postgres(PrismaProvider::Postgres, Some("@db.VarChar(255)"))]
-    #[case::mysql(PrismaProvider::MySql, Some("@db.VarChar(255)"))]
-    #[case::sqlite(PrismaProvider::Sqlite, None)]
+    #[case::postgres(DatabaseBackend::Postgres, Some("@db.VarChar(255)"))]
+    #[case::mysql(DatabaseBackend::MySql, Some("@db.VarChar(255)"))]
+    #[case::sqlite(DatabaseBackend::Sqlite, None)]
     fn varchar_native_follows_provider(
-        #[case] provider: PrismaProvider,
+        #[case] provider: DatabaseBackend,
         #[case] native: Option<&str>,
     ) {
         let ty = ColumnType::Complex(ComplexColumnType::Varchar { length: 255 });
@@ -185,10 +186,10 @@ mod tests {
     /// Each row is independent test data, so flipping any production mapping
     /// tuple (mutation testing) fails here immediately.
     #[rstest]
-    #[case::postgres(PrismaProvider::Postgres)]
-    #[case::mysql(PrismaProvider::MySql)]
-    #[case::sqlite(PrismaProvider::Sqlite)]
-    fn simple_type_mapping_matrix(#[case] provider: PrismaProvider) {
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    #[case::sqlite(DatabaseBackend::Sqlite)]
+    fn simple_type_mapping_matrix(#[case] provider: DatabaseBackend) {
         use SimpleColumnType as S;
         // (type, scalar, postgres attr, mysql attr) — sqlite is always attr-less.
         let rows: &[(S, &str, Option<&str>, Option<&str>)] = &[
@@ -229,9 +230,9 @@ mod tests {
 
         for (ty, scalar, pg, mysql) in rows {
             let expected = match provider {
-                PrismaProvider::Postgres => *pg,
-                PrismaProvider::MySql => *mysql,
-                PrismaProvider::Sqlite => None,
+                DatabaseBackend::Postgres => *pg,
+                DatabaseBackend::MySql => *mysql,
+                DatabaseBackend::Sqlite => None,
             };
             let (rendered, attr) = column_type_to_prisma(&ColumnType::Simple(*ty), false, provider);
             assert_eq!(rendered, *scalar, "{ty:?} scalar under {provider:?}");
@@ -241,14 +242,18 @@ mod tests {
 
     #[rstest]
     #[case::postgres(
-        PrismaProvider::Postgres,
+        DatabaseBackend::Postgres,
         Some("@db.Char(3)"),
         Some("@db.Decimal(10, 2)")
     )]
-    #[case::mysql(PrismaProvider::MySql, Some("@db.Char(3)"), Some("@db.Decimal(10, 2)"))]
-    #[case::sqlite(PrismaProvider::Sqlite, None, None)]
+    #[case::mysql(
+        DatabaseBackend::MySql,
+        Some("@db.Char(3)"),
+        Some("@db.Decimal(10, 2)")
+    )]
+    #[case::sqlite(DatabaseBackend::Sqlite, None, None)]
     fn char_and_numeric_natives_follow_provider(
-        #[case] provider: PrismaProvider,
+        #[case] provider: DatabaseBackend,
         #[case] char_native: Option<&str>,
         #[case] numeric_native: Option<&str>,
     ) {
@@ -273,10 +278,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case::postgres(PrismaProvider::Postgres)]
-    #[case::mysql(PrismaProvider::MySql)]
-    #[case::sqlite(PrismaProvider::Sqlite)]
-    fn custom_and_enum_types_are_provider_invariant(#[case] provider: PrismaProvider) {
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    #[case::sqlite(DatabaseBackend::Sqlite)]
+    fn custom_and_enum_types_are_provider_invariant(#[case] provider: DatabaseBackend) {
         let (rendered, attr) = column_type_to_prisma(
             &ColumnType::Complex(ComplexColumnType::Custom {
                 custom_type: "ltree".into(),

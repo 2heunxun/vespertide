@@ -9,10 +9,7 @@ use tokio::fs;
 use vespertide_config::VespertideConfig;
 use vespertide_core::TableDef;
 use vespertide_exporter::{
-    Orm,
-    prisma::{self, PrismaProvider},
-    render_entity_with_schema,
-    seaorm::SeaOrmExporterWithConfig,
+    Orm, prisma, render_entity_with_schema, seaorm::SeaOrmExporterWithConfig,
 };
 use vespertide_query::DatabaseBackend;
 
@@ -37,16 +34,6 @@ impl From<OrmArg> for Orm {
             OrmArg::Jpa => Orm::Jpa,
             OrmArg::Prisma => Orm::Prisma,
         }
-    }
-}
-
-/// A Prisma schema is provider-specific (`datasource` provider + `@db.*`
-/// native attrs), so the export backend maps onto the Prisma provider.
-fn prisma_provider_for_backend(backend: DatabaseBackend) -> PrismaProvider {
-    match backend {
-        DatabaseBackend::Postgres => PrismaProvider::Postgres,
-        DatabaseBackend::MySql => PrismaProvider::MySql,
-        DatabaseBackend::Sqlite => PrismaProvider::Sqlite,
     }
 }
 
@@ -75,8 +62,7 @@ pub async fn cmd_export(
 
     // Prisma uses a single-file output strategy
     if matches!(orm, OrmArg::Prisma) {
-        let provider = prisma_provider_for_backend(backend);
-        return cmd_export_prisma(normalized_models, target_root, provider).await;
+        return cmd_export_prisma(normalized_models, target_root, backend).await;
     }
 
     // Clean the export directory before regenerating
@@ -459,10 +445,10 @@ async fn ensure_mod_chain(root: &Path, rel_path: &Path) -> Result<()> {
 async fn cmd_export_prisma(
     normalized_models: Vec<(TableDef, PathBuf)>,
     target_root: PathBuf,
-    provider: PrismaProvider,
+    backend: DatabaseBackend,
 ) -> Result<()> {
     let all_tables: Vec<TableDef> = normalized_models.iter().map(|(t, _)| t.clone()).collect();
-    let content = prisma::render_schema(&all_tables, provider);
+    let content = prisma::render_schema(&all_tables, backend);
 
     clean_export_dir(&target_root, Orm::Prisma).await?;
 

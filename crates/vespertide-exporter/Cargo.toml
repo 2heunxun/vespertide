@@ -16,6 +16,7 @@ rayon = { workspace = true }
 vespertide-core = { workspace = true }
 vespertide-config = { workspace = true }
 vespertide-naming = { workspace = true }
+vespertide-query = { workspace = true }
 thiserror = "2"
 
 [dev-dependencies]

@@ -6,7 +6,8 @@ use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::schema::names::ColumnName;
 use vespertide_core::schema::reference::ReferenceAction;
 
-use super::PrismaProvider;
+use vespertide_query::DatabaseBackend;
+
 use super::enums::{to_pascal_case, to_screaming_snake};
 use super::types::column_type_to_prisma;
 
@@ -131,7 +132,7 @@ pub(super) fn collect_back_relations(target_table: &str, schema: &[TableDef]) ->
 pub(super) fn render_model(
     table: &TableDef,
     schema: &[TableDef],
-    provider: PrismaProvider,
+    provider: DatabaseBackend,
 ) -> String {
     let mut lines: Vec<String> = Vec::new();
 
@@ -371,7 +372,7 @@ pub(super) fn render_model(
 fn prisma_default_attr(
     default_sql: &str,
     col_type: &ColumnType,
-    provider: PrismaProvider,
+    provider: DatabaseBackend,
 ) -> String {
     // Integer-backed enum: resolve to a variant identifier (SCREAMING_SNAKE), never a bare int.
     if let ColumnType::Complex(ComplexColumnType::Enum {
@@ -413,7 +414,7 @@ fn prisma_default_attr(
         // On MySQL the uuid column is BINARY(16) and Prisma's uuid() only
         // applies to String fields — mirror the DDL's DB-side default instead.
         return match provider {
-            PrismaProvider::MySql => "@default(dbgenerated(\"(uuid())\"))".into(),
+            DatabaseBackend::MySql => "@default(dbgenerated(\"(uuid())\"))".into(),
             _ => "@default(uuid())".into(),
         };
     }
@@ -498,7 +499,7 @@ mod tests {
             ]),
         });
         assert_eq!(
-            prisma_default_attr("100", &ty, PrismaProvider::Postgres),
+            prisma_default_attr("100", &ty, DatabaseBackend::Postgres),
             "@default(LOW)"
         );
     }
@@ -514,7 +515,7 @@ mod tests {
         let rendered = render_model(
             &table,
             std::slice::from_ref(&table),
-            PrismaProvider::default(),
+            DatabaseBackend::Postgres,
         );
         assert!(rendered.contains("onUpdate: Cascade"));
     }
@@ -522,17 +523,17 @@ mod tests {
     #[test]
     fn named_index_is_rendered_with_map() {
         let table = crate::tests::fixtures::table_with_indexes();
-        let rendered = render_model(&table, &[], PrismaProvider::default());
+        let rendered = render_model(&table, &[], DatabaseBackend::Postgres);
         assert!(rendered.contains("@@index([created_at], map: \"idx_articles_created_at\")"));
         assert!(rendered.contains("@@index([title])"));
     }
 
     #[rstest]
-    #[case::postgres(PrismaProvider::Postgres, "@default(uuid())")]
-    #[case::mysql(PrismaProvider::MySql, "@default(dbgenerated(\"(uuid())\"))")]
-    #[case::sqlite(PrismaProvider::Sqlite, "@default(uuid())")]
+    #[case::postgres(DatabaseBackend::Postgres, "@default(uuid())")]
+    #[case::mysql(DatabaseBackend::MySql, "@default(dbgenerated(\"(uuid())\"))")]
+    #[case::sqlite(DatabaseBackend::Sqlite, "@default(uuid())")]
     fn uuid_generating_default_follows_provider(
-        #[case] provider: PrismaProvider,
+        #[case] provider: DatabaseBackend,
         #[case] expected: &str,
     ) {
         let ty = ColumnType::Simple(SimpleColumnType::Uuid);

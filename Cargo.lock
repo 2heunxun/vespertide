@@ -2915,6 +2915,7 @@ dependencies = [
  "vespertide-config",
  "vespertide-core",
  "vespertide-naming",
+ "vespertide-query",
 ]
 
 [[package]]
