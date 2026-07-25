@@ -132,13 +132,12 @@ pub(super) fn filter_tables_with_warnings(
 }
 
 fn normalize_tables(tables: Vec<TableDef>) -> Result<Vec<TableDef>> {
-    tables
-        .into_iter()
-        .map(|table| {
-            let context = format!("normalize table '{}'", table.name);
-            table.normalize().context(context)
-        })
-        .collect()
+    let mut normalized = Vec::with_capacity(tables.len());
+    for table in tables {
+        let context = format!("normalize table '{}'", table.name);
+        normalized.push(table.normalize().context(context)?);
+    }
+    Ok(normalized)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

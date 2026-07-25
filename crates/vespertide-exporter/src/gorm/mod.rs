@@ -477,27 +477,27 @@ fn find_reverse_relations(table_name: &str, schema: &[TableDef]) -> Vec<ReverseR
 fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValues) {
     let type_name = to_pascal_case(name);
 
-    match values {
-        EnumValues::String(vals) => {
-            lines.push(format!("type {type_name} string"));
-            lines.push(String::new());
-            lines.push("const (".into());
-            for val in vals {
-                let const_name = format!("{type_name}{}", to_pascal_case(val));
-                lines.push(format!("    {const_name} {type_name} = \"{val}\""));
-            }
-            lines.push(")".into());
+    if let EnumValues::String(vals) = values {
+        lines.push(format!("type {type_name} string"));
+        lines.push(String::new());
+        lines.push("const (".into());
+        for val in vals {
+            let const_name = format!("{type_name}{}", to_pascal_case(val));
+            lines.push(format!("    {const_name} {type_name} = \"{val}\""));
         }
-        EnumValues::Integer(vals) => {
-            lines.push(format!("type {type_name} int"));
-            lines.push(String::new());
-            lines.push("const (".into());
-            for val in vals {
-                let const_name = format!("{type_name}{}", to_pascal_case(&val.name));
-                lines.push(format!("    {const_name} {type_name} = {}", val.value));
-            }
-            lines.push(")".into());
+        lines.push(")".into());
+        return;
+    }
+
+    if let EnumValues::Integer(vals) = values {
+        lines.push(format!("type {type_name} int"));
+        lines.push(String::new());
+        lines.push("const (".into());
+        for val in vals {
+            let const_name = format!("{type_name}{}", to_pascal_case(&val.name));
+            lines.push(format!("    {const_name} {type_name} = {}", val.value));
         }
+        lines.push(")".into());
     }
 }
 

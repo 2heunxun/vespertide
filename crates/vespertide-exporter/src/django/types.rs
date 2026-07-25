@@ -120,7 +120,12 @@ pub(super) fn build_field_kwargs(
         ColumnType::Complex(ComplexColumnType::Enum { values, .. }) => {
             if let Some(class) = enum_class_name {
                 if let EnumValues::String(vals) = values {
-                    let max_len = vals.iter().map(String::len).max().unwrap_or(1);
+                    let mut max_len = 1;
+                    for v in vals {
+                        if v.len() > max_len {
+                            max_len = v.len();
+                        }
+                    }
                     kwargs.push(format!("max_length={max_len}"));
                 }
                 kwargs.push(format!("choices={class}.choices"));
@@ -129,15 +134,17 @@ pub(super) fn build_field_kwargs(
         _ => {}
     }
 
-    if is_pk && !auto {
-        kwargs.push("primary_key=True".into());
+    for (cond, kwarg) in [
+        (is_pk && !auto, "primary_key=True"),
+        (is_unique && !is_pk, "unique=True"),
+    ] {
+        if cond {
+            kwargs.push(kwarg.into());
+        }
     }
     if nullable && !is_pk {
         kwargs.push("null=True".into());
         kwargs.push("blank=True".into());
-    }
-    if is_unique && !is_pk {
-        kwargs.push("unique=True".into());
     }
     if let Some(dv) = default
         && let Some(expr) = build_default(col_type, &dv.to_sql(), used)
