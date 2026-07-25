@@ -477,28 +477,32 @@ fn find_reverse_relations(table_name: &str, schema: &[TableDef]) -> Vec<ReverseR
 fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValues) {
     let type_name = to_pascal_case(name);
 
-    if let EnumValues::String(vals) = values {
-        lines.push(format!("type {type_name} string"));
-        lines.push(String::new());
-        lines.push("const (".into());
-        for val in vals {
-            let const_name = format!("{type_name}{}", to_pascal_case(val));
-            lines.push(format!("    {const_name} {type_name} = \"{val}\""));
+    let mut rendered = match values {
+        EnumValues::String(_) => {
+            vec![format!("type {type_name} string"), String::new(), "const (".into()]
         }
-        lines.push(")".into());
-        return;
+        EnumValues::Integer(_) => {
+            vec![format!("type {type_name} int"), String::new(), "const (".into()]
+        }
+    };
+
+    match values {
+        EnumValues::String(vals) => {
+            for val in vals {
+                let const_name = format!("{type_name}{}", to_pascal_case(val));
+                rendered.push(format!("    {const_name} {type_name} = \"{val}\""));
+            }
+        }
+        EnumValues::Integer(vals) => {
+            for val in vals {
+                let const_name = format!("{type_name}{}", to_pascal_case(&val.name));
+                rendered.push(format!("    {const_name} {type_name} = {}", val.value));
+            }
+        }
     }
 
-    if let EnumValues::Integer(vals) = values {
-        lines.push(format!("type {type_name} int"));
-        lines.push(String::new());
-        lines.push("const (".into());
-        for val in vals {
-            let const_name = format!("{type_name}{}", to_pascal_case(&val.name));
-            lines.push(format!("    {const_name} {type_name} = {}", val.value));
-        }
-        lines.push(")".into());
-    }
+    rendered.push(")".into());
+    lines.extend(rendered);
 }
 
 // ---------------------------------------------------------------------------
@@ -705,7 +709,6 @@ fn go_base_type(col_type: &ColumnType) -> String {
                 }
             }
             ComplexColumnType::Numeric { .. } => "decimal.Decimal".to_string(),
-            ComplexColumnType::Enum { name, .. } => to_pascal_case(name),
             // `#[non_exhaustive]` future-variant guard; unreachable today.
             #[cfg(not(tarpaulin_include))]
             _ => {

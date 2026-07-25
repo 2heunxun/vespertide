@@ -1120,6 +1120,30 @@ fn inline_fk_to_absent_table_is_ignored() {
     assert!(collect_foreign_key_relations(&[article]).is_empty());
 }
 
+/// Mirrors `inline_fk_to_absent_table_is_ignored`, but for a table-level
+/// `TableConstraint::ForeignKey` (the `let ... else { continue }` early-exit
+/// path in `collect_foreign_key_relations` when the referenced table is
+/// absent from the provided schema).
+#[test]
+fn table_level_fk_to_absent_table_is_ignored() {
+    let article = TableDef {
+        name: "article".into(),
+        description: None,
+        columns: vec![primary_key("id", integer()), column("author_id", integer())],
+        constraints: vec![TableConstraint::ForeignKey {
+            name: Some("fk_article__author_id".into()),
+            columns: vec!["author_id".into()],
+            ref_table: "user".into(),
+            ref_columns: vec!["id".into()],
+            on_delete: None,
+            on_update: None,
+            orphan_strategy: Default::default(),
+        }],
+    };
+    // "user" table is deliberately absent — FK reference cannot resolve.
+    assert!(collect_foreign_key_relations(&[article]).is_empty());
+}
+
 #[test]
 fn foreign_key_column_groups_pushes_new_inline_group_after_table_constraint() {
     let tbl = TableDef {

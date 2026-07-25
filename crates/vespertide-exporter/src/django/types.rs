@@ -162,19 +162,19 @@ pub(super) fn build_default(
 ) -> Option<String> {
     if sql.contains('(') {
         let up = sql.to_uppercase();
-        return match col_type {
+        let is_timestamp_col = matches!(
+            col_type,
             ColumnType::Simple(SimpleColumnType::Timestamp | SimpleColumnType::Timestamptz)
-                if up.contains("NOW") || up.contains("CURRENT_TIMESTAMP") =>
-            {
-                used.needs_timezone = true;
-                Some("timezone.now".into())
-            }
-            ColumnType::Simple(SimpleColumnType::Uuid) => {
-                used.needs_uuid_default = true;
-                Some("uuid.uuid4".into())
-            }
-            _ => None,
-        };
+        );
+        if is_timestamp_col && (up.contains("NOW") || up.contains("CURRENT_TIMESTAMP")) {
+            used.needs_timezone = true;
+            return Some("timezone.now".into());
+        }
+        if matches!(col_type, ColumnType::Simple(SimpleColumnType::Uuid)) {
+            used.needs_uuid_default = true;
+            return Some("uuid.uuid4".into());
+        }
+        return None;
     }
 
     let up = sql.to_uppercase();

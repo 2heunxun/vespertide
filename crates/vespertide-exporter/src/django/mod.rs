@@ -480,6 +480,27 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // build_default: Boolean true → "True"
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_bool_true_default() {
+        let mut flag = col("enabled", ColumnType::Simple(SimpleColumnType::Boolean));
+        flag.default = Some(DefaultValue::Bool(true));
+        let table = TableDef {
+            name: "settings".into(),
+            description: None,
+            columns: vec![
+                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+                flag,
+            ],
+            constraints: vec![auto_pk(&["id"])],
+        };
+        let result = render_entity(&table).unwrap();
+        assert!(result.contains("default=True"), "expected default=True");
+    }
+
+    // -----------------------------------------------------------------------
     // build_default: functional default on non-Timestamp/UUID type → None (omitted)
     // -----------------------------------------------------------------------
 
