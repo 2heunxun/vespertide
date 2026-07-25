@@ -2,11 +2,11 @@ use std::collections::{HashMap, HashSet};
 
 use crate::orm::OrmExporter;
 use vespertide_core::schema::column::{
-    ColumnType, ComplexColumnType, EnumValues, SimpleColumnType,
+    ColumnType, ComplexColumnType, EnumValues, SimpleColumnKind, SimpleColumnType,
 };
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::schema::names::ColumnName;
-use vespertide_core::{ColumnDef, DefaultValue, ReferenceAction, TableDef};
+use vespertide_core::{ColumnDef, DefaultValue, ReferenceAction, ReferenceActionKind, TableDef};
 
 /// Track which Go imports are actually used to generate minimal import statements.
 #[expect(
@@ -672,31 +672,26 @@ pub(super) fn go_type_for_column_mapped(
 
 fn go_base_type(col_type: &ColumnType) -> String {
     match col_type {
-        ColumnType::Simple(ty) => match ty {
-            SimpleColumnType::SmallInt => "int16".to_string(),
-            SimpleColumnType::Integer => "int32".to_string(),
-            SimpleColumnType::BigInt => "int64".to_string(),
-            SimpleColumnType::Real => "float32".to_string(),
-            SimpleColumnType::DoublePrecision => "float64".to_string(),
-            SimpleColumnType::Text
-            | SimpleColumnType::Xml
-            | SimpleColumnType::Inet
-            | SimpleColumnType::Cidr
-            | SimpleColumnType::Macaddr
-            | SimpleColumnType::Interval => "string".to_string(),
-            SimpleColumnType::Boolean => "bool".to_string(),
-            SimpleColumnType::Date
-            | SimpleColumnType::Time
-            | SimpleColumnType::Timestamp
-            | SimpleColumnType::Timestamptz => "time.Time".to_string(),
-            SimpleColumnType::Bytea => "[]byte".to_string(),
-            SimpleColumnType::Uuid => "uuid.UUID".to_string(),
-            SimpleColumnType::Json => "datatypes.JSON".to_string(),
-            // `#[non_exhaustive]` future-variant guard; unreachable today.
-            #[cfg(not(tarpaulin_include))]
-            _ => {
-                unreachable!("SimpleColumnType is #[non_exhaustive]; all variants matched")
-            }
+        ColumnType::Simple(ty) => match SimpleColumnKind::from(*ty) {
+            SimpleColumnKind::SmallInt => "int16".to_string(),
+            SimpleColumnKind::Integer => "int32".to_string(),
+            SimpleColumnKind::BigInt => "int64".to_string(),
+            SimpleColumnKind::Real => "float32".to_string(),
+            SimpleColumnKind::DoublePrecision => "float64".to_string(),
+            SimpleColumnKind::Text
+            | SimpleColumnKind::Xml
+            | SimpleColumnKind::Inet
+            | SimpleColumnKind::Cidr
+            | SimpleColumnKind::Macaddr
+            | SimpleColumnKind::Interval => "string".to_string(),
+            SimpleColumnKind::Boolean => "bool".to_string(),
+            SimpleColumnKind::Date
+            | SimpleColumnKind::Time
+            | SimpleColumnKind::Timestamp
+            | SimpleColumnKind::Timestamptz => "time.Time".to_string(),
+            SimpleColumnKind::Bytea => "[]byte".to_string(),
+            SimpleColumnKind::Uuid => "uuid.UUID".to_string(),
+            SimpleColumnKind::Json => "datatypes.JSON".to_string(),
         },
         ColumnType::Complex(ty) => match ty {
             ComplexColumnType::Varchar { .. } | ComplexColumnType::Char { .. } => {
@@ -721,17 +716,12 @@ fn go_base_type(col_type: &ColumnType) -> String {
 }
 
 fn reference_action_str(action: &ReferenceAction) -> &'static str {
-    match action {
-        ReferenceAction::Cascade => "CASCADE",
-        ReferenceAction::Restrict => "RESTRICT",
-        ReferenceAction::SetNull => "SET NULL",
-        ReferenceAction::SetDefault => "SET DEFAULT",
-        ReferenceAction::NoAction => "NO ACTION",
-        // `#[non_exhaustive]` future-variant guard; unreachable today.
-        #[cfg(not(tarpaulin_include))]
-        _ => {
-            unreachable!("ReferenceAction is #[non_exhaustive]; all variants matched")
-        }
+    match ReferenceActionKind::from(action) {
+        ReferenceActionKind::Cascade => "CASCADE",
+        ReferenceActionKind::Restrict => "RESTRICT",
+        ReferenceActionKind::SetNull => "SET NULL",
+        ReferenceActionKind::SetDefault => "SET DEFAULT",
+        ReferenceActionKind::NoAction => "NO ACTION",
     }
 }
 

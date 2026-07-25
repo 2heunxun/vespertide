@@ -1,6 +1,6 @@
 use vespertide_core::DefaultValue;
 use vespertide_core::schema::column::{
-    ColumnType, ComplexColumnType, EnumValues, SimpleColumnType,
+    ColumnType, ComplexColumnType, EnumValues, SimpleColumnKind, SimpleColumnType,
 };
 
 #[derive(Default)]
@@ -15,45 +15,40 @@ pub(super) fn django_field_type(
     auto_increment: bool,
 ) -> &'static str {
     match col_type {
-        ColumnType::Simple(ty) => match ty {
-            SimpleColumnType::SmallInt => {
+        ColumnType::Simple(ty) => match SimpleColumnKind::from(*ty) {
+            SimpleColumnKind::SmallInt => {
                 if is_pk && auto_increment {
                     "models.SmallAutoField"
                 } else {
                     "models.SmallIntegerField"
                 }
             }
-            SimpleColumnType::Integer => {
+            SimpleColumnKind::Integer => {
                 if is_pk && auto_increment {
                     "models.AutoField"
                 } else {
                     "models.IntegerField"
                 }
             }
-            SimpleColumnType::BigInt => {
+            SimpleColumnKind::BigInt => {
                 if is_pk && auto_increment {
                     "models.BigAutoField"
                 } else {
                     "models.BigIntegerField"
                 }
             }
-            SimpleColumnType::Real | SimpleColumnType::DoublePrecision => "models.FloatField",
-            SimpleColumnType::Text | SimpleColumnType::Xml => "models.TextField",
-            SimpleColumnType::Boolean => "models.BooleanField",
-            SimpleColumnType::Date => "models.DateField",
-            SimpleColumnType::Time => "models.TimeField",
-            SimpleColumnType::Timestamp | SimpleColumnType::Timestamptz => "models.DateTimeField",
-            SimpleColumnType::Interval => "models.DurationField",
-            SimpleColumnType::Bytea => "models.BinaryField",
-            SimpleColumnType::Uuid => "models.UUIDField",
-            SimpleColumnType::Json => "models.JSONField",
-            SimpleColumnType::Inet | SimpleColumnType::Cidr => "models.GenericIPAddressField",
-            SimpleColumnType::Macaddr => "models.CharField",
-            // `#[non_exhaustive]` future-variant guard; unreachable today.
-            #[cfg(not(tarpaulin_include))]
-            _ => {
-                unreachable!("SimpleColumnType is #[non_exhaustive]; all variants matched")
-            }
+            SimpleColumnKind::Real | SimpleColumnKind::DoublePrecision => "models.FloatField",
+            SimpleColumnKind::Text | SimpleColumnKind::Xml => "models.TextField",
+            SimpleColumnKind::Boolean => "models.BooleanField",
+            SimpleColumnKind::Date => "models.DateField",
+            SimpleColumnKind::Time => "models.TimeField",
+            SimpleColumnKind::Timestamp | SimpleColumnKind::Timestamptz => "models.DateTimeField",
+            SimpleColumnKind::Interval => "models.DurationField",
+            SimpleColumnKind::Bytea => "models.BinaryField",
+            SimpleColumnKind::Uuid => "models.UUIDField",
+            SimpleColumnKind::Json => "models.JSONField",
+            SimpleColumnKind::Inet | SimpleColumnKind::Cidr => "models.GenericIPAddressField",
+            SimpleColumnKind::Macaddr => "models.CharField",
         },
         ColumnType::Complex(ty) => match ty {
             ComplexColumnType::Varchar { .. } | ComplexColumnType::Char { .. } => {
@@ -192,17 +187,12 @@ pub(super) fn build_default(
 }
 
 pub(super) fn reference_action_str(action: &vespertide_core::ReferenceAction) -> &'static str {
-    use vespertide_core::ReferenceAction;
-    match action {
-        ReferenceAction::Cascade => "models.CASCADE",
-        ReferenceAction::Restrict => "models.RESTRICT",
-        ReferenceAction::SetNull => "models.SET_NULL",
-        ReferenceAction::SetDefault => "models.SET_DEFAULT",
-        ReferenceAction::NoAction => "models.DO_NOTHING",
-        // `#[non_exhaustive]` future-variant guard; unreachable today.
-        #[cfg(not(tarpaulin_include))]
-        _ => {
-            unreachable!("ReferenceAction is #[non_exhaustive]; all variants matched")
-        }
+    use vespertide_core::ReferenceActionKind;
+    match ReferenceActionKind::from(action) {
+        ReferenceActionKind::Cascade => "models.CASCADE",
+        ReferenceActionKind::Restrict => "models.RESTRICT",
+        ReferenceActionKind::SetNull => "models.SET_NULL",
+        ReferenceActionKind::SetDefault => "models.SET_DEFAULT",
+        ReferenceActionKind::NoAction => "models.DO_NOTHING",
     }
 }
