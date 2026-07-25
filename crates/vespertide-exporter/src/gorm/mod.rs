@@ -479,10 +479,18 @@ fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValues) {
 
     let mut rendered = match values {
         EnumValues::String(_) => {
-            vec![format!("type {type_name} string"), String::new(), "const (".into()]
+            vec![
+                format!("type {type_name} string"),
+                String::new(),
+                "const (".into(),
+            ]
         }
         EnumValues::Integer(_) => {
-            vec![format!("type {type_name} int"), String::new(), "const (".into()]
+            vec![
+                format!("type {type_name} int"),
+                String::new(),
+                "const (".into(),
+            ]
         }
     };
 

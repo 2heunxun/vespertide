@@ -641,8 +641,7 @@ fn normalize_tables_propagates_normalize_error_with_context() {
             foreign_key("owner_id", "noformat"),
         ],
     )];
-    let err =
-        normalize_tables(raw).expect_err("malformed inline FK reference must fail normalize");
+    let err = normalize_tables(raw).expect_err("malformed inline FK reference must fail normalize");
     assert!(
         format!("{err:#}").contains("normalize table 'dup'"),
         "error must be wrapped with table context: {err:#}"
