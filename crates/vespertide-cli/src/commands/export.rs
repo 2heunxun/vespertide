@@ -1018,4 +1018,23 @@ mod tests {
         assert!(!root.join("model.go").exists());
         assert!(root.join("keep.rs").exists());
     }
+
+    #[tokio::test]
+    async fn clean_export_dir_removes_py_files_for_django() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().join("export_dir");
+        std_fs::create_dir_all(&root).unwrap();
+
+        // Create some .py files that should be cleaned
+        std_fs::write(root.join("old_model.py"), "# old python file").unwrap();
+        // Create a .rs file that should NOT be cleaned
+        std_fs::write(root.join("keep.rs"), "// keep this").unwrap();
+
+        clean_export_dir(&root, Orm::Django).await.unwrap();
+
+        // .py files should be gone
+        assert!(!root.join("old_model.py").exists());
+        // .rs file should remain
+        assert!(root.join("keep.rs").exists());
+    }
 }
