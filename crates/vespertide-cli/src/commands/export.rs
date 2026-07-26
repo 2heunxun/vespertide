@@ -38,6 +38,15 @@ impl From<OrmArg> for Orm {
     }
 }
 
+async fn ensure_parent_dir(out_path: &Path) -> Result<()> {
+    if let Some(parent) = out_path.parent() {
+        fs::create_dir_all(parent)
+            .await
+            .with_context(|| format!("create parent dir {}", parent.display()))?;
+    }
+    Ok(())
+}
+
 pub async fn cmd_export(orm: OrmArg, export_dir: Option<PathBuf>) -> Result<()> {
     let config = load_config()?;
     let models = load_models_recursive(config.models_dir())
@@ -121,11 +130,7 @@ pub async fn cmd_export(orm: OrmArg, export_dir: Option<PathBuf>) -> Result<()> 
             let out_path = out_path.clone();
             let code = code.clone();
             async move {
-                if let Some(parent) = out_path.parent() {
-                    fs::create_dir_all(parent)
-                        .await
-                        .with_context(|| format!("create parent dir {}", parent.display()))?;
-                }
+                ensure_parent_dir(&out_path).await?;
                 fs::write(&out_path, &code)
                     .await
                     .with_context(|| format!("write {}", out_path.display()))?;
