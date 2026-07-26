@@ -10,6 +10,7 @@ from django.db import models
 
 
 class ArticleUser(models.Model):
+    pk = models.CompositePrimaryKey("article_id", "user_id")
     article = models.ForeignKey("Article", on_delete=models.CASCADE, related_name="+")
     user = models.ForeignKey("User", on_delete=models.CASCADE, related_name="+")
     author_order = models.IntegerField(default=1)

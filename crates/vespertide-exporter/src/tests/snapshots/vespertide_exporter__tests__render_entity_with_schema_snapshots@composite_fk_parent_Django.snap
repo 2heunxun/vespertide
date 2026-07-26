@@ -9,6 +9,7 @@ from django.db import models
 
 
 class Parent(models.Model):
+    pk = models.CompositePrimaryKey("id1", "id2")
     id1 = models.IntegerField()
     id2 = models.IntegerField()
 

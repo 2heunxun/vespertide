@@ -221,6 +221,20 @@ fn render_entity_part(
 
     let is_composite_pk = pk_columns.len() > 1;
 
+    // Column order (not just membership) matters for CompositePrimaryKey's
+    // positional args, so capture it separately from the `pk_columns` set.
+    let pk_columns_ordered: Vec<String> = table
+        .constraints
+        .iter()
+        .find_map(|c| {
+            if let TableConstraint::PrimaryKey { columns, .. } = c {
+                Some(columns.iter().map(|c| c.as_str().to_owned()).collect())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
+
     let single_unique_cols: HashSet<String> = table
         .constraints
         .iter()
@@ -295,6 +309,32 @@ fn render_entity_part(
         lines.push(String::new());
     } else {
         lines.push(format!("class {class_name}(models.Model):"));
+    }
+
+    // Composite PK: Django (5.2+) represents this natively via
+    // `pk = models.CompositePrimaryKey(...)`, referencing each column by its
+    // attname (a ForeignKey's attname is always `{field_name}_id`, regardless
+    // of any `db_column` override). Without this, Django would fall back to
+    // adding its own implicit auto `id` PK, which doesn't correspond to any
+    // real uniqueness constraint on the actual table.
+    if is_composite_pk {
+        let attnames: Vec<String> = pk_columns_ordered
+            .iter()
+            .map(|col| {
+                if fk_map.contains_key(col.as_str()) {
+                    let (field_name, _) = fk_field_name(col);
+                    format!("{field_name}_id")
+                } else {
+                    col.clone()
+                }
+            })
+            .collect();
+        let args = attnames
+            .iter()
+            .map(|a| format!("\"{a}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        lines.push(format!("    pk = models.CompositePrimaryKey({args})"));
     }
 
     // --- Fields ---

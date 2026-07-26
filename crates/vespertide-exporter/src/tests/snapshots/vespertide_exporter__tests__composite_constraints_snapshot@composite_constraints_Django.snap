@@ -9,6 +9,7 @@ from django.db import models
 
 
 class OrderItems(models.Model):
+    pk = models.CompositePrimaryKey("order_id", "product_id")
     order = models.ForeignKey("Orders", on_delete=models.RESTRICT, related_name="+")
     product = models.ForeignKey("Products", on_delete=models.RESTRICT, related_name="+")
     quantity = models.IntegerField()

@@ -235,7 +235,41 @@ mod tests {
             ],
             constraints: vec![pk(&["order_id", "product_id"])],
         };
-        assert_snapshot!(render_entity(&table).unwrap());
+        let result = render_entity(&table).unwrap();
+        assert!(
+            result.contains("pk = models.CompositePrimaryKey(\"order_id\", \"product_id\")"),
+            "expected Django 5.2+ CompositePrimaryKey declaration, got:\n{result}"
+        );
+        assert!(
+            !result.contains("primary_key=True"),
+            "individual composite-PK columns must not also carry primary_key=True, got:\n{result}"
+        );
+        assert_snapshot!(result);
+    }
+
+    #[test]
+    fn test_composite_pk_of_fk_columns_uses_attname_not_field_name() {
+        // Composite PK made of FK columns: CompositePrimaryKey must reference
+        // the Django attname ("{field}_id"), not the stripped field name
+        // ("article"/"user") used for the ForeignKey attribute itself.
+        let table = TableDef {
+            name: "article_user".into(),
+            description: None,
+            columns: vec![
+                col("article_id", ColumnType::Simple(SimpleColumnType::Integer)),
+                col("user_id", ColumnType::Simple(SimpleColumnType::Integer)),
+            ],
+            constraints: vec![
+                pk(&["article_id", "user_id"]),
+                fk("article_id", "articles", Some(ReferenceAction::Cascade)),
+                fk("user_id", "users", Some(ReferenceAction::Cascade)),
+            ],
+        };
+        let result = render_entity(&table).unwrap();
+        assert!(
+            result.contains("pk = models.CompositePrimaryKey(\"article_id\", \"user_id\")"),
+            "expected attname-based CompositePrimaryKey args, got:\n{result}"
+        );
     }
 
     // -----------------------------------------------------------------------
