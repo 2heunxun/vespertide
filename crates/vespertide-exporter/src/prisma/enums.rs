@@ -1,4 +1,5 @@
 use vespertide_core::schema::column::EnumValues;
+use vespertide_naming::to_pascal_case;
 
 pub(super) fn render_enum(name: &str, values: &EnumValues) -> String {
     let enum_name = to_pascal_case(name);
@@ -26,18 +27,6 @@ pub(super) fn render_enum(name: &str, values: &EnumValues) -> String {
     }
     lines.push("}".into());
     lines.join("\n")
-}
-
-pub(super) fn to_pascal_case(s: &str) -> String {
-    s.split('_')
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().chain(chars).collect(),
-            }
-        })
-        .collect()
 }
 
 pub(super) fn to_screaming_snake(s: &str) -> String {

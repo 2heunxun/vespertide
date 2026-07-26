@@ -5,8 +5,9 @@ use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues}
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::schema::names::ColumnName;
 use vespertide_core::schema::reference::ReferenceAction;
+use vespertide_naming::to_pascal_case;
 
-use super::enums::{to_pascal_case, to_screaming_snake};
+use super::enums::to_screaming_snake;
 use super::types::column_type_to_prisma;
 
 struct PkInfo {

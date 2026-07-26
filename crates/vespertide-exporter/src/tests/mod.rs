@@ -294,27 +294,30 @@ orm_cases!(
 );
 
 /// Dispatch the per-ORM `to_pascal_case` helper from a single entry point so
-/// the cross-ORM consolidation test can exercise all four implementations
-/// without leaking the helper as a generally-public crate API.
+/// the cross-ORM consolidation test can exercise every implementation without
+/// leaking the helper as a generally-public crate API. Prisma has no local
+/// implementation — it calls `vespertide_naming::to_pascal_case` directly, so
+/// this arm exercises the shared crate helper.
 fn to_pascal_case_for(orm: Orm, s: &str) -> String {
     match orm {
         Orm::SeaOrm => crate::seaorm::to_pascal_case_for_tests(s),
         Orm::SqlAlchemy => crate::sqlalchemy::to_pascal_case_for_tests(s),
         Orm::SqlModel => crate::sqlmodel::to_pascal_case_for_tests(s),
         Orm::Jpa => crate::jpa::to_pascal_case_for_tests(s),
-        Orm::Prisma => crate::prisma::to_pascal_case_for_tests(s),
+        Orm::Prisma => vespertide_naming::to_pascal_case(s),
     }
 }
 
 /// Cross-ORM `to_pascal_case` consolidation. Inputs in this matrix are
 /// restricted to ASCII with `_` as the only separator — the subset where all
-/// four ORM implementations agree.
+/// five ORM implementations agree.
 ///
 /// Divergences intentionally NOT covered here:
-/// * `-` as separator: `SeaORM` treats it as a separator, the other three
-///   ORMs leave it intact (their splits operate on `_` only).
-/// * Non-ASCII characters: `SeaORM` uses `to_ascii_uppercase`, the others
-///   use `to_uppercase` (Unicode-aware).
+/// * `-` as separator: `SeaORM` and Prisma treat it as a separator (Prisma via
+///   `vespertide_naming::to_pascal_case`), the other three ORMs leave it
+///   intact (their splits operate on `_` only).
+/// * Non-ASCII characters: `SeaORM` and Prisma use `to_ascii_uppercase`, the
+///   others use `to_uppercase` (Unicode-aware).
 /// These divergences are exercised in the per-ORM `tests.rs` files where
 /// applicable.
 #[rstest]

@@ -105,14 +105,6 @@ pub fn export(schema: &[TableDef]) -> Result<String, String> {
         .join("\n\n"))
 }
 
-/// Test-only accessor for the internal `to_pascal_case` helper, mirroring the
-/// other ORM backends so the cross-ORM consolidation test can exercise it
-/// without making the helper generally public.
-#[cfg(test)]
-pub fn to_pascal_case_for_tests(s: &str) -> String {
-    enums::to_pascal_case(s)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

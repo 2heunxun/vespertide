@@ -1,6 +1,5 @@
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, SimpleColumnType};
-
-use super::enums::to_pascal_case;
+use vespertide_naming::to_pascal_case;
 
 /// Maps a vespertide column type to a `(Prisma scalar type, optional trailing
 /// `// ...` comment)` pair.
