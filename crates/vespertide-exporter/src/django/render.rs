@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::enums::render_enum;
 use super::types::{UsedImports, build_field_kwargs, django_field_type, reference_action_str};
+use crate::utils::python::collect_composite_fks;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType};
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ReferenceAction, TableDef};
@@ -320,6 +321,19 @@ fn render_entity_part(table: &TableDef, used: &mut UsedImports, extra_fields: &[
 
     for line in extra_fields {
         lines.push(line.clone());
+    }
+
+    // Composite (multi-column) FKs have no native Django ORM field — surface
+    // them as a comment rather than silently dropping the relationship info.
+    // The individual columns still render above as plain scalar fields, and
+    // referential integrity is enforced by the generated database schema.
+    for fk in collect_composite_fks(table) {
+        let local = fk.local_cols.join(", ");
+        let refs = fk.ref_cols.join(", ");
+        lines.push(format!(
+            "    # composite foreign key: ({local}) -> {}({refs})",
+            fk.ref_table
+        ));
     }
 
     // --- Meta class ---

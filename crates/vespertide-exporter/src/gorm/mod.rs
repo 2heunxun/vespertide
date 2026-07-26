@@ -266,6 +266,19 @@ fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> String {
         }
     }
 
+    // Composite (multi-column) FK relation fields. GORM supports composite
+    // associations via comma-separated `foreignKey`/`references` tags, unlike
+    // Django which has no native equivalent.
+    let used_field_names: HashSet<String> = table
+        .columns
+        .iter()
+        .map(|c| to_go_field_name(&c.name))
+        .collect();
+    let mut used_relation_names = used_field_names.clone();
+    for fk in collect_composite_fk_info(&table.constraints) {
+        render_composite_fk_relation_field(&mut lines, &fk, &mut used_relation_names);
+    }
+
     // Reverse relation fields (HasMany) derived from schema context
     for rel in &reverse_relations {
         let mut constraint_parts: Vec<String> = Vec::new();
@@ -314,6 +327,42 @@ struct FkInfo {
     ref_table: String,
     on_delete: Option<ReferenceAction>,
     on_update: Option<ReferenceAction>,
+}
+
+struct CompositeFkInfo {
+    local_cols: Vec<String>,
+    ref_table: String,
+    ref_cols: Vec<String>,
+    on_delete: Option<ReferenceAction>,
+    on_update: Option<ReferenceAction>,
+}
+
+fn collect_composite_fk_info(constraints: &[TableConstraint]) -> Vec<CompositeFkInfo> {
+    constraints
+        .iter()
+        .filter_map(|c| {
+            if let TableConstraint::ForeignKey {
+                columns,
+                ref_table,
+                ref_columns,
+                on_delete,
+                on_update,
+                ..
+            } = c
+                && columns.len() > 1
+                && columns.len() == ref_columns.len()
+            {
+                return Some(CompositeFkInfo {
+                    local_cols: columns.iter().map(|c| c.as_str().to_owned()).collect(),
+                    ref_table: ref_table.as_str().to_owned(),
+                    ref_cols: ref_columns.iter().map(|c| c.as_str().to_owned()).collect(),
+                    on_delete: on_delete.clone(),
+                    on_update: on_update.clone(),
+                });
+            }
+            None
+        })
+        .collect()
 }
 
 fn collect_fk_info(constraints: &[TableConstraint]) -> HashMap<String, FkInfo> {
@@ -581,6 +630,60 @@ fn render_fk_relation_field(lines: &mut Vec<String>, col: &ColumnDef, fk: &FkInf
 
     lines.push(format!(
         "    {relation_field_name} {type_expr} `gorm:\"{gorm_tag}\" json:\"-\"`"
+    ));
+}
+
+/// Render a belongs-to relation field for a composite (multi-column) FK,
+/// using GORM's comma-separated `foreignKey`/`references` tag syntax.
+fn render_composite_fk_relation_field(
+    lines: &mut Vec<String>,
+    fk: &CompositeFkInfo,
+    used_relation_names: &mut HashSet<String>,
+) {
+    let ref_struct = to_pascal_case(&fk.ref_table);
+
+    let mut relation_field_name = ref_struct.clone();
+    if used_relation_names.contains(&relation_field_name) {
+        let mut n = 2;
+        loop {
+            let candidate = format!("{relation_field_name}{n}");
+            if !used_relation_names.contains(&candidate) {
+                relation_field_name = candidate;
+                break;
+            }
+            n += 1;
+        }
+    }
+    used_relation_names.insert(relation_field_name.clone());
+
+    let fk_fields: Vec<String> = fk.local_cols.iter().map(|c| to_go_field_name(c)).collect();
+    let ref_fields: Vec<String> = fk.ref_cols.iter().map(|c| to_go_field_name(c)).collect();
+
+    let mut constraint_parts: Vec<String> = Vec::new();
+    if let Some(ref action) = fk.on_delete {
+        constraint_parts.push(format!("OnDelete:{}", reference_action_str(action)));
+    }
+    if let Some(ref action) = fk.on_update {
+        constraint_parts.push(format!("OnUpdate:{}", reference_action_str(action)));
+    }
+
+    let gorm_tag = if constraint_parts.is_empty() {
+        format!(
+            "foreignKey:{};references:{}",
+            fk_fields.join(","),
+            ref_fields.join(",")
+        )
+    } else {
+        format!(
+            "foreignKey:{};references:{};constraint:{}",
+            fk_fields.join(","),
+            ref_fields.join(","),
+            constraint_parts.join(",")
+        )
+    };
+
+    lines.push(format!(
+        "    {relation_field_name} {ref_struct} `gorm:\"{gorm_tag}\" json:\"-\"`"
     ));
 }
 

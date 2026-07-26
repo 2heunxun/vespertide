@@ -739,4 +739,40 @@ mod tests {
             "expected ManyToManyField in multi-table export, got:\n{result}"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // Composite FK: Django has no native multi-column FK field, so it must
+    // be surfaced as a comment instead of silently dropped.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_composite_fk_emits_comment() {
+        let table = TableDef {
+            name: "order_items".into(),
+            description: None,
+            columns: vec![
+                col("order_id", ColumnType::Simple(SimpleColumnType::Integer)),
+                col("region_id", ColumnType::Simple(SimpleColumnType::Integer)),
+            ],
+            constraints: vec![
+                pk(&["order_id", "region_id"]),
+                TableConstraint::ForeignKey {
+                    name: None,
+                    columns: vec!["order_id".into(), "region_id".into()],
+                    ref_table: "order_regions".into(),
+                    ref_columns: vec!["order_id".into(), "region_id".into()],
+                    on_delete: None,
+                    on_update: None,
+                    orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
+                },
+            ],
+        };
+        let result = render_entity(&table).unwrap();
+        assert!(
+            result.contains(
+                "# composite foreign key: (order_id, region_id) -> order_regions(order_id, region_id)"
+            ),
+            "expected composite FK comment, got:\n{result}"
+        );
+    }
 }
