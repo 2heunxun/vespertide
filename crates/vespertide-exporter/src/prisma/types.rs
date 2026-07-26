@@ -1,23 +1,15 @@
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, SimpleColumnType};
 use vespertide_naming::to_pascal_case;
 
-/// Maps a vespertide column type to a `(Prisma scalar type, optional trailing
-/// `// ...` comment)` pair.
+/// Maps a vespertide column type to a Prisma scalar type.
 ///
 /// The output is backend-neutral: no `@db.*` native attributes are emitted, so
 /// the same model body is valid under every Prisma provider. Physical column
 /// types are owned by vespertide's own DDL generation, not the Prisma schema.
-pub(super) fn column_type_to_prisma(ty: &ColumnType, nullable: bool) -> (String, Option<String>) {
+pub(super) fn column_type_to_prisma(ty: &ColumnType, nullable: bool) -> String {
     let q = if nullable { "?" } else { "" };
 
     match ty {
-        // vespertide's MySQL DDL stores uuid as BINARY(16) — the one physical
-        // type that diverges from the neutral scalar, so the field carries a
-        // warning comment instead of a backend-specific type.
-        ColumnType::Simple(SimpleColumnType::Uuid) => (
-            format!("String{q}"),
-            Some("stored as binary(16) on MySQL backends".to_string()),
-        ),
         ColumnType::Simple(simple) => {
             let base = match simple {
                 SimpleColumnType::SmallInt | SimpleColumnType::Integer => "Int",
@@ -31,6 +23,7 @@ pub(super) fn column_type_to_prisma(ty: &ColumnType, nullable: bool) -> (String,
                 SimpleColumnType::Bytea => "Bytes",
                 SimpleColumnType::Json => "Json",
                 SimpleColumnType::Text
+                | SimpleColumnType::Uuid
                 | SimpleColumnType::Interval
                 | SimpleColumnType::Inet
                 | SimpleColumnType::Cidr
@@ -40,19 +33,19 @@ pub(super) fn column_type_to_prisma(ty: &ColumnType, nullable: bool) -> (String,
                     "SimpleColumnType is #[non_exhaustive]; all variants are matched above"
                 ),
             };
-            (format!("{base}{q}"), None)
+            format!("{base}{q}")
         }
         ColumnType::Complex(complex) => match complex {
             ComplexColumnType::Varchar { .. } | ComplexColumnType::Char { .. } => {
-                (format!("String{q}"), None)
+                format!("String{q}")
             }
-            ComplexColumnType::Numeric { .. } => (format!("Decimal{q}"), None),
+            ComplexColumnType::Numeric { .. } => format!("Decimal{q}"),
             ComplexColumnType::Custom { custom_type } => {
-                (format!("Unsupported(\"{custom_type}\"){q}"), None)
+                format!("Unsupported(\"{custom_type}\"){q}")
             }
             ComplexColumnType::Enum { name, .. } => {
                 let pascal = to_pascal_case(name);
-                (format!("{pascal}{q}"), None)
+                format!("{pascal}{q}")
             }
             _ => unreachable!(
                 "ComplexColumnType is #[non_exhaustive]; all variants are matched above"
@@ -84,88 +77,79 @@ mod tests {
     #[case::bytea(SimpleColumnType::Bytea, "Bytes")]
     #[case::json(SimpleColumnType::Json, "Json")]
     #[case::text(SimpleColumnType::Text, "String")]
+    #[case::uuid(SimpleColumnType::Uuid, "String")]
     #[case::interval(SimpleColumnType::Interval, "String")]
     #[case::inet(SimpleColumnType::Inet, "String")]
     #[case::cidr(SimpleColumnType::Cidr, "String")]
     #[case::macaddr(SimpleColumnType::Macaddr, "String")]
     #[case::xml(SimpleColumnType::Xml, "String")]
     fn simple_types_map_to_neutral_scalars(#[case] simple: SimpleColumnType, #[case] scalar: &str) {
-        let (rendered, comment) = column_type_to_prisma(&ColumnType::Simple(simple), false);
-        assert_eq!(rendered, scalar);
-        assert_eq!(comment, None);
-    }
-
-    #[test]
-    fn uuid_maps_to_string_with_mysql_binary16_note() {
-        let ty = ColumnType::Simple(SimpleColumnType::Uuid);
-        let (rendered, comment) = column_type_to_prisma(&ty, false);
-        assert_eq!(rendered, "String");
         assert_eq!(
-            comment.as_deref(),
-            Some("stored as binary(16) on MySQL backends")
+            column_type_to_prisma(&ColumnType::Simple(simple), false),
+            scalar
         );
-
-        let (rendered, _) = column_type_to_prisma(&ty, true);
-        assert_eq!(rendered, "String?");
     }
 
     #[test]
     fn nullable_appends_question_mark() {
         let ty = ColumnType::Simple(SimpleColumnType::Timestamptz);
-        let (rendered, comment) = column_type_to_prisma(&ty, true);
-        assert_eq!(rendered, "DateTime?");
-        assert_eq!(comment, None);
+        assert_eq!(column_type_to_prisma(&ty, true), "DateTime?");
     }
 
     #[test]
     fn sized_complex_types_drop_size_info() {
-        let (rendered, comment) = column_type_to_prisma(
-            &ColumnType::Complex(ComplexColumnType::Varchar { length: 255 }),
-            false,
+        assert_eq!(
+            column_type_to_prisma(
+                &ColumnType::Complex(ComplexColumnType::Varchar { length: 255 }),
+                false,
+            ),
+            "String"
         );
-        assert_eq!(rendered, "String");
-        assert_eq!(comment, None);
 
-        let (rendered, comment) = column_type_to_prisma(
-            &ColumnType::Complex(ComplexColumnType::Char { length: 3 }),
-            false,
+        assert_eq!(
+            column_type_to_prisma(
+                &ColumnType::Complex(ComplexColumnType::Char { length: 3 }),
+                false,
+            ),
+            "String"
         );
-        assert_eq!(rendered, "String");
-        assert_eq!(comment, None);
 
-        let (rendered, comment) = column_type_to_prisma(
-            &ColumnType::Complex(ComplexColumnType::Numeric {
-                precision: 10,
-                scale: 2,
-            }),
-            true,
+        assert_eq!(
+            column_type_to_prisma(
+                &ColumnType::Complex(ComplexColumnType::Numeric {
+                    precision: 10,
+                    scale: 2,
+                }),
+                true,
+            ),
+            "Decimal?"
         );
-        assert_eq!(rendered, "Decimal?");
-        assert_eq!(comment, None);
     }
 
     #[test]
-    fn custom_and_enum_types_render_without_comment() {
-        let (rendered, comment) = column_type_to_prisma(
-            &ColumnType::Complex(ComplexColumnType::Custom {
-                custom_type: "ltree".into(),
-            }),
-            false,
+    fn custom_and_enum_types_render() {
+        assert_eq!(
+            column_type_to_prisma(
+                &ColumnType::Complex(ComplexColumnType::Custom {
+                    custom_type: "ltree".into(),
+                }),
+                false,
+            ),
+            "Unsupported(\"ltree\")"
         );
-        assert_eq!(rendered, "Unsupported(\"ltree\")");
-        assert_eq!(comment, None);
 
-        let (rendered, comment) = column_type_to_prisma(
-            &ColumnType::Complex(ComplexColumnType::Enum {
-                name: "order_status".into(),
-                values: vespertide_core::schema::column::EnumValues::String(vec![
-                    "open".into(),
-                    "closed".into(),
-                ]),
-            }),
-            false,
+        assert_eq!(
+            column_type_to_prisma(
+                &ColumnType::Complex(ComplexColumnType::Enum {
+                    name: "order_status".into(),
+                    values: vespertide_core::schema::column::EnumValues::String(vec![
+                        "open".into(),
+                        "closed".into(),
+                    ]),
+                }),
+                false,
+            ),
+            "OrderStatus"
         );
-        assert_eq!(rendered, "OrderStatus");
-        assert_eq!(comment, None);
     }
 }

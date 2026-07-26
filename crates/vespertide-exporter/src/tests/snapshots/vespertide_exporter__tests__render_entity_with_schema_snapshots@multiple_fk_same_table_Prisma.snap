@@ -1,13 +1,12 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
-assertion_line: 376
 expression: rendered
 ---
 model Post {
-  id String @id // stored as binary(16) on MySQL backends
-  creator_user_id String // stored as binary(16) on MySQL backends
+  id String @id
+  creator_user_id String
   creator_user User @relation("PostCreatorUser", fields: [creator_user_id], references: [id])
-  used_by_user_id String // stored as binary(16) on MySQL backends
+  used_by_user_id String
   used_by_user User @relation("PostUsedByUser", fields: [used_by_user_id], references: [id])
 
   @@map("post")

@@ -213,7 +213,7 @@ pub(super) fn render_model(table: &TableDef, schema: &[TableDef]) -> String {
             lines.push(format!("  /// {comment}"));
         }
 
-        let (type_str, trailing_comment) = column_type_to_prisma(&col.r#type, col.nullable);
+        let type_str = column_type_to_prisma(&col.r#type, col.nullable);
         let mut attrs: Vec<String> = Vec::new();
 
         if is_single_pk {
@@ -242,11 +242,7 @@ pub(super) fn render_model(table: &TableDef, schema: &[TableDef]) -> String {
             format!(" {}", attrs.join(" "))
         };
 
-        let comment_str = trailing_comment
-            .map(|c| format!(" // {c}"))
-            .unwrap_or_default();
-
-        lines.push(format!("  {col_name} {type_str}{attrs_str}{comment_str}"));
+        lines.push(format!("  {col_name} {type_str}{attrs_str}"));
 
         // Emit inline relation field for FK columns
         if let Some(fk) = fk_by_col.get(col_name) {

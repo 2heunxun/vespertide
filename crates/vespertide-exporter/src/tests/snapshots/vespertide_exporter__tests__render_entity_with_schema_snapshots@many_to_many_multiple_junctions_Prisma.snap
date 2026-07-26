@@ -1,10 +1,9 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
-assertion_line: 376
 expression: rendered
 ---
 model User {
-  id String @id // stored as binary(16) on MySQL backends
+  id String @id
   user_media_role UserMediaRole[]
   user_media_favorite UserMediaFavorite[]
 

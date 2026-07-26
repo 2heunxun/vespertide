@@ -1,12 +1,11 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
-assertion_line: 87
 expression: rendered
 ---
 model ArticleUser {
-  article_id String // stored as binary(16) on MySQL backends
+  article_id String
   article Article @relation(fields: [article_id], references: [id], onDelete: Cascade)
-  user_id String // stored as binary(16) on MySQL backends
+  user_id String
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
   author_order Int @default(1)
   role String @default("contributor")

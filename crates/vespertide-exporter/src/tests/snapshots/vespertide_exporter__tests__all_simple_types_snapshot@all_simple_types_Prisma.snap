@@ -1,6 +1,5 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
-assertion_line: 138
 expression: rendered
 ---
 model AllTypes {
@@ -17,7 +16,7 @@ model AllTypes {
   tstz_col DateTime
   interval_col String
   bytea_col Bytes
-  uuid_col String // stored as binary(16) on MySQL backends
+  uuid_col String
   json_col Json
   inet_col String
   cidr_col String
