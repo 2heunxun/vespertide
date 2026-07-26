@@ -3,9 +3,13 @@ mod render;
 mod types;
 
 use crate::orm::OrmExporter;
+use vespertide_config::DjangoConfig;
 use vespertide_core::TableDef;
 
-pub use render::{export, render_entity, render_entity_with_schema};
+pub use render::{
+    export, export_with_config, render_entity, render_entity_with_schema,
+    render_entity_with_schema_and_config,
+};
 
 pub struct DjangoExporter;
 
@@ -20,6 +24,27 @@ impl OrmExporter for DjangoExporter {
         schema: &[TableDef],
     ) -> Result<String, String> {
         render_entity_with_schema(table, schema)
+    }
+}
+
+/// Django exporter that honors `vespertide.json`'s `django` config section
+/// (currently an optional `app_label` written into every model's `Meta`
+/// class). Mirrors `seaorm::SeaOrmExporterWithConfig`.
+pub struct DjangoExporterWithConfig<'a> {
+    pub config: &'a DjangoConfig,
+}
+
+impl<'a> DjangoExporterWithConfig<'a> {
+    pub fn new(config: &'a DjangoConfig) -> Self {
+        Self { config }
+    }
+
+    pub fn render_entity_with_schema(
+        &self,
+        table: &TableDef,
+        schema: &[TableDef],
+    ) -> Result<String, String> {
+        render_entity_with_schema_and_config(table, schema, self.config.app_label())
     }
 }
 
@@ -773,6 +798,37 @@ mod tests {
                 "# composite foreign key: (order_id, region_id) -> order_regions(order_id, region_id)"
             ),
             "expected composite FK comment, got:\n{result}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // DjangoExporterWithConfig: app_label reaches the Meta class
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_app_label_omitted_by_default() {
+        let table = users_table();
+        let schema = vec![table.clone()];
+        let config = DjangoConfig::default();
+        let exporter = DjangoExporterWithConfig::new(&config);
+        let result = exporter.render_entity_with_schema(&table, &schema).unwrap();
+        assert!(
+            !result.contains("app_label"),
+            "expected no app_label with default config, got:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_app_label_from_config_reaches_meta_class() {
+        let table = users_table();
+        let schema = vec![table.clone()];
+        let mut config = DjangoConfig::default();
+        config.app_label = Some("myapp".to_string());
+        let exporter = DjangoExporterWithConfig::new(&config);
+        let result = exporter.render_entity_with_schema(&table, &schema).unwrap();
+        assert!(
+            result.contains("        app_label = \"myapp\""),
+            "expected app_label in Meta class, got:\n{result}"
         );
     }
 }

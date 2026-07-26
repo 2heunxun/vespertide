@@ -9,26 +9,43 @@ use vespertide_core::{ReferenceAction, TableDef};
 
 pub fn render_entity(table: &TableDef) -> Result<String, String> {
     let mut used = UsedImports::default();
-    let body = render_entity_part(table, &mut used, &[]);
+    let body = render_entity_part(table, &mut used, &[], None);
     Ok(assemble_with_imports(&used, &[body]))
 }
 
 /// Render a single table with full schema context so many-to-many junction
 /// tables can be recognized and exposed as `ManyToManyField(..., through=...)`.
 pub fn render_entity_with_schema(table: &TableDef, schema: &[TableDef]) -> Result<String, String> {
+    render_entity_with_schema_and_config(table, schema, None)
+}
+
+/// Same as [`render_entity_with_schema`], but with an optional `app_label`
+/// (from `vespertide.json`'s `django` config) written into every model's
+/// `Meta` class.
+pub fn render_entity_with_schema_and_config(
+    table: &TableDef,
+    schema: &[TableDef],
+    app_label: Option<&str>,
+) -> Result<String, String> {
     let mut used = UsedImports::default();
     let m2m_fields = find_many_to_many_fields(table, schema);
-    let body = render_entity_part(table, &mut used, &m2m_fields);
+    let body = render_entity_part(table, &mut used, &m2m_fields, app_label);
     Ok(assemble_with_imports(&used, &[body]))
 }
 
 pub fn export(schema: &[TableDef]) -> Result<String, String> {
+    export_with_config(schema, None)
+}
+
+/// Same as [`export`], but with an optional `app_label` written into every
+/// model's `Meta` class.
+pub fn export_with_config(schema: &[TableDef], app_label: Option<&str>) -> Result<String, String> {
     let mut used = UsedImports::default();
     let parts: Vec<String> = schema
         .iter()
         .map(|t| {
             let m2m_fields = find_many_to_many_fields(t, schema);
-            render_entity_part(t, &mut used, &m2m_fields)
+            render_entity_part(t, &mut used, &m2m_fields, app_label)
         })
         .collect();
     Ok(assemble_with_imports(&used, &parts))
@@ -165,7 +182,12 @@ fn unique_name(base: &str, used: &mut HashSet<String>) -> String {
     }
 }
 
-fn render_entity_part(table: &TableDef, used: &mut UsedImports, extra_fields: &[String]) -> String {
+fn render_entity_part(
+    table: &TableDef,
+    used: &mut UsedImports,
+    extra_fields: &[String],
+    app_label: Option<&str>,
+) -> String {
     let mut lines: Vec<String> = Vec::new();
 
     // --- Constraint lookups ---
@@ -367,6 +389,9 @@ fn render_entity_part(table: &TableDef, used: &mut UsedImports, extra_fields: &[
     lines.push(String::new());
     lines.push("    class Meta:".into());
     lines.push(format!("        db_table = \"{}\"", table.name));
+    if let Some(label) = app_label {
+        lines.push(format!("        app_label = \"{label}\""));
+    }
 
     if !indexes.is_empty() {
         lines.push("        indexes = [".into());

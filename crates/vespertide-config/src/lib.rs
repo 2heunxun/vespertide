@@ -7,7 +7,9 @@ pub mod config;
 pub mod file_format;
 pub mod name_case;
 
-pub use config::{SeaOrmConfig, VespertideConfig, default_migration_filename_pattern};
+pub use config::{
+    DjangoConfig, GormConfig, SeaOrmConfig, VespertideConfig, default_migration_filename_pattern,
+};
 pub use file_format::FileFormat;
 pub use name_case::NameCase;
 
@@ -99,5 +101,97 @@ mod tests {
         }"#;
         let cfg: VespertideConfig = serde_json::from_str(json).unwrap();
         assert_eq!(cfg.seaorm().extra_enum_derives(), &["MyDerive"]);
+    }
+
+    #[test]
+    fn django_config_default_has_no_app_label() {
+        let cfg = DjangoConfig::default();
+        assert_eq!(cfg.app_label(), None);
+    }
+
+    #[test]
+    fn django_config_accessor() {
+        let cfg = DjangoConfig {
+            app_label: Some("myapp".to_string()),
+        };
+        assert_eq!(cfg.app_label(), Some("myapp"));
+    }
+
+    #[test]
+    fn django_config_deserialize_with_defaults() {
+        let json = r"{}";
+        let cfg: DjangoConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.app_label(), None);
+    }
+
+    #[test]
+    fn django_config_deserialize_with_app_label() {
+        let json = r#"{"appLabel": "myapp"}"#;
+        let cfg: DjangoConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.app_label(), Some("myapp"));
+    }
+
+    #[test]
+    fn django_config_app_label_absent_from_json_when_none() {
+        let cfg = DjangoConfig::default();
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(
+            !json.contains("appLabel"),
+            "None app_label must not serialize: {json}"
+        );
+    }
+
+    #[test]
+    fn gorm_config_default_package_name_is_models() {
+        let cfg = GormConfig::default();
+        assert_eq!(cfg.package_name(), "models");
+    }
+
+    #[test]
+    fn gorm_config_accessor() {
+        let cfg = GormConfig {
+            package_name: "entities".to_string(),
+        };
+        assert_eq!(cfg.package_name(), "entities");
+    }
+
+    #[test]
+    fn gorm_config_deserialize_with_defaults() {
+        let json = r"{}";
+        let cfg: GormConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.package_name(), "models");
+    }
+
+    #[test]
+    fn gorm_config_deserialize_with_custom_package_name() {
+        let json = r#"{"packageName": "entities"}"#;
+        let cfg: GormConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.package_name(), "entities");
+    }
+
+    #[test]
+    fn vespertide_config_django_and_gorm_accessors() {
+        let cfg = VespertideConfig::default();
+        assert_eq!(cfg.django().app_label(), None);
+        assert_eq!(cfg.gorm().package_name(), "models");
+    }
+
+    #[test]
+    fn vespertide_config_deserialize_with_django_and_gorm() {
+        let json = r#"{
+            "modelsDir": "models",
+            "migrationsDir": "migrations",
+            "tableNamingCase": "snake",
+            "columnNamingCase": "snake",
+            "django": {
+                "appLabel": "myapp"
+            },
+            "gorm": {
+                "packageName": "entities"
+            }
+        }"#;
+        let cfg: VespertideConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.django().app_label(), Some("myapp"));
+        assert_eq!(cfg.gorm().package_name(), "entities");
     }
 }

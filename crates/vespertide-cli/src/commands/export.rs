@@ -8,6 +8,8 @@ use rayon::prelude::*;
 use tokio::fs;
 use vespertide_config::VespertideConfig;
 use vespertide_core::TableDef;
+use vespertide_exporter::django::DjangoExporterWithConfig;
+use vespertide_exporter::gorm::GormExporterWithConfig;
 use vespertide_exporter::{Orm, render_entity_with_schema, seaorm::SeaOrmExporterWithConfig};
 
 use crate::parallel_config::{EXPORT_RENDER_PAR_MIN_LEN, EXPORT_RENDER_PAR_THRESHOLD};
@@ -81,14 +83,18 @@ pub async fn cmd_export(orm: OrmArg, export_dir: Option<PathBuf>) -> Result<()> 
     // Derive crate:: prefix from export directory (e.g., "src/models" -> "crate::models")
     let crate_prefix = export_dir_to_crate_prefix(&target_root);
 
-    // Create SeaORM exporter with config if needed
+    // Create per-ORM exporters that honor their `vespertide.json` config section
     let seaorm_exporter = SeaOrmExporterWithConfig::new(config.seaorm(), config.prefix());
+    let django_exporter = DjangoExporterWithConfig::new(config.django());
+    let gorm_exporter = GormExporterWithConfig::new(config.gorm());
     let render_context = ExportRenderContext {
         target_root: &target_root,
         all_tables: &all_tables,
         module_paths: &module_paths,
         crate_prefix: &crate_prefix,
         seaorm_exporter: &seaorm_exporter,
+        django_exporter: &django_exporter,
+        gorm_exporter: &gorm_exporter,
         orm_kind,
     };
 
@@ -150,6 +156,8 @@ struct ExportRenderContext<'a> {
     module_paths: &'a HashMap<String, Vec<String>>,
     crate_prefix: &'a str,
     seaorm_exporter: &'a SeaOrmExporterWithConfig<'a>,
+    django_exporter: &'a DjangoExporterWithConfig<'a>,
+    gorm_exporter: &'a GormExporterWithConfig<'a>,
     orm_kind: Orm,
 }
 
@@ -166,6 +174,14 @@ fn render_export_entity(
                 context.module_paths,
                 context.crate_prefix,
             )
+            .map_err(|e| anyhow::anyhow!(e)),
+        Orm::Django => context
+            .django_exporter
+            .render_entity_with_schema(table, context.all_tables)
+            .map_err(|e| anyhow::anyhow!(e)),
+        Orm::Gorm => context
+            .gorm_exporter
+            .render_entity_with_schema(table, context.all_tables)
             .map_err(|e| anyhow::anyhow!(e)),
         _ => render_entity_with_schema(context.orm_kind, table, context.all_tables)
             .map_err(|e| anyhow::anyhow!(e)),

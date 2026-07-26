@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::orm::OrmExporter;
+use vespertide_config::GormConfig;
 use vespertide_core::schema::column::{
     ColumnType, ComplexColumnType, EnumValues, SimpleColumnKind, SimpleColumnType,
 };
@@ -69,6 +70,41 @@ impl OrmExporter for GormExporter {
     }
 }
 
+/// GORM exporter that honors `vespertide.json`'s `gorm` config section
+/// (currently the Go `package_name` emitted at the top of every file).
+/// Mirrors `seaorm::SeaOrmExporterWithConfig`.
+pub struct GormExporterWithConfig<'a> {
+    pub config: &'a GormConfig,
+}
+
+impl<'a> GormExporterWithConfig<'a> {
+    pub fn new(config: &'a GormConfig) -> Self {
+        Self { config }
+    }
+
+    pub fn render_entity(&self, table: &TableDef) -> Result<String, String> {
+        Ok(render_entity_inner_with_package(
+            table,
+            &[],
+            &self.config.package_name,
+        ))
+    }
+
+    pub fn render_entity_with_schema(
+        &self,
+        table: &TableDef,
+        schema: &[TableDef],
+    ) -> Result<String, String> {
+        Ok(render_entity_inner_with_package(
+            table,
+            schema,
+            &self.config.package_name,
+        ))
+    }
+}
+
+const DEFAULT_PACKAGE_NAME: &str = "models";
+
 /// Render a GORM entity for the given table definition.
 pub fn render_entity(table: &TableDef) -> Result<String, String> {
     Ok(render_entity_inner(table, &[]))
@@ -85,6 +121,14 @@ pub(crate) fn to_pascal_case_for_tests(s: &str) -> String {
 }
 
 fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> String {
+    render_entity_inner_with_package(table, schema, DEFAULT_PACKAGE_NAME)
+}
+
+fn render_entity_inner_with_package(
+    table: &TableDef,
+    schema: &[TableDef],
+    package_name: &str,
+) -> String {
     let mut lines: Vec<String> = Vec::new();
 
     let struct_name = to_pascal_case(&table.name);
@@ -196,7 +240,7 @@ fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> String {
     let reverse_relations = find_reverse_relations(&table.name, schema);
 
     // --- Package declaration ---
-    lines.push("package models".into());
+    lines.push(format!("package {package_name}"));
     lines.push(String::new());
 
     // --- Imports ---
