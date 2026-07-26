@@ -5,13 +5,21 @@ mod types;
 use crate::orm::OrmExporter;
 use vespertide_core::TableDef;
 
-pub use render::{export, render_entity};
+pub use render::{export, render_entity, render_entity_with_schema};
 
 pub struct DjangoExporter;
 
 impl OrmExporter for DjangoExporter {
     fn render_entity(&self, table: &TableDef) -> Result<String, String> {
         render_entity(table)
+    }
+
+    fn render_entity_with_schema(
+        &self,
+        table: &TableDef,
+        schema: &[TableDef],
+    ) -> Result<String, String> {
+        render_entity_with_schema(table, schema)
     }
 }
 
@@ -610,6 +618,125 @@ mod tests {
         assert!(
             result.contains("models.UniqueConstraint(fields=[\"slug\", \"tag\"]),"),
             "expected unnamed UniqueConstraint"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Many-to-many junction table recognition (render_entity_with_schema)
+    // -----------------------------------------------------------------------
+
+    fn users_table() -> TableDef {
+        TableDef {
+            name: "users".into(),
+            description: None,
+            columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
+            constraints: vec![auto_pk(&["id"])],
+        }
+    }
+
+    fn tags_table() -> TableDef {
+        TableDef {
+            name: "tags".into(),
+            description: None,
+            columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
+            constraints: vec![auto_pk(&["id"])],
+        }
+    }
+
+    fn junction_table(
+        name: &str,
+        left_col: &str,
+        left_ref: &str,
+        right_col: &str,
+        right_ref: &str,
+    ) -> TableDef {
+        TableDef {
+            name: name.into(),
+            description: None,
+            columns: vec![
+                col(left_col, ColumnType::Simple(SimpleColumnType::Integer)),
+                col(right_col, ColumnType::Simple(SimpleColumnType::Integer)),
+            ],
+            constraints: vec![
+                pk(&[left_col, right_col]),
+                fk(left_col, left_ref, None),
+                fk(right_col, right_ref, None),
+            ],
+        }
+    }
+
+    #[test]
+    fn test_many_to_many_junction_table() {
+        let users = users_table();
+        let tags = tags_table();
+        let user_tags = junction_table("user_tags", "user_id", "users", "tag_id", "tags");
+        let schema = vec![users.clone(), tags.clone(), user_tags.clone()];
+
+        let result = render_entity_with_schema(&users, &schema).unwrap();
+        assert!(
+            result.contains(
+                "tags = models.ManyToManyField(\"Tags\", through=\"UserTags\", related_name=\"+\")"
+            ),
+            "expected ManyToManyField on users side, got:\n{result}"
+        );
+
+        let result = render_entity_with_schema(&tags, &schema).unwrap();
+        assert!(
+            result.contains(
+                "users = models.ManyToManyField(\"Users\", through=\"UserTags\", related_name=\"+\")"
+            ),
+            "expected ManyToManyField on tags side, got:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_many_to_many_disambiguates_multiple_junctions_to_same_target() {
+        let users = users_table();
+        let tags = tags_table();
+        let user_tags = junction_table("user_tags", "user_id", "users", "tag_id", "tags");
+        let user_favorite_tags =
+            junction_table("user_favorite_tags", "user_id", "users", "tag_id", "tags");
+        let schema = vec![users.clone(), tags, user_tags, user_favorite_tags];
+
+        let result = render_entity_with_schema(&users, &schema).unwrap();
+        assert!(
+            result.contains(
+                "tags_via_user_tags = models.ManyToManyField(\"Tags\", through=\"UserTags\""
+            ),
+            "expected disambiguated field for user_tags junction, got:\n{result}"
+        );
+        assert!(
+            result.contains(
+                "tags_via_user_favorite_tags = models.ManyToManyField(\"Tags\", through=\"UserFavoriteTags\""
+            ),
+            "expected disambiguated field for user_favorite_tags junction, got:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_purely_self_referential_junction_is_skipped() {
+        // "friends" links users to users on both sides — not a two-sided M2M
+        // we can safely name, so no ManyToManyField should be emitted.
+        let users = users_table();
+        let friends = junction_table("friends", "user_id", "users", "friend_id", "users");
+        let schema = vec![users.clone(), friends];
+
+        let result = render_entity_with_schema(&users, &schema).unwrap();
+        assert!(
+            !result.contains("ManyToManyField"),
+            "self-referential junction must not produce a guessed M2M field, got:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_export_multi_table_includes_many_to_many() {
+        let users = users_table();
+        let tags = tags_table();
+        let user_tags = junction_table("user_tags", "user_id", "users", "tag_id", "tags");
+        let result = export(&[users, tags, user_tags]).unwrap();
+        assert!(
+            result.contains("models.ManyToManyField(\"Tags\", through=\"UserTags\""),
+            "expected ManyToManyField in multi-table export, got:\n{result}"
         );
     }
 }

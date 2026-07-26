@@ -8,7 +8,16 @@ use vespertide_core::{ReferenceAction, TableDef};
 
 pub fn render_entity(table: &TableDef) -> Result<String, String> {
     let mut used = UsedImports::default();
-    let body = render_entity_part(table, &mut used);
+    let body = render_entity_part(table, &mut used, &[]);
+    Ok(assemble_with_imports(&used, &[body]))
+}
+
+/// Render a single table with full schema context so many-to-many junction
+/// tables can be recognized and exposed as `ManyToManyField(..., through=...)`.
+pub fn render_entity_with_schema(table: &TableDef, schema: &[TableDef]) -> Result<String, String> {
+    let mut used = UsedImports::default();
+    let m2m_fields = find_many_to_many_fields(table, schema);
+    let body = render_entity_part(table, &mut used, &m2m_fields);
     Ok(assemble_with_imports(&used, &[body]))
 }
 
@@ -16,12 +25,146 @@ pub fn export(schema: &[TableDef]) -> Result<String, String> {
     let mut used = UsedImports::default();
     let parts: Vec<String> = schema
         .iter()
-        .map(|t| render_entity_part(t, &mut used))
+        .map(|t| {
+            let m2m_fields = find_many_to_many_fields(t, schema);
+            render_entity_part(t, &mut used, &m2m_fields)
+        })
         .collect();
     Ok(assemble_with_imports(&used, &parts))
 }
 
-fn render_entity_part(table: &TableDef, used: &mut UsedImports) -> String {
+/// Recognize many-to-many junction tables (composite PK, 2+ FKs, all FK
+/// columns part of the PK) that reference `table`, and render the
+/// corresponding `ManyToManyField` lines for the *other* side of each
+/// junction. Purely self-referential junctions (every FK pointing back at
+/// `table`) are skipped rather than guessed at.
+fn find_many_to_many_fields(table: &TableDef, schema: &[TableDef]) -> Vec<String> {
+    let mut matches: Vec<(String, String)> = Vec::new(); // (target_table, junction_table)
+
+    for other in schema {
+        if other.name == table.name {
+            continue;
+        }
+
+        let other_pk: HashSet<String> = other
+            .constraints
+            .iter()
+            .filter_map(|c| {
+                if let TableConstraint::PrimaryKey { columns, .. } = c {
+                    Some(
+                        columns
+                            .iter()
+                            .map(|c| c.as_str().to_owned())
+                            .collect::<Vec<_>>(),
+                    )
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .collect();
+        if other_pk.len() < 2 {
+            continue;
+        }
+
+        let fks: Vec<(Vec<String>, String)> = other
+            .constraints
+            .iter()
+            .filter_map(|c| {
+                if let TableConstraint::ForeignKey {
+                    columns, ref_table, ..
+                } = c
+                {
+                    Some((
+                        columns.iter().map(|c| c.as_str().to_owned()).collect(),
+                        ref_table.as_str().to_owned(),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if fks.len() < 2 {
+            continue;
+        }
+
+        let all_fk_cols_in_pk = fks
+            .iter()
+            .all(|(cols, _)| cols.iter().all(|c| other_pk.contains(c.as_str())));
+        if !all_fk_cols_in_pk {
+            continue;
+        }
+
+        if !fks
+            .iter()
+            .any(|(_, ref_table)| ref_table.as_str() == table.name.as_str())
+        {
+            continue;
+        }
+        if fks
+            .iter()
+            .all(|(_, ref_table)| ref_table.as_str() == table.name.as_str())
+        {
+            continue;
+        }
+
+        for (_, ref_table) in &fks {
+            if ref_table.as_str() == table.name.as_str() {
+                continue;
+            }
+            if schema.iter().any(|t| t.name.as_str() == ref_table.as_str()) {
+                matches.push((ref_table.clone(), other.name.as_str().to_owned()));
+            }
+        }
+    }
+
+    let mut target_counts: HashMap<String, usize> = HashMap::new();
+    for (target, _) in &matches {
+        *target_counts.entry(target.clone()).or_default() += 1;
+    }
+
+    let mut used_names: HashSet<String> = HashSet::new();
+    matches
+        .iter()
+        .map(|(target, junction)| {
+            let base = pluralize(target);
+            let field_name = if target_counts.get(target).copied().unwrap_or(0) > 1 {
+                unique_name(&format!("{base}_via_{junction}"), &mut used_names)
+            } else {
+                unique_name(&base, &mut used_names)
+            };
+            let target_class = to_pascal_case(target);
+            let junction_class = to_pascal_case(junction);
+            format!(
+                "    {field_name} = models.ManyToManyField(\"{target_class}\", through=\"{junction_class}\", related_name=\"+\")"
+            )
+        })
+        .collect()
+}
+
+fn pluralize(name: &str) -> String {
+    if name.ends_with('s') {
+        name.to_string()
+    } else {
+        format!("{name}s")
+    }
+}
+
+fn unique_name(base: &str, used: &mut HashSet<String>) -> String {
+    if used.insert(base.to_string()) {
+        return base.to_string();
+    }
+    let mut n = 2;
+    loop {
+        let candidate = format!("{base}_{n}");
+        if used.insert(candidate.clone()) {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
+fn render_entity_part(table: &TableDef, used: &mut UsedImports, extra_fields: &[String]) -> String {
     let mut lines: Vec<String> = Vec::new();
 
     // --- Constraint lookups ---
@@ -173,6 +316,10 @@ fn render_entity_part(table: &TableDef, used: &mut UsedImports) -> String {
                 lines.push(format!("    {} = {}({})", col.name, field_type, kwargs_str));
             }
         }
+    }
+
+    for line in extra_fields {
+        lines.push(line.clone());
     }
 
     // --- Meta class ---
