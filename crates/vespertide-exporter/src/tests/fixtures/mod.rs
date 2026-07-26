@@ -830,7 +830,7 @@ pub(crate) fn numeric_default_value() -> TableDef {
                     scale: 2,
                 }),
             )
-            .default("0.00".into()),
+            .default(DefaultValue::Float(0.0)),
         ],
         vec![],
     )
