@@ -23,7 +23,6 @@ criterion = { version = "0.8", features = ["html_reports"] }
 rstest = "0.26"
 insta = { version = "1.47", features = ["yaml"] }
 proptest = "1"
-serde_json = "1"
 
 [[bench]]
 name = "codegen_benchmarks"

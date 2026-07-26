@@ -452,7 +452,9 @@ async fn cmd_export_prisma(
             .with_context(|| format!("create export dir {}", target_root.display()))?;
     }
 
-    let out_path = target_root.join("schema.prisma");
+    // Not `schema.prisma`: that name belongs to the user's own file holding the
+    // datasource/generator blocks.
+    let out_path = target_root.join("models.prisma");
     fs::write(&out_path, &content)
         .await
         .with_context(|| format!("write {}", out_path.display()))?;

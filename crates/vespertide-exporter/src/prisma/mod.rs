@@ -24,35 +24,24 @@ impl OrmExporter for PrismaExporter {
     }
 }
 
-/// Render a complete `schema.prisma` file for all tables.
+/// Render every table into one Prisma schema file.
 ///
-/// Output order: datasource → generator → (globally deduped) enum blocks → model blocks.
+/// Output order: (globally deduped) enum blocks → model blocks.
 ///
-/// The output is backend-neutral: model bodies carry no `@db.*` native
-/// attributes, so the file stays valid regardless of which backend vespertide
-/// targets. The datasource provider is fixed to `postgresql` (Prisma requires
-/// declaring exactly one); users on another backend only change that one line.
+/// No `datasource` or `generator` block is emitted: those describe the user's
+/// project rather than their schema, and pinning a `provider` would make the
+/// output backend-specific. Users pair this file with their own via Prisma's
+/// multi-file schema directory, exactly as the other backends emit models only.
 pub fn render_schema(tables: &[TableDef]) -> String {
     let mut seen_enums: HashSet<String> = HashSet::new();
-    let mut enum_blocks: Vec<String> = Vec::new();
+    let mut parts: Vec<String> = Vec::new();
     for table in tables {
         for (name, values) in collect_table_enums(table) {
             if seen_enums.insert(name.to_string()) {
-                enum_blocks.push(enums::render_enum(name, values));
+                parts.push(enums::render_enum(name, values));
             }
         }
     }
-
-    let mut parts: Vec<String> = Vec::new();
-
-    // No `url` here: current Prisma moved connection config out of the
-    // schema file (`prisma.config.ts`), which also matches vespertide's
-    // models-only scope.
-    parts.push("datasource db {\n  provider = \"postgresql\"\n}".to_string());
-
-    parts.push("generator client {\n  provider = \"prisma-client-js\"\n}".to_string());
-
-    parts.extend(enum_blocks);
 
     for table in tables {
         parts.push(render::render_model(table, tables));
@@ -95,8 +84,8 @@ pub fn render_entity_with_schema(table: &TableDef, schema: &[TableDef]) -> Strin
 
 /// Multi-table entry point: render every table (enum + model blocks) with full
 /// schema context and join them. Mirrors the other ORMs' `export` so the
-/// cross-ORM test harness can dispatch Prisma through a single call. The
-/// `datasource`/`generator` wrapper lives in [`render_schema`].
+/// cross-ORM test harness can dispatch Prisma through a single call. Unlike
+/// [`render_schema`], enums are deduplicated per table rather than globally.
 pub fn export(schema: &[TableDef]) -> Result<String, String> {
     Ok(schema
         .iter()
@@ -110,14 +99,18 @@ mod tests {
     use super::*;
     use crate::tests::fixtures::basic_single_pk;
 
+    /// The file must stay usable under any provider, so it carries neither a
+    /// `datasource`/`generator` block nor a backend-specific `@db.*` attribute.
     #[test]
-    fn render_schema_emits_postgresql_provider() {
+    fn render_schema_emits_models_only() {
         let tables = vec![basic_single_pk()];
         let schema = render_schema(&tables);
 
-        assert!(schema.contains("provider = \"postgresql\""));
+        assert!(schema.starts_with("model "));
+        assert!(!schema.contains("datasource"));
+        assert!(!schema.contains("generator"));
+        assert!(!schema.contains("provider"));
         assert!(!schema.contains("@db."));
-        assert!(!schema.contains("output"));
     }
 
     #[test]

@@ -23,12 +23,14 @@ async fn export_prisma_writes_backend_neutral_schema() {
 
     cmd_export(OrmArg::Prisma, None).await.unwrap();
 
-    let out = PathBuf::from("src/models/schema.prisma");
+    let out = PathBuf::from("src/models/models.prisma");
     assert!(out.exists());
     let content = std_fs::read_to_string(out).unwrap();
-    assert!(content.contains("provider = \"postgresql\""));
     assert!(content.contains("occurred_at DateTime"));
     assert!(!content.contains("@db."));
+    assert!(!content.contains("datasource"));
+    assert!(!content.contains("generator"));
+    assert!(!content.contains("provider"));
 }
 
 #[test]
