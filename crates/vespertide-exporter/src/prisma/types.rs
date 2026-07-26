@@ -36,11 +36,9 @@ pub(super) fn column_type_to_prisma(ty: &ColumnType, nullable: bool) -> (String,
                 | SimpleColumnType::Cidr
                 | SimpleColumnType::Macaddr
                 | SimpleColumnType::Xml => "String",
-                // Unknown/future simple types fall back to a plain String column.
-                // `SimpleColumnType` is #[non_exhaustive]; every current variant is
-                // handled above, so this arm is currently unreachable.
-                #[cfg(not(tarpaulin_include))]
-                _ => "String",
+                _ => unreachable!(
+                    "SimpleColumnType is #[non_exhaustive]; all variants are matched above"
+                ),
             };
             (format!("{base}{q}"), None)
         }
@@ -56,11 +54,9 @@ pub(super) fn column_type_to_prisma(ty: &ColumnType, nullable: bool) -> (String,
                 let pascal = to_pascal_case(name);
                 (format!("{pascal}{q}"), None)
             }
-            // Unknown/future complex types fall back to a plain String column.
-            // `ComplexColumnType` is #[non_exhaustive]; every current variant is
-            // matched above, so this arm is currently unreachable.
-            #[cfg(not(tarpaulin_include))]
-            _ => (format!("String{q}"), None),
+            _ => unreachable!(
+                "ComplexColumnType is #[non_exhaustive]; all variants are matched above"
+            ),
         },
     }
 }
