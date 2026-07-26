@@ -464,9 +464,10 @@ fn find_reverse_relations(table_name: &str, schema: &[TableDef]) -> Vec<ReverseR
     );
     let mut raw: Vec<RawRelation> = Vec::new();
     for other in schema {
-        if other.name == table_name {
-            continue;
-        }
+        // Note: self-referencing tables (other.name == table_name) are NOT
+        // skipped here — a table's own FK column pointing back at itself
+        // (e.g. categories.parent_id -> categories.id) must still produce a
+        // reverse has-many ("Children") relation on the same struct.
         for c in &other.constraints {
             if let TableConstraint::ForeignKey {
                 columns,
@@ -479,11 +480,16 @@ fn find_reverse_relations(table_name: &str, schema: &[TableDef]) -> Vec<ReverseR
                 && columns.len() == 1
             {
                 let fk_col = columns[0].as_str().to_owned();
-                let pascal = to_pascal_case(other.name.as_str());
-                let base_name = if pascal.ends_with('s') {
-                    pascal
+                let is_self_ref = other.name.as_str() == table_name;
+                let base_name = if is_self_ref {
+                    "Children".to_string()
                 } else {
-                    format!("{pascal}s")
+                    let pascal = to_pascal_case(other.name.as_str());
+                    if pascal.ends_with('s') {
+                        pascal
+                    } else {
+                        format!("{pascal}s")
+                    }
                 };
                 raw.push((
                     other.name.as_str().to_owned(),

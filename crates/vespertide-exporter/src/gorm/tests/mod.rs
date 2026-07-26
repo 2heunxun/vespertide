@@ -13,6 +13,8 @@ use super::{
     render_entity_with_schema, to_go_field_name,
 };
 
+mod relations;
+
 fn col(name: &str, ty: ColumnType) -> ColumnDef {
     ColumnDef {
         name: name.into(),
@@ -1080,63 +1082,5 @@ fn test_named_composite_unique_gorm() {
     assert!(
         result.contains("uniqueIndex:uq_tenant_name"),
         "expected named uniqueIndex tag in GORM output"
-    );
-}
-
-// -----------------------------------------------------------------------
-// Composite (multi-column) FK relation field
-// -----------------------------------------------------------------------
-
-fn composite_fk_table() -> TableDef {
-    TableDef {
-        name: "order_items".into(),
-        description: None,
-        columns: vec![
-            col("order_id", ColumnType::Simple(SimpleColumnType::Integer)),
-            col("region_id", ColumnType::Simple(SimpleColumnType::Integer)),
-        ],
-        constraints: vec![
-            TableConstraint::PrimaryKey {
-                auto_increment: false,
-                columns: vec!["order_id".into(), "region_id".into()],
-                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-            },
-            TableConstraint::ForeignKey {
-                name: None,
-                columns: vec!["order_id".into(), "region_id".into()],
-                ref_table: "order_regions".into(),
-                ref_columns: vec!["order_id".into(), "region_id".into()],
-                on_delete: Some(ReferenceAction::Cascade),
-                on_update: None,
-                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
-            },
-        ],
-    }
-}
-
-#[test]
-fn test_composite_fk_relation_field() {
-    let result = render_entity(&composite_fk_table()).unwrap();
-    assert!(
-        result.contains(
-            "OrderRegions OrderRegions `gorm:\"foreignKey:OrderID,RegionID;references:OrderID,RegionID;constraint:OnDelete:CASCADE\" json:\"-\"`"
-        ),
-        "expected composite FK relation field in GORM output, got:\n{result}"
-    );
-}
-
-#[test]
-fn test_composite_fk_relation_field_name_collision_suffixed() {
-    // A column already named "OrderRegions" (Go field name) collides with the
-    // natural composite-FK relation field name, forcing a numeric suffix.
-    let mut table = composite_fk_table();
-    table.columns.push(col(
-        "order_regions",
-        ColumnType::Simple(SimpleColumnType::Text),
-    ));
-    let result = render_entity(&table).unwrap();
-    assert!(
-        result.contains("OrderRegions2 OrderRegions `gorm:\"foreignKey:OrderID,RegionID"),
-        "expected suffixed relation field name on collision, got:\n{result}"
     );
 }
