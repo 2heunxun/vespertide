@@ -1,4 +1,5 @@
 use vespertide_core::schema::column::EnumValues;
+use vespertide_naming::to_screaming_snake_case;
 
 pub(super) fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValues) {
     let class_name = to_pascal_case(name);
@@ -27,27 +28,6 @@ pub(super) fn to_pascal_case(s: &str) -> String {
             match chars.next() {
                 None => String::new(),
                 Some(first) => first.to_uppercase().chain(chars).collect(),
-            }
-        })
-        .collect()
-}
-
-pub(super) fn to_screaming_snake_case(s: &str) -> String {
-    let mut result = String::new();
-    for (i, ch) in s.chars().enumerate() {
-        if ch.is_uppercase() && i > 0 {
-            result.push('_');
-        }
-        result.push(ch.to_ascii_uppercase());
-    }
-    // Replace any non-alphanumeric with underscore
-    result
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '_' {
-                c
-            } else {
-                '_'
             }
         })
         .collect()

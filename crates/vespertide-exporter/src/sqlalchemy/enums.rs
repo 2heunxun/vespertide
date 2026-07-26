@@ -1,5 +1,6 @@
-use super::render::{to_pascal_case, to_screaming_snake_case};
+use super::render::to_pascal_case;
 use vespertide_core::schema::column::EnumValues;
+use vespertide_naming::to_screaming_snake_case;
 
 pub(super) fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValues) {
     let class_name = to_pascal_case(name);

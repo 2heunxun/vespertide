@@ -5,9 +5,8 @@ use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues}
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::schema::names::ColumnName;
 use vespertide_core::schema::reference::ReferenceAction;
-use vespertide_naming::to_pascal_case;
+use vespertide_naming::{to_pascal_case, to_screaming_snake_case};
 
-use super::enums::to_screaming_snake;
 use super::types::column_type_to_prisma;
 
 struct PkInfo {
@@ -368,11 +367,11 @@ fn prisma_default_attr(default_sql: &str, col_type: &ColumnType) -> String {
         if let Ok(n) = key.parse::<i64>()
             && let Some(v) = int_values.iter().find(|v| v.value == n)
         {
-            return format!("@default({})", to_screaming_snake(&v.name));
+            return format!("@default({})", to_screaming_snake_case(&v.name));
         }
         // 2) exact variant-name match → variant name
         if let Some(v) = int_values.iter().find(|v| v.name == key) {
-            return format!("@default({})", to_screaming_snake(&v.name));
+            return format!("@default({})", to_screaming_snake_case(&v.name));
         }
         // 3) no match → dbgenerated fallback (valid PSL; avoids bare-int type error)
         let escaped = key.replace('"', "\\\"");
@@ -412,7 +411,7 @@ fn prisma_default_attr(default_sql: &str, col_type: &ColumnType) -> String {
         }) = col_type
             && variants.iter().any(|v| v.as_str() == stripped)
         {
-            let variant = to_screaming_snake(stripped);
+            let variant = to_screaming_snake_case(stripped);
             return format!("@default({variant})");
         }
         let s = stripped.replace('\\', "\\\\").replace('"', "\\\"");

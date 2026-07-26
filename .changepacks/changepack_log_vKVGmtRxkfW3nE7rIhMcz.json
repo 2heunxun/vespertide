@@ -1,1 +1,1 @@
-{"changes":{"crates/vespertide-exporter/Cargo.toml":"Minor","crates/vespertide-cli/Cargo.toml":"Minor"},"note":"Prisma ORM exporter 추가","date":"2026-07-09T14:25:30.6412773Z"}
+{"changes":{"crates/vespertide-naming/Cargo.toml":"Minor","crates/vespertide-exporter/Cargo.toml":"Minor","crates/vespertide-cli/Cargo.toml":"Minor"},"note":"Prisma ORM exporter 추가","date":"2026-07-09T14:25:30.6412773Z"}

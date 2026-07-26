@@ -170,6 +170,46 @@ pub fn to_pascal_case(s: &str) -> String {
     result
 }
 
+/// Convert an arbitrary schema value into a `SCREAMING_SNAKE_CASE` identifier.
+///
+/// Word boundaries are detected on the lower→upper transition rather than on
+/// character position, so a value that is already `SCREAMING_SNAKE_CASE`
+/// survives unchanged. Non-alphanumeric characters become separators, trailing
+/// separators are trimmed, and a leading digit is prefixed with `_` so the
+/// result is a valid identifier in every language the exporters emit.
+///
+/// # Examples
+/// ```
+/// use vespertide_naming::to_screaming_snake_case;
+///
+/// assert_eq!(to_screaming_snake_case("inProgress"), "IN_PROGRESS");
+/// assert_eq!(to_screaming_snake_case("order-status"), "ORDER_STATUS");
+/// assert_eq!(to_screaming_snake_case("ERROR_LEVEL"), "ERROR_LEVEL");
+/// assert_eq!(to_screaming_snake_case("1critical"), "_1CRITICAL");
+/// ```
+pub fn to_screaming_snake_case(s: &str) -> String {
+    let mut result = String::new();
+    let mut prev_lower = false;
+    for ch in s.chars() {
+        if ch.is_uppercase() && prev_lower {
+            result.push('_');
+        }
+        if ch.is_alphanumeric() {
+            result.push(ch.to_ascii_uppercase());
+            prev_lower = ch.is_lowercase();
+        } else {
+            result.push('_');
+            prev_lower = false;
+        }
+    }
+    let result = result.trim_end_matches('_').to_string();
+    if result.starts_with(|c: char| c.is_ascii_digit()) {
+        format!("_{result}")
+    } else {
+        result
+    }
+}
+
 /// Simple pluralization for relation field names.
 ///
 /// # Examples
@@ -468,6 +508,23 @@ mod tests {
         assert_eq!(to_pascal_case("user"), "User");
         assert_eq!(to_pascal_case("hello-world"), "HelloWorld");
         assert_eq!(to_pascal_case(""), "");
+    }
+
+    #[test]
+    fn test_to_screaming_snake_case() {
+        assert_eq!(to_screaming_snake_case("pending"), "PENDING");
+        assert_eq!(to_screaming_snake_case("not_started"), "NOT_STARTED");
+        assert_eq!(to_screaming_snake_case("inProgress"), "IN_PROGRESS");
+        assert_eq!(to_screaming_snake_case("order-status"), "ORDER_STATUS");
+        assert_eq!(to_screaming_snake_case(""), "");
+        // Already-uppercase input survives: a position-based word-boundary rule
+        // would explode these into `E_R_R_O_R__L_E_V_E_L` / `H_T_T_P__500`.
+        assert_eq!(to_screaming_snake_case("ERROR_LEVEL"), "ERROR_LEVEL");
+        assert_eq!(to_screaming_snake_case("HTTP_500"), "HTTP_500");
+        // Trailing separators are trimmed and a leading digit is prefixed, so
+        // the result stays a valid identifier.
+        assert_eq!(to_screaming_snake_case("status-"), "STATUS");
+        assert_eq!(to_screaming_snake_case("1critical"), "_1CRITICAL");
     }
 
     #[test]
