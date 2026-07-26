@@ -1,6 +1,6 @@
 ---
 source: crates/vespertide-exporter/src/django/mod.rs
-assertion_line: 258
+assertion_line: 286
 expression: result
 ---
 from __future__ import annotations
@@ -10,7 +10,7 @@ from django.db import models
 
 
 class Events(models.Model):
-    id = models.AutoField()
+    id = models.AutoField(primary_key=True)
     created_at = models.DateTimeField(default=timezone.now)
     count = models.IntegerField(default=0)
 

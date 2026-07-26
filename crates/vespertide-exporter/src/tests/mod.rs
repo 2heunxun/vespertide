@@ -35,6 +35,8 @@ macro_rules! orm_cases {
         #[case::sqlalchemy(Orm::SqlAlchemy)]
         #[case::sqlmodel(Orm::SqlModel)]
         #[case::jpa(Orm::Jpa)]
+        #[case::gorm(Orm::Gorm)]
+        #[case::django(Orm::Django)]
         fn $test_name(#[case] orm: Orm) {
             let table = $fixture();
             let rendered = render_entity(orm, &table).unwrap();
@@ -51,6 +53,8 @@ macro_rules! orm_cases {
         #[case::sqlalchemy(Orm::SqlAlchemy)]
         #[case::sqlmodel(Orm::SqlModel)]
         #[case::jpa(Orm::Jpa)]
+        #[case::gorm(Orm::Gorm)]
+        #[case::django(Orm::Django)]
         fn $test_name(#[case] orm: Orm) {
             let schema: Vec<TableDef> = $fixture();
             let rendered = render_schema(orm, &schema).unwrap();
@@ -361,6 +365,8 @@ fn render_schema_gorm_and_django() {
 #[case::sqlalchemy(Orm::SqlAlchemy)]
 #[case::sqlmodel(Orm::SqlModel)]
 #[case::jpa(Orm::Jpa)]
+#[case::gorm(Orm::Gorm)]
+#[case::django(Orm::Django)]
 fn render_entity_with_schema_snapshots(
     #[values(
         "many_to_many_article",

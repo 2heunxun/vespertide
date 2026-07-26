@@ -1,7 +1,7 @@
 ---
-source: crates/vespertide-exporter/src/django/mod.rs
-assertion_line: 157
-expression: render_entity(&table).unwrap()
+source: crates/vespertide-exporter/src/tests/mod.rs
+assertion_line: 99
+expression: rendered
 ---
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ class OrderStatus(models.TextChoices):
     DELIVERED = "delivered", "delivered"
 
 class Orders(models.Model):
-    id = models.AutoField(primary_key=True)
-    status = models.CharField(max_length=9, choices=OrderStatus.choices, default="pending")
+    id = models.IntegerField()
+    status = models.CharField(max_length=9, choices=OrderStatus.choices)
 
     class Meta:
         db_table = "orders"

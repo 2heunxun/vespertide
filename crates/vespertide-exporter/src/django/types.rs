@@ -69,31 +69,9 @@ pub(super) fn django_field_type(
     }
 }
 
-/// Whether this type produces an AutoField that implies primary_key.
-pub(super) fn is_auto_field(col_type: &ColumnType, is_pk: bool, auto_increment: bool) -> bool {
-    if !(is_pk && auto_increment) {
-        return false;
-    }
-    matches!(
-        col_type,
-        ColumnType::Simple(
-            SimpleColumnType::SmallInt | SimpleColumnType::Integer | SimpleColumnType::BigInt
-        )
-    )
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "all params are independent field-rendering inputs; a context struct would add noise without reducing coupling"
-)]
-#[expect(
-    clippy::fn_params_excessive_bools,
-    reason = "is_pk/auto_increment/is_unique/nullable are independent boolean predicates; enums would add verbosity"
-)]
 pub(super) fn build_field_kwargs(
     col_type: &ColumnType,
     is_pk: bool,
-    auto_increment: bool,
     is_unique: bool,
     nullable: bool,
     default: Option<&DefaultValue>,
@@ -101,7 +79,6 @@ pub(super) fn build_field_kwargs(
     used: &mut UsedImports,
 ) -> Vec<String> {
     let mut kwargs: Vec<String> = Vec::new();
-    let auto = is_auto_field(col_type, is_pk, auto_increment);
 
     // Size / precision kwargs
     match col_type {
@@ -135,7 +112,7 @@ pub(super) fn build_field_kwargs(
     }
 
     for (cond, kwarg) in [
-        (is_pk && !auto, "primary_key=True"),
+        (is_pk, "primary_key=True"),
         (is_unique && !is_pk, "unique=True"),
     ] {
         if cond {
@@ -190,7 +167,16 @@ pub(super) fn build_default(
         return Some(format!("\"{}\"", inner.replace('"', "\\\"")));
     }
 
-    Some(sql.into())
+    // A bare numeric literal (e.g. "0", "-1.5") is valid Python as-is. Any
+    // other bare, unquoted token is an unresolvable DB-level constant/
+    // expression (e.g. a named SQL constant) — emitting it verbatim would
+    // produce an undefined-name reference in the generated Python, so omit
+    // the default entirely rather than guess.
+    if sql.parse::<f64>().is_ok() {
+        return Some(sql.into());
+    }
+
+    None
 }
 
 pub(super) fn reference_action_str(action: &vespertide_core::ReferenceAction) -> &'static str {

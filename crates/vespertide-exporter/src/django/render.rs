@@ -303,7 +303,6 @@ fn render_entity_part(table: &TableDef, used: &mut UsedImports, extra_fields: &[
             let kwargs = build_field_kwargs(
                 &col.r#type,
                 effective_pk,
-                auto_increment && !is_composite_pk,
                 is_unique,
                 col.nullable,
                 col.default.as_ref(),

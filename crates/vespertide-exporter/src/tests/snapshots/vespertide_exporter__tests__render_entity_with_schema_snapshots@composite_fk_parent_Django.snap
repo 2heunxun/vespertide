@@ -1,0 +1,16 @@
+---
+source: crates/vespertide-exporter/src/tests/mod.rs
+assertion_line: 393
+expression: rendered
+---
+from __future__ import annotations
+
+from django.db import models
+
+
+class Parent(models.Model):
+    id1 = models.IntegerField()
+    id2 = models.IntegerField()
+
+    class Meta:
+        db_table = "parent"

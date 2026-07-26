@@ -1,6 +1,6 @@
 ---
 source: crates/vespertide-exporter/src/django/mod.rs
-assertion_line: 227
+assertion_line: 252
 expression: render_entity(&table).unwrap()
 ---
 from __future__ import annotations
@@ -9,7 +9,7 @@ from django.db import models
 
 
 class Articles(models.Model):
-    id = models.AutoField()
+    id = models.AutoField(primary_key=True)
     slug = models.CharField(max_length=200)
     author_id = models.IntegerField()
     created_at = models.DateTimeField()
