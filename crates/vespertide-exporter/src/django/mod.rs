@@ -754,6 +754,30 @@ mod tests {
     }
 
     #[test]
+    fn test_junction_table_unrelated_to_current_table_is_ignored() {
+        // "order_tags" is a genuine junction (composite PK, 2 FKs both in the
+        // PK), but neither side references `users` at all — it links
+        // "orders" and "tags" together, so it must not produce any
+        // ManyToManyField on `users`.
+        let users = users_table();
+        let tags = tags_table();
+        let orders = TableDef {
+            name: "orders".into(),
+            description: None,
+            columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
+            constraints: vec![auto_pk(&["id"])],
+        };
+        let order_tags = junction_table("order_tags", "order_id", "orders", "tag_id", "tags");
+        let schema = vec![users.clone(), tags, orders, order_tags];
+
+        let result = render_entity_with_schema(&users, &schema).unwrap();
+        assert!(
+            !result.contains("ManyToManyField"),
+            "junction table unrelated to `users` must not produce a M2M field, got:\n{result}"
+        );
+    }
+
+    #[test]
     fn test_export_multi_table_includes_many_to_many() {
         let users = users_table();
         let tags = tags_table();

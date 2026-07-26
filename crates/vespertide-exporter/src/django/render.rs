@@ -580,4 +580,12 @@ mod tests {
         assert_eq!(to_pascal_case("_leading"), "Leading");
         assert_eq!(to_pascal_case("trailing_"), "Trailing");
     }
+
+    #[test]
+    fn test_unique_name_double_collision_appends_incrementing_suffix() {
+        let mut used = HashSet::new();
+        used.insert("tag".to_string());
+        used.insert("tag_2".to_string());
+        assert_eq!(unique_name("tag", &mut used), "tag_3");
+    }
 }

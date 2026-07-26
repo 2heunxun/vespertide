@@ -24,7 +24,7 @@ fn composite_fk_table() -> TableDef {
                 ref_table: "order_regions".into(),
                 ref_columns: vec!["order_id".into(), "region_id".into()],
                 on_delete: Some(ReferenceAction::Cascade),
-                on_update: None,
+                on_update: Some(ReferenceAction::Restrict),
                 orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
             },
         ],
@@ -36,7 +36,7 @@ fn test_composite_fk_relation_field() {
     let result = render_entity(&composite_fk_table()).unwrap();
     assert!(
         result.contains(
-            "OrderRegions OrderRegions `gorm:\"foreignKey:OrderID,RegionID;references:OrderID,RegionID;constraint:OnDelete:CASCADE\" json:\"-\"`"
+            "OrderRegions OrderRegions `gorm:\"foreignKey:OrderID,RegionID;references:OrderID,RegionID;constraint:OnDelete:CASCADE,OnUpdate:RESTRICT\" json:\"-\"`"
         ),
         "expected composite FK relation field in GORM output, got:\n{result}"
     );
@@ -55,6 +55,26 @@ fn test_composite_fk_relation_field_name_collision_suffixed() {
     assert!(
         result.contains("OrderRegions2 OrderRegions `gorm:\"foreignKey:OrderID,RegionID"),
         "expected suffixed relation field name on collision, got:\n{result}"
+    );
+}
+
+#[test]
+fn test_composite_fk_relation_field_name_double_collision_increments_suffix() {
+    // Both "OrderRegions" and "OrderRegions2" are already taken by columns,
+    // so the collision loop must advance past its first candidate too.
+    let mut table = composite_fk_table();
+    table.columns.push(col(
+        "order_regions",
+        ColumnType::Simple(SimpleColumnType::Text),
+    ));
+    table.columns.push(col(
+        "order_regions2",
+        ColumnType::Simple(SimpleColumnType::Text),
+    ));
+    let result = render_entity(&table).unwrap();
+    assert!(
+        result.contains("OrderRegions3 OrderRegions `gorm:\"foreignKey:OrderID,RegionID"),
+        "expected double-suffixed relation field name on double collision, got:\n{result}"
     );
 }
 
