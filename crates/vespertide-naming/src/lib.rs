@@ -170,13 +170,16 @@ pub fn to_pascal_case(s: &str) -> String {
     result
 }
 
-/// Convert an arbitrary schema value into a `SCREAMING_SNAKE_CASE` identifier.
+/// Convert an arbitrary schema value into `SCREAMING_SNAKE_CASE`.
 ///
 /// Word boundaries are detected on the lower→upper transition rather than on
 /// character position, so a value that is already `SCREAMING_SNAKE_CASE`
-/// survives unchanged. Non-alphanumeric characters become separators, trailing
-/// separators are trimmed, and a leading digit is prefixed with `_` so the
-/// result is a valid identifier in every language the exporters emit.
+/// survives unchanged. Non-alphanumeric characters become separators and
+/// trailing separators are trimmed.
+///
+/// This is case conversion only — the result can still be an invalid identifier
+/// (a value such as `1critical` keeps its leading digit). Pass it through
+/// [`sanitize_identifier`] with the target language's rule before emitting it.
 ///
 /// # Examples
 /// ```
@@ -185,7 +188,7 @@ pub fn to_pascal_case(s: &str) -> String {
 /// assert_eq!(to_screaming_snake_case("inProgress"), "IN_PROGRESS");
 /// assert_eq!(to_screaming_snake_case("order-status"), "ORDER_STATUS");
 /// assert_eq!(to_screaming_snake_case("ERROR_LEVEL"), "ERROR_LEVEL");
-/// assert_eq!(to_screaming_snake_case("1critical"), "_1CRITICAL");
+/// assert_eq!(to_screaming_snake_case("1critical"), "1CRITICAL");
 /// ```
 pub fn to_screaming_snake_case(s: &str) -> String {
     let mut result = String::new();
@@ -202,12 +205,99 @@ pub fn to_screaming_snake_case(s: &str) -> String {
             prev_lower = false;
         }
     }
-    let result = result.trim_end_matches('_').to_string();
-    if result.starts_with(|c: char| c.is_ascii_digit()) {
-        format!("_{result}")
-    } else {
-        result
+    result.trim_end_matches('_').to_string()
+}
+
+/// What a target language accepts as the first character of an identifier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IdentifierStart {
+    /// Rust modules, Java, SQLAlchemy's Python models and ERD node ids all
+    /// accept a leading `_`.
+    Underscore,
+    /// Prisma's schema parser and Pydantic (SQLModel fields) reject a leading
+    /// `_` outright, and `SeaORM`'s `DeriveEntityModel` drops it while building
+    /// the `Column` variant name. All three need a letter instead.
+    Letter,
+}
+
+/// Rewrite `name` into an identifier the target language will accept.
+///
+/// Characters that cannot appear in an identifier become `_`, and a name that
+/// would otherwise begin with a digit gains a prefix chosen by `start`. The
+/// letter prefix follows the case of the name it precedes, so it reads the same
+/// as its surroundings in both `PascalCase` and `snake_case` output.
+///
+/// Renaming loses the database name, so a caller that gets back something other
+/// than what it passed in **must** emit the original alongside it — Prisma
+/// `@map`, `SeaORM` `column_name`, SQLAlchemy's positional column name.
+///
+/// # Examples
+/// ```
+/// use vespertide_naming::{IdentifierStart, sanitize_identifier};
+///
+/// assert_eq!(sanitize_identifier("user-id", IdentifierStart::Underscore), "user_id");
+/// assert_eq!(sanitize_identifier("1st_place", IdentifierStart::Underscore), "_1st_place");
+/// assert_eq!(sanitize_identifier("1st_place", IdentifierStart::Letter), "x1st_place");
+/// assert_eq!(sanitize_identifier("1CRITICAL", IdentifierStart::Letter), "X1CRITICAL");
+/// assert_eq!(sanitize_identifier("email", IdentifierStart::Letter), "email");
+/// ```
+pub fn sanitize_identifier(name: &str, start: IdentifierStart) -> String {
+    let mut result: String = name
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect();
+
+    let needs_prefix = match start {
+        IdentifierStart::Underscore => {
+            result.is_empty() || result.starts_with(|c: char| c.is_ascii_digit())
+        }
+        IdentifierStart::Letter => !result.starts_with(|c: char| c.is_ascii_alphabetic()),
+    };
+    if !needs_prefix {
+        return result;
     }
+
+    let prefix = match start {
+        IdentifierStart::Underscore => '_',
+        // Match the case of the name's first letter so the escape blends into
+        // `PascalCase`, `snake_case` and `SCREAMING_SNAKE_CASE` alike.
+        IdentifierStart::Letter => {
+            if result
+                .chars()
+                .find(char::is_ascii_alphabetic)
+                .is_some_and(char::is_uppercase)
+            {
+                'X'
+            } else {
+                'x'
+            }
+        }
+    };
+    result.insert(0, prefix);
+    result
+}
+
+/// Module name for a `SeaORM` entity file.
+///
+/// The exporter writes `super::{module}::Entity` in relation fields while the
+/// CLI writes `pub mod {module};` and names the file `{module}.rs`. All three
+/// have to agree, so the rule lives here rather than in either caller.
+///
+/// Rust would accept a leading `_`, but `sea-orm` infers the `Relation` variant
+/// of a relation field from the target's module name by `PascalCase`-ing it —
+/// which drops the `_` and leaves `1users`, so the derive panics. Hence the
+/// same letter rule the entity's own fields use.
+///
+/// # Examples
+/// ```
+/// use vespertide_naming::seaorm_module_name;
+///
+/// assert_eq!(seaorm_module_name("users"), "users");
+/// assert_eq!(seaorm_module_name("1users"), "x1users");
+/// assert_eq!(seaorm_module_name("user-profile"), "user_profile");
+/// ```
+pub fn seaorm_module_name(name: &str) -> String {
+    sanitize_identifier(name, IdentifierStart::Letter)
 }
 
 /// Simple pluralization for relation field names.
@@ -522,9 +612,33 @@ mod tests {
     #[case::already_screaming("ERROR_LEVEL", "ERROR_LEVEL")]
     #[case::acronym_with_digits("HTTP_500", "HTTP_500")]
     #[case::trailing_separator("status-", "STATUS")]
-    #[case::leading_digit("1critical", "_1CRITICAL")]
+    // Case conversion only: making this a valid identifier is
+    // `sanitize_identifier`'s job, since the rule differs per language.
+    #[case::leading_digit("1critical", "1CRITICAL")]
     fn test_to_screaming_snake_case(#[case] input: &str, #[case] expected: &str) {
         assert_eq!(to_screaming_snake_case(input), expected);
+    }
+
+    #[rstest]
+    #[case::already_valid("email", IdentifierStart::Underscore, "email")]
+    #[case::hyphen("user-id", IdentifierStart::Underscore, "user_id")]
+    #[case::space("user id", IdentifierStart::Underscore, "user_id")]
+    #[case::non_ascii("사용자", IdentifierStart::Underscore, "___")]
+    #[case::leading_digit_underscore("1st_place", IdentifierStart::Underscore, "_1st_place")]
+    #[case::leading_digit_letter("1st_place", IdentifierStart::Letter, "x1st_place")]
+    // The escape follows the case of the first letter it precedes.
+    #[case::leading_digit_screaming("1CRITICAL", IdentifierStart::Letter, "X1CRITICAL")]
+    // Prisma and Pydantic reject a leading `_`, so it is escaped too.
+    #[case::existing_underscore_letter("_private", IdentifierStart::Letter, "x_private")]
+    #[case::existing_underscore_ok("_private", IdentifierStart::Underscore, "_private")]
+    #[case::empty_underscore("", IdentifierStart::Underscore, "_")]
+    #[case::empty_letter("", IdentifierStart::Letter, "x")]
+    fn test_sanitize_identifier(
+        #[case] input: &str,
+        #[case] start: IdentifierStart,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(sanitize_identifier(input, start), expected);
     }
 
     #[test]

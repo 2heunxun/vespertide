@@ -2,7 +2,10 @@ use std::collections::{HashMap, HashSet};
 
 use vespertide_core::TableDef;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
-use vespertide_naming::{build_enum_type_name, to_pascal_case, to_screaming_snake_case};
+use vespertide_naming::{
+    IdentifierStart, build_enum_type_name, sanitize_identifier, to_pascal_case,
+    to_screaming_snake_case,
+};
 
 /// Bare `PascalCase` identifiers that the schema declares with more than one
 /// value set.
@@ -37,11 +40,12 @@ pub(super) fn ambiguous_enum_identifiers(schema: &[TableDef]) -> HashSet<String>
 /// type the column actually has.
 pub(super) fn enum_identifier(table: &str, name: &str, ambiguous: &HashSet<String>) -> String {
     let bare = to_pascal_case(name);
-    if ambiguous.contains(&bare) {
+    let chosen = if ambiguous.contains(&bare) {
         to_pascal_case(&build_enum_type_name(table, name))
     } else {
         bare
-    }
+    };
+    sanitize_identifier(&chosen, IdentifierStart::Letter)
 }
 
 /// Enum columns of a table, first declaration wins per name.
@@ -58,6 +62,15 @@ pub(super) fn collect_table_enums(table: &TableDef) -> Vec<(&str, &EnumValues)> 
     result
 }
 
+/// Prisma identifier for one enum variant.
+///
+/// Prisma's parser rejects a leading `_`, so a value that starts with a digit is
+/// escaped with a letter rather than an underscore. The original value survives
+/// in the `@map` the caller emits.
+pub(super) fn enum_variant(value: &str) -> String {
+    sanitize_identifier(&to_screaming_snake_case(value), IdentifierStart::Letter)
+}
+
 /// Render one enum block under an already-resolved identifier, i.e. the output
 /// of [`enum_identifier`] rather than the raw enum name.
 pub(super) fn render_enum(identifier: &str, values: &EnumValues) -> String {
@@ -66,7 +79,7 @@ pub(super) fn render_enum(identifier: &str, values: &EnumValues) -> String {
     match values {
         EnumValues::String(vals) => {
             for val in vals {
-                let variant = to_screaming_snake_case(val);
+                let variant = enum_variant(val);
                 if variant == *val {
                     lines.push(format!("  {variant}"));
                 } else {
@@ -77,7 +90,7 @@ pub(super) fn render_enum(identifier: &str, values: &EnumValues) -> String {
         EnumValues::Integer(vals) => {
             // Prisma doesn't support integer enums natively; emit as string variants with comment
             for val in vals {
-                let variant = to_screaming_snake_case(&val.name);
+                let variant = enum_variant(&val.name);
                 let value = val.value;
                 lines.push(format!("  {variant} // = {value}"));
             }
@@ -103,9 +116,11 @@ mod tests {
         vec!["draft".into(), "in progress".into()],
         "enum DocStatus {\n  DRAFT @map(\"draft\")\n  IN_PROGRESS @map(\"in progress\")\n}"
     )]
+    // `_1CRITICAL` would be rejected by Prisma's parser, so the escape is a
+    // letter; `@map` still carries the value the database stores.
     #[case::leading_digit(
         vec!["1critical".into()],
-        "enum DocStatus {\n  _1CRITICAL @map(\"1critical\")\n}"
+        "enum DocStatus {\n  X1CRITICAL @map(\"1critical\")\n}"
     )]
     fn string_variants_carry_map_only_when_normalization_changes_them(
         #[case] values: Vec<String>,

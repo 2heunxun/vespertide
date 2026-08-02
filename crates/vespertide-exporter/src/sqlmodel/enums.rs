@@ -1,5 +1,5 @@
 use vespertide_core::schema::column::EnumValues;
-use vespertide_naming::to_screaming_snake_case;
+use vespertide_naming::{IdentifierStart, sanitize_identifier, to_screaming_snake_case};
 
 pub(super) fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValues) {
     let class_name = to_pascal_case(name);
@@ -8,7 +8,8 @@ pub(super) fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValu
         EnumValues::String(vals) => {
             lines.push(format!("class {class_name}(str, enum.Enum):"));
             for val in vals {
-                let variant_name = to_screaming_snake_case(val);
+                let variant_name =
+                    sanitize_identifier(&to_screaming_snake_case(val), IdentifierStart::Underscore);
                 lines.push(format!("    {variant_name} = \"{val}\""));
             }
         }

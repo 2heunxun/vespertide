@@ -11,6 +11,7 @@ use vespertide_core::TableDef;
 use vespertide_exporter::{
     Orm, prisma, render_entity_with_schema, seaorm::SeaOrmExporterWithConfig,
 };
+use vespertide_naming::{IdentifierStart, sanitize_identifier, seaorm_module_name};
 
 use crate::parallel_config::{EXPORT_RENDER_PAR_MIN_LEN, EXPORT_RENDER_PAR_THRESHOLD};
 use crate::utils::load_config;
@@ -209,7 +210,7 @@ fn rel_path_to_module_segments(rel_path: &Path) -> Vec<String> {
             if let std::path::Component::Normal(name) = component
                 && let Some(s) = name.to_str()
             {
-                segments.push(sanitize_filename(s).clone());
+                segments.push(seaorm_module_name(s));
             }
         }
     }
@@ -342,11 +343,15 @@ fn build_output_path(root: &Path, rel_path: &Path, orm: Orm) -> PathBuf {
             Orm::Jpa => "java",
             Orm::Prisma => "prisma",
         };
-        // Java requires filename to match PascalCase class name
-        let file_stem = if matches!(orm, Orm::Jpa) {
-            to_pascal_case(&sanitized)
-        } else {
-            sanitized
+        let file_stem = match orm {
+            // Java requires the file name to match the public class name,
+            // including the escaping the renderer applies.
+            Orm::Jpa => {
+                sanitize_identifier(&to_pascal_case(&sanitized), IdentifierStart::Underscore)
+            }
+            // SeaORM files are Rust modules, so the stem doubles as a `mod` name.
+            Orm::SeaOrm => seaorm_module_name(&sanitized),
+            _ => sanitized,
         };
         out.set_file_name(format!("{file_stem}.{ext}"));
     }
@@ -402,7 +407,7 @@ async fn ensure_mod_chain(root: &Path, rel_path: &Path) -> Result<()> {
     };
     let mut comps: Vec<String> = path_stripped
         .components()
-        .filter_map(|c| c.as_os_str().to_str().map(|s| sanitize_filename(s).clone()))
+        .filter_map(|c| c.as_os_str().to_str().map(seaorm_module_name))
         .collect();
     if comps.is_empty() {
         return Ok(());

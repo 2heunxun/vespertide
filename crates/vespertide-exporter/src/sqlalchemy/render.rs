@@ -10,6 +10,7 @@ use rayon::prelude::*;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ColumnDef, TableDef};
+use vespertide_naming::{IdentifierStart, sanitize_identifier};
 
 pub fn render_entity(table: &TableDef) -> Result<String, String> {
     let mut used_types = UsedTypes::default();
@@ -118,7 +119,9 @@ fn render_entity_part(table: &TableDef, used_types: &mut UsedTypes<'static>) -> 
     }
 
     // Class definition
-    let class_name = to_pascal_case(&table.name);
+    // `__tablename__` carries the table name, so the class name only has to be
+    // valid Python.
+    let class_name = sanitize_identifier(&to_pascal_case(&table.name), IdentifierStart::Underscore);
 
     // Add table description as docstring
     if let Some(ref desc) = table.description {
@@ -390,10 +393,16 @@ fn render_column(
         }
     }
 
+    // A renamed attribute no longer points at its column by name, so pass the
+    // column name positionally whenever the two differ.
+    let attr_name = sanitize_identifier(col.name.as_str(), IdentifierStart::Underscore);
+    if attr_name != col.name.as_str() {
+        attrs.insert(0, format!("\"{}\"", col.name));
+    }
+
     let attrs_str = attrs.join(", ");
     lines.push(format!(
-        "    {}: Mapped[{}] = mapped_column({})",
-        col.name, python_type, attrs_str
+        "    {attr_name}: Mapped[{python_type}] = mapped_column({attrs_str})"
     ));
 }
 

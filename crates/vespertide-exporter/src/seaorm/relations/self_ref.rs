@@ -8,9 +8,10 @@
 use std::collections::{HashMap, HashSet};
 
 use vespertide_core::{TableConstraint, TableDef};
+use vespertide_naming::seaorm_module_name;
 
 use super::super::imports::{
-    absolute_module_path, sanitize_field_name, to_pascal_case, unique_name,
+    absolute_module_path, sanitize_field_name, sanitize_type_name, to_pascal_case, unique_name,
 };
 use super::super::render::primary_key_columns;
 use super::naming::{generate_relation_enum_name, pluralize};
@@ -78,12 +79,12 @@ pub(super) fn self_ref_link_name(
     from_idx: usize,
     to_idx: usize,
 ) -> String {
-    format!(
+    sanitize_type_name(&format!(
         "{}To{}Via{}",
         to_pascal_case(&self_ref_junction.role_columns[from_idx]),
         to_pascal_case(&self_ref_junction.role_columns[to_idx]),
         to_pascal_case(&self_ref_junction.junction_table)
-    )
+    ))
 }
 
 pub(in crate::seaorm) fn resolve_self_ref_link_module_path(
@@ -100,7 +101,7 @@ pub(in crate::seaorm) fn resolve_self_ref_link_module_path(
         let target_parent = target.split_last().map_or(&[][..], |(_, parent)| parent);
 
         if current_parent == target_parent {
-            return format!("super::{junction_table}");
+            return format!("super::{}", seaorm_module_name(junction_table));
         }
 
         if !crate_prefix.is_empty() {
@@ -110,7 +111,7 @@ pub(in crate::seaorm) fn resolve_self_ref_link_module_path(
         return absolute_module_path("crate::models", target);
     }
 
-    format!("super::{junction_table}")
+    format!("super::{}", seaorm_module_name(junction_table))
 }
 
 pub(in crate::seaorm) fn render_self_ref_link_helpers(

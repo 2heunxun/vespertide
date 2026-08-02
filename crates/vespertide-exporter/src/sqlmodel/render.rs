@@ -8,6 +8,7 @@ use crate::utils::python::{CompositeFk, collect_composite_fks};
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ColumnDef, TableDef};
+use vespertide_naming::{IdentifierStart, sanitize_identifier};
 
 use super::enums::{render_enum, to_pascal_case};
 use super::types::{UsedTypes, column_type_to_python};
@@ -233,7 +234,7 @@ fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Ve
     }
 
     // Class definition
-    let class_name = to_pascal_case(&table.name);
+    let class_name = sanitize_identifier(&to_pascal_case(&table.name), IdentifierStart::Letter);
 
     // Add table description as docstring
     lines.push(format!("class {class_name}(SQLModel, table=True):"));
@@ -490,11 +491,18 @@ pub(super) fn render_column(
     }
 
     // Build field definition
+    // Pydantic rejects a leading `_` on model fields, so the escape is a letter.
+    // A renamed field no longer points at its column, so name it explicitly.
+    let field_name = sanitize_identifier(col.name.as_str(), IdentifierStart::Letter);
+    if field_name != col.name.as_str() {
+        field_args.push(format!("sa_column_kwargs={{\"name\": \"{}\"}}", col.name));
+    }
+
     let field_str = if field_args.is_empty() {
         "Field(...)".into()
     } else {
         format!("Field({})", field_args.join(", "))
     };
 
-    lines.push(format!("    {}: {} = {}", col.name, python_type, field_str));
+    lines.push(format!("    {field_name}: {python_type} = {field_str}"));
 }

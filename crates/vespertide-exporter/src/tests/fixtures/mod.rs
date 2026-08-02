@@ -784,6 +784,96 @@ pub(crate) fn reserved_word_identifiers() -> TableDef {
         .expect("reserved_word_identifiers normalizes")
 }
 
+/// Names that are legal in SQL — `quote_ident` quotes every identifier — but
+/// that no target language accepts verbatim: a digit-leading table, a
+/// digit-leading column and a hyphenated column. Each backend has to escape
+/// them and name the original alongside.
+pub(crate) fn non_identifier_names() -> TableDef {
+    let raw = TableDef {
+        name: "1users".into(),
+        description: None,
+        columns: vec![
+            simple("id", SimpleColumnType::Integer).primary_key(PrimaryKeySyntax::Bool(true)),
+            nullable_simple("1st_place", SimpleColumnType::Integer),
+            nullable_simple("user-id", SimpleColumnType::Text),
+            // Self-referencing FK: the relation field names each backend derives
+            // from this column and from the table name need escaping too.
+            nullable_simple("1st_owner_id", SimpleColumnType::Integer),
+        ],
+        constraints: vec![fk(&["1st_owner_id"], "1users", &["id"])],
+    };
+    raw.normalize().expect("non_identifier_names normalizes")
+}
+
+/// An FK column whose own name is what the relation field would be called, so
+/// the relation and the column compete for one field name. Both have to end up
+/// in the model, which means one of them gets renamed rather than redeclared.
+pub(crate) fn relation_name_taken_by_column() -> Vec<TableDef> {
+    let users = TableDef {
+        name: "users".into(),
+        description: None,
+        columns: vec![
+            simple("id", SimpleColumnType::Integer).primary_key(PrimaryKeySyntax::Bool(true)),
+        ],
+        constraints: vec![],
+    };
+    let items = TableDef {
+        name: "items".into(),
+        description: None,
+        columns: vec![
+            simple("id", SimpleColumnType::Integer).primary_key(PrimaryKeySyntax::Bool(true)),
+            nullable_simple("owner", SimpleColumnType::Integer),
+        ],
+        constraints: vec![fk(&["owner"], "users", &["id"])],
+    };
+    vec![
+        users
+            .normalize()
+            .expect("relation_name_taken_by_column users normalizes"),
+        items
+            .normalize()
+            .expect("relation_name_taken_by_column items normalizes"),
+    ]
+}
+
+/// Two tables where every name a relation is derived from needs escaping: the
+/// referenced table, its primary key, and both referencing columns. Two FKs to
+/// the same table is what forces the disambiguating names — the reverse
+/// `has_many` field, `relation_enum` / `via_rel`, `from` / `to`, and the
+/// module path — so each one is exercised on a name its language rejects.
+pub(crate) fn non_identifier_relation_names() -> Vec<TableDef> {
+    let owners = TableDef {
+        name: "1users".into(),
+        description: None,
+        columns: vec![
+            simple("1id", SimpleColumnType::Integer).primary_key(PrimaryKeySyntax::Bool(true)),
+            simple("email", SimpleColumnType::Text),
+        ],
+        constraints: vec![],
+    };
+    let posts = TableDef {
+        name: "posts".into(),
+        description: None,
+        columns: vec![
+            simple("id", SimpleColumnType::Integer).primary_key(PrimaryKeySyntax::Bool(true)),
+            nullable_simple("1st_owner_id", SimpleColumnType::Integer),
+            nullable_simple("2nd_owner_id", SimpleColumnType::Integer),
+        ],
+        constraints: vec![
+            fk(&["1st_owner_id"], "1users", &["1id"]),
+            fk(&["2nd_owner_id"], "1users", &["1id"]),
+        ],
+    };
+    vec![
+        owners
+            .normalize()
+            .expect("non_identifier_relation_names owners normalizes"),
+        posts
+            .normalize()
+            .expect("non_identifier_relation_names posts normalizes"),
+    ]
+}
+
 pub(crate) fn composite_primary_key() -> TableDef {
     let raw = TableDef {
         name: "membership".into(),

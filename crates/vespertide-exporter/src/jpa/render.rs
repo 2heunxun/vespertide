@@ -9,6 +9,7 @@ use vespertide_core::{ColumnDef, TableDef};
 
 use crate::jpa::types::{UsedImports, java_type_for_column};
 use crate::utils::common::unquote;
+use vespertide_naming::{IdentifierStart, sanitize_identifier};
 
 pub(super) fn render_entity_inner(table: &TableDef) -> String {
     render_entity_with_imports(table).0
@@ -67,7 +68,7 @@ pub(super) fn render_entity_with_imports(table: &TableDef) -> (String, UsedImpor
     }
 
     // --- Class definition ---
-    let class_name = to_pascal_case(&table.name);
+    let class_name = sanitize_identifier(&to_pascal_case(&table.name), IdentifierStart::Underscore);
 
     // Javadoc from table description
     if let Some(ref desc) = table.description {
@@ -324,7 +325,7 @@ fn render_field(
     is_unique: bool,
 ) {
     let java_type = java_type_for_column(col);
-    let field_name = to_camel_case(&col.name);
+    let field_name = sanitize_identifier(&to_camel_case(&col.name), IdentifierStart::Underscore);
 
     // Javadoc comment
     if let Some(ref comment) = col.comment {
@@ -368,8 +369,12 @@ fn render_fk_field(
     auto_increment: bool,
     fk: &FkInfo,
 ) {
-    let entity_type = to_pascal_case(&fk.ref_table);
-    let field_name = infer_fk_field_name(&col.name);
+    // Both are derived from schema names, so they need the same escaping the
+    // class declaration and a plain field get.
+    let entity_type =
+        sanitize_identifier(&to_pascal_case(&fk.ref_table), IdentifierStart::Underscore);
+    let field_name =
+        sanitize_identifier(&infer_fk_field_name(&col.name), IdentifierStart::Underscore);
 
     // Javadoc comment
     if let Some(ref comment) = col.comment {

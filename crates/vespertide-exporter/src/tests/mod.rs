@@ -7,10 +7,10 @@ use crate::orm::{Orm, render_entity, render_entity_with_schema};
 pub(crate) mod fixtures;
 
 /// Dispatch the per-ORM **multi-table** entry point so the cross-ORM
-/// `orm_cases!(multi ...)` arm renders a `Vec<TableDef>` schema for all four
+/// `orm_cases!(multi ...)` arm renders a `Vec<TableDef>` schema for all five
 /// ORMs through a single call. JPA's `render_entities` returns `Vec<String>`
 /// (one entry per entity); we join with `"\n"` to match the
-/// `String`-returning shape of the other three.
+/// `String`-returning shape of the other four.
 fn render_schema(orm: Orm, schema: &[TableDef]) -> Result<String, String> {
     match orm {
         Orm::SeaOrm => crate::seaorm::export(schema),
@@ -265,6 +265,34 @@ orm_cases!(
     integer_enum_with_default_snapshot,
     "integer_enum_with_default",
     fixtures::integer_enum_with_default
+);
+// Cross-ORM comparison of identifier escaping. Each language starts identifiers
+// differently — Prisma and Pydantic reject a leading `_`, the rest accept it —
+// so the five snapshots must differ, and every one has to carry the original
+// name (`@@map` / `@map`, `column_name`, the positional column name,
+// `sa_column_kwargs`, `@Table`/`@Column`).
+orm_cases!(
+    non_identifier_names_snapshot,
+    "non_identifier_names",
+    fixtures::non_identifier_names
+);
+// The names a relation is derived from land in places a column name never
+// reaches: `SeaORM` reads its `Relation` variants back out of `relation_enum`
+// and out of the target's module name, and Prisma names both ends of a
+// relation. Two FKs to one table is what forces those names to be generated,
+// so this is where an unescaped one surfaces.
+orm_cases!(
+    multi non_identifier_relation_names_snapshot,
+    "non_identifier_relation_names",
+    fixtures::non_identifier_relation_names
+);
+// A relation field and a column can be handed the same name; whichever backend
+// declares fields (`SeaORM`, Prisma, both Python ORMs) has to keep them apart
+// or the model ends up with the field twice.
+orm_cases!(
+    multi relation_name_taken_by_column_snapshot,
+    "relation_name_taken_by_column",
+    fixtures::relation_name_taken_by_column
 );
 // Cross-ORM coverage closure for the variant-name branch of
 // `seaorm/types.rs` `format_default_value` (the `else` arm inside

@@ -555,6 +555,46 @@ fn build_output_path_jpa_uses_pascal_case_java_extension() {
     assert_eq!(out3, Path::new("src/models/blog/PostComment.java"));
 }
 
+/// A `SeaORM` file stem doubles as a Rust `mod` name, so `pub mod 1users;`
+/// would not compile; the file and the declaration have to agree on the escape.
+/// The escape is a letter rather than `_` because `sea-orm` reads the module
+/// name back out to name a `Relation` variant, and `_1users` would leave it
+/// `1users` — see `vespertide_naming::seaorm_module_name`.
+#[tokio::test]
+async fn ensure_mod_chain_escapes_a_name_rust_cannot_start_with() {
+    use std::path::Path;
+    let tmp = tempdir().unwrap();
+    let root = tmp.path().join("src/models");
+    std_fs::create_dir_all(&root).unwrap();
+
+    ensure_mod_chain(&root, Path::new("1users.json"))
+        .await
+        .unwrap();
+
+    let root_mod = std_fs::read_to_string(root.join("mod.rs")).unwrap();
+    assert_eq!(
+        root_mod,
+        "pub mod x1users;
+"
+    );
+    assert_eq!(
+        build_output_path(&root, Path::new("1users.json"), Orm::SeaOrm),
+        root.join("x1users.rs")
+    );
+}
+
+/// `javac` rejects a file whose name does not match its public class, so the
+/// file name has to carry the same escape the renderer applies to a table name
+/// Java cannot use verbatim.
+#[test]
+fn build_output_path_jpa_escapes_a_name_java_cannot_start_with() {
+    use std::path::Path;
+    let root = Path::new("src/models");
+
+    let out = build_output_path(root, Path::new("1users.json"), Orm::Jpa);
+    assert_eq!(out, Path::new("src/models/_1users.java"));
+}
+
 #[test]
 fn build_output_path_jpa_strips_vespertide_suffix() {
     use std::path::Path;

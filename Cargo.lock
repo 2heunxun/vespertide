@@ -2872,6 +2872,7 @@ dependencies = [
  "vespertide-core",
  "vespertide-exporter",
  "vespertide-loader",
+ "vespertide-naming",
  "vespertide-planner",
  "vespertide-query",
 ]

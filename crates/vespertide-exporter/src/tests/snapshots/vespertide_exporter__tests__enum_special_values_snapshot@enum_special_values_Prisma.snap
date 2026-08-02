@@ -6,7 +6,7 @@ enum EventSeverity {
   INFO_LEVEL @map("info-level")
   WARNING_LEVEL @map("warning_level")
   ERROR_LEVEL
-  _1CRITICAL @map("1critical")
+  X1CRITICAL @map("1critical")
 }
 
 model Events {

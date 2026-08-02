@@ -5,8 +5,9 @@ use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues}
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::schema::names::ColumnName;
 use vespertide_core::schema::reference::ReferenceAction;
-use vespertide_naming::{to_pascal_case, to_screaming_snake_case};
+use vespertide_naming::{IdentifierStart, sanitize_identifier, to_pascal_case};
 
+use super::enums::enum_variant;
 use super::types::column_type_to_prisma;
 use crate::utils::common::unquote;
 
@@ -50,19 +51,21 @@ pub(super) struct BackRelation {
 }
 
 pub(super) fn back_rel_field(br: &BackRelation) -> (String, String) {
-    let source_pascal = to_pascal_case(&br.source_table);
+    let source_pascal = prisma_model_name(&br.source_table);
     let rel_type = if br.is_one_to_one {
         format!("{source_pascal}?")
     } else {
         format!("{source_pascal}[]")
     };
 
-    let field_name = if br.relation_name.is_some() {
+    // Derived from a column and a table name, so it needs the same escaping a
+    // declared field gets.
+    let field_name = prisma_field_name(&if br.relation_name.is_some() {
         let rel_field = infer_relation_field_name(&br.fk_col);
         format!("{rel_field}_{}", br.source_table)
     } else {
         br.source_table.clone()
-    };
+    });
 
     (field_name, rel_type)
 }
@@ -141,7 +144,7 @@ pub(super) fn render_model(
         }
     }
 
-    let model_name = to_pascal_case(&table.name);
+    let model_name = prisma_model_name(&table.name);
     lines.push(format!("model {model_name} {{"));
 
     let pk_info = extract_pk_info(&table.constraints);
@@ -210,16 +213,17 @@ pub(super) fn render_model(
     let mut field_names: HashSet<String> = table
         .columns
         .iter()
-        .map(|col| col.name.as_str().to_string())
+        .map(|col| prisma_field_name(col.name.as_str()))
         .collect();
 
     // Render scalar fields + inline relation fields
     for col in &table.columns {
-        let col_name = col.name.as_str();
-        let in_pk = pk_columns.contains(col_name);
+        let db_name = col.name.as_str();
+        let col_name = prisma_field_name(db_name);
+        let in_pk = pk_columns.contains(db_name);
         let is_single_pk = in_pk && !is_composite_pk;
         let auto_inc = is_single_pk && pk_info.auto_increment;
-        let is_unique = unique_single.get(col_name).copied();
+        let is_unique = unique_single.get(db_name).copied();
 
         if let Some(ref comment) = col.comment {
             let comment = comment.replace('\n', " ");
@@ -250,6 +254,11 @@ pub(super) fn render_model(
             }
         }
 
+        // A renamed field no longer points at its column by name.
+        if col_name != db_name {
+            attrs.push(format!("@map(\"{db_name}\")"));
+        }
+
         let attrs_str = if attrs.is_empty() {
             String::new()
         } else {
@@ -259,13 +268,14 @@ pub(super) fn render_model(
         lines.push(format!("  {col_name} {type_str}{attrs_str}"));
 
         // Emit inline relation field for FK columns
-        if let Some(fk) = fk_by_col.get(col_name) {
+        if let Some(fk) = fk_by_col.get(db_name) {
             // `rel_name_segment` drives @relation("…") naming — must stay consistent
             // with the segment computed by collect_back_relations on the other side,
             // so deduplicate the *field* name only.
-            let rel_name_segment = infer_relation_field_name(col_name);
-            let rel_field_name = claim_field_name(rel_name_segment.clone(), &mut field_names);
-            let rel_model = to_pascal_case(fk.ref_table);
+            let rel_name_segment = infer_relation_field_name(db_name);
+            let rel_field_name =
+                claim_field_name(prisma_field_name(&rel_name_segment), &mut field_names);
+            let rel_model = prisma_model_name(fk.ref_table);
             let rel_type = if col.nullable {
                 format!("{rel_model}?")
             } else {
@@ -284,11 +294,13 @@ pub(super) fn render_model(
                 rel_args.push(format!("\"{table_pascal}{field_pascal}\""));
             }
             rel_args.push(format!("fields: [{col_name}]"));
+            // `references` names fields of the target model, so a renamed
+            // column has to appear here under its Prisma name.
             rel_args.push(format!(
                 "references: [{}]",
                 fk.ref_cols
                     .iter()
-                    .map(ColumnName::as_str)
+                    .map(|ref_col| prisma_field_name(ref_col.as_str()))
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
@@ -378,11 +390,11 @@ fn prisma_default_attr(default_sql: &str, col_type: &ColumnType) -> String {
         if let Ok(n) = key.parse::<i64>()
             && let Some(v) = int_values.iter().find(|v| v.value == n)
         {
-            return format!("@default({})", to_screaming_snake_case(&v.name));
+            return format!("@default({})", enum_variant(&v.name));
         }
         // 2) exact variant-name match → variant name
         if let Some(v) = int_values.iter().find(|v| v.name == key) {
-            return format!("@default({})", to_screaming_snake_case(&v.name));
+            return format!("@default({})", enum_variant(&v.name));
         }
         // 3) no match → dbgenerated fallback (valid PSL; avoids bare-int type error)
         let escaped = key.replace('"', "\\\"");
@@ -422,7 +434,7 @@ fn prisma_default_attr(default_sql: &str, col_type: &ColumnType) -> String {
         }) = col_type
             && variants.iter().any(|v| v.as_str() == stripped)
         {
-            let variant = to_screaming_snake_case(stripped);
+            let variant = enum_variant(stripped);
             return format!("@default({variant})");
         }
         let s = stripped.replace('\\', "\\\\").replace('"', "\\\"");
@@ -448,6 +460,18 @@ fn reference_action_to_prisma(action: &ReferenceAction) -> &'static str {
         // Includes NoAction and unknown/future referential actions.
         _ => "NoAction",
     }
+}
+
+/// Prisma model name for a table. `@@map` carries the table name itself, so the
+/// identifier only has to be valid.
+fn prisma_model_name(table: &str) -> String {
+    sanitize_identifier(&to_pascal_case(table), IdentifierStart::Letter)
+}
+
+/// Prisma field name for a column. `@map` carries the column name itself, so the
+/// identifier only has to be valid.
+fn prisma_field_name(column: &str) -> String {
+    sanitize_identifier(column, IdentifierStart::Letter)
 }
 
 fn infer_relation_field_name(fk_col: &str) -> String {

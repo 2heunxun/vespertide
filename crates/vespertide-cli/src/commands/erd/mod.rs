@@ -10,6 +10,7 @@ use clap::ValueEnum;
 use vespertide_core::schema::foreign_key::ForeignKeySyntax;
 use vespertide_core::schema::primary_key::PrimaryKeySyntax;
 use vespertide_core::{ColumnDef, ReferenceAction, StrOrBoolOrArray, TableConstraint, TableDef};
+use vespertide_naming::IdentifierStart;
 
 use crate::utils::{load_config, load_models};
 
@@ -262,25 +263,10 @@ pub(super) fn column_markers(table: &TableDef, column: &ColumnDef) -> String {
     }
 }
 
+/// Node id for a Mermaid or Graphviz diagram. Both accept the same shape as a
+/// Rust module name, so this is the shared underscore rule.
 pub(super) fn sanitize_identifier(input: &str) -> String {
-    let mut identifier = String::new();
-
-    for (index, ch) in input.chars().enumerate() {
-        if ch == '_' || ch.is_ascii_alphanumeric() {
-            if index == 0 && ch.is_ascii_digit() {
-                identifier.push('_');
-            }
-            identifier.push(ch);
-        } else {
-            identifier.push('_');
-        }
-    }
-
-    if identifier.is_empty() {
-        "_".to_string()
-    } else {
-        identifier
-    }
+    vespertide_naming::sanitize_identifier(input, IdentifierStart::Underscore)
 }
 
 fn inline_foreign_key_relation(
