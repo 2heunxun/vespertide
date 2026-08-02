@@ -286,9 +286,10 @@ orm_cases!(
     "non_identifier_relation_names",
     fixtures::non_identifier_relation_names
 );
-// A relation field and a column can be handed the same name; whichever backend
-// declares fields (`SeaORM`, Prisma, both Python ORMs) has to keep them apart
-// or the model ends up with the field twice.
+// A relation field and a column can be handed the same name. `SeaORM` and
+// Prisma emit a relation field alongside the FK column, so they have to keep
+// the two apart or the model declares the field twice; the Python backends
+// emit the column only and have nothing to collide.
 orm_cases!(
     multi relation_name_taken_by_column_snapshot,
     "relation_name_taken_by_column",
