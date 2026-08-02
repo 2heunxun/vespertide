@@ -276,6 +276,15 @@ orm_cases!(
     "non_identifier_names",
     fixtures::non_identifier_names
 );
+// Model-level constraints name their columns in a second place. Prisma's
+// `@@id` / `@@unique` / `@@index` take model field names, so an escaped column
+// has to be escaped there too; the other backends name database columns there
+// and must not be.
+orm_cases!(
+    non_identifier_names_in_constraints_snapshot,
+    "non_identifier_names_in_constraints",
+    fixtures::non_identifier_names_in_constraints
+);
 // The names a relation is derived from land in places a column name never
 // reaches: `SeaORM` reads its `Relation` variants back out of `relation_enum`
 // and out of the target's module name, and Prisma names both ends of a

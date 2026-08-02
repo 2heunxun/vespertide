@@ -339,7 +339,7 @@ pub(super) fn render_model(
 
     // Composite PK
     if is_composite_pk {
-        let pk_cols = pk_info.columns.join(", ");
+        let pk_cols = field_list(&pk_info.columns);
         lines.push(format!("  @@id([{pk_cols}])"));
     }
 
@@ -348,7 +348,7 @@ pub(super) fn render_model(
         if let TableConstraint::Unique { name, columns, .. } = c
             && columns.len() > 1
         {
-            let cols = columns.join(", ");
+            let cols = field_list(columns);
             if let Some(n) = name {
                 lines.push(format!("  @@unique([{cols}], map: \"{n}\")"));
             } else {
@@ -360,7 +360,7 @@ pub(super) fn render_model(
     // All index constraints
     for c in &table.constraints {
         if let TableConstraint::Index { name, columns } = c {
-            let cols = columns.join(", ");
+            let cols = field_list(columns);
             // `match` instead of `if let Some`: LLVM coverage attributes match
             // arms reliably where this if/else was misattributed as uncovered.
             match name {
@@ -460,6 +460,20 @@ fn reference_action_to_prisma(action: &ReferenceAction) -> &'static str {
         // Includes NoAction and unknown/future referential actions.
         _ => "NoAction",
     }
+}
+
+/// Render a column list for a model-level attribute (`@@id`, `@@unique`,
+/// `@@index`).
+///
+/// These name fields of the model, not database columns, so an escaped column
+/// has to appear under its Prisma name. The `map:` argument alongside them is
+/// what still carries the constraint's database name.
+fn field_list<T: AsRef<str>>(columns: &[T]) -> String {
+    columns
+        .iter()
+        .map(|column| prisma_field_name(column.as_ref()))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Prisma model name for a table. `@@map` carries the table name itself, so the

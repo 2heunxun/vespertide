@@ -805,6 +805,38 @@ pub(crate) fn non_identifier_names() -> TableDef {
     raw.normalize().expect("non_identifier_names normalizes")
 }
 
+/// Escape-needing names in the places a *model-level* constraint names them:
+/// a composite primary key, a composite unique, and an index. Prisma spells
+/// these with model field names (`@@id` / `@@unique` / `@@index`) while the
+/// other backends spell them with database column names, so the same fixture
+/// has to come out differently on each side.
+pub(crate) fn non_identifier_names_in_constraints() -> TableDef {
+    let raw = TableDef {
+        name: "membership".into(),
+        description: None,
+        columns: vec![
+            simple("1tenant_id", SimpleColumnType::Integer),
+            simple("2user_id", SimpleColumnType::Integer),
+            simple("user-email", SimpleColumnType::Text),
+            simple("3created", SimpleColumnType::Text),
+        ],
+        constraints: vec![
+            pk(&["1tenant_id", "2user_id"]),
+            TableConstraint::Unique {
+                name: None,
+                columns: vec!["user-email".into(), "1tenant_id".into()],
+                strategy: vespertide_core::UniqueConstraintStrategy::default(),
+            },
+            TableConstraint::Index {
+                name: None,
+                columns: vec!["3created".into()],
+            },
+        ],
+    };
+    raw.normalize()
+        .expect("non_identifier_names_in_constraints normalizes")
+}
+
 /// An FK column whose own name is what the relation field would be called, so
 /// the relation and the column compete for one field name. Both have to end up
 /// in the model, which means one of them gets renamed rather than redeclared.
