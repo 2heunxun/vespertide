@@ -460,9 +460,15 @@ mod tests {
         assert_eq!(reference_action_to_prisma(&action), expected);
     }
 
-    #[test]
-    fn integer_enum_default_resolves_numeric_value_to_variant_name() {
-        let ty = ColumnType::Complex(ComplexColumnType::Enum {
+    fn string_enum() -> ColumnType {
+        ColumnType::Complex(ComplexColumnType::Enum {
+            name: "doc_status".into(),
+            values: EnumValues::String(vec!["draft".into(), "in progress".into()]),
+        })
+    }
+
+    fn integer_enum() -> ColumnType {
+        ColumnType::Complex(ComplexColumnType::Enum {
             name: "priority".into(),
             values: EnumValues::Integer(vec![
                 NumValue {
@@ -474,8 +480,41 @@ mod tests {
                     value: 200,
                 },
             ]),
-        });
-        assert_eq!(prisma_default_attr("100", &ty), "@default(LOW)");
+        })
+    }
+
+    #[rstest]
+    #[case::bool_true("true", "@default(true)")]
+    #[case::bool_false("false", "@default(false)")]
+    #[case::now("now()", "@default(now())")]
+    #[case::current_timestamp("CURRENT_TIMESTAMP", "@default(now())")]
+    #[case::uuid_postgres("gen_random_uuid()", "@default(uuid())")]
+    #[case::uuid_generate_v4("uuid_generate_v4()", "@default(uuid())")]
+    #[case::uuid_mssql("NEWID()", "@default(uuid())")]
+    #[case::other_function("gen_code()", "@default(dbgenerated(\"gen_code()\"))")]
+    #[case::quoted_literal("'active'", "@default(\"active\")")]
+    #[case::numeric("0", "@default(0)")]
+    #[case::bare_word("SOME_CONSTANT", "@default(dbgenerated(\"SOME_CONSTANT\"))")]
+    fn default_attr_maps_scalar_forms(#[case] default_sql: &str, #[case] expected: &str) {
+        let non_enum = ColumnType::Simple(SimpleColumnType::Text);
+        assert_eq!(prisma_default_attr(default_sql, &non_enum), expected);
+    }
+
+    #[rstest]
+    #[case::string_variant("'draft'", string_enum(), "@default(DRAFT)")]
+    #[case::string_variant_normalized("'in progress'", string_enum(), "@default(IN_PROGRESS)")]
+    // Emitting `ARCHIVED` would reference a value the enum does not define.
+    #[case::string_value_not_declared("'archived'", string_enum(), "@default(\"archived\")")]
+    #[case::integer_by_value("100", integer_enum(), "@default(LOW)")]
+    #[case::integer_by_name("high", integer_enum(), "@default(HIGH)")]
+    #[case::integer_by_quoted_name("'high'", integer_enum(), "@default(HIGH)")]
+    #[case::integer_value_not_declared("999", integer_enum(), "@default(dbgenerated(\"999\"))")]
+    fn default_attr_resolves_enum_defaults(
+        #[case] default_sql: &str,
+        #[case] col_type: ColumnType,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(prisma_default_attr(default_sql, &col_type), expected);
     }
 
     #[test]
@@ -496,14 +535,5 @@ mod tests {
         let rendered = render_model(&table, &[]);
         assert!(rendered.contains("@@index([created_at], map: \"idx_articles_created_at\")"));
         assert!(rendered.contains("@@index([title])"));
-    }
-
-    #[rstest]
-    #[case::postgres_gen_random_uuid("gen_random_uuid()")]
-    #[case::postgres_uuid_generate_v4("uuid_generate_v4()")]
-    #[case::mssql_newid("NEWID()")]
-    fn uuid_generating_default_maps_to_client_uuid(#[case] default_sql: &str) {
-        let ty = ColumnType::Simple(SimpleColumnType::Uuid);
-        assert_eq!(prisma_default_attr(default_sql, &ty), "@default(uuid())");
     }
 }
