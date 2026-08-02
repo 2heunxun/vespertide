@@ -57,7 +57,9 @@ pub(super) fn column_type_to_prisma(ty: &ColumnType, nullable: bool) -> String {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vespertide_core::schema::column::{ColumnType, ComplexColumnType, SimpleColumnType};
+    use vespertide_core::schema::column::{
+        ColumnType, ComplexColumnType, EnumValues, SimpleColumnType,
+    };
 
     use super::*;
 
@@ -96,60 +98,35 @@ mod tests {
         assert_eq!(column_type_to_prisma(&ty, true), "DateTime?");
     }
 
-    #[test]
-    fn sized_complex_types_drop_size_info() {
+    #[rstest]
+    #[case::varchar(ComplexColumnType::Varchar { length: 255 }, false, "String")]
+    #[case::char(ComplexColumnType::Char { length: 3 }, false, "String")]
+    #[case::numeric_nullable(
+        ComplexColumnType::Numeric { precision: 10, scale: 2 },
+        true,
+        "Decimal?"
+    )]
+    #[case::custom(
+        ComplexColumnType::Custom { custom_type: "ltree".into() },
+        false,
+        "Unsupported(\"ltree\")"
+    )]
+    #[case::enum_type(
+        ComplexColumnType::Enum {
+            name: "order_status".into(),
+            values: EnumValues::String(vec!["open".into(), "closed".into()]),
+        },
+        false,
+        "OrderStatus"
+    )]
+    fn complex_types_map_to_neutral_scalars(
+        #[case] complex: ComplexColumnType,
+        #[case] nullable: bool,
+        #[case] expected: &str,
+    ) {
         assert_eq!(
-            column_type_to_prisma(
-                &ColumnType::Complex(ComplexColumnType::Varchar { length: 255 }),
-                false,
-            ),
-            "String"
-        );
-
-        assert_eq!(
-            column_type_to_prisma(
-                &ColumnType::Complex(ComplexColumnType::Char { length: 3 }),
-                false,
-            ),
-            "String"
-        );
-
-        assert_eq!(
-            column_type_to_prisma(
-                &ColumnType::Complex(ComplexColumnType::Numeric {
-                    precision: 10,
-                    scale: 2,
-                }),
-                true,
-            ),
-            "Decimal?"
-        );
-    }
-
-    #[test]
-    fn custom_and_enum_types_render() {
-        assert_eq!(
-            column_type_to_prisma(
-                &ColumnType::Complex(ComplexColumnType::Custom {
-                    custom_type: "ltree".into(),
-                }),
-                false,
-            ),
-            "Unsupported(\"ltree\")"
-        );
-
-        assert_eq!(
-            column_type_to_prisma(
-                &ColumnType::Complex(ComplexColumnType::Enum {
-                    name: "order_status".into(),
-                    values: vespertide_core::schema::column::EnumValues::String(vec![
-                        "open".into(),
-                        "closed".into(),
-                    ]),
-                }),
-                false,
-            ),
-            "OrderStatus"
+            column_type_to_prisma(&ColumnType::Complex(complex), nullable),
+            expected
         );
     }
 }

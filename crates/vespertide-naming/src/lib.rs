@@ -308,6 +308,7 @@ pub fn build_enum_type_name(table: &str, enum_name: &str) -> String {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+    use rstest::rstest;
 
     // ========================================================================
     // Relation Naming Tests
@@ -510,21 +511,20 @@ mod tests {
         assert_eq!(to_pascal_case(""), "");
     }
 
-    #[test]
-    fn test_to_screaming_snake_case() {
-        assert_eq!(to_screaming_snake_case("pending"), "PENDING");
-        assert_eq!(to_screaming_snake_case("not_started"), "NOT_STARTED");
-        assert_eq!(to_screaming_snake_case("inProgress"), "IN_PROGRESS");
-        assert_eq!(to_screaming_snake_case("order-status"), "ORDER_STATUS");
-        assert_eq!(to_screaming_snake_case(""), "");
-        // Already-uppercase input survives: a position-based word-boundary rule
-        // would explode these into `E_R_R_O_R__L_E_V_E_L` / `H_T_T_P__500`.
-        assert_eq!(to_screaming_snake_case("ERROR_LEVEL"), "ERROR_LEVEL");
-        assert_eq!(to_screaming_snake_case("HTTP_500"), "HTTP_500");
-        // Trailing separators are trimmed and a leading digit is prefixed, so
-        // the result stays a valid identifier.
-        assert_eq!(to_screaming_snake_case("status-"), "STATUS");
-        assert_eq!(to_screaming_snake_case("1critical"), "_1CRITICAL");
+    #[rstest]
+    #[case::lowercase("pending", "PENDING")]
+    #[case::snake_case("not_started", "NOT_STARTED")]
+    #[case::camel_case("inProgress", "IN_PROGRESS")]
+    #[case::kebab_case("order-status", "ORDER_STATUS")]
+    #[case::empty("", "")]
+    // Already-uppercase input survives: a position-based word-boundary rule
+    // would explode these into `E_R_R_O_R__L_E_V_E_L` / `H_T_T_P__500`.
+    #[case::already_screaming("ERROR_LEVEL", "ERROR_LEVEL")]
+    #[case::acronym_with_digits("HTTP_500", "HTTP_500")]
+    #[case::trailing_separator("status-", "STATUS")]
+    #[case::leading_digit("1critical", "_1CRITICAL")]
+    fn test_to_screaming_snake_case(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(to_screaming_snake_case(input), expected);
     }
 
     #[test]
