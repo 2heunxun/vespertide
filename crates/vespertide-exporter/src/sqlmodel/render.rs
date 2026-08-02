@@ -3,6 +3,7 @@ use rayon::prelude::*;
 use crate::parallel_config::{
     PYTHON_EXPORT_PAR_TABLE_MIN_LEN, SQLMODEL_EXPORT_PAR_TABLE_THRESHOLD,
 };
+use crate::utils::common::unquote;
 use crate::utils::python::{CompositeFk, collect_composite_fks};
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
 use vespertide_core::schema::constraint::TableConstraint;
@@ -453,7 +454,7 @@ pub(super) fn render_column(
             field_args.push("default=False".into());
         } else if default_str.starts_with('\'') || default_str.starts_with('"') {
             // String literal - strip quotes for Python
-            let stripped = default_str.trim_matches(|c| c == '\'' || c == '"');
+            let stripped = unquote(&default_str);
             let stripped_escaped = stripped.replace('"', "\\\"");
             field_args.push(format!("default=\"{stripped_escaped}\""));
         } else if default_str.parse::<f64>().is_ok() {

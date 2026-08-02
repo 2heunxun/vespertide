@@ -8,6 +8,7 @@ use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ColumnDef, TableDef};
 
 use crate::jpa::types::{UsedImports, java_type_for_column};
+use crate::utils::common::unquote;
 
 pub(super) fn render_entity_inner(table: &TableDef) -> String {
     render_entity_with_imports(table).0
@@ -469,7 +470,7 @@ fn build_default_initializer(col: &ColumnDef) -> Option<String> {
 
     // String literal defaults
     if default_str.starts_with('\'') || default_str.starts_with('"') {
-        let stripped = default_str.trim_matches(|c| c == '\'' || c == '"');
+        let stripped = unquote(&default_str);
         return Some(format!("\"{}\"", stripped.replace('"', "\\\"")));
     }
 

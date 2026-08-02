@@ -6,7 +6,6 @@ use std::collections::HashSet;
 
 use crate::orm::OrmExporter;
 use vespertide_core::TableDef;
-use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
 
 pub struct PrismaExporter;
 
@@ -33,34 +32,23 @@ impl OrmExporter for PrismaExporter {
 /// output backend-specific. Users pair this file with their own via Prisma's
 /// multi-file schema directory, exactly as the other backends emit models only.
 pub fn render_schema(tables: &[TableDef]) -> String {
+    let ambiguous = enums::ambiguous_enum_identifiers(tables);
     let mut seen_enums: HashSet<String> = HashSet::new();
     let mut parts: Vec<String> = Vec::new();
     for table in tables {
-        for (name, values) in collect_table_enums(table) {
-            if seen_enums.insert(name.to_string()) {
-                parts.push(enums::render_enum(name, values));
+        for (name, values) in enums::collect_table_enums(table) {
+            let identifier = enums::enum_identifier(table.name.as_str(), name, &ambiguous);
+            if seen_enums.insert(identifier.clone()) {
+                parts.push(enums::render_enum(&identifier, values));
             }
         }
     }
 
     for table in tables {
-        parts.push(render::render_model(table, tables));
+        parts.push(render::render_model(table, tables, &ambiguous));
     }
 
     parts.join("\n\n") + "\n"
-}
-
-fn collect_table_enums(table: &TableDef) -> Vec<(&str, &EnumValues)> {
-    let mut seen = HashSet::new();
-    let mut result = Vec::new();
-    for col in &table.columns {
-        if let ColumnType::Complex(ComplexColumnType::Enum { name, values }) = &col.r#type
-            && seen.insert(name.as_str())
-        {
-            result.push((name.as_str(), values));
-        }
-    }
-    result
 }
 
 /// Render enum blocks + model block without schema context.
@@ -74,11 +62,13 @@ pub fn render_entity(table: &TableDef) -> String {
 
 /// Render enum blocks + model block with full schema context (includes back-relations).
 pub fn render_entity_with_schema(table: &TableDef, schema: &[TableDef]) -> String {
+    let ambiguous = enums::ambiguous_enum_identifiers(schema);
     let mut parts: Vec<String> = Vec::new();
-    for (name, values) in collect_table_enums(table) {
-        parts.push(enums::render_enum(name, values));
+    for (name, values) in enums::collect_table_enums(table) {
+        let identifier = enums::enum_identifier(table.name.as_str(), name, &ambiguous);
+        parts.push(enums::render_enum(&identifier, values));
     }
-    parts.push(render::render_model(table, schema));
+    parts.push(render::render_model(table, schema, &ambiguous));
     parts.join("\n\n")
 }
 
@@ -121,5 +111,63 @@ mod tests {
         let schema = render_schema(&[t1, t2]);
 
         assert_eq!(schema.matches("enum DocStatus {").count(), 1);
+    }
+
+    /// Two tables may declare the same enum name with different values; the SQL
+    /// layer keeps them apart as `{table}_{enum}` types, and a single Prisma file
+    /// must do the same or both columns silently get the first table's values.
+    #[test]
+    fn render_schema_qualifies_same_named_enums_that_differ() {
+        let orders = table_with_enum("orders", "status", &["new", "paid"]);
+        let tickets = table_with_enum("tickets", "status", &["open", "closed"]);
+        let schema = render_schema(&[orders, tickets]);
+
+        assert!(schema.contains("enum OrdersStatus {"));
+        assert!(schema.contains("enum TicketsStatus {"));
+        assert!(!schema.contains("enum Status {"));
+        assert!(schema.contains("  st OrdersStatus"));
+        assert!(schema.contains("  st TicketsStatus"));
+    }
+
+    /// Distinct enum names can collapse onto one `PascalCase` identifier, so the
+    /// clash has to be judged after the conversion, not on the declared name.
+    #[test]
+    fn render_schema_qualifies_enums_whose_names_collapse_to_one_identifier() {
+        let orders = table_with_enum("orders", "doc_status", &["new", "paid"]);
+        let tickets = table_with_enum("tickets", "docStatus", &["open", "closed"]);
+        let schema = render_schema(&[orders, tickets]);
+
+        assert!(schema.contains("enum OrdersDocStatus {"));
+        assert!(schema.contains("enum TicketsDocStatus {"));
+        assert!(schema.contains("  st OrdersDocStatus"));
+        assert!(schema.contains("  st TicketsDocStatus"));
+    }
+
+    fn table_with_enum(name: &str, enum_name: &str, values: &[&str]) -> TableDef {
+        use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
+        use vespertide_core::schema::primary_key::PrimaryKeySyntax;
+        use vespertide_core::{ColumnDef, SimpleColumnType};
+
+        TableDef {
+            name: name.into(),
+            description: None,
+            columns: vec![
+                ColumnDef::new("id", ColumnType::Simple(SimpleColumnType::Integer), false)
+                    .primary_key(PrimaryKeySyntax::Bool(true)),
+                ColumnDef::new(
+                    "st",
+                    ColumnType::Complex(ComplexColumnType::Enum {
+                        name: enum_name.into(),
+                        values: EnumValues::String(
+                            values.iter().copied().map(Into::into).collect(),
+                        ),
+                    }),
+                    false,
+                ),
+            ],
+            constraints: vec![],
+        }
+        .normalize()
+        .expect("fixture table normalizes")
     }
 }

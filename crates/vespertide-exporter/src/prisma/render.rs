@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use vespertide_core::TableDef;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
@@ -8,6 +8,7 @@ use vespertide_core::schema::reference::ReferenceAction;
 use vespertide_naming::{to_pascal_case, to_screaming_snake_case};
 
 use super::types::column_type_to_prisma;
+use crate::utils::common::unquote;
 
 struct PkInfo {
     columns: Vec<String>,
@@ -127,7 +128,11 @@ pub(super) fn collect_back_relations(target_table: &str, schema: &[TableDef]) ->
     result
 }
 
-pub(super) fn render_model(table: &TableDef, schema: &[TableDef]) -> String {
+pub(super) fn render_model(
+    table: &TableDef,
+    schema: &[TableDef],
+    ambiguous: &HashSet<String>,
+) -> String {
     let mut lines: Vec<String> = Vec::new();
 
     if let Some(desc) = &table.description {
@@ -199,6 +204,15 @@ pub(super) fn render_model(table: &TableDef, schema: &[TableDef]) -> String {
         *ref_table_fk_count.entry(fk.ref_table).or_default() += 1;
     }
 
+    // Prisma rejects a model with two fields of the same name, and relation field
+    // names are derived from column/table names. Every column is claimed up front
+    // so a relation derived from one column cannot take a later column's name.
+    let mut field_names: HashSet<String> = table
+        .columns
+        .iter()
+        .map(|col| col.name.as_str().to_string())
+        .collect();
+
     // Render scalar fields + inline relation fields
     for col in &table.columns {
         let col_name = col.name.as_str();
@@ -212,7 +226,8 @@ pub(super) fn render_model(table: &TableDef, schema: &[TableDef]) -> String {
             lines.push(format!("  /// {comment}"));
         }
 
-        let type_str = column_type_to_prisma(&col.r#type, col.nullable);
+        let type_str =
+            column_type_to_prisma(&col.r#type, col.nullable, table.name.as_str(), ambiguous);
         let mut attrs: Vec<String> = Vec::new();
 
         if is_single_pk {
@@ -246,15 +261,10 @@ pub(super) fn render_model(table: &TableDef, schema: &[TableDef]) -> String {
         // Emit inline relation field for FK columns
         if let Some(fk) = fk_by_col.get(col_name) {
             // `rel_name_segment` drives @relation("…") naming — must stay consistent
-            // with the segment computed by collect_back_relations on the other side.
+            // with the segment computed by collect_back_relations on the other side,
+            // so deduplicate the *field* name only.
             let rel_name_segment = infer_relation_field_name(col_name);
-            // When no `_id` was stripped the inferred name equals the FK column name,
-            // which would collide with the scalar field.  Append `_rel` to deduplicate.
-            let rel_field_name = if rel_name_segment == col_name {
-                format!("{col_name}_rel")
-            } else {
-                rel_name_segment.clone()
-            };
+            let rel_field_name = claim_field_name(rel_name_segment.clone(), &mut field_names);
             let rel_model = to_pascal_case(fk.ref_table);
             let rel_type = if col.nullable {
                 format!("{rel_model}?")
@@ -302,7 +312,8 @@ pub(super) fn render_model(table: &TableDef, schema: &[TableDef]) -> String {
     if !schema.is_empty() {
         let back_rels = collect_back_relations(&table.name, schema);
         for br in &back_rels {
-            let (field_name, rel_type) = back_rel_field(br);
+            let (base_name, rel_type) = back_rel_field(br);
+            let field_name = claim_field_name(base_name, &mut field_names);
             let rel_attr = match &br.relation_name {
                 Some(name) => format!(" @relation(\"{name}\")"),
                 None => String::new(),
@@ -362,7 +373,7 @@ fn prisma_default_attr(default_sql: &str, col_type: &ColumnType) -> String {
         ..
     }) = col_type
     {
-        let key = default_sql.trim_matches(|c: char| c == '\'' || c == '"');
+        let key = unquote(default_sql);
         // 1) numeric value match → variant name
         if let Ok(n) = key.parse::<i64>()
             && let Some(v) = int_values.iter().find(|v| v.value == n)
@@ -404,7 +415,7 @@ fn prisma_default_attr(default_sql: &str, col_type: &ColumnType) -> String {
 
     // String literal with quotes — may be an enum value
     if default_sql.starts_with('\'') || default_sql.starts_with('"') {
-        let stripped = default_sql.trim_matches(|c| c == '\'' || c == '"');
+        let stripped = unquote(default_sql);
         if let ColumnType::Complex(ComplexColumnType::Enum {
             values: EnumValues::String(variants),
             ..
@@ -443,10 +454,42 @@ fn infer_relation_field_name(fk_col: &str) -> String {
     fk_col.strip_suffix("_id").unwrap_or(fk_col).to_string()
 }
 
+/// Claim a model field name, recording it in `taken` so later fields avoid it.
+fn claim_field_name(preferred: String, taken: &mut HashSet<String>) -> String {
+    let chosen = first_unused(preferred, taken);
+    taken.insert(chosen.clone());
+    chosen
+}
+
+/// `preferred` if free, then `{preferred}_rel`, then numbered variants. `_rel`
+/// comes before the numbers so the names already emitted for FK fields that
+/// clash with their own column stay unchanged.
+fn first_unused(preferred: String, taken: &HashSet<String>) -> String {
+    if !taken.contains(&preferred) {
+        return preferred;
+    }
+
+    let suffixed = format!("{preferred}_rel");
+    if !taken.contains(&suffixed) {
+        return suffixed;
+    }
+
+    let mut index = 2;
+    loop {
+        let candidate = format!("{preferred}_rel{index}");
+        if !taken.contains(&candidate) {
+            return candidate;
+        }
+        index += 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vespertide_core::ColumnDef;
     use vespertide_core::schema::column::{NumValue, SimpleColumnType};
+    use vespertide_core::schema::primary_key::PrimaryKeySyntax;
 
     use super::*;
 
@@ -493,6 +536,7 @@ mod tests {
     #[case::uuid_mssql("NEWID()", "@default(uuid())")]
     #[case::other_function("gen_code()", "@default(dbgenerated(\"gen_code()\"))")]
     #[case::quoted_literal("'active'", "@default(\"active\")")]
+    #[case::quoted_literal_with_inner_quotes("'say \"hi\"'", "@default(\"say \\\"hi\\\"\")")]
     #[case::numeric("0", "@default(0)")]
     #[case::bare_word("SOME_CONSTANT", "@default(dbgenerated(\"SOME_CONSTANT\"))")]
     fn default_attr_maps_scalar_forms(#[case] default_sql: &str, #[case] expected: &str) {
@@ -525,14 +569,104 @@ mod tests {
                 *on_update = Some(ReferenceAction::Cascade);
             }
         }
-        let rendered = render_model(&table, std::slice::from_ref(&table));
+        let rendered = render_model(&table, std::slice::from_ref(&table), &HashSet::new());
         assert!(rendered.contains("onUpdate: Cascade"));
+    }
+
+    /// A back-relation is named after the source table, so it can land on a name
+    /// the target model already uses; Prisma rejects duplicate field names.
+    #[rstest]
+    #[case::free(&[], "book")]
+    #[case::column_holds_the_name(&["book"], "book_rel")]
+    #[case::suffixed_name_also_held(&["book", "book_rel"], "book_rel2")]
+    #[case::numbered_name_also_held(&["book", "book_rel", "book_rel2"], "book_rel3")]
+    fn back_relation_field_name_avoids_names_already_in_the_model(
+        #[case] existing_columns: &[&str],
+        #[case] expected_field: &str,
+    ) {
+        let author = author_table(existing_columns);
+        let schema = vec![author.clone(), book_table(&[])];
+
+        let rendered = render_model(&author, &schema, &HashSet::new());
+
+        assert!(rendered.contains(&format!("  {expected_field} Book[]")));
+    }
+
+    /// The relation field for an FK column is derived from that column's name,
+    /// so it can land on a column declared further down the table.
+    #[test]
+    fn forward_relation_field_name_avoids_a_column_declared_later() {
+        let book = book_table(&["author"]);
+
+        let rendered = render_model(&book, std::slice::from_ref(&book), &HashSet::new());
+
+        assert!(rendered.contains("  author String?"));
+        assert!(rendered.contains("  author_rel Author @relation(fields: [author_id]"));
+    }
+
+    /// `author` with a primary key, then one nullable text column per extra name.
+    fn author_table(extra_columns: &[&str]) -> TableDef {
+        TableDef {
+            name: "author".into(),
+            description: None,
+            columns: with_text_columns(
+                vec![
+                    ColumnDef::new("id", ColumnType::Simple(SimpleColumnType::Integer), false)
+                        .primary_key(PrimaryKeySyntax::Bool(true)),
+                ],
+                extra_columns,
+            ),
+            constraints: vec![],
+        }
+        .normalize()
+        .expect("author normalizes")
+    }
+
+    /// `book` with a single-column foreign key back to `author`, then one nullable
+    /// text column per extra name — declared *after* the FK column on purpose.
+    fn book_table(extra_columns: &[&str]) -> TableDef {
+        TableDef {
+            name: "book".into(),
+            description: None,
+            columns: with_text_columns(
+                vec![
+                    ColumnDef::new("id", ColumnType::Simple(SimpleColumnType::Integer), false)
+                        .primary_key(PrimaryKeySyntax::Bool(true)),
+                    ColumnDef::new(
+                        "author_id",
+                        ColumnType::Simple(SimpleColumnType::Integer),
+                        false,
+                    ),
+                ],
+                extra_columns,
+            ),
+            constraints: vec![TableConstraint::ForeignKey {
+                name: None,
+                columns: vec!["author_id".into()],
+                ref_table: "author".into(),
+                ref_columns: vec!["id".into()],
+                on_delete: None,
+                on_update: None,
+                orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
+            }],
+        }
+        .normalize()
+        .expect("book normalizes")
+    }
+
+    fn with_text_columns(mut columns: Vec<ColumnDef>, names: &[&str]) -> Vec<ColumnDef> {
+        columns.extend(
+            names.iter().map(|name| {
+                ColumnDef::new(*name, ColumnType::Simple(SimpleColumnType::Text), true)
+            }),
+        );
+        columns
     }
 
     #[test]
     fn named_index_is_rendered_with_map() {
         let table = crate::tests::fixtures::table_with_indexes();
-        let rendered = render_model(&table, &[]);
+        let rendered = render_model(&table, &[], &HashSet::new());
         assert!(rendered.contains("@@index([created_at], map: \"idx_articles_created_at\")"));
         assert!(rendered.contains("@@index([title])"));
     }

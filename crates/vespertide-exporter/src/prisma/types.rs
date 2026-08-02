@@ -1,12 +1,23 @@
+use std::collections::HashSet;
+
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, SimpleColumnType};
-use vespertide_naming::to_pascal_case;
+
+use super::enums::enum_identifier;
 
 /// Maps a vespertide column type to a Prisma scalar type.
 ///
 /// The output is backend-neutral: no `@db.*` native attributes are emitted, so
 /// the same model body is valid under every Prisma provider. Physical column
 /// types are owned by vespertide's own DDL generation, not the Prisma schema.
-pub(super) fn column_type_to_prisma(ty: &ColumnType, nullable: bool) -> String {
+///
+/// `table` and `ambiguous` resolve enum columns to the same identifier the enum
+/// block is emitted under; see [`enum_identifier`].
+pub(super) fn column_type_to_prisma(
+    ty: &ColumnType,
+    nullable: bool,
+    table: &str,
+    ambiguous: &HashSet<String>,
+) -> String {
     let q = if nullable { "?" } else { "" };
 
     match ty {
@@ -44,8 +55,8 @@ pub(super) fn column_type_to_prisma(ty: &ColumnType, nullable: bool) -> String {
                 format!("Unsupported(\"{custom_type}\"){q}")
             }
             ComplexColumnType::Enum { name, .. } => {
-                let pascal = to_pascal_case(name);
-                format!("{pascal}{q}")
+                let ident = enum_identifier(table, name, ambiguous);
+                format!("{ident}{q}")
             }
             _ => unreachable!(
                 "ComplexColumnType is #[non_exhaustive]; all variants are matched above"
@@ -87,7 +98,12 @@ mod tests {
     #[case::xml(SimpleColumnType::Xml, "String")]
     fn simple_types_map_to_neutral_scalars(#[case] simple: SimpleColumnType, #[case] scalar: &str) {
         assert_eq!(
-            column_type_to_prisma(&ColumnType::Simple(simple), false),
+            column_type_to_prisma(
+                &ColumnType::Simple(simple),
+                false,
+                "any_table",
+                &HashSet::new()
+            ),
             scalar
         );
     }
@@ -95,7 +111,10 @@ mod tests {
     #[test]
     fn nullable_appends_question_mark() {
         let ty = ColumnType::Simple(SimpleColumnType::Timestamptz);
-        assert_eq!(column_type_to_prisma(&ty, true), "DateTime?");
+        assert_eq!(
+            column_type_to_prisma(&ty, true, "any_table", &HashSet::new()),
+            "DateTime?"
+        );
     }
 
     #[rstest]
@@ -125,8 +144,26 @@ mod tests {
         #[case] expected: &str,
     ) {
         assert_eq!(
-            column_type_to_prisma(&ColumnType::Complex(complex), nullable),
+            column_type_to_prisma(
+                &ColumnType::Complex(complex),
+                nullable,
+                "any_table",
+                &HashSet::new()
+            ),
             expected
+        );
+    }
+
+    #[test]
+    fn ambiguous_enum_column_uses_the_table_qualified_identifier() {
+        let ty = ColumnType::Complex(ComplexColumnType::Enum {
+            name: "status".into(),
+            values: EnumValues::String(vec!["new".into()]),
+        });
+        let ambiguous = HashSet::from(["Status".to_string()]);
+        assert_eq!(
+            column_type_to_prisma(&ty, false, "orders", &ambiguous),
+            "OrdersStatus"
         );
     }
 }

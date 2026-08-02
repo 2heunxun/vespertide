@@ -1,10 +1,68 @@
-use vespertide_core::schema::column::EnumValues;
-use vespertide_naming::{to_pascal_case, to_screaming_snake_case};
+use std::collections::{HashMap, HashSet};
 
-pub(super) fn render_enum(name: &str, values: &EnumValues) -> String {
-    let enum_name = to_pascal_case(name);
+use vespertide_core::TableDef;
+use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
+use vespertide_naming::{build_enum_type_name, to_pascal_case, to_screaming_snake_case};
+
+/// Bare `PascalCase` identifiers that the schema declares with more than one
+/// value set.
+///
+/// Every other backend writes one file per table, so a repeated enum is
+/// naturally scoped; Prisma emits a single file, where reusing an identifier
+/// would silently give both tables the first table's values. Names are compared
+/// *after* the case conversion, since distinct names can collapse onto the same
+/// identifier (`doc_status` and `docStatus` are both `DocStatus`).
+pub(super) fn ambiguous_enum_identifiers(schema: &[TableDef]) -> HashSet<String> {
+    let mut declared: HashMap<String, &EnumValues> = HashMap::new();
+    let mut ambiguous = HashSet::new();
+    for table in schema {
+        for (name, values) in collect_table_enums(table) {
+            let identifier = to_pascal_case(name);
+            if let Some(first) = declared.get(&identifier) {
+                if *first != values {
+                    ambiguous.insert(identifier);
+                }
+            } else {
+                declared.insert(identifier, values);
+            }
+        }
+    }
+    ambiguous
+}
+
+/// Prisma identifier for a table's enum.
+///
+/// Ambiguous identifiers fall back to the database type name (`{table}_{enum}`,
+/// the same one the SQL layer creates), so the Prisma enum maps 1:1 onto the
+/// type the column actually has.
+pub(super) fn enum_identifier(table: &str, name: &str, ambiguous: &HashSet<String>) -> String {
+    let bare = to_pascal_case(name);
+    if ambiguous.contains(&bare) {
+        to_pascal_case(&build_enum_type_name(table, name))
+    } else {
+        bare
+    }
+}
+
+/// Enum columns of a table, first declaration wins per name.
+pub(super) fn collect_table_enums(table: &TableDef) -> Vec<(&str, &EnumValues)> {
+    let mut seen = HashSet::new();
+    let mut result = Vec::new();
+    for col in &table.columns {
+        if let ColumnType::Complex(ComplexColumnType::Enum { name, values }) = &col.r#type
+            && seen.insert(name.as_str())
+        {
+            result.push((name.as_str(), values));
+        }
+    }
+    result
+}
+
+/// Render one enum block under an already-resolved identifier, i.e. the output
+/// of [`enum_identifier`] rather than the raw enum name.
+pub(super) fn render_enum(identifier: &str, values: &EnumValues) -> String {
     let mut lines = Vec::new();
-    lines.push(format!("enum {enum_name} {{"));
+    lines.push(format!("enum {identifier} {{"));
     match values {
         EnumValues::String(vals) => {
             for val in vals {
@@ -54,7 +112,7 @@ mod tests {
         #[case] expected: &str,
     ) {
         assert_eq!(
-            render_enum("doc_status", &EnumValues::String(values)),
+            render_enum("DocStatus", &EnumValues::String(values)),
             expected
         );
     }
@@ -72,7 +130,7 @@ mod tests {
             },
         ]);
         assert_eq!(
-            render_enum("priority", &values),
+            render_enum("Priority", &values),
             "enum Priority {\n  LOW // = 100\n  HIGH // = 200\n}"
         );
     }
