@@ -375,6 +375,8 @@ Every `vespertide-exporter` snapshot test MUST be written through the shared `or
 
 FORBIDDEN: per-ORM `#[test]` snapshot functions inside `src/seaorm/`, `src/sqlalchemy/`, `src/sqlmodel/`, `src/jpa/`, `src/prisma/`, or any `snapshots/` directory other than `src/tests/snapshots/`. A scenario snapshotted for only one ORM is a defect — ORM output must always be cross-compared across all five. When adding a new ORM the change is a single `#[case::<orm>(Orm::<Variant>)]` line in the macro, never a new per-ORM test.
 
+Exception: an entry point that exists in only one backend (e.g. Prisma's single-file `render_schema`, which deduplicates enums globally) is not a cross-ORM scenario, so its snapshot tests live as inline tests of that module — with the snapshot files still written to the shared `src/tests/snapshots/` via `with_settings!(snapshot_path => ...)`.
+
 ### `#[cfg(test)]` test-oracle pattern
 When a function exists solely as an oracle for a regression test (e.g. comparing
 a fused/optimized pipeline against the equivalent unfused implementation), gate
