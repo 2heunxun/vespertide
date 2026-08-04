@@ -12,7 +12,7 @@ model Users {
 model Items {
   id Int @id
   owner Int?
-  owner_rel Users? @relation(fields: [owner], references: [id])
+  owner_rel Users? @relation(fields: [owner], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("items")
 }

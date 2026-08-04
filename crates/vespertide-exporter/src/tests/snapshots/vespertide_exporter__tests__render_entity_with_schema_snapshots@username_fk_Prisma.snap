@@ -5,7 +5,7 @@ expression: rendered
 model Session {
   id String @id
   username String
-  username_rel User @relation(fields: [username], references: [username])
+  username_rel User @relation(fields: [username], references: [username], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("session")
 }

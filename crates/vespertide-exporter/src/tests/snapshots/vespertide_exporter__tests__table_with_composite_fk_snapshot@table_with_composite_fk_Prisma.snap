@@ -7,7 +7,7 @@ model LineItems {
   order_id Int
   order_version Int
   sku String
-  orders Orders @relation(fields: [order_id, order_version], references: [id, version])
+  orders Orders @relation(fields: [order_id, order_version], references: [id, version], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("line_items")
 }

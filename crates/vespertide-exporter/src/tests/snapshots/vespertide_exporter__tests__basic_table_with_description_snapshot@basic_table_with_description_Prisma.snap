@@ -1,6 +1,5 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
-assertion_line: 61
 expression: rendered
 ---
 /// User accounts table
@@ -8,7 +7,7 @@ model Users {
   /// Primary key
   id Int @id @default(autoincrement())
   /// User email address
-  email String @unique
+  email String @unique(map: "uq_users__email")
   name String?
 
   @@map("users")

@@ -7,6 +7,6 @@ model UnnamedUnique {
   col_a Int
   col_b Int
 
-  @@unique([col_a, col_b])
+  @@unique([col_a, col_b], map: "uq_unnamed_unique__col_a_col_b")
   @@map("unnamed_unique")
 }

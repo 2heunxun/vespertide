@@ -7,6 +7,6 @@ model UnnamedIndex {
   col_a Int
   col_b Int
 
-  @@index([col_a, col_b])
+  @@index([col_a, col_b], map: "ix_unnamed_index__col_a_col_b")
   @@map("unnamed_index")
 }

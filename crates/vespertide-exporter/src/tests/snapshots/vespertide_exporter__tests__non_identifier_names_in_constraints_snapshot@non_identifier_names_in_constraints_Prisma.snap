@@ -9,7 +9,7 @@ model Membership {
   x3created String @map("3created")
 
   @@id([x1tenant_id, x2user_id])
-  @@unique([user_email, x1tenant_id])
-  @@index([x3created])
+  @@unique([user_email, x1tenant_id], map: "uq_membership__1tenant_id_user-email")
+  @@index([x3created], map: "ix_membership__3created")
   @@map("membership")
 }

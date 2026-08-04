@@ -1,12 +1,11 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
-assertion_line: 224
 expression: rendered
 ---
 model Child {
   /// References parent table
   parent_id Int @id @default(autoincrement())
-  parent Parent @relation(fields: [parent_id], references: [id])
+  parent Parent @relation(fields: [parent_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   value String
 
   @@map("child")

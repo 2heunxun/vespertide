@@ -1,6 +1,5 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
-assertion_line: 179
 expression: rendered
 ---
 model CompositeIndex {
@@ -8,6 +7,6 @@ model CompositeIndex {
   tenant_id Int
   name String
 
-  @@index([tenant_id, name], map: "idx_tenant_name")
+  @@index([tenant_id, name], map: "ix_composite_index__idx_tenant_name")
   @@map("composite_index")
 }

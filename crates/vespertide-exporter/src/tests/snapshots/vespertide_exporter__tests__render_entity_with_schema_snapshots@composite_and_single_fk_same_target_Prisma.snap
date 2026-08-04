@@ -7,8 +7,8 @@ model Src {
   a_id Int
   b_id Int
   solo Int
-  solo_rel Target @relation("SrcSolo", fields: [solo], references: [u])
-  target Target @relation("SrcAB", fields: [a_id, b_id], references: [a, b])
+  solo_rel Target @relation("SrcSolo", fields: [solo], references: [u], onDelete: NoAction, onUpdate: NoAction)
+  target Target @relation("SrcAB", fields: [a_id, b_id], references: [a, b], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("src")
 }

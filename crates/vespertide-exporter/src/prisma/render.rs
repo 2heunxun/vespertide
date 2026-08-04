@@ -5,7 +5,10 @@ use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues}
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::schema::names::ColumnName;
 use vespertide_core::schema::reference::ReferenceAction;
-use vespertide_naming::{IdentifierStart, sanitize_identifier, to_pascal_case};
+use vespertide_naming::{
+    IdentifierStart, build_index_name, build_unique_constraint_name, sanitize_identifier,
+    to_pascal_case,
+};
 
 use super::enums::enum_variant;
 use super::types::column_type_to_prisma;
@@ -268,10 +271,12 @@ pub(super) fn render_model(
         if let Some(unique_name) = is_unique
             && !is_single_pk
         {
-            match unique_name {
-                Some(n) => attrs.push(format!("@unique(map: \"{n}\")")),
-                None => attrs.push("@unique".into()),
-            }
+            // The SQL layer always names the index (a user-supplied name is a
+            // key inside the convention, not the final name), so the map has
+            // to go through the same builder or `prisma migrate` sees a
+            // different index than the one vespertide created.
+            let n = build_unique_constraint_name(table.name.as_str(), &[db_name], unique_name);
+            attrs.push(format!("@unique(map: \"{n}\")"));
         }
 
         // A renamed field no longer points at its column by name.
@@ -311,12 +316,7 @@ pub(super) fn render_model(
             }
             rel_args.push(format!("fields: [{col_name}]"));
             rel_args.push(format!("references: [{}]", field_list(fk.ref_cols)));
-            if let Some(od) = fk.on_delete {
-                rel_args.push(format!("onDelete: {}", reference_action_to_prisma(od)));
-            }
-            if let Some(ou) = fk.on_update {
-                rel_args.push(format!("onUpdate: {}", reference_action_to_prisma(ou)));
-            }
+            push_referential_actions(&mut rel_args, fk.on_delete, fk.on_update);
 
             let rel_args_str = rel_args.join(", ");
             lines.push(format!(
@@ -370,12 +370,7 @@ pub(super) fn render_model(
         }
         rel_args.push(format!("fields: [{}]", field_list(columns)));
         rel_args.push(format!("references: [{}]", field_list(ref_columns)));
-        if let Some(od) = on_delete {
-            rel_args.push(format!("onDelete: {}", reference_action_to_prisma(od)));
-        }
-        if let Some(ou) = on_update {
-            rel_args.push(format!("onUpdate: {}", reference_action_to_prisma(ou)));
-        }
+        push_referential_actions(&mut rel_args, on_delete.as_ref(), on_update.as_ref());
 
         let rel_args_str = rel_args.join(", ");
         lines.push(format!(
@@ -406,17 +401,15 @@ pub(super) fn render_model(
         lines.push(format!("  @@id([{pk_cols}])"));
     }
 
-    // Composite unique constraints
+    // Composite unique constraints. Like the field-level `@unique`, the map
+    // carries the name the SQL layer actually gives the index.
     for c in &table.constraints {
         if let TableConstraint::Unique { name, columns, .. } = c
             && columns.len() > 1
         {
             let cols = field_list(columns);
-            if let Some(n) = name {
-                lines.push(format!("  @@unique([{cols}], map: \"{n}\")"));
-            } else {
-                lines.push(format!("  @@unique([{cols}])"));
-            }
+            let n = build_unique_constraint_name(table.name.as_str(), columns, name.as_deref());
+            lines.push(format!("  @@unique([{cols}], map: \"{n}\")"));
         }
     }
 
@@ -424,12 +417,8 @@ pub(super) fn render_model(
     for c in &table.constraints {
         if let TableConstraint::Index { name, columns } = c {
             let cols = field_list(columns);
-            // `match` instead of `if let Some`: LLVM coverage attributes match
-            // arms reliably where this if/else was misattributed as uncovered.
-            match name {
-                Some(n) => lines.push(format!("  @@index([{cols}], map: \"{n}\")")),
-                None => lines.push(format!("  @@index([{cols}])")),
-            }
+            let n = build_index_name(table.name.as_str(), columns, name.as_deref());
+            lines.push(format!("  @@index([{cols}], map: \"{n}\")"));
         }
     }
 
@@ -512,6 +501,22 @@ fn prisma_default_attr(default_sql: &str, col_type: &ColumnType) -> String {
     // Fallback
     let escaped = default_sql.replace('"', "\\\"");
     format!("@default(dbgenerated(\"{escaped}\"))")
+}
+
+/// Append `onDelete` / `onUpdate` to a `@relation`, spelling out `NoAction`
+/// when the model leaves them unset. The SQL layer omits the clauses, which
+/// means `NO ACTION` in every backend — while Prisma's implicit defaults are
+/// `SetNull`/`Restrict` + `Cascade`, so an attribute-less relation would make
+/// `prisma migrate` rewrite the FK vespertide created.
+fn push_referential_actions(
+    rel_args: &mut Vec<String>,
+    on_delete: Option<&ReferenceAction>,
+    on_update: Option<&ReferenceAction>,
+) {
+    let od = on_delete.unwrap_or(&ReferenceAction::NoAction);
+    let ou = on_update.unwrap_or(&ReferenceAction::NoAction);
+    rel_args.push(format!("onDelete: {}", reference_action_to_prisma(od)));
+    rel_args.push(format!("onUpdate: {}", reference_action_to_prisma(ou)));
 }
 
 fn reference_action_to_prisma(action: &ReferenceAction) -> &'static str {
@@ -900,11 +905,17 @@ mod tests {
         columns
     }
 
+    /// The map has to carry the name the SQL layer actually creates: a
+    /// user-supplied name is a key inside the `ix_{table}__{key}` convention,
+    /// and an unnamed index still gets a conventional name.
     #[test]
-    fn named_index_is_rendered_with_map() {
+    fn index_maps_carry_the_sql_layer_names() {
         let table = crate::tests::fixtures::table_with_indexes();
         let rendered = render_model(&table, &[], &HashSet::new());
-        assert!(rendered.contains("@@index([created_at], map: \"idx_articles_created_at\")"));
-        assert!(rendered.contains("@@index([title])"));
+        assert!(
+            rendered
+                .contains("@@index([created_at], map: \"ix_articles__idx_articles_created_at\")")
+        );
+        assert!(rendered.contains("@@index([title], map: \"ix_articles__title\")"));
     }
 }
