@@ -2,6 +2,15 @@
 source: crates/vespertide-exporter/src/tests/mod.rs
 expression: rendered
 ---
+model Orders {
+  id Int
+  version Int
+  line_items LineItems[]
+
+  @@id([id, version])
+  @@map("orders")
+}
+
 model LineItems {
   id Int @id
   order_id Int

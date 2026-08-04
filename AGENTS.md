@@ -368,7 +368,7 @@ fn create_table_snapshot(#[case] backend: DatabaseBackend) {
 }
 ```
 
-This is the same pattern used by `vespertide-query` (3 backends, 357 snapshots) and `vespertide-exporter` (5 ORMs via `Orm` enum, 315 cross-ORM snapshots). When adding a new backend / ORM / format, the change is **one `#[case::name(Value)]` line**.
+This is the same pattern used by `vespertide-query` (3 backends, 357 snapshots) and `vespertide-exporter` (5 ORMs via `Orm` enum, 335 cross-ORM snapshots). When adding a new backend / ORM / format, the change is **one `#[case::name(Value)]` line**.
 
 ### Exporter snapshots MUST cover ALL ORMs (no per-ORM snapshots)
 Every `vespertide-exporter` snapshot test MUST be written through the shared `orm_cases!` rstest macro in `crates/vespertide-exporter/src/tests/mod.rs`, which renders each fixture for **all five ORMs** (`Orm::SeaOrm`, `Orm::SqlAlchemy`, `Orm::SqlModel`, `Orm::Jpa`, `Orm::Prisma`). A new export scenario = ONE fixture + ONE `orm_cases!(...)` line, producing exactly five snapshots (one per ORM) in the single shared `crates/vespertide-exporter/src/tests/snapshots/` directory.

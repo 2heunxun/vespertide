@@ -295,6 +295,23 @@ orm_cases!(
     "non_identifier_relation_names",
     fixtures::non_identifier_relation_names
 );
+// A composite FK becomes a relation only where the backend can express one
+// (`SeaORM`'s tuple `from`/`to`, Prisma's multi-column `fields`/`references`);
+// the Python backends keep it as a `ForeignKeyConstraint` and JPA currently
+// drops it, so the five outputs disagree in a way worth pinning.
+orm_cases!(
+    multi composite_fk_relation_snapshot,
+    "composite_fk_relation",
+    fixtures::composite_fk_relation
+);
+// `a_id` and `a` strip to the same relation segment, so relation names built
+// from it collide unless the backend disambiguates. `SeaORM` numbers its
+// relation enums; Prisma numbers the `@relation` names within a target's group.
+orm_cases!(
+    multi fk_names_collide_after_id_strip_snapshot,
+    "fk_names_collide_after_id_strip",
+    fixtures::fk_names_collide_after_id_strip
+);
 // A relation field and a column can be handed the same name. `SeaORM` and
 // Prisma emit a relation field alongside the FK column, so they have to keep
 // the two apart or the model declares the field twice; the Python backends
@@ -398,6 +415,7 @@ fn render_entity_with_schema_snapshots(
         "many_to_many_missing_target",
         "many_to_many_multiple_junctions",
         "composite_fk_parent",
+        "composite_and_single_fk_same_target",
         "not_junction_single_pk",
         "not_junction_fk_not_in_pk_other",
         "not_junction_fk_not_in_pk_another",

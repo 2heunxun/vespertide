@@ -37,6 +37,8 @@ fn extract_pk_info(constraints: &[TableConstraint]) -> PkInfo {
 }
 
 struct FkInfo<'a> {
+    /// Position among the table's constraints — the key into [`fk_relation_names`].
+    constraint_idx: usize,
     ref_table: &'a str,
     ref_cols: &'a [ColumnName],
     on_delete: Option<&'a ReferenceAction>,
@@ -45,7 +47,7 @@ struct FkInfo<'a> {
 
 pub(super) struct BackRelation {
     pub(super) source_table: String,
-    pub(super) fk_col: String,
+    pub(super) rel_segment: String,
     pub(super) is_one_to_one: bool,
     pub(super) relation_name: Option<String>,
 }
@@ -61,8 +63,7 @@ pub(super) fn back_rel_field(br: &BackRelation) -> (String, String) {
     // Derived from a column and a table name, so it needs the same escaping a
     // declared field gets.
     let field_name = prisma_field_name(&if br.relation_name.is_some() {
-        let rel_field = infer_relation_field_name(&br.fk_col);
-        format!("{rel_field}_{}", br.source_table)
+        format!("{}_{}", br.rel_segment, br.source_table)
     } else {
         br.source_table.clone()
     });
@@ -74,19 +75,17 @@ pub(super) fn collect_back_relations(target_table: &str, schema: &[TableDef]) ->
     let mut result = Vec::new();
 
     for source in schema {
-        let fks_to_target: Vec<(&str, &[ColumnName])> = source
+        let fks_to_target: Vec<(usize, &[ColumnName])> = source
             .constraints
             .iter()
-            .filter_map(|c| {
+            .enumerate()
+            .filter_map(|(idx, c)| {
                 if let TableConstraint::ForeignKey {
-                    columns,
-                    ref_table,
-                    ref_columns,
-                    ..
+                    columns, ref_table, ..
                 } = c
                 {
-                    if ref_table.as_str() == target_table && columns.len() == 1 {
-                        Some((columns[0].as_str(), ref_columns.as_slice()))
+                    if ref_table.as_str() == target_table {
+                        Some((idx, columns.as_slice()))
                     } else {
                         None
                     }
@@ -100,29 +99,42 @@ pub(super) fn collect_back_relations(target_table: &str, schema: &[TableDef]) ->
             continue;
         }
 
+        let source_relation_names = fk_relation_names(source);
         let multi_fk = fks_to_target.len() > 1;
         let is_self_ref = source.name.as_str() == target_table;
 
-        for (fk_col, _) in &fks_to_target {
-            let is_unique = source.constraints.iter().any(|c| {
-                matches!(c, TableConstraint::Unique { columns, .. }
-                    if columns.len() == 1 && columns[0].as_str() == *fk_col)
-            });
+        for (constraint_idx, fk_cols) in &fks_to_target {
+            let is_one_to_one = if let [fk_col] = fk_cols {
+                source.constraints.iter().any(|c| {
+                    matches!(c, TableConstraint::Unique { columns, .. }
+                        if columns.len() == 1 && columns[0] == *fk_col)
+                })
+            } else {
+                // A composite FK is one-to-one when the source can hold at
+                // most one row per target key: its FK columns are exactly its
+                // own PK, or a composite unique covers exactly that set.
+                let fk_set: HashSet<&str> = fk_cols.iter().map(ColumnName::as_str).collect();
+                let pk = extract_pk_info(&source.constraints);
+                pk.columns.len() == fk_set.len()
+                    && pk.columns.iter().all(|c| fk_set.contains(c.as_str()))
+                    || source.constraints.iter().any(|c| {
+                        matches!(c, TableConstraint::Unique { columns, .. }
+                            if columns.len() == fk_set.len()
+                                && columns.iter().all(|col| fk_set.contains(col.as_str())))
+                    })
+            };
 
-            let needs_name = multi_fk || is_self_ref;
-            let relation_name = if needs_name {
-                let rel_field = infer_relation_field_name(fk_col);
-                let source_pascal = to_pascal_case(&source.name);
-                let rel_pascal = to_pascal_case(&rel_field);
-                Some(format!("{source_pascal}{rel_pascal}"))
+            let rel_segment = relation_segment(fk_cols);
+            let relation_name = if multi_fk || is_self_ref {
+                source_relation_names.get(constraint_idx).cloned()
             } else {
                 None
             };
 
             result.push(BackRelation {
                 source_table: source.name.as_str().to_string(),
-                fk_col: fk_col.to_string(),
-                is_one_to_one: is_unique,
+                rel_segment,
+                is_one_to_one,
                 relation_name,
             });
         }
@@ -172,7 +184,8 @@ pub(super) fn render_model(
     let fk_by_col: HashMap<&str, FkInfo<'_>> = table
         .constraints
         .iter()
-        .filter_map(|c| {
+        .enumerate()
+        .filter_map(|(constraint_idx, c)| {
             if let TableConstraint::ForeignKey {
                 columns,
                 ref_table,
@@ -186,6 +199,7 @@ pub(super) fn render_model(
                     Some((
                         columns[0].as_str(),
                         FkInfo {
+                            constraint_idx,
                             ref_table: ref_table.as_str(),
                             ref_cols: ref_columns.as_slice(),
                             on_delete: on_delete.as_ref(),
@@ -201,11 +215,17 @@ pub(super) fn render_model(
         })
         .collect();
 
-    // Count FKs per ref_table for disambiguation detection
+    // Count FKs per ref_table for disambiguation detection. Counted over every
+    // FK constraint — a single-column and a composite FK to the same target
+    // are still two relations, and Prisma requires both to be named.
     let mut ref_table_fk_count: HashMap<&str, usize> = HashMap::new();
-    for fk in fk_by_col.values() {
-        *ref_table_fk_count.entry(fk.ref_table).or_default() += 1;
+    for c in &table.constraints {
+        if let TableConstraint::ForeignKey { ref_table, .. } = c {
+            *ref_table_fk_count.entry(ref_table.as_str()).or_default() += 1;
+        }
     }
+
+    let relation_names = fk_relation_names(table);
 
     // Prisma rejects a model with two fields of the same name, and relation field
     // names are derived from column/table names. Every column is claimed up front
@@ -269,12 +289,10 @@ pub(super) fn render_model(
 
         // Emit inline relation field for FK columns
         if let Some(fk) = fk_by_col.get(db_name) {
-            // `rel_name_segment` drives @relation("…") naming — must stay consistent
-            // with the segment computed by collect_back_relations on the other side,
-            // so deduplicate the *field* name only.
-            let rel_name_segment = infer_relation_field_name(db_name);
-            let rel_field_name =
-                claim_field_name(prisma_field_name(&rel_name_segment), &mut field_names);
+            let rel_field_name = claim_field_name(
+                prisma_field_name(&infer_relation_field_name(db_name)),
+                &mut field_names,
+            );
             let rel_model = prisma_model_name(fk.ref_table);
             let rel_type = if col.nullable {
                 format!("{rel_model}?")
@@ -284,33 +302,20 @@ pub(super) fn render_model(
 
             let multi_fk = ref_table_fk_count.get(fk.ref_table).copied().unwrap_or(0) > 1;
             let is_self_ref = fk.ref_table == table.name.as_str();
-            let needs_name = multi_fk || is_self_ref;
 
             let mut rel_args: Vec<String> = Vec::new();
-            if needs_name {
-                // Use rel_name_segment (pre-dedup) so the name matches back-relations.
-                let table_pascal = to_pascal_case(&table.name);
-                let field_pascal = to_pascal_case(&rel_name_segment);
-                rel_args.push(format!("\"{table_pascal}{field_pascal}\""));
+            if (multi_fk || is_self_ref)
+                && let Some(name) = relation_names.get(&fk.constraint_idx)
+            {
+                rel_args.push(format!("\"{name}\""));
             }
             rel_args.push(format!("fields: [{col_name}]"));
-            // `references` names fields of the target model, so a renamed
-            // column has to appear here under its Prisma name.
-            rel_args.push(format!(
-                "references: [{}]",
-                fk.ref_cols
-                    .iter()
-                    .map(|ref_col| prisma_field_name(ref_col.as_str()))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
+            rel_args.push(format!("references: [{}]", field_list(fk.ref_cols)));
             if let Some(od) = fk.on_delete {
-                let action = reference_action_to_prisma(od);
-                rel_args.push(format!("onDelete: {action}"));
+                rel_args.push(format!("onDelete: {}", reference_action_to_prisma(od)));
             }
             if let Some(ou) = fk.on_update {
-                let action = reference_action_to_prisma(ou);
-                rel_args.push(format!("onUpdate: {action}"));
+                rel_args.push(format!("onUpdate: {}", reference_action_to_prisma(ou)));
             }
 
             let rel_args_str = rel_args.join(", ");
@@ -318,6 +323,64 @@ pub(super) fn render_model(
                 "  {rel_field_name} {rel_type} @relation({rel_args_str})"
             ));
         }
+    }
+
+    // Composite FKs span several columns, so their relation fields follow the
+    // scalar fields instead of sitting inline with one column.
+    for (constraint_idx, c) in table.constraints.iter().enumerate() {
+        let TableConstraint::ForeignKey {
+            columns,
+            ref_table,
+            ref_columns,
+            on_delete,
+            on_update,
+            ..
+        } = c
+        else {
+            continue;
+        };
+        if columns.len() < 2 {
+            continue;
+        }
+
+        let rel_field_name = claim_field_name(prisma_field_name(ref_table), &mut field_names);
+        let rel_model = prisma_model_name(ref_table);
+        // Prisma requires the relation to be optional when any of its scalar
+        // fields is optional.
+        let any_nullable = table
+            .columns
+            .iter()
+            .any(|col| col.nullable && columns.contains(&col.name));
+        let rel_type = if any_nullable {
+            format!("{rel_model}?")
+        } else {
+            rel_model
+        };
+
+        let multi_fk = ref_table_fk_count
+            .get(ref_table.as_str())
+            .is_some_and(|count| *count > 1);
+        let is_self_ref = *ref_table == table.name;
+
+        let mut rel_args: Vec<String> = Vec::new();
+        if (multi_fk || is_self_ref)
+            && let Some(name) = relation_names.get(&constraint_idx)
+        {
+            rel_args.push(format!("\"{name}\""));
+        }
+        rel_args.push(format!("fields: [{}]", field_list(columns)));
+        rel_args.push(format!("references: [{}]", field_list(ref_columns)));
+        if let Some(od) = on_delete {
+            rel_args.push(format!("onDelete: {}", reference_action_to_prisma(od)));
+        }
+        if let Some(ou) = on_update {
+            rel_args.push(format!("onUpdate: {}", reference_action_to_prisma(ou)));
+        }
+
+        let rel_args_str = rel_args.join(", ");
+        lines.push(format!(
+            "  {rel_field_name} {rel_type} @relation({rel_args_str})"
+        ));
     }
 
     // Back-relations from schema context
@@ -492,6 +555,56 @@ fn infer_relation_field_name(fk_col: &str) -> String {
     fk_col.strip_suffix("_id").unwrap_or(fk_col).to_string()
 }
 
+/// Name segment a relation derives from its FK columns.
+///
+/// Every column takes part — two composite FKs to the same target can share a
+/// first column, and a segment built from that column alone would hand both
+/// relations one name.
+fn relation_segment(columns: &[ColumnName]) -> String {
+    columns
+        .iter()
+        .map(|col| infer_relation_field_name(col.as_str()))
+        .collect::<Vec<_>>()
+        .join("_")
+}
+
+/// `@relation` name for every FK of `table`, keyed by constraint index.
+///
+/// Both ends of a relation must carry the same name, so the forward side and
+/// `collect_back_relations` derive it from the same table through this one
+/// function. Distinct columns can still strip to one segment (`a_id` and `a`
+/// both become `a`), and Prisma rejects two same-named relations between one
+/// model pair — repeats within a target's group get numbered in constraint
+/// order, which is the one order both ends share.
+fn fk_relation_names(table: &TableDef) -> HashMap<usize, String> {
+    let table_pascal = to_pascal_case(&table.name);
+    let mut used_per_target: HashMap<(&str, String), usize> = HashMap::new();
+    let mut names = HashMap::new();
+    for (idx, c) in table.constraints.iter().enumerate() {
+        let TableConstraint::ForeignKey {
+            columns, ref_table, ..
+        } = c
+        else {
+            continue;
+        };
+        let base = format!(
+            "{table_pascal}{}",
+            to_pascal_case(&relation_segment(columns))
+        );
+        let seen = used_per_target
+            .entry((ref_table.as_str(), base.clone()))
+            .or_insert(0);
+        *seen += 1;
+        let name = if *seen == 1 {
+            base
+        } else {
+            format!("{base}{seen}")
+        };
+        names.insert(idx, name);
+    }
+    names
+}
+
 /// Claim a model field name, recording it in `taken` so later fields avoid it.
 fn claim_field_name(preferred: String, taken: &mut HashSet<String>) -> String {
     let chosen = first_unused(preferred, taken);
@@ -609,6 +722,92 @@ mod tests {
         }
         let rendered = render_model(&table, std::slice::from_ref(&table), &HashSet::new());
         assert!(rendered.contains("onUpdate: Cascade"));
+    }
+
+    /// Source table with a composite FK `[a, b]` to `target`, plus the given
+    /// extra constraints deciding whether one source row can repeat a target key.
+    fn composite_fk_source(extra: Vec<TableConstraint>) -> TableDef {
+        let mut constraints = vec![TableConstraint::ForeignKey {
+            name: None,
+            columns: vec!["a".into(), "b".into()],
+            ref_table: "target".into(),
+            ref_columns: vec!["a".into(), "b".into()],
+            on_delete: None,
+            on_update: None,
+            orphan_strategy: vespertide_core::ForeignKeyOrphanStrategy::default(),
+        }];
+        constraints.extend(extra);
+        TableDef {
+            name: "src".into(),
+            description: None,
+            columns: vec![
+                ColumnDef::new("a", ColumnType::Simple(SimpleColumnType::Integer), false),
+                ColumnDef::new("b", ColumnType::Simple(SimpleColumnType::Integer), false),
+            ],
+            constraints,
+        }
+    }
+
+    fn pk_of(columns: &[&str]) -> TableConstraint {
+        TableConstraint::PrimaryKey {
+            auto_increment: false,
+            columns: columns.iter().copied().map(Into::into).collect(),
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+        }
+    }
+
+    fn unique_of(columns: &[&str]) -> TableConstraint {
+        TableConstraint::Unique {
+            name: None,
+            columns: columns.iter().copied().map(Into::into).collect(),
+            strategy: vespertide_core::UniqueConstraintStrategy::default(),
+        }
+    }
+
+    /// A composite relation carries `onDelete` / `onUpdate` like a single-column
+    /// one, and turns optional as soon as one of its scalar fields is nullable.
+    #[test]
+    fn composite_fk_renders_actions_and_optionality() {
+        let mut table = crate::tests::fixtures::table_with_composite_fk();
+        for c in &mut table.constraints {
+            if let TableConstraint::ForeignKey {
+                on_delete,
+                on_update,
+                ..
+            } = c
+            {
+                *on_delete = Some(ReferenceAction::Cascade);
+                *on_update = Some(ReferenceAction::Restrict);
+            }
+        }
+        for col in &mut table.columns {
+            if col.name == "order_version" {
+                col.nullable = true;
+            }
+        }
+        let rendered = render_model(&table, std::slice::from_ref(&table), &HashSet::new());
+        assert!(rendered.contains(
+            "  orders Orders? @relation(fields: [order_id, order_version], \
+             references: [id, version], onDelete: Cascade, onUpdate: Restrict)"
+        ));
+    }
+
+    /// One-to-one only when the source is bounded to one row per target key —
+    /// its PK or a unique must cover the FK columns exactly, not merely
+    /// overlap them.
+    #[rstest]
+    #[case::pk_equals_fk(vec![pk_of(&["a", "b"])], true)]
+    #[case::pk_is_subset_of_fk(vec![pk_of(&["a"])], false)]
+    #[case::unique_equals_fk(vec![pk_of(&["a"]), unique_of(&["a", "b"])], true)]
+    #[case::unique_is_subset_of_fk(vec![unique_of(&["a"])], false)]
+    fn composite_back_relation_one_to_one_needs_exact_cover(
+        #[case] extra: Vec<TableConstraint>,
+        #[case] expected: bool,
+    ) {
+        let source = composite_fk_source(extra);
+        let rels = collect_back_relations("target", std::slice::from_ref(&source));
+        assert_eq!(rels.len(), 1);
+        assert_eq!(rels[0].is_one_to_one, expected);
     }
 
     /// A back-relation is named after the source table, so it can land on a name

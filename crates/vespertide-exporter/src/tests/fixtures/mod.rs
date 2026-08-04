@@ -137,6 +137,22 @@ pub(crate) fn table_with_composite_fk() -> TableDef {
     )
 }
 
+/// A composite FK with both ends of the relation present. The referenced pair
+/// is the target's composite PK, which is what makes the reference legal — and
+/// what SeaORM and Prisma have to spell out on the relation while the Python
+/// backends carry it as a table-level constraint.
+pub(crate) fn composite_fk_relation() -> Vec<TableDef> {
+    let orders = table(
+        "orders",
+        vec![
+            simple("id", SimpleColumnType::Integer),
+            simple("version", SimpleColumnType::Integer),
+        ],
+        vec![pk(&["id", "version"])],
+    );
+    vec![orders, table_with_composite_fk()]
+}
+
 pub(crate) fn inline_pk() -> TableDef {
     table(
         "users",
@@ -835,6 +851,46 @@ pub(crate) fn non_identifier_names_in_constraints() -> TableDef {
     };
     raw.normalize()
         .expect("non_identifier_names_in_constraints normalizes")
+}
+
+/// Two FK columns whose names differ only by the `_id` suffix, aimed at the
+/// same table. Relation names derived from the stripped segment collapse onto
+/// one string, so the backend has to keep the two relations apart or the
+/// output declares the same relation twice.
+pub(crate) fn fk_names_collide_after_id_strip() -> Vec<TableDef> {
+    let target = TableDef {
+        name: "target".into(),
+        description: None,
+        columns: vec![
+            simple("id", SimpleColumnType::Integer).primary_key(PrimaryKeySyntax::Bool(true)),
+            simple("alt", SimpleColumnType::Integer),
+        ],
+        constraints: vec![TableConstraint::Unique {
+            name: None,
+            columns: vec!["alt".into()],
+            strategy: vespertide_core::UniqueConstraintStrategy::default(),
+        }],
+    };
+    let src = TableDef {
+        name: "src".into(),
+        description: None,
+        columns: vec![
+            simple("pk", SimpleColumnType::Integer).primary_key(PrimaryKeySyntax::Bool(true)),
+            nullable_simple("a_id", SimpleColumnType::Integer),
+            nullable_simple("a", SimpleColumnType::Integer),
+        ],
+        constraints: vec![
+            fk(&["a_id"], "target", &["id"]),
+            fk(&["a"], "target", &["alt"]),
+        ],
+    };
+    vec![
+        target
+            .normalize()
+            .expect("fk_names_collide_after_id_strip target normalizes"),
+        src.normalize()
+            .expect("fk_names_collide_after_id_strip src normalizes"),
+    ]
 }
 
 /// An FK column whose own name is what the relation field would be called, so
