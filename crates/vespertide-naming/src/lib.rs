@@ -621,6 +621,7 @@ mod tests {
 
     #[rstest]
     #[case::already_valid("email", IdentifierStart::Underscore, "email")]
+    #[case::internal_digits("table_99_ok", IdentifierStart::Underscore, "table_99_ok")]
     #[case::hyphen("user-id", IdentifierStart::Underscore, "user_id")]
     #[case::space("user id", IdentifierStart::Underscore, "user_id")]
     #[case::non_ascii("사용자", IdentifierStart::Underscore, "___")]

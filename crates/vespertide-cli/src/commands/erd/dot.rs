@@ -1,9 +1,8 @@
 use dot_writer::{Attributes, DotWriter, RankDirection, Shape};
 use vespertide_core::{ColumnDef, TableDef};
+use vespertide_naming::{IdentifierStart, sanitize_identifier};
 
-use super::{
-    ForeignKeyRelation, collect_foreign_key_relations, column_markers, sanitize_identifier,
-};
+use super::{ForeignKeyRelation, collect_foreign_key_relations, column_markers};
 
 pub fn render_dot(tables: &[TableDef]) -> String {
     DotWriter::write_string(|writer| {
@@ -25,7 +24,10 @@ pub fn render_dot(tables: &[TableDef]) -> String {
         }
 
         for table in tables {
-            let mut node = digraph.node_named(sanitize_identifier(&table.name));
+            let mut node = digraph.node_named(sanitize_identifier(
+                &table.name,
+                IdentifierStart::Underscore,
+            ));
             node.set_shape(Shape::Record);
             node.set_label(&record_label(table));
         }
@@ -33,8 +35,8 @@ pub fn render_dot(tables: &[TableDef]) -> String {
         for relation in collect_foreign_key_relations(tables) {
             let mut edge_attributes = digraph
                 .edge(
-                    sanitize_identifier(&relation.child_table),
-                    sanitize_identifier(&relation.parent_table),
+                    sanitize_identifier(&relation.child_table, IdentifierStart::Underscore),
+                    sanitize_identifier(&relation.parent_table, IdentifierStart::Underscore),
                 )
                 .attributes();
             edge_attributes.set_label(&relationship_label(&relation));

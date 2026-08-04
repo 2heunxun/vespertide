@@ -11,7 +11,12 @@ pub struct PrismaExporter;
 
 impl OrmExporter for PrismaExporter {
     fn render_entity(&self, table: &TableDef) -> Result<String, String> {
-        Ok(render_entity(table))
+        // A lone table is its own schema: Prisma requires both ends of a
+        // relation in the file, including self-referential ones.
+        Ok(render_entity_with_schema(
+            table,
+            std::slice::from_ref(table),
+        ))
     }
 
     fn render_entity_with_schema(
@@ -51,15 +56,6 @@ pub fn render_schema(tables: &[TableDef]) -> String {
     parts.join("\n\n") + "\n"
 }
 
-/// Render enum blocks + model block without schema context.
-///
-/// Passes the table itself as a one-element schema so that self-referential FK
-/// back-relations are always emitted (Prisma requires both sides of a relation to
-/// be present in the model, including self-referential ones).
-pub fn render_entity(table: &TableDef) -> String {
-    render_entity_with_schema(table, std::slice::from_ref(table))
-}
-
 /// Render enum blocks + model block with full schema context (includes back-relations).
 pub fn render_entity_with_schema(table: &TableDef, schema: &[TableDef]) -> String {
     let ambiguous = enums::ambiguous_enum_identifiers(schema);
@@ -86,6 +82,9 @@ pub fn export(schema: &[TableDef]) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    use insta::{assert_snapshot, with_settings};
+    use rstest::rstest;
+
     use super::*;
     use crate::tests::fixtures::basic_single_pk;
 
@@ -95,12 +94,9 @@ mod tests {
     fn render_schema_emits_models_only() {
         let tables = vec![basic_single_pk()];
         let schema = render_schema(&tables);
-
-        assert!(schema.starts_with("model "));
-        assert!(!schema.contains("datasource"));
-        assert!(!schema.contains("generator"));
-        assert!(!schema.contains("provider"));
-        assert!(!schema.contains("@db."));
+        with_settings!({ snapshot_path => "../tests/snapshots" }, {
+            assert_snapshot!(schema);
+        });
     }
 
     #[test]
@@ -109,38 +105,30 @@ mod tests {
         let mut t2 = crate::tests::fixtures::enum_shared();
         t2.name = "archived_documents".into();
         let schema = render_schema(&[t1, t2]);
-
-        assert_eq!(schema.matches("enum DocStatus {").count(), 1);
+        with_settings!({ snapshot_path => "../tests/snapshots" }, {
+            assert_snapshot!(schema);
+        });
     }
 
     /// Two tables may declare the same enum name with different values; the SQL
     /// layer keeps them apart as `{table}_{enum}` types, and a single Prisma file
     /// must do the same or both columns silently get the first table's values.
-    #[test]
-    fn render_schema_qualifies_same_named_enums_that_differ() {
-        let orders = table_with_enum("orders", "status", &["new", "paid"]);
-        let tickets = table_with_enum("tickets", "status", &["open", "closed"]);
+    /// The clash is judged after `PascalCase` conversion, so declared names that
+    /// only collapse onto one identifier are split the same way.
+    #[rstest]
+    #[case::same_declared_name("status", "status")]
+    #[case::names_collapse_after_conversion("doc_status", "docStatus")]
+    fn render_schema_qualifies_ambiguous_enums(
+        #[case] orders_enum: &str,
+        #[case] tickets_enum: &str,
+    ) {
+        let orders = table_with_enum("orders", orders_enum, &["new", "paid"]);
+        let tickets = table_with_enum("tickets", tickets_enum, &["open", "closed"]);
         let schema = render_schema(&[orders, tickets]);
-
-        assert!(schema.contains("enum OrdersStatus {"));
-        assert!(schema.contains("enum TicketsStatus {"));
-        assert!(!schema.contains("enum Status {"));
-        assert!(schema.contains("  st OrdersStatus"));
-        assert!(schema.contains("  st TicketsStatus"));
-    }
-
-    /// Distinct enum names can collapse onto one `PascalCase` identifier, so the
-    /// clash has to be judged after the conversion, not on the declared name.
-    #[test]
-    fn render_schema_qualifies_enums_whose_names_collapse_to_one_identifier() {
-        let orders = table_with_enum("orders", "doc_status", &["new", "paid"]);
-        let tickets = table_with_enum("tickets", "docStatus", &["open", "closed"]);
-        let schema = render_schema(&[orders, tickets]);
-
-        assert!(schema.contains("enum OrdersDocStatus {"));
-        assert!(schema.contains("enum TicketsDocStatus {"));
-        assert!(schema.contains("  st OrdersDocStatus"));
-        assert!(schema.contains("  st TicketsDocStatus"));
+        with_settings!(
+            { snapshot_path => "../tests/snapshots", snapshot_suffix => format!("{orders_enum}_{tickets_enum}") },
+            { assert_snapshot!(schema); }
+        );
     }
 
     fn table_with_enum(name: &str, enum_name: &str, values: &[&str]) -> TableDef {
