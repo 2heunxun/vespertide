@@ -2906,6 +2906,7 @@ dependencies = [
 name = "vespertide-exporter"
 version = "0.2.1"
 dependencies = [
+ "clap",
  "criterion",
  "insta",
  "proptest",

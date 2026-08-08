@@ -54,7 +54,7 @@ async fn export_writes_seaorm_files_to_default_dir() {
     let model = sample_table("users");
     write_model(Path::new("models/users.json"), &model);
 
-    cmd_export(OrmArg::Seaorm, None).await.unwrap();
+    cmd_export(Orm::SeaOrm, None).await.unwrap();
 
     let out = PathBuf::from("src/models/users.rs");
     assert!(out.exists());
@@ -79,9 +79,7 @@ async fn export_respects_custom_output_dir() {
     write_model(Path::new("models/blog/posts.json"), &model);
 
     let custom = PathBuf::from("out_dir");
-    cmd_export(OrmArg::Seaorm, Some(custom.clone()))
-        .await
-        .unwrap();
+    cmd_export(Orm::SeaOrm, Some(custom.clone())).await.unwrap();
 
     let out = custom.join("blog/posts.rs");
     assert!(out.exists());
@@ -109,7 +107,7 @@ async fn export_with_sqlalchemy_sets_py_extension() {
     let model = sample_table("items");
     write_model(Path::new("models/items.json"), &model);
 
-    cmd_export(OrmArg::Sqlalchemy, None).await.unwrap();
+    cmd_export(Orm::SqlAlchemy, None).await.unwrap();
 
     let out = PathBuf::from("src/models/items.py");
     assert!(out.exists());
@@ -127,7 +125,7 @@ async fn export_with_sqlmodel_sets_py_extension() {
     let model = sample_table("orders");
     write_model(Path::new("models/orders.json"), &model);
 
-    cmd_export(OrmArg::Sqlmodel, None).await.unwrap();
+    cmd_export(Orm::SqlModel, None).await.unwrap();
 
     let out = PathBuf::from("src/models/orders.py");
     assert!(out.exists());
@@ -168,7 +166,7 @@ async fn export_seaorm_uses_absolute_crate_paths_for_cross_directory_fk() {
     });
     write_model(Path::new("models/blog/post.json"), &post);
 
-    cmd_export(OrmArg::Seaorm, None).await.unwrap();
+    cmd_export(Orm::SeaOrm, None).await.unwrap();
 
     // Cross-directory FK relations must use the absolute `crate::` module path
     // derived from the export dir, not a sibling `super::` path.
@@ -183,7 +181,7 @@ async fn export_creates_output_dir_even_without_models() {
     let _guard = CwdGuard::new(&tmp.path().to_path_buf());
     write_config();
 
-    cmd_export(OrmArg::Seaorm, None).await.unwrap();
+    cmd_export(Orm::SeaOrm, None).await.unwrap();
 
     assert!(PathBuf::from("src/models").exists());
 }
@@ -282,16 +280,6 @@ fn resolve_export_dir_prefers_override() {
     let override_dir = PathBuf::from("custom_out");
     let resolved = super::resolve_export_dir(Some(override_dir.clone()), &cfg);
     assert_eq!(resolved, override_dir);
-}
-
-#[rstest]
-#[case(OrmArg::Seaorm, Orm::SeaOrm)]
-#[case(OrmArg::Sqlalchemy, Orm::SqlAlchemy)]
-#[case(OrmArg::Sqlmodel, Orm::SqlModel)]
-#[case(OrmArg::Jpa, Orm::Jpa)]
-#[case(OrmArg::Prisma, Orm::Prisma)]
-fn orm_arg_maps_to_enum(#[case] arg: OrmArg, #[case] expected: Orm) {
-    assert_eq!(Orm::from(arg), expected);
 }
 
 #[rstest]

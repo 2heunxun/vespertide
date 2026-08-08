@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use clap::ValueEnum;
 use futures::future::try_join_all;
 use rayon::prelude::*;
 use tokio::fs;
@@ -16,28 +15,7 @@ use vespertide_naming::{IdentifierStart, sanitize_identifier, seaorm_module_name
 use crate::parallel_config::{EXPORT_RENDER_PAR_MIN_LEN, EXPORT_RENDER_PAR_THRESHOLD};
 use crate::utils::load_config;
 
-#[derive(Copy, Clone, Debug, ValueEnum)]
-pub enum OrmArg {
-    Seaorm,
-    Sqlalchemy,
-    Sqlmodel,
-    Jpa,
-    Prisma,
-}
-
-impl From<OrmArg> for Orm {
-    fn from(value: OrmArg) -> Self {
-        match value {
-            OrmArg::Seaorm => Orm::SeaOrm,
-            OrmArg::Sqlalchemy => Orm::SqlAlchemy,
-            OrmArg::Sqlmodel => Orm::SqlModel,
-            OrmArg::Jpa => Orm::Jpa,
-            OrmArg::Prisma => Orm::Prisma,
-        }
-    }
-}
-
-pub async fn cmd_export(orm: OrmArg, export_dir: Option<PathBuf>) -> Result<()> {
+pub async fn cmd_export(orm: Orm, export_dir: Option<PathBuf>) -> Result<()> {
     let config = load_config()?;
     let models = load_models_recursive(config.models_dir())
         .await
@@ -57,13 +35,12 @@ pub async fn cmd_export(orm: OrmArg, export_dir: Option<PathBuf>) -> Result<()> 
     let target_root = resolve_export_dir(export_dir, &config);
 
     // Prisma uses a single-file output strategy
-    if matches!(orm, OrmArg::Prisma) {
+    if matches!(orm, Orm::Prisma) {
         return cmd_export_prisma(normalized_models, target_root).await;
     }
 
     // Clean the export directory before regenerating
-    let orm_kind: Orm = orm.into();
-    clean_export_dir(&target_root, orm_kind).await?;
+    clean_export_dir(&target_root, orm).await?;
 
     if !target_root.exists() {
         fs::create_dir_all(&target_root)
@@ -95,7 +72,7 @@ pub async fn cmd_export(orm: OrmArg, export_dir: Option<PathBuf>) -> Result<()> 
         module_paths: &module_paths,
         crate_prefix: &crate_prefix,
         seaorm_exporter: &seaorm_exporter,
-        orm_kind,
+        orm_kind: orm,
     };
 
     // Generate all entity code (CPU-bound, done synchronously)
@@ -138,9 +115,9 @@ pub async fn cmd_export(orm: OrmArg, export_dir: Option<PathBuf>) -> Result<()> 
     try_join_all(write_futures).await?;
 
     // Ensure mod chain for SeaORM (must be done after all files are written)
-    if matches!(orm_kind, Orm::SeaOrm) {
+    if matches!(orm, Orm::SeaOrm) {
         for (_table, rel_path) in &normalized_models {
-            let out_path = build_output_path(&target_root, rel_path, orm_kind);
+            let out_path = build_output_path(&target_root, rel_path, orm);
             ensure_mod_chain(&target_root, rel_path)
                 .await
                 .with_context(|| format!("ensure mod chain for {}", out_path.display()))?;
@@ -202,7 +179,7 @@ fn export_dir_to_crate_prefix(export_dir: &Path) -> String {
 /// For example: `admin/admin.json` → `["admin", "admin"]`
 /// `estimate/estimate_checker.vespertide.json` → `["estimate", "estimate_checker"]`
 fn rel_path_to_module_segments(rel_path: &Path) -> Vec<String> {
-    let mut segments = Vec::new();
+    let mut segments = vec![];
 
     // Add directory components
     if let Some(parent) = rel_path.parent() {
@@ -244,14 +221,7 @@ async fn clean_export_dir(root: &Path, orm: Orm) -> Result<()> {
         return Ok(());
     }
 
-    let ext = match orm {
-        Orm::SeaOrm => "rs",
-        Orm::SqlAlchemy | Orm::SqlModel => "py",
-        Orm::Jpa => "java",
-        Orm::Prisma => "prisma",
-    };
-
-    clean_dir_recursive(root, ext).await?;
+    clean_dir_recursive(root, orm.file_extension()).await?;
     Ok(())
 }
 
@@ -266,8 +236,8 @@ async fn clean_dir_recursive(dir: &Path, ext: &str) -> Result<()> {
         .await
         .with_context(|| format!("read dir {}", dir.display()))?;
 
-    let mut subdirs = Vec::new();
-    let mut files_to_remove = Vec::new();
+    let mut subdirs = vec![];
+    let mut files_to_remove = vec![];
 
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
@@ -278,7 +248,6 @@ async fn clean_dir_recursive(dir: &Path, ext: &str) -> Result<()> {
         }
     }
 
-    // Remove files in parallel
     let remove_futures: Vec<_> = files_to_remove
         .into_iter()
         .map(|path| async move {
@@ -288,15 +257,13 @@ async fn clean_dir_recursive(dir: &Path, ext: &str) -> Result<()> {
         })
         .collect();
 
-    try_join_all(remove_futures).await?;
-
-    // Recursively clean subdirectories
     let subdir_futures: Vec<_> = subdirs
         .iter()
         .map(|subdir| clean_dir_recursive(subdir, ext))
         .collect();
 
-    try_join_all(subdir_futures).await?;
+    // Files and subdirectories are disjoint, so both sweeps run together.
+    futures::try_join!(try_join_all(remove_futures), try_join_all(subdir_futures))?;
 
     // Remove empty directories
     for subdir in subdirs {
@@ -337,12 +304,7 @@ fn build_output_path(root: &Path, rel_path: &Path, orm: Orm) -> PathBuf {
         let stem = stem.strip_suffix(".vespertide").unwrap_or(stem);
 
         let sanitized = sanitize_filename(stem);
-        let ext = match orm {
-            Orm::SeaOrm => "rs",
-            Orm::SqlAlchemy | Orm::SqlModel => "py",
-            Orm::Jpa => "java",
-            Orm::Prisma => "prisma",
-        };
+        let ext = orm.file_extension();
         let file_stem = match orm {
             // Java requires the file name to match the public class name,
             // including the escaping the renderer applies.
@@ -384,7 +346,7 @@ fn sanitize_filename(name: &str) -> String {
 }
 
 async fn load_models_recursive(base: &Path) -> Result<Vec<(TableDef, PathBuf)>> {
-    let mut out = Vec::new();
+    let mut out = vec![];
     if !base.exists() {
         return Ok(out);
     }

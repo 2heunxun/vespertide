@@ -21,7 +21,7 @@ async fn export_prisma_writes_backend_neutral_schema() {
     });
     write_model(Path::new("models/events.json"), &model);
 
-    cmd_export(OrmArg::Prisma, None).await.unwrap();
+    cmd_export(Orm::Prisma, None).await.unwrap();
 
     let out = PathBuf::from("src/models/models.prisma");
     assert!(out.exists());

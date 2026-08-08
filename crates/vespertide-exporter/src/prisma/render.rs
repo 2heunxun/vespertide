@@ -14,38 +14,10 @@ use super::enums::enum_variant;
 use super::types::column_type_to_prisma;
 use crate::utils::common::unquote;
 
-struct PkInfo {
-    columns: Vec<String>,
-    auto_increment: bool,
-}
-
-fn extract_pk_info(constraints: &[TableConstraint]) -> PkInfo {
-    for c in constraints {
-        if let TableConstraint::PrimaryKey {
-            auto_increment,
-            columns,
-            ..
-        } = c
-        {
-            return PkInfo {
-                columns: columns.iter().map(ToString::to_string).collect(),
-                auto_increment: *auto_increment,
-            };
-        }
-    }
-    PkInfo {
-        columns: Vec::new(),
-        auto_increment: false,
-    }
-}
-
-struct FkInfo<'a> {
-    /// Position among the table's constraints — the key into [`fk_relation_names`].
-    constraint_idx: usize,
-    ref_table: &'a str,
-    ref_cols: &'a [ColumnName],
-    on_delete: Option<&'a ReferenceAction>,
-    on_update: Option<&'a ReferenceAction>,
+fn primary_key(constraints: &[TableConstraint]) -> Option<&TableConstraint> {
+    constraints
+        .iter()
+        .find(|c| matches!(c, TableConstraint::PrimaryKey { .. }))
 }
 
 pub(super) struct BackRelation {
@@ -117,9 +89,10 @@ pub(super) fn collect_back_relations(target_table: &str, schema: &[TableDef]) ->
                 // most one row per target key: its FK columns are exactly its
                 // own PK, or a composite unique covers exactly that set.
                 let fk_set: HashSet<&str> = fk_cols.iter().map(ColumnName::as_str).collect();
-                let pk = extract_pk_info(&source.constraints);
-                pk.columns.len() == fk_set.len()
-                    && pk.columns.iter().all(|c| fk_set.contains(c.as_str()))
+                let pk_cols = primary_key(&source.constraints)
+                    .map(TableConstraint::columns)
+                    .unwrap_or_default();
+                pk_cols.len() == fk_set.len() && pk_cols.iter().all(|c| fk_set.contains(c.as_str()))
                     || source.constraints.iter().any(|c| {
                         matches!(c, TableConstraint::Unique { columns, .. }
                             if columns.len() == fk_set.len()
@@ -162,10 +135,17 @@ pub(super) fn render_model(
     let model_name = prisma_model_name(&table.name);
     lines.push(format!("model {model_name} {{"));
 
-    let pk_info = extract_pk_info(&table.constraints);
-    let pk_columns: std::collections::HashSet<&str> =
-        pk_info.columns.iter().map(String::as_str).collect();
-    let is_composite_pk = pk_info.columns.len() > 1;
+    let pk = primary_key(&table.constraints);
+    let pk_cols = pk.map(TableConstraint::columns).unwrap_or_default();
+    let pk_auto_increment = matches!(
+        pk,
+        Some(TableConstraint::PrimaryKey {
+            auto_increment: true,
+            ..
+        })
+    );
+    let pk_columns: HashSet<&str> = pk_cols.iter().map(ColumnName::as_str).collect();
+    let is_composite_pk = pk_cols.len() > 1;
 
     let unique_single: HashMap<&str, Option<&str>> = table
         .constraints
@@ -183,38 +163,16 @@ pub(super) fn render_model(
         })
         .collect();
 
-    // FK lookup by column
-    let fk_by_col: HashMap<&str, FkInfo<'_>> = table
+    // FK lookup by column, carrying the constraint position that keys `relation_names`.
+    let fk_by_col: HashMap<&str, (usize, &TableConstraint)> = table
         .constraints
         .iter()
         .enumerate()
-        .filter_map(|(constraint_idx, c)| {
-            if let TableConstraint::ForeignKey {
-                columns,
-                ref_table,
-                ref_columns,
-                on_delete,
-                on_update,
-                ..
-            } = c
-            {
-                if columns.len() == 1 {
-                    Some((
-                        columns[0].as_str(),
-                        FkInfo {
-                            constraint_idx,
-                            ref_table: ref_table.as_str(),
-                            ref_cols: ref_columns.as_slice(),
-                            on_delete: on_delete.as_ref(),
-                            on_update: on_update.as_ref(),
-                        },
-                    ))
-                } else {
-                    None
-                }
-            } else {
-                None
+        .filter_map(|(constraint_idx, c)| match c {
+            TableConstraint::ForeignKey { columns, .. } if columns.len() == 1 => {
+                Some((columns[0].as_str(), (constraint_idx, c)))
             }
+            _ => None,
         })
         .collect();
 
@@ -245,7 +203,7 @@ pub(super) fn render_model(
         let col_name = prisma_field_name(db_name);
         let in_pk = pk_columns.contains(db_name);
         let is_single_pk = in_pk && !is_composite_pk;
-        let auto_inc = is_single_pk && pk_info.auto_increment;
+        let auto_inc = is_single_pk && pk_auto_increment;
         let is_unique = unique_single.get(db_name).copied();
 
         if let Some(ref comment) = col.comment {
@@ -293,30 +251,42 @@ pub(super) fn render_model(
         lines.push(format!("  {col_name} {type_str}{attrs_str}"));
 
         // Emit inline relation field for FK columns
-        if let Some(fk) = fk_by_col.get(db_name) {
+        if let Some(&(constraint_idx, fk)) = fk_by_col.get(db_name)
+            && let TableConstraint::ForeignKey {
+                ref_table,
+                ref_columns,
+                on_delete,
+                on_update,
+                ..
+            } = fk
+        {
             let rel_field_name = claim_field_name(
                 prisma_field_name(&infer_relation_field_name(db_name)),
                 &mut field_names,
             );
-            let rel_model = prisma_model_name(fk.ref_table);
+            let rel_model = prisma_model_name(ref_table);
             let rel_type = if col.nullable {
                 format!("{rel_model}?")
             } else {
                 rel_model.clone()
             };
 
-            let multi_fk = ref_table_fk_count.get(fk.ref_table).copied().unwrap_or(0) > 1;
-            let is_self_ref = fk.ref_table == table.name.as_str();
+            let multi_fk = ref_table_fk_count
+                .get(ref_table.as_str())
+                .copied()
+                .unwrap_or(0)
+                > 1;
+            let is_self_ref = ref_table == &table.name;
 
             let mut rel_args: Vec<String> = Vec::new();
             if (multi_fk || is_self_ref)
-                && let Some(name) = relation_names.get(&fk.constraint_idx)
+                && let Some(name) = relation_names.get(&constraint_idx)
             {
                 rel_args.push(format!("\"{name}\""));
             }
             rel_args.push(format!("fields: [{col_name}]"));
-            rel_args.push(format!("references: [{}]", field_list(fk.ref_cols)));
-            push_referential_actions(&mut rel_args, fk.on_delete, fk.on_update);
+            rel_args.push(format!("references: [{}]", field_list(ref_columns)));
+            push_referential_actions(&mut rel_args, on_delete.as_ref(), on_update.as_ref());
 
             let rel_args_str = rel_args.join(", ");
             lines.push(format!(
@@ -397,8 +367,8 @@ pub(super) fn render_model(
 
     // Composite PK
     if is_composite_pk {
-        let pk_cols = field_list(&pk_info.columns);
-        lines.push(format!("  @@id([{pk_cols}])"));
+        let pk_list = field_list(pk_cols);
+        lines.push(format!("  @@id([{pk_list}])"));
     }
 
     // Composite unique constraints. Like the field-level `@unique`, the map

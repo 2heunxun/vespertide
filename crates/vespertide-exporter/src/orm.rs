@@ -7,12 +7,30 @@ use crate::{
 
 /// Supported ORM targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 pub enum Orm {
+    // clap derives value names in kebab-case, so the multi-word variants are
+    // pinned to keep the `--orm` values the CLI has always accepted.
+    #[cfg_attr(feature = "cli", value(name = "seaorm"))]
     SeaOrm,
+    #[cfg_attr(feature = "cli", value(name = "sqlalchemy"))]
     SqlAlchemy,
+    #[cfg_attr(feature = "cli", value(name = "sqlmodel"))]
     SqlModel,
     Jpa,
     Prisma,
+}
+
+impl Orm {
+    /// Extension of the files this ORM's entities are written to.
+    pub fn file_extension(self) -> &'static str {
+        match self {
+            Orm::SeaOrm => "rs",
+            Orm::SqlAlchemy | Orm::SqlModel => "py",
+            Orm::Jpa => "java",
+            Orm::Prisma => "prisma",
+        }
+    }
 }
 
 /// Standardized exporter interface for all supported ORMs.
@@ -83,5 +101,30 @@ mod tests {
         let table = basic_single_pk();
         let schema = vec![table.clone()];
         assert!(render_entity_with_schema(orm, &table, &schema).is_ok());
+    }
+
+    #[rstest]
+    #[case::seaorm(Orm::SeaOrm, "rs")]
+    #[case::sqlalchemy(Orm::SqlAlchemy, "py")]
+    #[case::sqlmodel(Orm::SqlModel, "py")]
+    #[case::jpa(Orm::Jpa, "java")]
+    #[case::prisma(Orm::Prisma, "prisma")]
+    fn file_extension_matches_backend(#[case] orm: Orm, #[case] expected: &str) {
+        assert_eq!(orm.file_extension(), expected);
+    }
+
+    /// The `--orm` values are user-facing, so the pinned names stay put.
+    #[cfg(feature = "cli")]
+    #[rstest]
+    #[case::seaorm("seaorm", Orm::SeaOrm)]
+    #[case::sqlalchemy("sqlalchemy", Orm::SqlAlchemy)]
+    #[case::sqlmodel("sqlmodel", Orm::SqlModel)]
+    #[case::jpa("jpa", Orm::Jpa)]
+    #[case::prisma("prisma", Orm::Prisma)]
+    fn value_enum_parses_cli_name(#[case] input: &str, #[case] expected: Orm) {
+        assert_eq!(
+            clap::ValueEnum::from_str(input, false),
+            Ok::<Orm, String>(expected)
+        );
     }
 }
