@@ -200,7 +200,7 @@ fn rel_path_to_module_segments(rel_path: &Path) -> Vec<String> {
             (file_name, "")
         };
         let stem = stem.strip_suffix(".vespertide").unwrap_or(stem);
-        segments.push(sanitize_filename(stem).clone());
+        segments.push(sanitize_filename(stem));
     }
 
     segments

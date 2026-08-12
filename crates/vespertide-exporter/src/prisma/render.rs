@@ -268,7 +268,7 @@ pub(super) fn render_model(
             let rel_type = if col.nullable {
                 format!("{rel_model}?")
             } else {
-                rel_model.clone()
+                rel_model
             };
 
             let multi_fk = ref_table_fk_count
