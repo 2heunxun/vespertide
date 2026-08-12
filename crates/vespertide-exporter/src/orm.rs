@@ -7,15 +7,12 @@ use crate::{
 
 /// Supported ORM targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
+// `--orm` values are lowercase with no separator; clap's default kebab-casing
+// would turn `SeaOrm` into `sea-orm`.
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum), value(rename_all = "lower"))]
 pub enum Orm {
-    // clap derives value names in kebab-case, so the multi-word variants are
-    // pinned to keep the `--orm` values the CLI has always accepted.
-    #[cfg_attr(feature = "cli", value(name = "seaorm"))]
     SeaOrm,
-    #[cfg_attr(feature = "cli", value(name = "sqlalchemy"))]
     SqlAlchemy,
-    #[cfg_attr(feature = "cli", value(name = "sqlmodel"))]
     SqlModel,
     Jpa,
     Prisma,
