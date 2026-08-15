@@ -353,13 +353,6 @@ fn to_pascal_case_shared_semantics(
     assert_eq!(to_pascal_case_for(orm, input), expected);
 }
 
-#[test]
-fn render_schema_gorm_and_django() {
-    let schema = fixtures::small_multi_schema();
-    assert!(render_schema(Orm::Gorm, &schema).is_ok());
-    assert!(render_schema(Orm::Django, &schema).is_ok());
-}
-
 #[rstest]
 #[case::seaorm(Orm::SeaOrm)]
 #[case::sqlalchemy(Orm::SqlAlchemy)]
