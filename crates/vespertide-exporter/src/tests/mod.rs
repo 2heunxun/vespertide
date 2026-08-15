@@ -386,3 +386,9 @@ fn render_entity_with_schema_snapshots(
         assert_snapshot!(rendered);
     });
 }
+
+#[test]
+#[should_panic(expected = "unknown schema scenario nonexistent_scenario")]
+fn schema_scenario_panics_on_unknown_name() {
+    fixtures::schema_scenario("nonexistent_scenario");
+}
