@@ -30,9 +30,10 @@ dot-writer = "0.1.4"
 vespertide-config = { workspace = true, features = ["cli", "schema"] }
 vespertide-core = { workspace = true, features = ["schema"] }
 vespertide-loader = { workspace = true }
+vespertide-naming = { workspace = true }
 vespertide-planner = { workspace = true }
 vespertide-query = { workspace = true }
-vespertide-exporter = { workspace = true }
+vespertide-exporter = { workspace = true, features = ["cli"] }
 
 [dev-dependencies]
 tempfile = "3"

@@ -262,27 +262,6 @@ pub(super) fn column_markers(table: &TableDef, column: &ColumnDef) -> String {
     }
 }
 
-pub(super) fn sanitize_identifier(input: &str) -> String {
-    let mut identifier = String::new();
-
-    for (index, ch) in input.chars().enumerate() {
-        if ch == '_' || ch.is_ascii_alphanumeric() {
-            if index == 0 && ch.is_ascii_digit() {
-                identifier.push('_');
-            }
-            identifier.push(ch);
-        } else {
-            identifier.push('_');
-        }
-    }
-
-    if identifier.is_empty() {
-        "_".to_string()
-    } else {
-        identifier
-    }
-}
-
 fn inline_foreign_key_relation(
     table: &TableDef,
     column: &ColumnDef,

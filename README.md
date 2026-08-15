@@ -16,7 +16,7 @@ Declarative database schema management. Define your schemas in JSON, and Vespert
 - **Enum Types**: Native string enums and integer enums (no migration needed for new values)
 - **Zero-Runtime Migrations**: Compile-time macro generates database-specific SQL
 - **JSON Schema Validation**: Ships with JSON Schemas for IDE autocompletion and validation
-- **ORM Export**: Export schemas to SeaORM, SQLAlchemy, SQLModel
+- **ORM Export**: Export schemas to SeaORM, SQLAlchemy, SQLModel, JPA, Prisma
 - **Language Server**: First-class editor support via the bundled `vespertide-lsp` — see [LSP Features](#lsp-features) below
 
 ## What's new in 0.2.0
