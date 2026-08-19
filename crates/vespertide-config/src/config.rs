@@ -131,9 +131,31 @@ pub const DEFAULT_GORM_PACKAGE_NAME: &str = "models";
 
 /// Go reserved words, which can't be used as a package name.
 const GO_RESERVED_WORDS: &[&str] = &[
-    "break", "default", "func", "interface", "select", "case", "defer", "go", "map", "struct",
-    "chan", "else", "goto", "package", "switch", "const", "fallthrough", "if", "range", "type",
-    "continue", "for", "import", "return", "var",
+    "break",
+    "default",
+    "func",
+    "interface",
+    "select",
+    "case",
+    "defer",
+    "go",
+    "map",
+    "struct",
+    "chan",
+    "else",
+    "goto",
+    "package",
+    "switch",
+    "const",
+    "fallthrough",
+    "if",
+    "range",
+    "type",
+    "continue",
+    "for",
+    "import",
+    "return",
+    "var",
 ];
 
 /// Sanitize a candidate string into a valid, idiomatic Go package identifier:
