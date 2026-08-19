@@ -95,7 +95,8 @@ pub async fn cmd_export(orm: OrmArg, export_dir: Option<PathBuf>) -> Result<()> 
     // Create per-ORM exporters that honor their `vespertide.json` config section
     let seaorm_exporter = SeaOrmExporterWithConfig::new(config.seaorm(), config.prefix());
     let django_exporter = DjangoExporterWithConfig::new(config.django());
-    let gorm_exporter = GormExporterWithConfig::new(config.gorm());
+    let gorm_package_name = config.gorm_package_name(&target_root);
+    let gorm_exporter = GormExporterWithConfig::new(&gorm_package_name);
     let render_context = ExportRenderContext {
         target_root: &target_root,
         all_tables: &all_tables,

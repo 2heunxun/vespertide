@@ -2795,6 +2795,7 @@ name = "vespertide-config"
 version = "0.2.1"
 dependencies = [
  "clap",
+ "rstest",
  "schemars",
  "serde",
  "serde_json",

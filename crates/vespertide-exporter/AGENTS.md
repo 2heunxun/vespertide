@@ -62,7 +62,7 @@ src/
 - **No M2M/junction detection**: a junction table (composite-PK, 2+ FKs) is rendered as a plain
   has-many to the junction struct itself, not a dedicated M2M relation — same limitation Django had
   before this was added there; not yet closed for GORM
-- **Config**: `GormExporterWithConfig` for `package_name` (default `"models"`)
+- **Config**: `GormExporterWithConfig` takes the *resolved* package name (a `&str`), not a `GormConfig` — callers get it from `VespertideConfig::gorm_package_name(export_dir)`, which uses an explicit `gorm.package_name` if set, otherwise infers one from the actual export directory's final path segment (sanitized to a valid Go identifier), falling back to `"models"`. The CLI passes the real write target (`--export-dir` override or `model_export_dir`), not the config's static default, since Go requires `package` to match the directory the files live in.
 - **Tests**: own snapshot suite under `gorm/tests/` (not the shared `orm_cases!` fixtures until the
   Django/GORM cross-ORM wiring pass), split into `tests/mod.rs` (type mapping, snapshots) and
   `tests/relations.rs` (composite-FK + self-ref regression tests)
