@@ -353,13 +353,6 @@ fn to_pascal_case_shared_semantics(
     assert_eq!(to_pascal_case_for(orm, input), expected);
 }
 
-#[test]
-fn render_schema_gorm_and_django() {
-    let schema = fixtures::small_multi_schema();
-    assert!(render_schema(Orm::Gorm, &schema).is_ok());
-    assert!(render_schema(Orm::Django, &schema).is_ok());
-}
-
 #[rstest]
 #[case::seaorm(Orm::SeaOrm)]
 #[case::sqlalchemy(Orm::SqlAlchemy)]
@@ -392,4 +385,10 @@ fn render_entity_with_schema_snapshots(
     with_settings!({ snapshot_suffix => format!("{}_{:?}", scenario, orm) }, {
         assert_snapshot!(rendered);
     });
+}
+
+#[test]
+#[should_panic(expected = "unknown schema scenario nonexistent_scenario")]
+fn schema_scenario_panics_on_unknown_name() {
+    fixtures::schema_scenario("nonexistent_scenario");
 }
