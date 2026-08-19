@@ -209,7 +209,10 @@ mod tests {
     #[case::falls_back_when_digit_led("src/2024-models", "models")]
     #[case::falls_back_on_non_ascii("src/모델", "models")]
     #[case::falls_back_on_reserved_word("src/type", "models")]
-    fn gorm_package_name_inferred_from_export_dir(#[case] export_dir: &str, #[case] expected: &str) {
+    fn gorm_package_name_inferred_from_export_dir(
+        #[case] export_dir: &str,
+        #[case] expected: &str,
+    ) {
         let cfg = VespertideConfig::default();
         assert_eq!(cfg.gorm_package_name(Path::new(export_dir)), expected);
     }
@@ -222,10 +225,7 @@ mod tests {
             },
             ..Default::default()
         };
-        assert_eq!(
-            cfg.gorm_package_name(Path::new("src/entities")),
-            "custom"
-        );
+        assert_eq!(cfg.gorm_package_name(Path::new("src/entities")), "custom");
     }
 
     #[test]
@@ -236,9 +236,6 @@ mod tests {
         // directory the files live in.
         let cfg = VespertideConfig::default();
         assert_eq!(cfg.model_export_dir(), Path::new("src/models"));
-        assert_eq!(
-            cfg.gorm_package_name(Path::new("generated")),
-            "generated"
-        );
+        assert_eq!(cfg.gorm_package_name(Path::new("generated")), "generated");
     }
 }

@@ -539,28 +539,6 @@ fn svg_cardinality_labels(schema: &[TableDef]) -> String {
         .join("\n")
 }
 
-// === sanitize_identifier edge cases ===
-
-#[test]
-fn sanitize_identifier_digit_first_prefixes_underscore() {
-    assert_eq!(sanitize_identifier("9lives"), "_9lives");
-}
-
-#[test]
-fn sanitize_identifier_empty_returns_underscore() {
-    assert_eq!(sanitize_identifier(""), "_");
-}
-
-#[test]
-fn sanitize_identifier_non_ascii_becomes_underscore() {
-    assert_eq!(sanitize_identifier("a b-c.d"), "a_b_c_d");
-}
-
-#[test]
-fn sanitize_identifier_preserves_underscores_and_alphanumerics() {
-    assert_eq!(sanitize_identifier("table_99_ok"), "table_99_ok");
-}
-
 // === parallel FK edges between same (child, parent) pair ===
 
 #[test]
@@ -662,6 +640,24 @@ fn malformed_inline_fk_reference_is_ignored() {
         ],
     );
     assert!(collect_foreign_key_relations(&[users, bad]).is_empty());
+}
+
+#[test]
+fn table_level_fk_to_missing_table_is_ignored() {
+    let mut orphan = table(
+        "orphan",
+        vec![primary_key("id", integer()), column("ghost_id", integer())],
+    );
+    orphan.constraints.push(TableConstraint::ForeignKey {
+        name: Some("fk_orphan_ghost".into()),
+        columns: vec!["ghost_id".into()],
+        ref_table: "ghost".into(),
+        ref_columns: vec!["id".into()],
+        on_delete: None,
+        on_update: None,
+        orphan_strategy: Default::default(),
+    });
+    assert!(collect_foreign_key_relations(&[orphan]).is_empty());
 }
 
 #[test]

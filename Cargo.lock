@@ -2786,6 +2786,7 @@ dependencies = [
  "vespertide-core",
  "vespertide-exporter",
  "vespertide-loader",
+ "vespertide-naming",
  "vespertide-planner",
  "vespertide-query",
 ]
@@ -2820,6 +2821,7 @@ dependencies = [
 name = "vespertide-exporter"
 version = "0.2.1"
 dependencies = [
+ "clap",
  "criterion",
  "insta",
  "proptest",
@@ -2915,6 +2917,7 @@ version = "0.2.1"
 dependencies = [
  "criterion",
  "proptest",
+ "rstest",
 ]
 
 [[package]]

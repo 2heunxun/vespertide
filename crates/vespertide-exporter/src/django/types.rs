@@ -69,6 +69,10 @@ pub(super) fn django_field_type(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "all params are independent field-kwarg inputs; a context struct would add noise without reducing coupling"
+)]
 pub(super) fn build_field_kwargs(
     col_type: &ColumnType,
     is_pk: bool,
@@ -76,9 +80,14 @@ pub(super) fn build_field_kwargs(
     nullable: bool,
     default: Option<&DefaultValue>,
     enum_class_name: Option<&str>,
+    db_column: Option<&str>,
     used: &mut UsedImports,
 ) -> Vec<String> {
     let mut kwargs: Vec<String> = Vec::new();
+
+    if let Some(db_col) = db_column {
+        kwargs.push(format!("db_column=\"{db_col}\""));
+    }
 
     // Size / precision kwargs
     match col_type {

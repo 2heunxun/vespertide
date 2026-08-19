@@ -11,6 +11,7 @@ use vespertide_exporter::Orm;
 #[case::jpa(Orm::Jpa)]
 #[case::gorm(Orm::Gorm)]
 #[case::django(Orm::Django)]
+#[case::prisma(Orm::Prisma)]
 fn export_is_byte_identical_across_thread_counts(#[case] orm: Orm) {
     let schema = large_schema(100);
 
@@ -45,6 +46,7 @@ fn render_schema(orm: Orm, schema: &[TableDef]) -> Result<String, String> {
             .collect::<Result<Vec<_>, _>>()
             .map(|v| v.join("\n\n")),
         Orm::Django => vespertide_exporter::django::export(schema),
+        Orm::Prisma => vespertide_exporter::prisma::export(schema),
     }
 }
 
