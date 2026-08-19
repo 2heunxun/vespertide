@@ -8,6 +8,7 @@ use vespertide_core::schema::column::{
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::schema::names::ColumnName;
 use vespertide_core::{ColumnDef, DefaultValue, ReferenceAction, ReferenceActionKind, TableDef};
+use vespertide_naming::{IdentifierStart, sanitize_identifier};
 
 /// Track which Go imports are actually used to generate minimal import statements.
 #[expect(
@@ -131,14 +132,20 @@ fn render_entity_inner_with_package(
 ) -> String {
     let mut lines: Vec<String> = Vec::new();
 
-    let struct_name = to_pascal_case(&table.name);
+    let struct_name =
+        sanitize_identifier(&to_pascal_case(&table.name), IdentifierStart::Underscore);
 
     // Find enum names that appear in multiple schema tables (need qualified Go type names)
     let conflicting_enums: HashSet<String> = {
         let mut counts: HashMap<String, usize> = HashMap::new();
         for col in &table.columns {
             if let ColumnType::Complex(ComplexColumnType::Enum { name, .. }) = &col.r#type {
-                counts.entry(to_pascal_case(name)).or_insert(1);
+                counts
+                    .entry(sanitize_identifier(
+                        &to_pascal_case(name),
+                        IdentifierStart::Underscore,
+                    ))
+                    .or_insert(1);
             }
         }
         for other in schema {
@@ -148,7 +155,8 @@ fn render_entity_inner_with_package(
             let mut seen = HashSet::new();
             for col in &other.columns {
                 if let ColumnType::Complex(ComplexColumnType::Enum { name, .. }) = &col.r#type {
-                    let pascal = to_pascal_case(name);
+                    let pascal =
+                        sanitize_identifier(&to_pascal_case(name), IdentifierStart::Underscore);
                     if seen.insert(pascal.clone()) {
                         *counts.entry(pascal).or_default() += 1;
                     }
@@ -168,7 +176,8 @@ fn render_entity_inner_with_package(
         .iter()
         .filter_map(|col| {
             if let ColumnType::Complex(ComplexColumnType::Enum { name, values }) = &col.r#type {
-                let pascal = to_pascal_case(name);
+                let pascal =
+                    sanitize_identifier(&to_pascal_case(name), IdentifierStart::Underscore);
                 let qualified = if conflicting_enums.contains(&pascal) {
                     format!("{struct_name}{pascal}")
                 } else {
@@ -282,6 +291,17 @@ fn render_entity_inner_with_package(
 
     lines.push(format!("type {struct_name} struct {{"));
 
+    // Every real column's field name is reserved up front so belongs-to
+    // relation fields (single-column and composite) can detect a collision
+    // regardless of which column — FK or plain — happens to come first in
+    // the table definition.
+    let used_field_names: HashSet<String> = table
+        .columns
+        .iter()
+        .map(|c| to_go_field_name(&c.name))
+        .collect();
+    let mut used_relation_names = used_field_names.clone();
+
     for col in &table.columns {
         let is_pk = pk_columns.contains(col.name.as_str());
         let is_unique = single_unique_columns.contains(col.name.as_str());
@@ -306,19 +326,13 @@ fn render_entity_inner_with_package(
         );
 
         if let Some(fk) = fk_by_column.get(col.name.as_str()) {
-            render_fk_relation_field(&mut lines, col, fk);
+            render_fk_relation_field(&mut lines, col, fk, &mut used_relation_names);
         }
     }
 
     // Composite (multi-column) FK relation fields. GORM supports composite
     // associations via comma-separated `foreignKey`/`references` tags, unlike
     // Django which has no native equivalent.
-    let used_field_names: HashSet<String> = table
-        .columns
-        .iter()
-        .map(|c| to_go_field_name(&c.name))
-        .collect();
-    let mut used_relation_names = used_field_names.clone();
     for fk in collect_composite_fk_info(&table.constraints) {
         render_composite_fk_relation_field(&mut lines, &fk, &mut used_relation_names);
     }
@@ -344,7 +358,8 @@ fn render_entity_inner_with_package(
         lines.push(format!(
             "    {field_name} []{ref_struct} `gorm:\"{gorm_tag}\" json:\"-\"`",
             field_name = rel.field_name,
-            ref_struct = to_pascal_case(&rel.ref_table),
+            ref_struct =
+                sanitize_identifier(&to_pascal_case(&rel.ref_table), IdentifierStart::Underscore),
         ));
     }
 
@@ -528,7 +543,10 @@ fn find_reverse_relations(table_name: &str, schema: &[TableDef]) -> Vec<ReverseR
                 let base_name = if is_self_ref {
                     "Children".to_string()
                 } else {
-                    let pascal = to_pascal_case(other.name.as_str());
+                    let pascal = sanitize_identifier(
+                        &to_pascal_case(other.name.as_str()),
+                        IdentifierStart::Underscore,
+                    );
                     if pascal.ends_with('s') {
                         pascal
                     } else {
@@ -574,7 +592,11 @@ fn find_reverse_relations(table_name: &str, schema: &[TableDef]) -> Vec<ReverseR
 // ---------------------------------------------------------------------------
 
 fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValues) {
-    let type_name = to_pascal_case(name);
+    // `name` is already the sanitized, PascalCased (and possibly struct-qualified)
+    // identifier built by the caller — re-running `to_pascal_case` here would
+    // split on the `_` a leading-digit escape (e.g. `_1users`) introduces and
+    // silently drop it.
+    let type_name = name;
 
     let mut rendered = match values {
         EnumValues::String(_) => {
@@ -647,13 +669,34 @@ fn render_column_field(
     ));
 }
 
-fn render_fk_relation_field(lines: &mut Vec<String>, col: &ColumnDef, fk: &FkInfo) {
-    let ref_struct = to_pascal_case(&fk.ref_table);
+fn render_fk_relation_field(
+    lines: &mut Vec<String>,
+    col: &ColumnDef,
+    fk: &FkInfo,
+    used_relation_names: &mut HashSet<String>,
+) {
+    let ref_struct =
+        sanitize_identifier(&to_pascal_case(&fk.ref_table), IdentifierStart::Underscore);
     let fk_field_name = to_go_field_name(&col.name);
     let mut relation_field_name = infer_relation_field_name(&col.name);
     if relation_field_name == fk_field_name {
         relation_field_name = format!("{relation_field_name}{ref_struct}");
     }
+    // The name above only rules out colliding with this FK's own scalar
+    // field; it can still collide with an unrelated real column (or another
+    // relation) elsewhere in the table, so fall back to a numbered suffix.
+    if used_relation_names.contains(&relation_field_name) {
+        let mut n = 2;
+        loop {
+            let candidate = format!("{relation_field_name}{n}");
+            if !used_relation_names.contains(&candidate) {
+                relation_field_name = candidate;
+                break;
+            }
+            n += 1;
+        }
+    }
+    used_relation_names.insert(relation_field_name.clone());
 
     let mut constraint_parts: Vec<String> = Vec::new();
     if let Some(ref action) = fk.on_delete {
@@ -690,7 +733,8 @@ fn render_composite_fk_relation_field(
     fk: &CompositeFkInfo,
     used_relation_names: &mut HashSet<String>,
 ) {
-    let ref_struct = to_pascal_case(&fk.ref_table);
+    let ref_struct =
+        sanitize_identifier(&to_pascal_case(&fk.ref_table), IdentifierStart::Underscore);
 
     let mut relation_field_name = ref_struct.clone();
     if used_relation_names.contains(&relation_field_name) {
@@ -826,10 +870,11 @@ pub(super) fn go_type_for_column_mapped(
     enum_map: &HashMap<&str, String>,
 ) -> String {
     let base = match col_type {
-        ColumnType::Complex(ComplexColumnType::Enum { name, .. }) => enum_map
-            .get(name.as_str())
-            .cloned()
-            .unwrap_or_else(|| to_pascal_case(name)),
+        ColumnType::Complex(ComplexColumnType::Enum { name, .. }) => {
+            enum_map.get(name.as_str()).cloned().unwrap_or_else(|| {
+                sanitize_identifier(&to_pascal_case(name), IdentifierStart::Underscore)
+            })
+        }
         _ => go_base_type(col_type),
     };
     if nullable { format!("*{base}") } else { base }
@@ -908,12 +953,16 @@ fn to_pascal_case(s: &str) -> String {
 pub(super) fn to_go_field_name(s: &str) -> String {
     let pascal = to_pascal_case(s);
     // Apply Go conventions for common abbreviations
-    pascal.replace("Id", "ID")
+    let pascal = pascal.replace("Id", "ID");
+    // Go identifiers can't start with a digit or contain non-alphanumeric
+    // characters; a leading `_` is legal (matches Rust module / Java field
+    // escaping elsewhere in the exporter).
+    sanitize_identifier(&pascal, IdentifierStart::Underscore)
 }
 
 pub(super) fn infer_relation_field_name(fk_column: &str) -> String {
     let base = fk_column.strip_suffix("_id").unwrap_or(fk_column);
-    to_pascal_case(base)
+    sanitize_identifier(&to_pascal_case(base), IdentifierStart::Underscore)
 }
 
 fn pascal_to_snake(s: &str) -> String {

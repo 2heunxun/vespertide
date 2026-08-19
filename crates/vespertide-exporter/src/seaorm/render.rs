@@ -214,12 +214,17 @@ pub(super) fn render_column(
         attrs.push(format!("column_type = \"{custom_type}\""));
     }
 
+    let field_name = sanitize_field_name(&column.name);
+    // Renaming the field detaches it from the column it maps to, so name the
+    // column explicitly whenever the two differ.
+    if field_name != column.name.as_str() {
+        attrs.push(format!("column_name = \"{}\"", column.name));
+    }
+
     // Output attribute if any
     if !attrs.is_empty() {
         lines.push(format!("    #[sea_orm({})]", attrs.join(", ")));
     }
-
-    let field_name = sanitize_field_name(&column.name);
 
     let ty = match &column.r#type {
         ColumnType::Complex(ComplexColumnType::Enum { name, .. }) => {

@@ -6,6 +6,7 @@ use crate::utils::python::collect_composite_fks;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType};
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ReferenceAction, TableDef};
+use vespertide_naming::{IdentifierStart, sanitize_identifier};
 
 pub fn render_entity(table: &TableDef) -> Result<String, String> {
     let mut used = UsedImports::default();
@@ -151,8 +152,9 @@ fn find_many_to_many_fields(table: &TableDef, schema: &[TableDef]) -> Vec<String
             } else {
                 unique_name(&base, &mut used_names)
             };
-            let target_class = to_pascal_case(target);
-            let junction_class = to_pascal_case(junction);
+            let target_class = sanitize_identifier(&to_pascal_case(target), IdentifierStart::Underscore);
+            let junction_class =
+                sanitize_identifier(&to_pascal_case(junction), IdentifierStart::Underscore);
             format!(
                 "    {field_name} = models.ManyToManyField(\"{target_class}\", through=\"{junction_class}\", related_name=\"+\")"
             )
@@ -282,7 +284,10 @@ fn render_entity_part(
         .iter()
         .filter_map(|col| {
             if let ColumnType::Complex(ComplexColumnType::Enum { name, .. }) = &col.r#type {
-                Some((col.name.as_str(), to_pascal_case(name)))
+                Some((
+                    col.name.as_str(),
+                    sanitize_identifier(&to_pascal_case(name), IdentifierStart::Underscore),
+                ))
             } else {
                 None
             }
@@ -293,7 +298,8 @@ fn render_entity_part(
     let mut seen_enums: HashSet<String> = HashSet::new();
     for col in &table.columns {
         if let ColumnType::Complex(ComplexColumnType::Enum { name, values }) = &col.r#type {
-            let class_name = to_pascal_case(name);
+            let class_name =
+                sanitize_identifier(&to_pascal_case(name), IdentifierStart::Underscore);
             if seen_enums.insert(class_name.clone()) {
                 render_enum(&mut lines, &class_name, values);
                 lines.push(String::new());
@@ -302,7 +308,7 @@ fn render_entity_part(
     }
 
     // --- Class declaration ---
-    let class_name = to_pascal_case(&table.name);
+    let class_name = sanitize_identifier(&to_pascal_case(&table.name), IdentifierStart::Underscore);
     if let Some(ref desc) = table.description {
         lines.push(format!("class {class_name}(models.Model):"));
         lines.push(format!("    \"\"\"{}\"\"\"", desc.replace('\n', " ")));
@@ -338,6 +344,11 @@ fn render_entity_part(
     }
 
     // --- Fields ---
+    // Sanitizing distinct column names (e.g. `a_id` -> `a`, `a` -> `a`) can
+    // collapse two originally-distinct columns onto the same Python
+    // attribute name; disambiguate with a numeric suffix rather than
+    // silently emitting a duplicate class attribute.
+    let mut used_field_names: HashSet<String> = HashSet::new();
     for col in &table.columns {
         let is_pk = pk_columns.contains(col.name.as_str());
         let is_unique = single_unique_cols.contains(col.name.as_str());
@@ -354,6 +365,7 @@ fn render_entity_part(
                 on_delete,
                 on_update,
                 col.nullable,
+                &mut used_field_names,
             );
         } else {
             let effective_pk = is_pk && !is_composite_pk;
@@ -362,6 +374,15 @@ fn render_entity_part(
                 effective_pk,
                 auto_increment && !is_composite_pk,
             );
+            let field_name = unique_name(
+                &sanitize_identifier(col.name.as_str(), IdentifierStart::Underscore),
+                &mut used_field_names,
+            );
+            let db_column = if field_name == col.name.as_str() {
+                None
+            } else {
+                Some(col.name.as_str())
+            };
             let kwargs = build_field_kwargs(
                 &col.r#type,
                 effective_pk,
@@ -369,13 +390,14 @@ fn render_entity_part(
                 col.nullable,
                 col.default.as_ref(),
                 enum_class_map.get(col.name.as_str()).map(String::as_str),
+                db_column,
                 used,
             );
             let kwargs_str = kwargs.join(", ");
             if kwargs_str.is_empty() {
-                lines.push(format!("    {} = {}()", col.name, field_type));
+                lines.push(format!("    {field_name} = {field_type}()"));
             } else {
-                lines.push(format!("    {} = {}({})", col.name, field_type, kwargs_str));
+                lines.push(format!("    {field_name} = {field_type}({kwargs_str})"));
             }
         }
     }
@@ -484,9 +506,16 @@ fn render_fk_field(
     on_delete: Option<&ReferenceAction>,
     on_update: Option<&ReferenceAction>,
     nullable: bool,
+    used_field_names: &mut HashSet<String>,
 ) {
     let (field_name, db_column) = fk_field_name(col_name);
-    let ref_class = to_pascal_case(ref_table);
+    // The `_id` strip can collapse two distinct columns onto the same
+    // attribute name (e.g. `a_id` -> `a` colliding with a real column `a`).
+    let deduped_field_name = unique_name(&field_name, used_field_names);
+    let db_column =
+        db_column.or_else(|| (deduped_field_name != field_name).then(|| col_name.to_string()));
+    let field_name = deduped_field_name;
+    let ref_class = sanitize_identifier(&to_pascal_case(ref_table), IdentifierStart::Underscore);
     let on_delete_str = on_delete.map_or("models.RESTRICT", reference_action_str);
 
     let _ = on_update; // Django ForeignKey has no on_update param; silently ignored
@@ -513,11 +542,22 @@ fn render_fk_field(
 /// Returns (field_name, Option<db_column>).
 /// If col_name ends with `_id`, strip it — Django automatically appends `_id`.
 /// Otherwise, emit db_column explicitly so Django uses the raw column name.
+/// Either way, `field_name` is sanitized into a valid Python identifier; if
+/// that sanitization (or the `_id` strip) changes anything, `db_column` is
+/// set to the original column name so the DB mapping isn't lost.
 fn fk_field_name(col_name: &str) -> (String, Option<String>) {
     if let Some(base) = col_name.strip_suffix("_id") {
-        (base.to_string(), None)
+        let sanitized = sanitize_identifier(base, IdentifierStart::Underscore);
+        if sanitized == base {
+            (sanitized, None)
+        } else {
+            (sanitized, Some(col_name.to_string()))
+        }
     } else {
-        (col_name.to_string(), Some(col_name.to_string()))
+        (
+            sanitize_identifier(col_name, IdentifierStart::Underscore),
+            Some(col_name.to_string()),
+        )
     }
 }
 

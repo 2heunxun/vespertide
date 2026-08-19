@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use super::super::imports::{sanitize_field_name, to_pascal_case};
+use super::super::imports::{sanitize_field_name, sanitize_type_name, to_pascal_case};
 
 /// Generate a relation enum name from foreign key column names.
 /// For "`creator_user_id`", generates "`CreatorUser`".
@@ -16,7 +16,7 @@ pub(in crate::seaorm) fn generate_relation_enum_name<T: AsRef<str>>(columns: &[T
         first_col
     };
 
-    to_pascal_case(without_id)
+    sanitize_type_name(&to_pascal_case(without_id))
 }
 
 pub(in crate::seaorm) fn unique_relation_enum_name(
@@ -29,19 +29,16 @@ pub(in crate::seaorm) fn unique_relation_enum_name(
         return preferred;
     }
 
-    let source_prefixed = format!("{}{}", to_pascal_case(source_table), base_relation_enum);
+    let prefix = sanitize_type_name(&to_pascal_case(source_table));
+
+    let source_prefixed = format!("{prefix}{base_relation_enum}");
     if !used_relation_enums.contains(&source_prefixed) {
         return source_prefixed;
     }
 
     let mut index = 2;
     loop {
-        let candidate = format!(
-            "{}{}{}",
-            to_pascal_case(source_table),
-            base_relation_enum,
-            index
-        );
+        let candidate = format!("{prefix}{base_relation_enum}{index}");
         if !used_relation_enums.contains(&candidate) {
             return candidate;
         }
@@ -120,15 +117,16 @@ pub(in crate::seaorm) fn pluralize(name: &str) -> String {
     }
 }
 
+/// Render the `from = …` / `to = …` value of a `belongs_to` attribute.
+///
+/// `sea-orm` parses these as Rust paths and `PascalCase`s them into `Column`
+/// variants, so they name model fields rather than database columns — an
+/// escaped column has to appear here under its escaped name.
 pub(super) fn fk_attr_value<T: AsRef<str>>(cols: &[T]) -> String {
+    let mut fields = cols.iter().map(|col| sanitize_field_name(col.as_ref()));
     if cols.len() == 1 {
-        cols[0].as_ref().to_string()
+        fields.next().unwrap_or_default()
     } else {
-        let joined = cols
-            .iter()
-            .map(AsRef::as_ref)
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!("({joined})")
+        format!("({})", fields.collect::<Vec<_>>().join(", "))
     }
 }

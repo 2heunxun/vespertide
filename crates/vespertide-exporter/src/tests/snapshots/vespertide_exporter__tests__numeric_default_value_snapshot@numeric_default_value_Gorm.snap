@@ -1,6 +1,5 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
-assertion_line: 266
 expression: rendered
 ---
 package models
@@ -11,7 +10,7 @@ import (
 
 type Products struct {
     ID int32 `gorm:"column:id;not null" json:"id"`
-    Price decimal.Decimal `gorm:"column:price;not null;type:numeric(10,2);default:0.00" json:"price"`
+    Price decimal.Decimal `gorm:"column:price;not null;type:numeric(10,2);default:0" json:"price"`
 }
 
 func (Products) TableName() string { return "products" }

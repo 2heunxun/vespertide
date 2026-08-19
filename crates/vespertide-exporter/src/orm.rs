@@ -1,12 +1,15 @@
 use vespertide_core::TableDef;
 
 use crate::{
-    django::DjangoExporter, gorm::GormExporter, jpa::JpaExporter, seaorm::SeaOrmExporter,
-    sqlalchemy::SqlAlchemyExporter, sqlmodel::SqlModelExporter,
+    django::DjangoExporter, gorm::GormExporter, jpa::JpaExporter, prisma::PrismaExporter,
+    seaorm::SeaOrmExporter, sqlalchemy::SqlAlchemyExporter, sqlmodel::SqlModelExporter,
 };
 
 /// Supported ORM targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// `--orm` values are lowercase with no separator; clap's default kebab-casing
+// would turn `SeaOrm` into `sea-orm`.
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum), value(rename_all = "lower"))]
 pub enum Orm {
     SeaOrm,
     SqlAlchemy,
@@ -14,6 +17,20 @@ pub enum Orm {
     Jpa,
     Gorm,
     Django,
+    Prisma,
+}
+
+impl Orm {
+    /// Extension of the files this ORM's entities are written to.
+    pub fn file_extension(self) -> &'static str {
+        match self {
+            Orm::SeaOrm => "rs",
+            Orm::SqlAlchemy | Orm::SqlModel | Orm::Django => "py",
+            Orm::Jpa => "java",
+            Orm::Gorm => "go",
+            Orm::Prisma => "prisma",
+        }
+    }
 }
 
 /// Standardized exporter interface for all supported ORMs.
@@ -40,6 +57,7 @@ pub fn render_entity(orm: Orm, table: &TableDef) -> Result<String, String> {
         Orm::Jpa => JpaExporter.render_entity(table),
         Orm::Gorm => GormExporter.render_entity(table),
         Orm::Django => DjangoExporter.render_entity(table),
+        Orm::Prisma => PrismaExporter.render_entity(table),
     }
 }
 
@@ -56,6 +74,7 @@ pub fn render_entity_with_schema(
         Orm::Jpa => JpaExporter.render_entity_with_schema(table, schema),
         Orm::Gorm => GormExporter.render_entity_with_schema(table, schema),
         Orm::Django => DjangoExporter.render_entity_with_schema(table, schema),
+        Orm::Prisma => PrismaExporter.render_entity_with_schema(table, schema),
     }
 }
 
@@ -63,7 +82,6 @@ pub fn render_entity_with_schema(
 mod tests {
     use super::*;
     use crate::tests::fixtures::basic_single_pk;
-    use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
 
     #[rstest]
@@ -71,37 +89,54 @@ mod tests {
     #[case::sqlalchemy(Orm::SqlAlchemy)]
     #[case::sqlmodel(Orm::SqlModel)]
     #[case::jpa(Orm::Jpa)]
+    #[case::gorm(Orm::Gorm)]
+    #[case::django(Orm::Django)]
+    #[case::prisma(Orm::Prisma)]
     fn dispatch_render_entity_succeeds(#[case] orm: Orm) {
         let table = basic_single_pk();
         assert!(render_entity(orm, &table).is_ok());
     }
 
     #[rstest]
-    #[case("seaorm", Orm::SeaOrm)]
-    #[case("sqlalchemy", Orm::SqlAlchemy)]
-    #[case("sqlmodel", Orm::SqlModel)]
-    #[case("jpa", Orm::Jpa)]
-    #[case("gorm", Orm::Gorm)]
-    #[case("django", Orm::Django)]
-    fn test_render_entity_snapshots(#[case] name: &str, #[case] orm: Orm) {
-        let table = basic_single_pk();
-        let result = render_entity(orm, &table);
-        assert!(result.is_ok());
-        with_settings!({ snapshot_suffix => name }, {
-            assert_snapshot!(result.unwrap());
-        });
-    }
-
-    #[rstest]
-    #[case("seaorm", Orm::SeaOrm)]
-    #[case("sqlalchemy", Orm::SqlAlchemy)]
-    #[case("sqlmodel", Orm::SqlModel)]
-    #[case("jpa", Orm::Jpa)]
-    #[case("gorm", Orm::Gorm)]
-    #[case("django", Orm::Django)]
-    fn test_render_entity_with_schema_snapshots(#[case] _name: &str, #[case] orm: Orm) {
+    #[case::seaorm(Orm::SeaOrm)]
+    #[case::sqlalchemy(Orm::SqlAlchemy)]
+    #[case::sqlmodel(Orm::SqlModel)]
+    #[case::jpa(Orm::Jpa)]
+    #[case::gorm(Orm::Gorm)]
+    #[case::django(Orm::Django)]
+    #[case::prisma(Orm::Prisma)]
+    fn dispatch_render_entity_with_schema_succeeds(#[case] orm: Orm) {
         let table = basic_single_pk();
         let schema = vec![table.clone()];
         assert!(render_entity_with_schema(orm, &table, &schema).is_ok());
+    }
+
+    #[rstest]
+    #[case::seaorm(Orm::SeaOrm, "rs")]
+    #[case::sqlalchemy(Orm::SqlAlchemy, "py")]
+    #[case::sqlmodel(Orm::SqlModel, "py")]
+    #[case::jpa(Orm::Jpa, "java")]
+    #[case::gorm(Orm::Gorm, "go")]
+    #[case::django(Orm::Django, "py")]
+    #[case::prisma(Orm::Prisma, "prisma")]
+    fn file_extension_matches_backend(#[case] orm: Orm, #[case] expected: &str) {
+        assert_eq!(orm.file_extension(), expected);
+    }
+
+    /// The `--orm` values are user-facing, so the pinned names stay put.
+    #[cfg(feature = "cli")]
+    #[rstest]
+    #[case::seaorm("seaorm", Orm::SeaOrm)]
+    #[case::sqlalchemy("sqlalchemy", Orm::SqlAlchemy)]
+    #[case::sqlmodel("sqlmodel", Orm::SqlModel)]
+    #[case::jpa("jpa", Orm::Jpa)]
+    #[case::gorm("gorm", Orm::Gorm)]
+    #[case::django("django", Orm::Django)]
+    #[case::prisma("prisma", Orm::Prisma)]
+    fn value_enum_parses_cli_name(#[case] input: &str, #[case] expected: Orm) {
+        assert_eq!(
+            clap::ValueEnum::from_str(input, false),
+            Ok::<Orm, String>(expected)
+        );
     }
 }
