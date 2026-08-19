@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use insta::assert_snapshot;
 use rstest::rstest;
-use vespertide_config::GormConfig;
 use vespertide_core::schema::column::{
     ColumnType, ComplexColumnType, EnumValues, SimpleColumnType,
 };
@@ -1106,8 +1105,7 @@ fn simple_table() -> TableDef {
 #[test]
 fn test_default_package_name_is_models() {
     let table = simple_table();
-    let config = GormConfig::default();
-    let exporter = GormExporterWithConfig::new(&config);
+    let exporter = GormExporterWithConfig::new("models");
     let result = exporter.render_entity(&table).unwrap();
     assert!(
         result.starts_with("package models\n"),
@@ -1118,9 +1116,7 @@ fn test_default_package_name_is_models() {
 #[test]
 fn test_custom_package_name_from_config() {
     let table = simple_table();
-    let mut config = GormConfig::default();
-    config.package_name = "entities".to_string();
-    let exporter = GormExporterWithConfig::new(&config);
+    let exporter = GormExporterWithConfig::new("entities");
     let result = exporter.render_entity(&table).unwrap();
     assert!(
         result.starts_with("package entities\n"),
@@ -1132,9 +1128,7 @@ fn test_custom_package_name_from_config() {
 fn test_custom_package_name_with_schema_context() {
     let table = simple_table();
     let schema = vec![table.clone()];
-    let mut config = GormConfig::default();
-    config.package_name = "entities".to_string();
-    let exporter = GormExporterWithConfig::new(&config);
+    let exporter = GormExporterWithConfig::new("entities");
     let result = exporter.render_entity_with_schema(&table, &schema).unwrap();
     assert!(
         result.starts_with("package entities\n"),

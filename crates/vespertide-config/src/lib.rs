@@ -8,7 +8,8 @@ pub mod file_format;
 pub mod name_case;
 
 pub use config::{
-    DjangoConfig, GormConfig, SeaOrmConfig, VespertideConfig, default_migration_filename_pattern,
+    DEFAULT_GORM_PACKAGE_NAME, DjangoConfig, GormConfig, SeaOrmConfig, VespertideConfig,
+    default_migration_filename_pattern,
 };
 pub use file_format::FileFormat;
 pub use name_case::NameCase;
@@ -16,6 +17,8 @@ pub use name_case::NameCase;
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
+
+    use rstest::rstest;
 
     use super::*;
 
@@ -142,38 +145,41 @@ mod tests {
     }
 
     #[test]
-    fn gorm_config_default_package_name_is_models() {
+    fn gorm_config_default_package_name_is_none() {
         let cfg = GormConfig::default();
-        assert_eq!(cfg.package_name(), "models");
+        assert_eq!(cfg.package_name(), None);
     }
 
     #[test]
     fn gorm_config_accessor() {
         let cfg = GormConfig {
-            package_name: "entities".to_string(),
+            package_name: Some("entities".to_string()),
         };
-        assert_eq!(cfg.package_name(), "entities");
+        assert_eq!(cfg.package_name(), Some("entities"));
     }
 
     #[test]
     fn gorm_config_deserialize_with_defaults() {
         let json = r"{}";
         let cfg: GormConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(cfg.package_name(), "models");
+        assert_eq!(cfg.package_name(), None);
     }
 
     #[test]
     fn gorm_config_deserialize_with_custom_package_name() {
         let json = r#"{"packageName": "entities"}"#;
         let cfg: GormConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(cfg.package_name(), "entities");
+        assert_eq!(cfg.package_name(), Some("entities"));
     }
 
     #[test]
     fn vespertide_config_django_and_gorm_accessors() {
         let cfg = VespertideConfig::default();
         assert_eq!(cfg.django().app_label(), None);
-        assert_eq!(cfg.gorm().package_name(), "models");
+        assert_eq!(cfg.gorm().package_name(), None);
+        // model_export_dir defaults to "src/models", so the inferred name matches
+        // the pre-existing fixed default.
+        assert_eq!(cfg.gorm_package_name(cfg.model_export_dir()), "models");
     }
 
     #[test]
@@ -192,6 +198,47 @@ mod tests {
         }"#;
         let cfg: VespertideConfig = serde_json::from_str(json).unwrap();
         assert_eq!(cfg.django().app_label(), Some("myapp"));
-        assert_eq!(cfg.gorm().package_name(), "entities");
+        assert_eq!(cfg.gorm().package_name(), Some("entities"));
+        assert_eq!(cfg.gorm_package_name(cfg.model_export_dir()), "entities");
+    }
+
+    #[rstest]
+    #[case::default_dir_matches_folder("src/models", "models")]
+    #[case::infers_from_folder_name("src/entities", "entities")]
+    #[case::strips_invalid_chars("src/db-models", "dbmodels")]
+    #[case::falls_back_when_digit_led("src/2024-models", "models")]
+    #[case::falls_back_on_non_ascii("src/모델", "models")]
+    #[case::falls_back_on_reserved_word("src/type", "models")]
+    fn gorm_package_name_inferred_from_export_dir(#[case] export_dir: &str, #[case] expected: &str) {
+        let cfg = VespertideConfig::default();
+        assert_eq!(cfg.gorm_package_name(Path::new(export_dir)), expected);
+    }
+
+    #[test]
+    fn gorm_package_name_explicit_override_wins_over_inference() {
+        let cfg = VespertideConfig {
+            gorm: GormConfig {
+                package_name: Some("custom".to_string()),
+            },
+            ..Default::default()
+        };
+        assert_eq!(
+            cfg.gorm_package_name(Path::new("src/entities")),
+            "custom"
+        );
+    }
+
+    #[test]
+    fn gorm_package_name_tracks_cli_export_dir_override_not_config_default() {
+        // The `--export-dir` CLI flag can point somewhere other than
+        // `model_export_dir`; the inferred package name must follow the
+        // actual write target, since Go requires `package` to match the
+        // directory the files live in.
+        let cfg = VespertideConfig::default();
+        assert_eq!(cfg.model_export_dir(), Path::new("src/models"));
+        assert_eq!(
+            cfg.gorm_package_name(Path::new("generated")),
+            "generated"
+        );
     }
 }

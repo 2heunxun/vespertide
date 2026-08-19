@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::orm::OrmExporter;
-use vespertide_config::GormConfig;
+use vespertide_config::DEFAULT_GORM_PACKAGE_NAME;
 use vespertide_core::schema::column::{
     ColumnType, ComplexColumnType, EnumValues, SimpleColumnKind, SimpleColumnType,
 };
@@ -72,22 +72,28 @@ impl OrmExporter for GormExporter {
 }
 
 /// GORM exporter that honors `vespertide.json`'s `gorm` config section
-/// (currently the Go `package_name` emitted at the top of every file).
-/// Mirrors `seaorm::SeaOrmExporterWithConfig`.
+/// (currently the effective Go package name — see
+/// `VespertideConfig::gorm_package_name`, which resolves an explicit
+/// `gorm.package_name` or infers one from the actual export directory —
+/// emitted at the top of every file). Mirrors `seaorm::SeaOrmExporterWithConfig`.
 pub struct GormExporterWithConfig<'a> {
-    pub config: &'a GormConfig,
+    package_name: &'a str,
 }
 
 impl<'a> GormExporterWithConfig<'a> {
-    pub fn new(config: &'a GormConfig) -> Self {
-        Self { config }
+    /// `package_name` is the already-resolved effective package name (see
+    /// `VespertideConfig::gorm_package_name`), not the raw `GormConfig`
+    /// field — resolving requires the actual export directory, which the
+    /// `GormConfig` alone doesn't know.
+    pub fn new(package_name: &'a str) -> Self {
+        Self { package_name }
     }
 
     pub fn render_entity(&self, table: &TableDef) -> Result<String, String> {
         Ok(render_entity_inner_with_package(
             table,
             &[],
-            &self.config.package_name,
+            self.package_name,
         ))
     }
 
@@ -99,12 +105,10 @@ impl<'a> GormExporterWithConfig<'a> {
         Ok(render_entity_inner_with_package(
             table,
             schema,
-            &self.config.package_name,
+            self.package_name,
         ))
     }
 }
-
-const DEFAULT_PACKAGE_NAME: &str = "models";
 
 /// Render a GORM entity for the given table definition.
 pub fn render_entity(table: &TableDef) -> Result<String, String> {
@@ -122,7 +126,7 @@ pub(crate) fn to_pascal_case_for_tests(s: &str) -> String {
 }
 
 fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> String {
-    render_entity_inner_with_package(table, schema, DEFAULT_PACKAGE_NAME)
+    render_entity_inner_with_package(table, schema, DEFAULT_GORM_PACKAGE_NAME)
 }
 
 fn render_entity_inner_with_package(

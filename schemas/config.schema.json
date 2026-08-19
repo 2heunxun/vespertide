@@ -15,9 +15,7 @@
     "gorm": {
       "description": "GORM-specific export configuration.",
       "$ref": "#/$defs/GormConfig",
-      "default": {
-        "packageName": "models"
-      }
+      "default": {}
     },
     "lockTimeoutMs": {
       "description": "Maximum time (milliseconds) to wait acquiring a lock during a runtime\nmigration before failing. When set, the `vespertide_migration!` macro\nemits a backend-appropriate session/connection timeout at the start of\nthe migration (`PostgreSQL` `lock_timeout`, `MySQL`\n`innodb_lock_wait_timeout`, `SQLite` `PRAGMA busy_timeout`). `None`\n(default) leaves backend defaults untouched. Absent from serialized\nJSON when `None` (wire-compatible).",
@@ -115,9 +113,11 @@
       "type": "object",
       "properties": {
         "packageName": {
-          "description": "Go package name emitted at the top of every generated file\n(`package <name>`). Default: `\"models\"`.",
-          "type": "string",
-          "default": "models"
+          "description": "Go package name emitted at the top of every generated file\n(`package <name>`). `None` (default) infers the name from the\nexport directory's final path segment (sanitized to a valid Go\nidentifier), falling back to `\"models\"` when that segment isn't\nusable. See [`VespertideConfig::gorm_package_name`].",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },
