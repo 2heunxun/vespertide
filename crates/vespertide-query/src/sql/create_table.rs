@@ -696,6 +696,37 @@ mod tests {
     }
 
     #[rstest]
+    #[case::auto_increment_unsupported_type_postgres(DatabaseBackend::Postgres)]
+    #[case::auto_increment_unsupported_type_mysql(DatabaseBackend::MySql)]
+    #[case::auto_increment_unsupported_type_sqlite(DatabaseBackend::Sqlite)]
+    fn test_create_table_auto_increment_pk_on_non_integer_column(#[case] backend: DatabaseBackend) {
+        // SQLite folds an auto-increment PK into the column definition
+        // (`INTEGER PRIMARY KEY AUTOINCREMENT`) and therefore SKIPS the separate
+        // PRIMARY KEY clause — but only when the PK column's type can actually
+        // carry AUTOINCREMENT. TEXT cannot, so nothing is folded into the column
+        // and the explicit PRIMARY KEY clause must survive on every backend.
+        let columns = vec![col("id", ColumnType::Simple(SimpleColumnType::Text))];
+        let constraints = vec![TableConstraint::PrimaryKey {
+            auto_increment: true,
+            columns: vec!["id".into()],
+            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+        }];
+
+        let queries = build_create_table(backend, "users", &columns, &constraints).unwrap();
+        let sql = join_queries(&queries, backend, ";\n");
+
+        assert!(
+            sql.to_uppercase().contains("PRIMARY KEY"),
+            "auto-increment PK on a type without auto-increment support must still \
+             emit an explicit PRIMARY KEY, got: {sql}"
+        );
+
+        with_settings!({ snapshot_suffix => format!("create_table_auto_increment_pk_on_non_integer_column_{:?}", backend) }, {
+            assert_snapshot!(sql);
+        });
+    }
+
+    #[rstest]
     #[case::inline_auto_increment_postgres(DatabaseBackend::Postgres)]
     #[case::inline_auto_increment_mysql(DatabaseBackend::MySql)]
     #[case::inline_auto_increment_sqlite(DatabaseBackend::Sqlite)]

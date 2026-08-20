@@ -183,6 +183,13 @@ exclude_re = [
     "check_expr_parser[.]rs:[0-9]+:[0-9]+: replace < with (<=|==|>) in tokenize_spanned",
     "check_expr_parser[.]rs:[0-9]+:[0-9]+: replace [+]= with (-=|[*]=|/=) in Parser::parse_predicate",
     "layout[.]rs:[0-9]+:[0-9]+: replace [+]= with (-=|[*]=|/=) in rebalance_groups",
+    # Same non-termination class in the migration-filename byte scanner:
+    # `render_migration_name` walks `i` (and the inner width cursor `j`) forward
+    # by 1 or 2 per step. `*= 1` is the identity, and `-=` walks backwards into
+    # an underflow, so either way the cursor stops being the loop's decreasing
+    # measure and the scan never reaches `bytes.len()`. The scanner's comparison
+    # and slice-bound mutants stay in the gate - `%012` and `%06v` cover those.
+    "cli/src/utils[.]rs:[0-9]+:[0-9]+: replace [+]= with (-=|[*]=|/=) in render_migration_name",
     # E19: `String::with_capacity` / `Vec::reserve` sizing arithmetic. These
     # mutants change only how much the buffer pre-allocates; every one of these
     # functions then pushes the same bytes in the same order, so the returned

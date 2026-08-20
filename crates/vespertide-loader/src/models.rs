@@ -214,6 +214,67 @@ mod tests {
         assert_eq!(models[0].name, "users");
     }
 
+    // `DirEntry::file_type()` describes the LINK, never its target, so symlinked
+    // entries fall back to `Path::is_dir` / `Path::is_file`. Three shapes must be
+    // told apart inside `models/`:
+    //   * `order.json`   -> a real file OUTSIDE models/  => loaded
+    //   * `nowhere.json` -> a missing target (dangling)  => skipped
+    //   * `user.json`    -> a plain file                 => loaded
+    // Misreading a file symlink as a directory would `read_dir` a file, and
+    // misreading a dangling symlink as a file would `read_to_string` a path that
+    // does not exist. Both surface as `Err`, so the successful two-table load
+    // pins each `is_symlink && ...` conjunction.
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn load_models_follows_file_symlinks_and_skips_dangling_ones() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = tempdir().unwrap();
+        let _guard = CwdGuard::new(tmp.path());
+        write_default_config("vespertide.json");
+
+        fs::create_dir_all("models").unwrap();
+        fs::create_dir_all("external").unwrap();
+
+        let write_model = |path: &str, name: &str| {
+            let table = TableDef {
+                name: name.into(),
+                description: None,
+                columns: vec![ColumnDef::new(
+                    "id",
+                    ColumnType::Simple(SimpleColumnType::Integer),
+                    false,
+                )],
+                constraints: vec![TableConstraint::PrimaryKey {
+                    auto_increment: false,
+                    columns: vec!["id".into()],
+                    strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+                }],
+            };
+            fs::write(path, serde_json::to_string(&table).unwrap()).unwrap();
+        };
+
+        write_model("models/user.json", "users");
+        write_model("external/order.json", "orders");
+
+        symlink(tmp.path().join("external/order.json"), "models/order.json").unwrap();
+        symlink(
+            tmp.path().join("external/nowhere.json"),
+            "models/nowhere.json",
+        )
+        .unwrap();
+
+        let mut names: Vec<String> = load_models(&VespertideConfig::default())
+            .unwrap()
+            .into_iter()
+            .map(|t| t.name.into_inner())
+            .collect();
+        names.sort();
+
+        assert_eq!(names, ["orders", "users"]);
+    }
+
     #[test]
     #[serial]
     fn load_models_recursive_processes_subdirectories() {

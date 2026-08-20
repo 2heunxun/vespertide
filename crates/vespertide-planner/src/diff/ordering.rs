@@ -185,45 +185,44 @@ pub(super) fn sort_delete_tables(
     // Reorder the DeleteTable actions among their existing slots according to
     // `sorted_positions`, WITHOUT cloning each action.
     //
-    // `delete_indices` is ascending (it comes from `.enumerate()`). `order[k]`
-    // holds the ORIGINAL slot whose action belongs at the k-th delete slot; the
-    // stable sort keeps equal-position actions in their original relative order,
-    // matching the previous stable `sort_by` byte-for-byte.
-    let mut order: Vec<usize> = delete_indices.clone();
-    order.sort_by_key(|&i| {
-        let name = extract_delete_table_name(&actions[i]);
+    // Everything below works in RANK space (`0..k` over the delete run) rather
+    // than in raw slot space. `delete_indices` is ascending (it comes from
+    // `.enumerate()`), so rank `r` and slot `delete_indices[r]` are
+    // order-isomorphic — ranks index the bookkeeping arrays directly, with no
+    // `slot - base` translation and no sparse side table spanning the gaps
+    // between delete slots.
+    //
+    // `order[dst]` holds the ORIGINAL rank whose action belongs at rank `dst`;
+    // the stable sort keeps equal-position actions in their original relative
+    // order, matching the previous stable `sort_by` byte-for-byte.
+    let k = delete_indices.len();
+    let mut order: Vec<usize> = (0..k).collect();
+    order.sort_by_key(|&rank| {
+        let name = extract_delete_table_name(&actions[delete_indices[rank]]);
         sorted_positions.get(name).copied().unwrap_or(0)
     });
 
     // Apply the permutation `order` onto the delete slots via selection-style
     // swaps, moving each action into its destination with owned moves and no
-    // clone. We keep two mutually-inverse index arrays and update BOTH in O(1)
-    // per swap, so resolving "which rank currently holds the wanted action" is a
-    // direct array read instead of the previous inner `where_now.position(..)`
-    // linear rescan — making the apply O(k) instead of O(k²):
-    //   * `where_now[rank]`  — original slot currently occupying that delete rank
-    //   * `slot_at_rank`     — its inverse, keyed by rank offset within the run
+    // clone. We keep two mutually-inverse rank arrays and update BOTH in O(1)
+    // per swap, so resolving "which position currently holds the wanted action"
+    // is a direct array read instead of an inner `.position(..)` linear rescan
+    // — making the apply O(k) instead of O(k²):
+    //   * `origin_at[pos]`  — original rank of the action now sitting at `pos`
+    //   * `pos_of[origin]`  — its inverse
     // The reordered `DeleteTable` payloads stay byte-identical to before.
-    //
-    // Delete slots are ascending, so `delete_indices[0]` is the lowest slot;
-    // `rank_base` lets us index the inverse array by `slot - rank_base` cheaply.
-    let mut where_now: Vec<usize> = delete_indices.clone();
-    let rank_base = delete_indices[0];
-    let span = delete_indices[delete_indices.len() - 1] - rank_base + 1;
-    let mut slot_to_rank = vec![usize::MAX; span];
-    for (rank, &slot) in delete_indices.iter().enumerate() {
-        slot_to_rank[slot - rank_base] = rank;
-    }
-    for dst_rank in 0..delete_indices.len() {
-        let want_slot = order[dst_rank];
-        let src_rank = slot_to_rank[want_slot - rank_base];
-        if src_rank != dst_rank {
-            actions.swap(delete_indices[dst_rank], delete_indices[src_rank]);
-            // Swap the two slots' bookkeeping so both arrays stay consistent.
-            let displaced_slot = where_now[dst_rank];
-            where_now.swap(dst_rank, src_rank);
-            slot_to_rank[want_slot - rank_base] = dst_rank;
-            slot_to_rank[displaced_slot - rank_base] = src_rank;
+    let mut origin_at: Vec<usize> = (0..k).collect();
+    let mut pos_of: Vec<usize> = (0..k).collect();
+    for dst in 0..k {
+        let want = order[dst];
+        let src = pos_of[want];
+        if src != dst {
+            actions.swap(delete_indices[dst], delete_indices[src]);
+            // Swap the two positions' bookkeeping so both arrays stay consistent.
+            let displaced = origin_at[dst];
+            origin_at.swap(dst, src);
+            pos_of[want] = dst;
+            pos_of[displaced] = src;
         }
     }
 }
