@@ -283,22 +283,55 @@ fn push_check_expr_matches(
     uri: &Uri,
     out: &mut Vec<DomainReference>,
 ) {
-    if let Some(inner) = crate::check_expr_range::expr_inner_range(value)
-        && let Some(expr_text) = source
-            .get(inner.clone())
-            .and_then(|bytes| std::str::from_utf8(bytes).ok())
-    {
-        for token in vespertide_planner::lex_check_expr(expr_text) {
-            if token.kind == vespertide_planner::CheckTokenKind::Column
-                && let Some(ident) = expr_text.get(token.span.clone())
-                && ident == column
-            {
-                out.push(DomainReference {
-                    uri: uri.clone(),
-                    byte_range: (inner.start + token.span.start)..(inner.start + token.span.end),
-                });
-            }
+    let Some((inner, expr_text)) = check_expr_text(value, source) else {
+        return;
+    };
+    let spans = matching_column_spans(expr_text, column);
+    push_absolute_spans(spans, inner.start, uri, out);
+}
+
+/// Byte range of the CHECK predicate inside `value`, plus the predicate text.
+/// Split from [`push_check_expr_matches`] so the two `None` exits are their own
+/// unit rather than arms of a combined `if let` chain.
+fn check_expr_text<'a>(
+    value: tree_sitter::Node<'_>,
+    source: &'a [u8],
+) -> Option<(std::ops::Range<usize>, &'a str)> {
+    let inner = crate::check_expr_range::expr_inner_range(value)?;
+    let bytes = source.get(inner.clone())?;
+    let text = std::str::from_utf8(bytes).ok()?;
+    Some((inner, text))
+}
+
+/// Spans of every bare column identifier in `expr_text` that names `column`,
+/// relative to `expr_text`.
+fn matching_column_spans(expr_text: &str, column: &str) -> Vec<std::ops::Range<usize>> {
+    let mut spans = Vec::new();
+    for token in vespertide_planner::lex_check_expr(expr_text) {
+        if token.kind != vespertide_planner::CheckTokenKind::Column {
+            continue;
         }
+        if expr_text.get(token.span.clone()) != Some(column) {
+            continue;
+        }
+        spans.push(token.span);
+    }
+    spans
+}
+
+/// Shift `spans` by `offset` into document coordinates and record each as a
+/// reference.
+fn push_absolute_spans(
+    spans: Vec<std::ops::Range<usize>>,
+    offset: usize,
+    uri: &Uri,
+    out: &mut Vec<DomainReference>,
+) {
+    for span in spans {
+        out.push(DomainReference {
+            uri: uri.clone(),
+            byte_range: (offset + span.start)..(offset + span.end),
+        });
     }
 }
 
