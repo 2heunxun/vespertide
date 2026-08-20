@@ -2,6 +2,7 @@ use anyhow::Result;
 use colored::Colorize;
 use vespertide_planner::schema_from_plans;
 
+use super::raw_sql_warning::emit_raw_sql_replay_warning;
 use crate::utils::{load_config, load_migrations, load_models};
 use std::collections::HashSet;
 
@@ -66,6 +67,7 @@ pub async fn cmd_status() -> Result<()> {
             );
         }
     }
+    emit_raw_sql_replay_warning(&applied_plans);
     println!();
 
     println!(
@@ -266,6 +268,33 @@ mod tests {
         // add another model to differ from baseline
         write_simple_id_model("posts");
         write_migration(&cfg); // baseline only has users
+
+        cmd_status().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn cmd_status_warns_when_history_contains_raw_sql() {
+        let tmp = tempdir().unwrap();
+        let _guard = CwdGuard::new(&tmp.path().to_path_buf());
+
+        let cfg = write_default_config();
+        write_simple_id_model("users");
+        fs::create_dir_all(cfg.migrations_dir()).unwrap();
+        let plan = MigrationPlan {
+            id: String::new(),
+            comment: None,
+            created_at: None,
+            version: 1,
+            actions: vec![MigrationAction::RawSql {
+                sql: "ALTER TABLE users ADD COLUMN legacy int".into(),
+            }],
+        };
+        fs::write(
+            cfg.migrations_dir().join("0001_init.json"),
+            serde_json::to_string_pretty(&plan).unwrap(),
+        )
+        .unwrap();
 
         cmd_status().await.unwrap();
     }

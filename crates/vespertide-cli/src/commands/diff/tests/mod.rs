@@ -173,6 +173,14 @@ fn chk_age() -> TableConstraint {
     MigrationAction::RemapEnumValues { table: "users".into(), column: "status".into(), mapping: { let mut m = std::collections::BTreeMap::new(); m.insert(0, 10); m.insert(1, 20); m } },
     format!("{} {}.{} [{}]", "Remap enum values:".bright_yellow(), "users".bright_cyan(), "status".bright_cyan().bold(), "0->10, 1->20".bright_white())
 )]
+#[case(
+    MigrationAction::DataMigration { sql: "UPDATE users SET tier = 'pro'".into(), description: Some("promote beta users".into()) },
+    format!("{} {}", "Data migration:".bright_yellow(), "promote beta users".bright_cyan())
+)]
+#[case(
+    MigrationAction::DataMigration { sql: "UPDATE users SET tier = 'pro'".into(), description: None },
+    format!("{} {}", "Data migration:".bright_yellow(), "UPDATE users SET tier = 'pro'".bright_cyan())
+)]
 #[serial]
 fn format_action_cases(#[case] action: MigrationAction, #[case] expected: String) {
     assert_eq!(format_action(&action), expected);
@@ -207,6 +215,63 @@ async fn cmd_diff_when_no_changes() {
 
     let result = cmd_diff().await;
     assert!(result.is_ok());
+}
+
+#[rstest]
+#[serial]
+#[tokio::test]
+async fn cmd_diff_warns_when_history_contains_raw_sql() {
+    let tmp = tempdir().unwrap();
+    let _guard = CwdGuard::new(&tmp.path().to_path_buf());
+
+    write_default_config();
+    write_simple_id_model("users");
+    fs::create_dir_all("migrations").unwrap();
+    fs::write(
+        "migrations/0001_init.json",
+        serde_json::to_string_pretty(&MigrationPlan {
+            id: String::new(),
+            comment: None,
+            created_at: None,
+            version: 1,
+            actions: vec![MigrationAction::RawSql {
+                sql: "ALTER TABLE users ADD COLUMN legacy int".into(),
+            }],
+        })
+        .unwrap(),
+    )
+    .unwrap();
+
+    assert!(cmd_diff().await.is_ok());
+}
+
+#[rstest]
+#[serial]
+#[tokio::test]
+async fn cmd_diff_stays_quiet_when_history_uses_data_migration() {
+    let tmp = tempdir().unwrap();
+    let _guard = CwdGuard::new(&tmp.path().to_path_buf());
+
+    write_default_config();
+    write_simple_id_model("users");
+    fs::create_dir_all("migrations").unwrap();
+    fs::write(
+        "migrations/0001_init.json",
+        serde_json::to_string_pretty(&MigrationPlan {
+            id: String::new(),
+            comment: None,
+            created_at: None,
+            version: 1,
+            actions: vec![MigrationAction::DataMigration {
+                sql: "UPDATE users SET id = id".into(),
+                description: Some("no-op backfill".into()),
+            }],
+        })
+        .unwrap(),
+    )
+    .unwrap();
+
+    assert!(cmd_diff().await.is_ok());
 }
 
 #[test]
