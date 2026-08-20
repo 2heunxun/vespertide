@@ -55,8 +55,7 @@ pub(crate) fn join_qualified_refs(ref_table: &str, ref_cols: &[&str]) -> String 
     // convention used across the workspace. Output stays byte-identical.
     let cols_len: usize = ref_cols.iter().map(|c| c.len()).sum();
     let per_col_fixed = 2 + ref_table.len() + 1;
-    let capacity =
-        per_col_fixed * ref_cols.len() + cols_len + 2 * ref_cols.len().saturating_sub(1);
+    let capacity = per_col_fixed * ref_cols.len() + cols_len + 2 * ref_cols.len().saturating_sub(1);
     let mut out = String::with_capacity(capacity);
     for col in ref_cols {
         if !out.is_empty() {
@@ -71,8 +70,28 @@ pub(crate) fn join_qualified_refs(ref_table: &str, ref_cols: &[&str]) -> String 
     out
 }
 
+/// Strip one matching pair of surrounding quotes from a SQL literal.
+///
+/// Only an outer pair is removed, so quotes *inside* the literal survive:
+/// trimming per character would turn `'say "hi"'` into `say "hi`, silently
+/// dropping the closing quote. Input without a matching pair is returned
+/// unchanged.
+pub(crate) fn unquote(s: &str) -> &str {
+    for quote in ['\'', '"'] {
+        if let Some(inner) = s
+            .strip_prefix(quote)
+            .and_then(|rest| rest.strip_suffix(quote))
+        {
+            return inner;
+        }
+    }
+    s
+}
+
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
     #[test]
@@ -127,5 +146,19 @@ mod tests {
         let mut buf = String::new();
         push_attr(&mut buf, "String");
         assert_eq!(buf, "String");
+    }
+
+    #[rstest]
+    #[case::single_quoted("'draft'", "draft")]
+    #[case::double_quoted("\"draft\"", "draft")]
+    #[case::inner_quotes_survive("'say \"hi\"'", "say \"hi\"")]
+    #[case::doubled_sql_escape("'it''s'", "it''s")]
+    #[case::unquoted("draft", "draft")]
+    #[case::mismatched_pair("\"draft'", "\"draft'")]
+    #[case::opening_only("'draft", "'draft")]
+    #[case::lone_quote("'", "'")]
+    #[case::empty("", "")]
+    fn unquote_removes_only_a_matching_outer_pair(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(unquote(input), expected);
     }
 }

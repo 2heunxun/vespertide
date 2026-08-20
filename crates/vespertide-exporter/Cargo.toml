@@ -17,6 +17,10 @@ vespertide-core = { workspace = true }
 vespertide-config = { workspace = true }
 vespertide-naming = { workspace = true }
 thiserror = "2"
+clap = { version = "4", features = ["derive"], optional = true }
+
+[features]
+cli = ["dep:clap"]
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }

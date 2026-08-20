@@ -4,7 +4,9 @@ use vespertide_core::schema::column::{
 };
 use vespertide_core::schema::constraint::TableConstraint;
 
-use crate::python_naming::{to_pascal_case, to_screaming_snake_case};
+use vespertide_naming::{IdentifierStart, sanitize_identifier, to_screaming_snake_case};
+
+use crate::python_naming::to_pascal_case;
 
 /// Emit a Python `enum` class definition shared verbatim by the SQLAlchemy and
 /// SQLModel backends: `class {Pascal}(str, enum.Enum)` for string enums (members
@@ -17,7 +19,10 @@ pub(crate) fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValu
         EnumValues::String(vals) => {
             lines.push(format!("class {class_name}(str, enum.Enum):"));
             for val in vals {
-                let variant_name = to_screaming_snake_case(val);
+                // Python accepts a leading `_` in a member name, so the
+                // digit escape is `_` rather than the letter Prisma needs.
+                let variant_name =
+                    sanitize_identifier(&to_screaming_snake_case(val), IdentifierStart::Underscore);
                 lines.push(format!("    {variant_name} = \"{val}\""));
             }
         }

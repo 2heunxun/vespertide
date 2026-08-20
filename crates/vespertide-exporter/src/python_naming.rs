@@ -1,7 +1,10 @@
 //! Shared naming helpers for the Python-targeted ORM exporters (SQLAlchemy,
 //! SQLModel). Both backends share an identical, snake-case-aware
-//! `to_pascal_case` and an identical `to_screaming_snake_case` that doubles
-//! as a Python `enum.Enum` member-name sanitiser.
+//! `to_pascal_case`.
+//!
+//! Enum member names go through `vespertide_naming::to_screaming_snake_case` +
+//! `sanitize_identifier` instead — that pair is shared with the Prisma backend,
+//! so the case rule lives in `vespertide-naming` rather than here.
 //!
 //! `seaorm` deliberately keeps its own `to_pascal_case` in
 //! `seaorm/imports.rs` — that variant carries reserved-keyword guards and a
@@ -21,28 +24,6 @@ pub fn to_pascal_case(s: &str) -> String {
         if let Some(first) = chars.next() {
             result.extend(first.to_uppercase());
             result.push_str(chars.as_str());
-        }
-    }
-    result
-}
-
-/// Convert any input to SCREAMING_SNAKE_CASE: inserts `_` before interior
-/// uppercase characters, upper-cases everything, then replaces any
-/// non-alphanumeric character with `_` so the result is safe as a Python
-/// `enum.Enum` member name.
-pub(crate) fn to_screaming_snake_case(s: &str) -> String {
-    let mut result = String::with_capacity(s.len() + 4);
-    for (i, ch) in s.chars().enumerate() {
-        if ch.is_uppercase() && i > 0 {
-            result.push('_');
-        }
-        let upper = ch.to_ascii_uppercase();
-        // Sanitise in the same pass: any non-alphanumeric becomes `_` so the
-        // result is safe as a Python `enum.Enum` member name.
-        if upper.is_alphanumeric() || upper == '_' {
-            result.push(upper);
-        } else {
-            result.push('_');
         }
     }
     result

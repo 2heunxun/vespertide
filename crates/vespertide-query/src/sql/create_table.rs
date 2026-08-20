@@ -265,7 +265,8 @@ pub fn build_create_table(
     let has_unique_constraints = constraints
         .iter()
         .any(|c| matches!(c, TableConstraint::Unique { .. }));
-    let create_table_stmt = if matches!(backend, DatabaseBackend::MySql) || !has_unique_constraints {
+    let create_table_stmt = if matches!(backend, DatabaseBackend::MySql) || !has_unique_constraints
+    {
         // MySQL keeps uniques inline; the PG/SQLite path emits them as separate
         // CREATE UNIQUE INDEX statements below, so when there are no uniques to
         // strip the constraint slice can pass straight through with no clone.

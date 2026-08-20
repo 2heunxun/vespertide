@@ -2774,6 +2774,7 @@ dependencies = [
  "vespertide-core",
  "vespertide-exporter",
  "vespertide-loader",
+ "vespertide-naming",
  "vespertide-planner",
  "vespertide-query",
 ]
@@ -2807,6 +2808,7 @@ dependencies = [
 name = "vespertide-exporter"
 version = "0.2.1"
 dependencies = [
+ "clap",
  "criterion",
  "insta",
  "proptest",
@@ -2888,6 +2890,7 @@ dependencies = [
  "quote",
  "runtime-macros",
  "serial_test",
+ "syn 2.0.119",
  "syn 3.0.3",
  "tempfile",
  "trybuild",

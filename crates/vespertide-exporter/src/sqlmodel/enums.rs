@@ -1,6 +1,5 @@
 // Naming helpers shared with the `SQLAlchemy` exporter — both Python ORMs
-// produce identical PascalCase class names and identical
-// SCREAMING_SNAKE_CASE enum member names, so the implementation lives in
+// produce identical PascalCase class names, so the implementation lives in
 // `crate::python_naming` and we re-export it here to keep every existing
 // `super::enums::to_*` path working without churn.
 pub(super) use crate::python_naming::to_pascal_case;

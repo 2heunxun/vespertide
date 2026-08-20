@@ -7,10 +7,11 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use vespertide_core::{ColumnName, TableConstraint, TableDef, TableName};
+use vespertide_naming::seaorm_module_name;
 
 use super::super::imports::{
-    resolve_relation_entity_module_path, sanitize_field_name, to_pascal_case, to_snake_case,
-    unique_name,
+    resolve_relation_entity_module_path, sanitize_field_name, sanitize_type_name, to_pascal_case,
+    to_snake_case, unique_name,
 };
 use super::super::render::primary_key_columns;
 use super::naming::{generate_relation_enum_name, pluralize, unique_relation_enum_name};
@@ -238,7 +239,8 @@ fn reverse_relation_field_defs_inner(ctx: ReverseRelationFieldCtx<'_>) -> Vec<St
                     // Generate base field name
                     let base_relation_enum = generate_relation_enum_name(columns);
                     let field_base = if has_multiple_fks {
-                        let lowercase_enum = to_snake_case(&base_relation_enum);
+                        let lowercase_enum =
+                            sanitize_field_name(&to_snake_case(&base_relation_enum));
                         if is_one_to_one {
                             lowercase_enum
                         } else {
@@ -302,7 +304,7 @@ fn reverse_relation_field_defs_inner(ctx: ReverseRelationFieldCtx<'_>) -> Vec<St
             } else {
                 let via_value = rel.via.as_ref().unwrap_or(&rel.source_table);
                 // Direct: use via table name, fall back to FK-based on collision
-                let base_enum = to_pascal_case(via_value);
+                let base_enum = sanitize_type_name(&to_pascal_case(via_value));
                 if used_relation_enums.contains(&base_enum) {
                     rel.base_relation_enum.clone()
                 } else {
@@ -322,6 +324,7 @@ fn reverse_relation_field_defs_inner(ctx: ReverseRelationFieldCtx<'_>) -> Vec<St
                     "    #[sea_orm({relation_type}, relation_enum = \"{relation_enum_name}\", via_rel = \"{via_rel}\")]"
                 )
             } else if let Some(via) = &rel.via {
+                let via = seaorm_module_name(via);
                 format!(
                     "    #[sea_orm({relation_type}, relation_enum = \"{relation_enum_name}\", via = \"{via}\")]"
                 )
@@ -330,6 +333,7 @@ fn reverse_relation_field_defs_inner(ctx: ReverseRelationFieldCtx<'_>) -> Vec<St
             }
         } else if let Some(via) = &rel.via {
             // No ambiguity - just via without relation_enum
+            let via = seaorm_module_name(via);
             format!("    #[sea_orm({relation_type}, via = \"{via}\")]")
         } else {
             format!("    #[sea_orm({relation_type})]")
@@ -416,7 +420,7 @@ fn collect_many_to_many_relations(
         target_entity: junction_table.name.to_string(),
         is_one_to_one: false,
         field_base: junction_base,
-        base_relation_enum: junction_pascal.clone(),
+        base_relation_enum: sanitize_type_name(&junction_pascal),
         source_table: junction_table.name.to_string(),
         has_multiple_fks: false,
         via: None,
@@ -440,7 +444,13 @@ fn collect_many_to_many_relations(
             pluralize(&sanitize_field_name(ref_table)),
             sanitize_field_name(&junction_table.name)
         );
-        let base_relation_enum = format!("{}Via{}", to_pascal_case(ref_table), junction_pascal);
+        // `junction_pascal` is loop-invariant: computed once above rather than
+        // re-derived per target table.
+        let base_relation_enum = sanitize_type_name(&format!(
+            "{}Via{}",
+            to_pascal_case(ref_table),
+            junction_pascal
+        ));
 
         relations.push(ReverseRelation {
             target_entity: ref_table.to_string(),

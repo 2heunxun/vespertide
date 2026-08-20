@@ -61,3 +61,4 @@ jobs:
         with:
           name: mutants-output-shard-${{ matrix.shard }}
           path: mutants.out/
+          retention-days: 1

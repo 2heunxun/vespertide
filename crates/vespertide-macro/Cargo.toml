@@ -29,11 +29,18 @@ proc-macro-crate = "3.5.0"
 
 [dev-dependencies]
 tempfile = "3"
-# `runtime-macros` (test-only coverage driver) under-declares its syn features
-# and needs the full syntax tree + visitor. Supplying them here keeps the
-# production `syn` dependency lean (parsing+proc-macro only) while satisfying
-# the dev/test build via feature unification.
-syn = { version = "3.0", features = ["full", "visit"] }
+# `runtime-macros` (test-only coverage driver) under-declares its syn features:
+# it asks for `parsing`/`visit`/`extra-traits` but uses `syn::Item`, `syn::Macro`,
+# `syn::parse_file` and `syn::visit::visit_file`, all of which are gated behind
+# `full`. It is pinned to `syn` 2.x, so the missing feature has to be supplied on
+# a 2.x entry — cargo unifies features per resolved version, and the production
+# dependency above is on 3.x. This renamed dev-dependency is never imported; it
+# exists solely so feature unification reaches runtime-macros' `syn`, keeping the
+# production `syn` lean (parsing+proc-macro only).
+syn_2_for_runtime_macros = { package = "syn", version = "2.0", features = [
+    "full",
+    "visit",
+] }
 runtime-macros = "1.1"
 trybuild = { version = "1.0.120", features = ["diff"] }
 # `serial_test::serial` for tests that mutate the process-global

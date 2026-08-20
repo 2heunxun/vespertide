@@ -47,6 +47,7 @@ jobs:
         with:
           name: bench-results
           path: bench-results.txt
+          retention-days: 1
 
   lsp-profile:
     name: lsp-profile workload
@@ -122,3 +123,4 @@ jobs:
             realistic-delta.txt
             synthetic-stdout.txt
             realistic-stdout.txt
+          retention-days: 1

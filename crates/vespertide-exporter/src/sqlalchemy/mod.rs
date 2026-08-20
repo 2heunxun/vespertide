@@ -28,18 +28,9 @@ pub(crate) fn to_pascal_case_for_tests(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::types::UsedTypes;
-    use crate::python_naming::to_screaming_snake_case;
     use vespertide_core::schema::column::{
         ColumnType, ComplexColumnType, EnumValues, NumValue, SimpleColumnType,
     };
-
-    #[rstest::rstest]
-    #[case("pending", "PENDING")]
-    #[case("inProgress", "IN_PROGRESS")]
-    #[case("order-status", "ORDER_STATUS")]
-    fn test_to_screaming_snake_case(#[case] input: &str, #[case] expected: &str) {
-        assert_eq!(to_screaming_snake_case(input), expected);
-    }
 
     #[test]
     fn test_used_types_all_branches_comprehensive() {

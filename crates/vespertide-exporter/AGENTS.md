@@ -1,24 +1,33 @@
 # vespertide-exporter
 
-ORM code generation from `TableDef` schemas → SeaORM (Rust), SQLAlchemy (Python), SQLModel (Python), JPA (Java).
+ORM code generation from `TableDef` schemas → SeaORM (Rust), SQLAlchemy (Python), SQLModel (Python), JPA (Java), Prisma (schema.prisma).
 
 ## STRUCTURE
 
 ```
 src/
 ├── lib.rs              # Re-exports all backends
-├── orm.rs              # OrmExporter trait, Orm enum (SeaOrm/SqlAlchemy/SqlModel/Jpa), dispatch
+├── orm.rs              # OrmExporter trait, Orm enum (SeaOrm/SqlAlchemy/SqlModel/Jpa/Prisma),
+│                       #   Orm::file_extension(), dispatch
 ├── constraint_scan.rs  # Shared constraint scanning helpers
 ├── parallel_config.rs  # Rayon parallelism thresholds
-├── python_naming.rs    # Shared Python identifier naming
+├── python_naming.rs    # Shared Python PascalCase naming (SQLAlchemy/SQLModel/JPA/CLI)
 ├── seaorm/             # mod.rs, render.rs, types.rs, enums.rs, imports.rs,
 │                       #   relations/ (fk_resolve, naming, self_ref, reverse), tests/
 ├── sqlalchemy/         # mod.rs, render.rs, types.rs, enums.rs — declarative_base models
 ├── sqlmodel/           # mod.rs, render.rs, types.rs, enums.rs — SQLModel + Pydantic models
 ├── jpa/                # mod.rs, render.rs, types.rs — JPA/Hibernate entities
-├── utils/              # common.rs, python.rs
+├── prisma/             # mod.rs, render.rs, types.rs, enums.rs — schema.prisma models
+├── utils/              # common.rs (join_quoted/push_attr/join_qualified_refs/unquote), python.rs
 └── tests/              # Shared orm_cases! cross-ORM snapshot suite + fixtures/ + snapshots/
 ```
+
+Identifier escaping is centralized in `vespertide-naming`: `sanitize_identifier`
+with `IdentifierStart::Underscore` (Java, SQLAlchemy, ERD) or
+`IdentifierStart::Letter` (SeaORM, SQLModel/Pydantic, Prisma), plus
+`seaorm_module_name` and `to_screaming_snake_case`. A backend that renames an
+identifier MUST also emit the original database name (`@map`, `column_name`,
+SQLAlchemy's positional column name).
 
 ## WHERE TO LOOK
 
@@ -56,6 +65,14 @@ src/
 - Enum types render as Java `enum` + `@Enumerated`
 - FK columns render as `@ManyToOne`/`@JoinColumn` relations
 
+### Prisma (schema.prisma)
+- Emits models only — no `datasource`/`generator` block, so the output drops into an existing schema
+- Backend-neutral: provider-specific `@db.*` mapping is derived from `DatabaseBackend`
+- `render_schema` is a Prisma-only single-file entry point that deduplicates enums globally,
+  so its snapshot tests live inline in the module (still writing into `src/tests/snapshots/`)
+- Renamed identifiers carry `@map` / `@@map`; enum members go through
+  `to_screaming_snake_case` + `sanitize_identifier(IdentifierStart::Letter)`
+
 ## TESTING
 
 ```bash
@@ -69,7 +86,7 @@ cargo insta accept
 
 - Snapshot testing with `insta` crate (YAML format)
 - `rstest` for parameterized tests across all ORM backends
-- 240 snapshot files across exporter snapshot directories; every export scenario goes through the shared `orm_cases!` macro in `src/tests/mod.rs`, producing one snapshot per ORM (all four) in `src/tests/snapshots/`
+- 339 snapshot files, all in the single shared `src/tests/snapshots/` directory; every export scenario goes through the shared `orm_cases!` macro in `src/tests/mod.rs`, producing one snapshot per ORM (all five) — a scenario snapshotted for only one ORM is a defect
 
 ## NOTES
 

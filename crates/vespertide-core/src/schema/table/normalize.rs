@@ -127,7 +127,12 @@ fn collect_unique_groups(table: &TableDef) -> (ColumnGroups, ColumnGroupOrder) {
                 StrOrBoolOrArray::Bool(false) => {}
                 StrOrBoolOrArray::Array(names) => {
                     for unique_name in names {
-                        push_grouped_column(&mut groups, &mut order, unique_name.clone(), &col.name);
+                        push_grouped_column(
+                            &mut groups,
+                            &mut order,
+                            unique_name.clone(),
+                            &col.name,
+                        );
                     }
                 }
             }

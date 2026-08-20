@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use super::super::imports::{sanitize_field_name, to_pascal_case};
+use super::super::imports::{sanitize_field_name, sanitize_type_name, to_pascal_case};
 
 /// Generate a relation enum name from foreign key column names.
 /// For "`creator_user_id`", generates "`CreatorUser`".
@@ -12,7 +12,7 @@ pub(in crate::seaorm) fn generate_relation_enum_name<T: AsRef<str>>(columns: &[T
     let first_col = columns[0].as_ref();
     let without_id = first_col.strip_suffix("_id").unwrap_or(first_col);
 
-    to_pascal_case(without_id)
+    sanitize_type_name(&to_pascal_case(without_id))
 }
 
 pub(in crate::seaorm) fn unique_relation_enum_name(
@@ -25,18 +25,19 @@ pub(in crate::seaorm) fn unique_relation_enum_name(
         return preferred;
     }
 
-    // `to_pascal_case(source_table)` is a loop-invariant: compute it once and
-    // reuse it for the source-prefixed candidate and every indexed candidate,
-    // instead of re-allocating the identical pascal string per attempt.
-    let source_pascal = to_pascal_case(source_table);
-    let source_prefixed = format!("{source_pascal}{base_relation_enum}");
+    // The sanitized pascal form of `source_table` is a loop-invariant: compute
+    // it once and reuse it for the source-prefixed candidate and every indexed
+    // candidate, instead of re-allocating the identical prefix per attempt.
+    let prefix = sanitize_type_name(&to_pascal_case(source_table));
+
+    let source_prefixed = format!("{prefix}{base_relation_enum}");
     if !used_relation_enums.contains(&source_prefixed) {
         return source_prefixed;
     }
 
     let mut index = 2;
     loop {
-        let candidate = format!("{source_pascal}{base_relation_enum}{index}");
+        let candidate = format!("{prefix}{base_relation_enum}{index}");
         if !used_relation_enums.contains(&candidate) {
             return candidate;
         }
@@ -136,24 +137,29 @@ fn ends_with_vowel_y(name: &str) -> bool {
         .is_some_and(|c| matches!(c, 'a' | 'e' | 'o' | 'u'))
 }
 
+/// Render the `from = …` / `to = …` value of a `belongs_to` attribute.
+///
+/// `sea-orm` parses these as Rust paths and `PascalCase`s them into `Column`
+/// variants, so they name model fields rather than database columns — an
+/// escaped column has to appear here under its escaped name.
 pub(super) fn fk_attr_value<T: AsRef<str>>(cols: &[T]) -> String {
-    if cols.len() == 1 {
-        cols[0].as_ref().to_string()
-    } else {
-        // Write straight into one pre-sized buffer instead of allocating a
-        // throwaway `Vec<&str>` just to `join(", ")` it (mirrors the
-        // `quote_idents` idiom in vespertide-query). Output is byte-identical:
-        // `(a, b, c)`.
-        let content_len: usize = cols.iter().map(|c| c.as_ref().len()).sum();
-        let mut out = String::with_capacity(content_len + 2 * cols.len());
-        out.push('(');
-        for (i, c) in cols.iter().enumerate() {
-            if i > 0 {
-                out.push_str(", ");
-            }
-            out.push_str(c.as_ref());
-        }
-        out.push(')');
-        out
+    if let [only] = cols {
+        return sanitize_field_name(only.as_ref());
     }
+
+    // Write the sanitized fields straight into one pre-sized buffer instead of
+    // collecting them into a throwaway `Vec<String>` just to `join(", ")` it
+    // (mirrors the `quote_idents` idiom in vespertide-query). Output is
+    // byte-identical: `(a, b, c)`.
+    let content_len: usize = cols.iter().map(|c| c.as_ref().len()).sum();
+    let mut out = String::with_capacity(content_len + 2 * cols.len());
+    out.push('(');
+    for (i, c) in cols.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&sanitize_field_name(c.as_ref()));
+    }
+    out.push(')');
+    out
 }

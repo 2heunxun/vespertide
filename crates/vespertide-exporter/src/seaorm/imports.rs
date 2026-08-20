@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use vespertide_naming::{IdentifierStart, seaorm_module_name};
+
 /// Build an absolute `crate::` module path for the target table.
 ///
 /// `crate_prefix` is derived from the export directory (e.g., `"src/models"` → `"crate::models"`).
@@ -41,21 +43,21 @@ pub(super) fn resolve_relation_entity_module_path(
         let target_parent = target.split_last().map_or(&[][..], |(_, parent)| parent);
 
         if current_parent == target_parent {
-            return format!("super::{target_table}");
+            return format!("super::{}", seaorm_module_name(target_table));
         }
 
         if !crate_prefix.is_empty() {
             return absolute_module_path(crate_prefix, target);
         }
 
-        return format!("super::{target_table}");
+        return format!("super::{}", seaorm_module_name(target_table));
     }
 
     if !crate_prefix.is_empty() {
-        return format!("{crate_prefix}::{target_table}");
+        return format!("{crate_prefix}::{}", seaorm_module_name(target_table));
     }
 
-    format!("super::{target_table}")
+    format!("super::{}", seaorm_module_name(target_table))
 }
 /// Rust reserved keywords that cannot be used as identifiers without raw identifier syntax.
 /// Reference: <https://doc.rust-lang.org/reference/keywords.html>
@@ -69,33 +71,43 @@ pub(super) const RUST_KEYWORDS: &[&str] = &[
     "unsized", "virtual", "yield",
 ];
 
+/// Field name for a `SeaORM` model.
+///
+/// `DeriveEntityModel` turns each field name into a `Column` enum variant by
+/// `PascalCase`-ing it, which drops a leading `_`: `_1st_place` becomes
+/// `1stPlace` and the derive macro panics. Only a digit after the underscore
+/// actually breaks it (`_name` is fine), but escaping with a letter throughout
+/// keeps one rule instead of a special case.
 pub(super) fn sanitize_field_name(name: &str) -> String {
-    // Output is bounded by `name.len()` (+1 only in the leading-digit case);
-    // pre-size to collapse the small-string growth ladder into one allocation.
-    let mut result = String::with_capacity(name.len() + 1);
-
-    for (idx, ch) in name.chars().enumerate() {
-        if (ch.is_ascii_alphanumeric() && (idx > 0 || ch.is_ascii_alphabetic())) || ch == '_' {
-            result.push(ch);
-        } else if idx == 0 && ch.is_ascii_digit() {
-            result.push('_');
-            result.push(ch);
-        } else {
-            result.push('_');
-        }
+    if name.is_empty() {
+        return "_col".into();
     }
 
-    if result.is_empty() {
-        "_col".into()
-    } else if RUST_KEYWORDS.contains(&result.as_str()) {
+    let mut result = vespertide_naming::sanitize_identifier(name, IdentifierStart::Letter);
+
+    if RUST_KEYWORDS.contains(&result.as_str()) {
         // Reuse the already-allocated `result` buffer instead of allocating a
-        // second `String` via `format!`. The pre-sized capacity (`name.len() + 1`)
-        // usually holds the 2-byte `"r#"` prefix with a single memmove and no realloc.
+        // second `String` via `format!`; the 2-byte `"r#"` prefix is a single
+        // memmove. Output is byte-identical to `format!("r#{result}")`.
         result.insert_str(0, "r#");
-        result
-    } else {
-        result
     }
+    result
+}
+
+/// Name for a `SeaORM` relation enum variant or `Linked` struct.
+///
+/// `sea-orm` turns `relation_enum` / `via_rel` strings into an `Ident`
+/// verbatim, so a `PascalCase` name built from a table or column still has to
+/// be a legal identifier. The letter rule matches [`sanitize_field_name`], so
+/// the whole backend escapes the same way.
+pub(super) fn sanitize_type_name(name: &str) -> String {
+    let mut result = vespertide_naming::sanitize_identifier(name, IdentifierStart::Letter);
+    // The escape letter takes the case of the name it precedes, which reads
+    // wrong on a type: `x1stOwner` compiles but trips `non_camel_case_types`.
+    if let Some(first) = result.get_mut(..1) {
+        first.make_ascii_uppercase();
+    }
+    result
 }
 
 pub(super) fn unique_name(base: &str, used: &mut HashSet<String>) -> String {
