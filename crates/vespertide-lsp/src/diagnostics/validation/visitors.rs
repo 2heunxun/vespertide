@@ -298,25 +298,18 @@ pub(in crate::diagnostics) fn collect_complex_type_violations(
     walk_columns_for_complex_type(columns, source_bytes, out);
 }
 
-/// Iterative rather than recursive: the recursive form ended each loop body
-/// with the self-call, and `tarpaulin --engine llvm` folded the loop's latch
-/// row out of the executed region even though the walk demonstrably runs. An
-/// explicit worklist keeps every row inside a single straight-line region.
 #[cfg(test)]
 fn walk_columns_for_complex_type(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     out: &mut Vec<DomainDiagnostic>,
 ) {
-    let mut pending = vec![node];
-    while let Some(current) = pending.pop() {
-        let mut cursor = current.walk();
-        for child in current.children(&mut cursor) {
-            if matches!(child.kind(), "object" | "block_mapping") {
-                inspect_complex_type(child, source, out);
-            }
-            pending.push(child);
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if matches!(child.kind(), "object" | "block_mapping") {
+            inspect_complex_type(child, source, out);
         }
+        walk_columns_for_complex_type(child, source, out);
     }
 }
 
