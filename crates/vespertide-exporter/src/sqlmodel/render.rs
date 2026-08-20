@@ -3,7 +3,7 @@ use rayon::prelude::*;
 use crate::parallel_config::{
     PYTHON_EXPORT_PAR_TABLE_MIN_LEN, SQLMODEL_EXPORT_PAR_TABLE_THRESHOLD,
 };
-use crate::utils::common::unquote;
+use crate::utils::common::{join_qualified_refs, join_quoted, unquote};
 use crate::utils::python::{CompositeFk, collect_composite_fks};
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
 use vespertide_core::schema::constraint::TableConstraint;
@@ -246,79 +246,16 @@ fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Ve
     lines.push(String::new());
 
     // Collect primary key columns; lookup-only, ordering unused.
-    let pk_columns: std::collections::HashSet<String> = table
-        .constraints
-        .iter()
-        .filter_map(|c| {
-            if let TableConstraint::PrimaryKey { columns, .. } = c {
-                Some(columns.clone())
-            } else {
-                None
-            }
-        })
-        .flatten()
-        .map(|col| col.to_string())
-        .collect();
+    let pk_columns = crate::constraint_scan::primary_key_columns(&table.constraints);
 
     // Collect unique columns (single-column unique constraints); lookup-only, ordering unused.
-    let unique_columns: std::collections::HashSet<String> = table
-        .constraints
-        .iter()
-        .filter_map(|c| {
-            if let TableConstraint::Unique { columns, .. } = c {
-                if columns.len() == 1 {
-                    Some(columns[0].to_string())
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .collect();
+    let unique_columns = crate::constraint_scan::single_column_uniques(&table.constraints);
 
     // Collect indexed columns (single-column indexes); lookup-only, ordering unused.
-    let indexed_columns: std::collections::HashSet<String> = table
-        .constraints
-        .iter()
-        .filter_map(|c| {
-            if let TableConstraint::Index { columns, .. } = c {
-                if columns.len() == 1 {
-                    Some(columns[0].to_string())
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .collect();
+    let indexed_columns = crate::constraint_scan::single_column_indexes(&table.constraints);
 
     // Collect foreign key info; lookup-only, ordering unused.
-    let fk_info: std::collections::HashMap<String, (String, String)> = table
-        .constraints
-        .iter()
-        .filter_map(|c| {
-            if let TableConstraint::ForeignKey {
-                columns,
-                ref_table,
-                ref_columns,
-                ..
-            } = c
-            {
-                if columns.len() == 1 && ref_columns.len() == 1 {
-                    Some((
-                        columns[0].to_string(),
-                        (ref_table.to_string(), ref_columns[0].to_string()),
-                    ))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .collect();
+    let fk_info = crate::constraint_scan::single_column_fk_targets(&table.constraints);
 
     // Render columns
     for col in &table.columns {
@@ -339,7 +276,7 @@ fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Ve
         .filter_map(|c| {
             if let TableConstraint::Index { name, columns } = c {
                 if columns.len() > 1 {
-                    Some((name.clone(), columns.clone()))
+                    Some((name, columns))
                 } else {
                     None
                 }
@@ -355,7 +292,7 @@ fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Ve
         .filter_map(|c| {
             if let TableConstraint::Unique { name, columns, .. } = c {
                 if columns.len() > 1 {
-                    Some((name.clone(), columns.clone()))
+                    Some((name, columns))
                 } else {
                     None
                 }
@@ -369,12 +306,8 @@ fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Ve
         lines.push(String::new());
         lines.push("    __table_args__ = (".into());
 
-        for (name, columns) in &composite_indexes {
-            let cols_str = columns
-                .iter()
-                .map(|c| format!("\"{c}\""))
-                .collect::<Vec<_>>()
-                .join(", ");
+        for &(name, columns) in &composite_indexes {
+            let cols_str = join_quoted(columns);
             if let Some(idx_name) = name {
                 lines.push(format!("        Index(\"{idx_name}\", {cols_str}),"));
             } else {
@@ -382,12 +315,8 @@ fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Ve
             }
         }
 
-        for (name, columns) in &composite_uniques {
-            let cols_str = columns
-                .iter()
-                .map(|c| format!("\"{c}\""))
-                .collect::<Vec<_>>()
-                .join(", ");
+        for &(name, columns) in &composite_uniques {
+            let cols_str = join_quoted(columns);
             if let Some(uq_name) = name {
                 lines.push(format!(
                     "        UniqueConstraint({cols_str}, name=\"{uq_name}\"),"
@@ -398,18 +327,8 @@ fn render_entity_body(table: &TableDef, composite_fks: &[CompositeFk<'_>]) -> Ve
         }
 
         for fk in composite_fks {
-            let local_cols = fk
-                .local_cols
-                .iter()
-                .map(|col| format!("\"{col}\""))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let ref_cols = fk
-                .ref_cols
-                .iter()
-                .map(|col| format!("\"{}.{}\"", fk.ref_table, col))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let local_cols = join_quoted(&fk.local_cols);
+            let ref_cols = join_qualified_refs(fk.ref_table, &fk.ref_cols);
             lines.push(format!(
                 "        ForeignKeyConstraint([{local_cols}], [{ref_cols}]),"
             ));
@@ -429,7 +348,7 @@ pub(super) fn render_column(
     is_pk: bool,
     is_unique: bool,
     is_indexed: bool,
-    fk_info: Option<&(String, String)>,
+    fk_info: Option<&(&str, &str)>,
 ) {
     // Add column comment
     if let Some(ref comment) = col.comment {

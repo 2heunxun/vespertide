@@ -14,12 +14,12 @@ pub async fn cmd_status() -> Result<()> {
     println!(
         "  {} {}",
         "Models directory:".cyan(),
-        format!("{}", config.models_dir().display()).bright_white()
+        config.models_dir().display().to_string().bright_white()
     );
     println!(
         "  {} {}",
         "Migrations directory:".cyan(),
-        format!("{}", config.migrations_dir().display()).bright_white()
+        config.migrations_dir().display().to_string().bright_white()
     );
     println!(
         "  {} {:?}",
@@ -161,49 +161,15 @@ pub async fn cmd_status() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::CwdGuard;
+    use crate::test_support::{CwdGuard, write_default_config, write_simple_id_model};
     use serial_test::serial;
-    use std::{fs, path::PathBuf};
+    use std::fs;
     use tempfile::tempdir;
     use vespertide_config::VespertideConfig;
     use vespertide_core::{
         ColumnDef, ColumnType, MigrationAction, MigrationPlan, SimpleColumnType, TableConstraint,
         TableDef,
     };
-
-    fn write_config() -> VespertideConfig {
-        let cfg = VespertideConfig::default();
-        let text = serde_json::to_string_pretty(&cfg).unwrap();
-        fs::write("vespertide.json", text).unwrap();
-        cfg
-    }
-
-    fn write_model(name: &str) {
-        let models_dir = PathBuf::from("models");
-        fs::create_dir_all(&models_dir).unwrap();
-        let table = TableDef {
-            name: name.into(),
-            description: None,
-            columns: vec![ColumnDef {
-                name: "id".into(),
-                r#type: ColumnType::Simple(SimpleColumnType::Integer),
-                nullable: false,
-                default: None,
-                comment: None,
-                primary_key: None,
-                unique: None,
-                index: None,
-                foreign_key: None,
-            }],
-            constraints: vec![TableConstraint::PrimaryKey {
-                auto_increment: false,
-                columns: vec!["id".into()],
-                strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-            }],
-        };
-        let path = models_dir.join(format!("{name}.json"));
-        fs::write(path, serde_json::to_string_pretty(&table).unwrap()).unwrap();
-    }
 
     fn write_migration(cfg: &VespertideConfig) {
         fs::create_dir_all(cfg.migrations_dir()).unwrap();
@@ -238,8 +204,8 @@ mod tests {
         let tmp = tempdir().unwrap();
         let _guard = CwdGuard::new(&tmp.path().to_path_buf());
 
-        let cfg = write_config();
-        write_model("users");
+        let cfg = write_default_config();
+        write_simple_id_model("users");
         write_migration(&cfg);
 
         cmd_status().await.unwrap();
@@ -250,7 +216,7 @@ mod tests {
     async fn cmd_status_no_models_no_migrations_prints_message() {
         let tmp = tempdir().unwrap();
         let _guard = CwdGuard::new(&tmp.path().to_path_buf());
-        let cfg = write_config();
+        let cfg = write_default_config();
         fs::create_dir_all(cfg.models_dir()).unwrap(); // empty models dir
         fs::create_dir_all(cfg.migrations_dir()).unwrap(); // empty migrations dir
 
@@ -262,7 +228,7 @@ mod tests {
     async fn cmd_status_empty_migration_list_returns_ok() {
         let tmp = tempdir().unwrap();
         let _guard = CwdGuard::new(&tmp.path().to_path_buf());
-        let cfg = write_config();
+        let cfg = write_default_config();
         fs::create_dir_all(cfg.models_dir()).unwrap();
         fs::create_dir_all(cfg.migrations_dir()).unwrap();
 
@@ -282,8 +248,8 @@ mod tests {
     async fn cmd_status_models_no_migrations_prints_hint() {
         let tmp = tempdir().unwrap();
         let _guard = CwdGuard::new(&tmp.path().to_path_buf());
-        let cfg = write_config();
-        write_model("users");
+        let cfg = write_default_config();
+        write_simple_id_model("users");
         fs::create_dir_all(cfg.migrations_dir()).unwrap();
 
         cmd_status().await.unwrap();
@@ -295,10 +261,10 @@ mod tests {
         let tmp = tempdir().unwrap();
         let _guard = CwdGuard::new(&tmp.path().to_path_buf());
 
-        let cfg = write_config();
-        write_model("users");
+        let cfg = write_default_config();
+        write_simple_id_model("users");
         // add another model to differ from baseline
-        write_model("posts");
+        write_simple_id_model("posts");
         write_migration(&cfg); // baseline only has users
 
         cmd_status().await.unwrap();
@@ -310,7 +276,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let _guard = CwdGuard::new(&tmp.path().to_path_buf());
 
-        let cfg = write_config();
+        let cfg = write_default_config();
         fs::create_dir_all(cfg.models_dir()).unwrap();
         fs::create_dir_all(cfg.migrations_dir()).unwrap();
 

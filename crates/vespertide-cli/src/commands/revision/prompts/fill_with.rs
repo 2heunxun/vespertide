@@ -53,12 +53,12 @@ pub(in crate::commands::revision) fn print_fill_with_header() {
         "⚠".bright_yellow(),
         "The following columns require fill_with values:".bright_yellow()
     );
-    println!("{}", "─".repeat(60).bright_black());
+    super::print_section_rule();
 }
 
 /// Print the footer for `fill_with` prompts.
 pub(in crate::commands::revision) fn print_fill_with_footer() {
-    println!("{}", "─".repeat(60).bright_black());
+    super::print_section_rule();
 }
 
 /// Print a `fill_with` item and return the formatted prompt.
@@ -233,8 +233,9 @@ where
     let mut remaining = Vec::new();
 
     for item in missing.drain(..) {
-        if item.has_foreign_key && !delete_set.contains(&(item.table.clone(), item.column.clone()))
-        {
+        let key = (item.table.clone(), item.column.clone());
+        let in_delete_set = delete_set.contains(&key);
+        if item.has_foreign_key && !in_delete_set {
             // FK column without CLI arg — prompt user
             println!(
                 "  {} {}.{} has a foreign key constraint — fill_with may not work.",
@@ -243,12 +244,12 @@ where
                 item.column.bright_green()
             );
             if prompt_fn(&item.table, &item.column)? {
-                to_delete.push((item.table.clone(), item.column.clone()));
+                to_delete.push(key);
             } else {
                 remaining.push(item);
             }
-        } else if delete_set.contains(&(item.table.clone(), item.column.clone())) {
-            to_delete.push((item.table.clone(), item.column.clone()));
+        } else if in_delete_set {
+            to_delete.push(key);
         } else {
             remaining.push(item);
         }
@@ -303,7 +304,7 @@ where
         "\u{26a0}".bright_yellow(),
         "The following enum value removals require replacement mappings:".bright_yellow()
     );
-    println!("{}", "\u{2500}".repeat(60).bright_black());
+    super::print_section_rule();
 
     for item in missing {
         println!(
@@ -337,7 +338,7 @@ where
         results.push((item.action_index, mappings));
     }
 
-    println!("{}", "\u{2500}".repeat(60).bright_black());
+    super::print_section_rule();
     Ok(results)
 }
 

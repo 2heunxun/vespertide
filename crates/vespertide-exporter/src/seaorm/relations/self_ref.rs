@@ -7,7 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use vespertide_core::{TableConstraint, TableDef};
+use vespertide_core::{ColumnName, TableConstraint, TableDef, TableName};
 use vespertide_naming::seaorm_module_name;
 
 use super::super::imports::{
@@ -25,13 +25,13 @@ pub(super) struct SelfRefJunction {
 pub(super) fn collect_self_ref_junction(
     current_table: &TableDef,
     junction_table: &TableDef,
-    junction_pk: &HashSet<String>,
+    junction_pk: &HashSet<&str>,
 ) -> Option<SelfRefJunction> {
     if junction_pk.len() < 2 {
         return None;
     }
 
-    let fks: Vec<_> = junction_table
+    let fks: Vec<(&[ColumnName], &TableName)> = junction_table
         .constraints
         .iter()
         .filter_map(|c| {
@@ -39,7 +39,7 @@ pub(super) fn collect_self_ref_junction(
                 columns, ref_table, ..
             } = c
             {
-                Some((columns.clone(), ref_table.clone()))
+                Some((columns.as_slice(), ref_table))
             } else {
                 None
             }
@@ -59,7 +59,7 @@ pub(super) fn collect_self_ref_junction(
 
     if !fks
         .iter()
-        .all(|(_, ref_table)| ref_table == &current_table.name)
+        .all(|(_, ref_table)| **ref_table == current_table.name)
     {
         return None;
     }

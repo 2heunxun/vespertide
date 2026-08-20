@@ -5,8 +5,9 @@
 //! `rust` for Diesel, `typescript` for Drizzle, `java` for full Hibernate),
 //! without polluting the crate root with a flat list of `*_common.rs` files.
 //!
-//! Helpers that are not tied to one host language live in `common`; keep a new
-//! helper in its language submodule until a second language needs it.
+//! Helpers that are not tied to one host language live in
+//! `crate::utils::common`; keep a new helper in its language submodule until a
+//! second language needs it.
 
 pub(crate) mod common;
 pub(crate) mod python;

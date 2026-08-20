@@ -5,7 +5,7 @@ use vespertide_core::{ColumnDef, TableDef};
 use super::helpers::{
     build_create_enum_type_sql, build_sea_column_def_with_table, build_sqlite_temp_table_create,
     convert_default_for_backend, normalize_enum_default, normalize_fill_with,
-    recreate_indexes_after_rebuild,
+    recreate_indexes_after_rebuild, require_table_in_schema,
 };
 use super::rename_table::build_rename_table;
 use super::types::{BuiltQuery, DatabaseBackend};
@@ -45,7 +45,11 @@ pub fn build_add_column(
         backend == DatabaseBackend::Sqlite && (!column.nullable || is_enum_column(column));
 
     if sqlite_needs_recreation {
-        let table_def = current_schema.iter().find(|t| t.name == table).ok_or_else(|| QueryError::SchemaError(format!("Table '{table}' not found in current schema. SQLite requires current schema information to add columns.")))?;
+        let table_def = require_table_in_schema(
+            current_schema,
+            table,
+            "SQLite requires current schema information to add columns",
+        )?;
 
         let mut new_columns = table_def.columns.clone();
         new_columns.push(column.clone());
@@ -61,13 +65,18 @@ pub fn build_add_column(
             &table_def.constraints,
         );
 
-        // Copy existing data, filling new column
+        // Copy existing data, filling new column. Build the existing-column
+        // aliases once and reuse them for both the SELECT column list and the
+        // INSERT column list (the new column's alias is appended for the INSERT
+        // only, since its value comes from `expr_as(fill_expr, ...)`).
+        let mut columns_alias: Vec<Alias> = Vec::with_capacity(table_def.columns.len() + 1);
         let mut select_query = Query::select();
         for col in &table_def.columns {
-            select_query.column(Alias::new(&col.name));
+            let alias = Alias::new(&col.name);
+            select_query.column(alias.clone());
+            columns_alias.push(alias);
         }
-        let normalized_fill = normalize_fill_with(fill_with);
-        let fill_expr = if let Some(fill) = normalized_fill.as_deref() {
+        let fill_expr = if let Some(fill) = normalize_fill_with(fill_with) {
             let converted = convert_default_for_backend(fill, backend);
             Expr::cust(normalize_enum_default(&column.r#type, &converted))
         } else if let Some(def) = &column.default {
@@ -80,22 +89,16 @@ pub fn build_add_column(
             .expr_as(fill_expr, Alias::new(&column.name))
             .from(Alias::new(table));
 
-        let mut columns_alias: Vec<Alias> = table_def
-            .columns
-            .iter()
-            .map(|c| Alias::new(&c.name))
-            .collect();
         columns_alias.push(Alias::new(&column.name));
         let insert_stmt = Query::insert()
             .into_table(Alias::new(&temp_table))
             .columns(columns_alias)
             .select_from(select_query)
-            .unwrap()
+            .expect("SQLite temp table copy SELECT should be valid")
             .to_owned();
         let insert_query = BuiltQuery::Insert(Box::new(insert_stmt));
 
-        let drop_query =
-            BuiltQuery::DropTable(Box::new(Table::drop().table(Alias::new(table)).to_owned()));
+        let drop_query = super::delete_table::build_delete_table(table);
         let rename_query = build_rename_table(&temp_table, table);
 
         // Recreate indexes (both regular and UNIQUE)
@@ -129,7 +132,7 @@ pub fn build_add_column(
 
         // Backfill with provided value
         if let Some(fill) = normalize_fill_with(fill_with) {
-            let fill = convert_default_for_backend(&fill, backend);
+            let fill = convert_default_for_backend(fill, backend);
             let update_stmt = Query::update()
                 .table(Alias::new(table))
                 .value(Alias::new(&column.name), Expr::cust(fill))
@@ -156,6 +159,7 @@ pub fn build_add_column(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{joined_sql, joined_sql_semicolon};
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{ColumnType, SimpleColumnType, TableDef};
@@ -265,7 +269,7 @@ mod tests {
         }
 
         with_settings!({ snapshot_suffix => format!("add_column_{}", title) }, {
-            assert_snapshot!(result.iter().map(|q| q.build(backend)).collect::<Vec<String>>().join("\n"));
+            assert_snapshot!(joined_sql(backend, &result));
         });
     }
 
@@ -335,11 +339,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(DatabaseBackend::Sqlite, &queries);
         // Should use default value (18) for fill
         assert!(sql.contains("18"));
     }
@@ -383,11 +383,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(DatabaseBackend::Sqlite, &queries);
         // Should use NULL for fill
         assert!(sql.contains("NULL"));
     }
@@ -436,11 +432,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Sqlite))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(DatabaseBackend::Sqlite, &queries);
         // Should recreate index
         assert!(sql.contains("CREATE INDEX"));
         assert!(sql.contains("idx_id"));
@@ -488,11 +480,7 @@ mod tests {
         let result = build_add_column(backend, "users", &column, None, &current_schema, &[]);
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join(";\n");
+        let sql = joined_sql_semicolon(backend, &queries);
 
         with_settings!({ snapshot_suffix => format!("add_column_with_enum_type_{:?}", backend) }, {
             assert_snapshot!(sql);
@@ -545,11 +533,7 @@ mod tests {
         let result = build_add_column(backend, "users", &column, None, &current_schema, &[]);
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join(";\n");
+        let sql = joined_sql_semicolon(backend, &queries);
 
         with_settings!({ snapshot_suffix => format!("enum_non_nullable_with_default_{:?}", backend) }, {
             assert_snapshot!(sql);
@@ -594,11 +578,7 @@ mod tests {
         let result = build_add_column(backend, "users", &column, None, &current_schema, &[]);
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join(";\n");
+        let sql = joined_sql_semicolon(backend, &queries);
 
         // Verify empty string becomes ''
         assert!(
@@ -647,11 +627,7 @@ mod tests {
         }];
         let result =
             build_add_column(backend, "project", &column, None, &current_schema, &[]).unwrap();
-        let sql = result
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join("\n");
+        let sql = joined_sql(backend, &result);
 
         // SQLite must NOT contain ::json syntax
         if backend == DatabaseBackend::Sqlite {
@@ -713,11 +689,7 @@ mod tests {
         let result = build_add_column(backend, "users", &column, Some(""), &current_schema, &[]);
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<String>>()
-            .join(";\n");
+        let sql = joined_sql_semicolon(backend, &queries);
 
         // Verify empty string becomes ''
         assert!(

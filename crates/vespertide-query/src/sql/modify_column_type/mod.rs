@@ -115,7 +115,7 @@ fn build_pg_alter_with_timezone(
     let qc = super::helpers::quote_ident(column, DatabaseBackend::Postgres);
     // validate_timezone in the CLI already rejected anything with quotes,
     // but escape defensively to keep this layer safe in isolation.
-    let tz_lit = tz.replace('\'', "''");
+    let tz_lit = vespertide_core::escape_sql_string_literal(tz);
 
     let (target_sql_type, using_expr) = match new_type {
         ColumnType::Simple(SimpleColumnType::Timestamptz) => (
@@ -167,6 +167,27 @@ fn build_fill_with_updates(
         .collect()
 }
 
+/// Conditionally prepend `fill_with` UPDATEs to `queries`.
+///
+/// Centralises the byte-identical
+/// `if let Some(fw) = fill_with { queries.extend(build_fill_with_updates(...)); }`
+/// dance that the three `modify_column_type` paths each previously
+/// open-coded (`direct::build_postgres_enum_migration`,
+/// `direct::build_standard_type_modification`, and
+/// `sqlite_rebuild::build_modify_column_type_sqlite_temp_table`). Each
+/// callsite now collapses to a single line whose name reads
+/// "if a fill_with map exists, prepend its UPDATEs".
+pub(super) fn extend_fill_with_updates(
+    queries: &mut Vec<BuiltQuery>,
+    table: &str,
+    column: &str,
+    fill_with: Option<&BTreeMap<String, String>>,
+) {
+    if let Some(fw) = fill_with {
+        queries.extend(build_fill_with_updates(table, column, fw));
+    }
+}
+
 pub fn build_modify_column_type(
     backend: DatabaseBackend,
     table: &str,
@@ -203,6 +224,7 @@ pub fn build_modify_column_type(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{backend_tag, joined_sql_semicolon};
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{
@@ -272,12 +294,7 @@ mod tests {
         );
 
         // SQLite may return multiple queries
-        let sql = result
-            .unwrap()
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<_>>()
-            .join(";\n");
+        let sql = joined_sql_semicolon(backend, &result.unwrap());
 
         for exp in expected {
             assert!(
@@ -409,11 +426,7 @@ mod tests {
         )
         .unwrap();
 
-        let sql = result
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<_>>()
-            .join(";\n");
+        let sql = joined_sql_semicolon(backend, &result);
 
         // For SQLite, should recreate index
         if matches!(backend, DatabaseBackend::Sqlite) {
@@ -493,11 +506,7 @@ mod tests {
         )
         .unwrap();
 
-        let sql = result
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<_>>()
-            .join(";\n");
+        let sql = joined_sql_semicolon(backend, &result);
 
         // For SQLite, unique constraint should be in CREATE TABLE statement
         if matches!(backend, DatabaseBackend::Sqlite) {
@@ -706,11 +715,7 @@ mod tests {
         )
         .unwrap();
 
-        let sql = result
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<_>>()
-            .join(";\n");
+        let sql = joined_sql_semicolon(backend, &result);
 
         with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => format!("modify_enum_types_{}", title) }, {
             assert_snapshot!(sql);
@@ -773,11 +778,7 @@ mod tests {
         )
         .unwrap();
 
-        let sql = result
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<_>>()
-            .join(";\n");
+        let sql = joined_sql_semicolon(backend, &result);
 
         // PostgreSQL-specific: verify DROP DEFAULT -> TYPE change -> SET DEFAULT order
         if matches!(backend, DatabaseBackend::Postgres) {
@@ -830,11 +831,7 @@ mod tests {
 
         assert!(result.is_ok());
         let queries = result.unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(DatabaseBackend::Postgres))
-            .collect::<Vec<String>>()
-            .join(";\n");
+        let sql = joined_sql_semicolon(DatabaseBackend::Postgres, &queries);
 
         // Should create the enum type since old_type is None
         assert!(sql.contains("CREATE TYPE"));
@@ -883,11 +880,7 @@ mod tests {
             &baseline,
             &[],
         )?;
-        Ok(queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<_>>()
-            .join(";\n"))
+        Ok(joined_sql_semicolon(backend, &queries))
     }
 
     fn snap_tz(name: &str, sql: &str) {
@@ -906,11 +899,12 @@ mod tests {
         ($name:ident, $old:expr, $new:expr, $tz:expr) => {
             #[test]
             fn $name() {
-                for (backend, tag) in [
-                    (DatabaseBackend::Postgres, "postgres"),
-                    (DatabaseBackend::MySql, "mysql"),
-                    (DatabaseBackend::Sqlite, "sqlite"),
+                for backend in [
+                    DatabaseBackend::Postgres,
+                    DatabaseBackend::MySql,
+                    DatabaseBackend::Sqlite,
                 ] {
+                    let tag = backend_tag(backend);
                     let sql = run_with_tz(backend, $old, &$new, $tz)
                         .expect("timezone conversion across backends");
                     snap_tz(&format!("{}_{}", stringify!($name), tag), &sql);
@@ -1049,11 +1043,7 @@ mod tests {
             &[],
         )
         .unwrap();
-        let sql = queries
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<_>>()
-            .join(";\n");
+        let sql = joined_sql_semicolon(backend, &queries);
         // The pre-cleanup phase touches "name" before the type change.
         assert!(
             sql.contains("UPDATE") || sql.contains("name"),
@@ -1135,11 +1125,7 @@ mod tests {
         )
         .unwrap();
 
-        let sql = result
-            .iter()
-            .map(|q| q.build(backend))
-            .collect::<Vec<_>>()
-            .join(";\n");
+        let sql = joined_sql_semicolon(backend, &result);
 
         // All backends should include the UPDATE statement for fill_with
         assert!(

@@ -301,6 +301,21 @@ fn test_filter_include_with_depth_2() {
 }
 
 #[test]
+fn test_filter_include_with_depth_beyond_saturation() {
+    // Depth far beyond the FK graph's diameter: the BFS frontier empties
+    // after every reachable table is found and the expansion stops early,
+    // yielding the same result as the exact-diameter depth.
+    let (filtered, warnings) =
+        filter_tables_with_warnings(filter_schema(), &only_include(&["user"]), &[], 10);
+
+    assert!(warnings.is_empty());
+    assert_eq!(
+        table_names(&filtered),
+        vec!["user", "media", "article", "article_user", "comment"]
+    );
+}
+
+#[test]
 fn test_filter_exclude() {
     let (filtered, warnings) =
         filter_tables_with_warnings(filter_schema(), &[], &only_include(&["article_user"]), 0);
@@ -1129,4 +1144,23 @@ fn foreign_key_column_groups_pushes_new_inline_group_after_table_constraint() {
             vec!["reviewer_id".to_string()]
         ]
     );
+}
+
+/// `parse_reference` is only reached indirectly (through
+/// `collect_foreign_key_relations`), which leaves its accept/reject arms
+/// attributed to a region the workspace-wide and single-package tarpaulin runs
+/// disagree about. Calling it directly pins every branch to its own region.
+#[rstest::rstest]
+#[case::table_and_column("users.id", Some(("users", "id")))]
+#[case::three_parts("a.b.c", None)]
+#[case::empty_table(".id", None)]
+#[case::empty_column("users.", None)]
+#[case::no_separator("users", None)]
+#[case::empty_input("", None)]
+fn parse_reference_accepts_only_table_dot_column(
+    #[case] input: &str,
+    #[case] expected: Option<(&str, &str)>,
+) {
+    let expected = expected.map(|(table, column)| (table.to_string(), vec![column.to_string()]));
+    assert_eq!(parse_reference(input), expected);
 }

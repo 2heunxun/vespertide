@@ -103,8 +103,11 @@ fn complex_column_type_to_mermaid(column_type: &ComplexColumnType) -> &'static s
     }
 }
 
-fn escape_mermaid_label(label: &str) -> String {
-    label.replace('\\', "\\\\").replace('"', "\\\"")
+fn escape_mermaid_label(label: &str) -> std::borrow::Cow<'_, str> {
+    if !label.contains(['\\', '"']) {
+        return std::borrow::Cow::Borrowed(label);
+    }
+    std::borrow::Cow::Owned(label.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 #[cfg(test)]
