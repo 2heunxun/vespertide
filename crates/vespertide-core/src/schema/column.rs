@@ -732,3 +732,46 @@ impl ComplexColumnType {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    /// `display_label` is the wire-format spelling shown in LSP drift messages,
+    /// planner type-mismatch diagnostics and schema violations. Every consumer
+    /// only forwards the string, so without a direct assertion the whole body
+    /// could return a constant and nothing would notice.
+    #[rstest]
+    #[case::varchar(ComplexColumnType::Varchar { length: 32 }, "varchar(32)")]
+    #[case::char(ComplexColumnType::Char { length: 2 }, "char(2)")]
+    #[case::numeric(ComplexColumnType::Numeric { precision: 10, scale: 2 }, "numeric(10, 2)")]
+    #[case::custom(ComplexColumnType::Custom { custom_type: "TSVECTOR".into() }, "custom(TSVECTOR)")]
+    #[case::enum_type(
+        ComplexColumnType::Enum {
+            name: "status".into(),
+            values: EnumValues::String(vec!["active".into()]),
+        },
+        "enum(status)"
+    )]
+    fn complex_display_label_renders_wire_format(
+        #[case] complex: ComplexColumnType,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(complex.display_label(), expected);
+        // The `ColumnType` wrapper must forward to the same string rather than
+        // rendering its own spelling.
+        assert_eq!(ColumnType::Complex(complex).display_label(), expected);
+    }
+
+    #[rstest]
+    #[case::integer(SimpleColumnType::Integer, "integer")]
+    #[case::big_int(SimpleColumnType::BigInt, "big_int")]
+    #[case::timestamptz(SimpleColumnType::Timestamptz, "timestamptz")]
+    fn simple_display_label_uses_the_model_name(
+        #[case] simple: SimpleColumnType,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(ColumnType::Simple(simple).display_label(), expected);
+    }
+}

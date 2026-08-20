@@ -172,6 +172,21 @@ fn test_reference_action_sql_all_variants(#[case] action: ReferenceAction, #[cas
     DatabaseBackend::Sqlite,
     "CURRENT_TIMESTAMP"
 )]
+// The UUID and timestamp keyword lists are `||` chains, so an input matching an
+// early alternative short-circuits and leaves the tail alternatives untested.
+// These two reach the LAST alternative of each chain.
+#[case::sqlite_uuid_spelling_postgres(
+    "lower(hex(randomblob(16)))",
+    DatabaseBackend::Postgres,
+    "gen_random_uuid()"
+)]
+#[case::sqlite_uuid_spelling_sqlite(
+    "lower(hex(randomblob(16)))",
+    DatabaseBackend::Sqlite,
+    "lower(hex(randomblob(16)))"
+)]
+#[case::getdate_postgres("getdate()", DatabaseBackend::Postgres, "CURRENT_TIMESTAMP")]
+#[case::getdate_mysql("GetDate()", DatabaseBackend::MySql, "CURRENT_TIMESTAMP")]
 #[case::now_postgres("now()", DatabaseBackend::Postgres, "CURRENT_TIMESTAMP")]
 #[case::now_mysql("now()", DatabaseBackend::MySql, "CURRENT_TIMESTAMP")]
 #[case::now_sqlite("now()", DatabaseBackend::Sqlite, "CURRENT_TIMESTAMP")]

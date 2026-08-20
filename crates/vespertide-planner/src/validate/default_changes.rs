@@ -350,6 +350,13 @@ mod tests {
         assert!(is_function_expr("current_timestamp"));
         assert!(is_function_expr("CURRENT_DATE"));
         assert!(is_function_expr("LocalTimestamp"));
+        // The keyword list is one `||` chain, so only an input that reaches the
+        // FINAL alternatives proves those `||`s are disjunctions: an earlier
+        // match short-circuits and leaves the tail untested.
+        assert!(is_function_expr("CURRENT_TIME"));
+        assert!(is_function_expr("LOCALTIME"));
+        assert!(is_function_expr("CURRENT_USER"));
+        assert!(is_function_expr("session_user"));
     }
 
     #[test]

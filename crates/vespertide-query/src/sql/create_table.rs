@@ -491,6 +491,50 @@ mod tests {
         });
     }
 
+    /// The unique-only fixture above cannot see whether the PG/SQLite branch
+    /// *strips* uniques or *keeps only* uniques - both leave the same effective
+    /// constraint set when the unique is the sole entry. Pairing the unique with
+    /// a PRIMARY KEY makes the two behaviours diverge: keeping only uniques
+    /// would drop the PK from the emitted CREATE TABLE.
+    #[rstest]
+    #[case::unique_beside_pk_postgres(DatabaseBackend::Postgres)]
+    #[case::unique_beside_pk_mysql(DatabaseBackend::MySql)]
+    #[case::unique_beside_pk_sqlite(DatabaseBackend::Sqlite)]
+    fn test_create_table_unique_alongside_primary_key(#[case] backend: DatabaseBackend) {
+        let result = build_create_table(
+            backend,
+            "users",
+            &[
+                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
+                col("email", ColumnType::Simple(SimpleColumnType::Text)),
+            ],
+            &[
+                TableConstraint::PrimaryKey {
+                    columns: vec!["id".into()],
+                    auto_increment: false,
+                    strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+                },
+                TableConstraint::Unique {
+                    name: Some("uq_email".into()),
+                    columns: vec!["email".into()],
+                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                        keep: vespertide_core::KeepPolicy::First,
+                    },
+                },
+            ],
+        )
+        .unwrap();
+        let sql = join_queries(&result, backend, "\n");
+
+        assert!(
+            sql.contains("PRIMARY KEY"),
+            "the PK must survive the unique partitioning: {sql}"
+        );
+        with_settings!({ snapshot_suffix => format!("create_table_unique_alongside_primary_key_{:?}", backend) }, {
+            assert_snapshot!(sql);
+        });
+    }
+
     #[rstest]
     #[case::table_level_unique_no_name_postgres(DatabaseBackend::Postgres)]
     #[case::table_level_unique_no_name_mysql(DatabaseBackend::MySql)]

@@ -345,7 +345,15 @@ mod tests {
         "%03x-%m-tail",
         "%03x-fix_bug-tail.vespertide.json"
     )] // `b'0'` arm's else: digits not terminated by `v` fall through untouched
-    #[case(9, None, FileFormat::Json, "%v%", "0009%.vespertide.json")] // `i + 1 >= bytes.len()`: a trailing bare `%` is not a placeholder
+    #[case(9, None, FileFormat::Json, "%v%", "0009%.vespertide.json")]
+    // `i + 1 >= bytes.len()`: a trailing bare `%` is not a placeholder
+    // Digits running to the very end exercise both `j < bytes.len()` bounds in
+    // the `%0N` scan; relaxing either to `<=` indexes one past the slice.
+    #[case(9, None, FileFormat::Json, "%012", "%012.vespertide.json")]
+    // A width that differs from the 4-digit default proves the width really
+    // comes from `pattern[i + 2..j]`: with `%04v` the padded and default
+    // renderings coincide, so the slice bounds go unchecked.
+    #[case(9, None, FileFormat::Json, "%06v", "000009.vespertide.json")]
     fn migration_filename_with_format_and_pattern_tests(
         #[case] version: u32,
         #[case] comment: Option<&str>,
