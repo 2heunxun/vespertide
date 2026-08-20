@@ -1,4 +1,4 @@
-﻿use sea_query::{Alias, Expr, Query, Table, TableAlterStatement};
+use sea_query::{Alias, Expr, Query, Table, TableAlterStatement};
 
 use vespertide_core::{ColumnDef, TableDef};
 

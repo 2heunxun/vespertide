@@ -23,15 +23,17 @@
 
 use super::helpers::{
     TIMESTAMP_FUNCTION_SPELLINGS, UUID_FUNCTION_SPELLINGS, convert_default_for_backend,
-    find_last_top_level_cast, matches_any_spelling, quoted_literal_end,
+    find_last_top_level_cast, matches_any_spelling,
 };
 use super::types::DatabaseBackend;
 
-/// Keywords that only occur in a *composite* SQL expression. Finding one
-/// outside a string literal proves the value is not a lone literal.
-const COMPOSITE_SQL_KEYWORDS: [&str; 16] = [
-    "case", "when", "then", "else", "end", "select", "from", "where", "and", "or", "not",
-    "between", "in", "like", "union", "join",
+/// Keywords that only occur in a *composite* SQL expression.
+///
+/// Deliberately excludes the short, label-like keywords (`and`, `or`, `not`,
+/// `in`, `like`): an enum label such as `'in progress'` must stay on the
+/// convertible path, or MySQL would receive its `::` cast verbatim.
+const COMPOSITE_SQL_KEYWORDS: [&str; 11] = [
+    "case", "when", "then", "else", "end", "select", "from", "where", "union", "join", "between",
 ];
 
 /// Adapt a `fill_with` / backfill expression for `backend`.
@@ -77,41 +79,38 @@ fn is_single_sql_atom(value: &str) -> bool {
         return false;
     }
     if value.starts_with('\'') {
-        return quoted_literal_end(value) == Some(value.len());
+        return is_one_complete_quoted_literal(value);
     }
     !value
         .chars()
         .any(|c| c.is_whitespace() || matches!(c, '(' | ')' | ',' | ';' | '\'' | '"'))
 }
 
-/// Whether `value` contains a [`COMPOSITE_SQL_KEYWORDS`] entry outside every
-/// single-quoted string literal.
+/// Whether `value` is a single quoted literal with nothing trailing it.
 ///
-/// Literal content is skipped because it is data, not syntax: an enum label
-/// such as `'not_started'` must not be mistaken for the `NOT` keyword and
-/// pushed onto the verbatim path, where MySQL would choke on its `::` cast.
-fn contains_composite_keyword(value: &str) -> bool {
-    let mut rest = value;
-    loop {
-        let (outside, next) = match rest.find('\'') {
-            Some(quote) => {
-                let after =
-                    quoted_literal_end(&rest[quote..]).map_or(rest.len(), |end| quote + end);
-                (&rest[..quote], &rest[after..])
-            }
-            None => (rest, ""),
-        };
-        if outside
-            .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-            .any(|word| matches_any_spelling(word, &COMPOSITE_SQL_KEYWORDS))
-        {
-            return true;
-        }
-        if next.is_empty() {
+/// Any byte outside the literal disqualifies it, so `'a' || 'b'` is rejected,
+/// while the `''` escape in `'it''s'` keeps the literal open — the pair closes
+/// and immediately reopens it.
+fn is_one_complete_quoted_literal(value: &str) -> bool {
+    let mut in_quote = false;
+    for byte in value.bytes() {
+        if byte == b'\'' {
+            in_quote = !in_quote;
+        } else if !in_quote {
             return false;
         }
-        rest = next;
     }
+    !in_quote
+}
+
+/// Whether `value` contains a [`COMPOSITE_SQL_KEYWORDS`] entry as a whole word.
+///
+/// Splitting on non-identifier bytes keeps `weekend_total` distinct from `end`,
+/// which is what lets a lone identifier stay on the convertible path.
+fn contains_composite_keyword(value: &str) -> bool {
+    value
+        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .any(|word| matches_any_spelling(word, &COMPOSITE_SQL_KEYWORDS))
 }
 
 #[cfg(test)]
@@ -200,13 +199,17 @@ mod tests {
         assert_eq!(is_simple_literal_fill(fill), expected, "input: {fill}");
     }
 
-    /// A keyword inside a string literal is data. Without the quote-skipping
-    /// scan, `'not_started'::user_status` would take the verbatim path and
-    /// leave an unusable `::` cast in the MySQL statement.
+    /// Whole-word matching is what keeps a lone identifier convertible: an
+    /// enum label like `not_started` or a column like `weekend_total` must not
+    /// be read as a keyword and pushed onto the verbatim path, where MySQL
+    /// would choke on the trailing `::` cast.
     #[test]
-    fn keyword_inside_string_literal_is_not_syntax() {
+    fn composite_keywords_match_whole_words_only() {
+        assert!(contains_composite_keyword(
+            "CASE WHEN a = 1 THEN 'x' ELSE 'y' END"
+        ));
+        assert!(contains_composite_keyword("SELECT 1 FROM t"));
         assert!(!contains_composite_keyword("'not_started'::user_status"));
-        assert!(contains_composite_keyword("a IN (1, 2)"));
         assert!(!contains_composite_keyword("weekend_total::integer"));
         assert!(!contains_composite_keyword("''"));
     }

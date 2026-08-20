@@ -273,34 +273,6 @@ pub(crate) fn convert_default_for_backend(default: &str, backend: DatabaseBacken
     default.to_string()
 }
 
-/// End (exclusive byte index) of the single-quoted SQL string literal starting
-/// at the beginning of `value`, or `None` when the literal is never closed.
-///
-/// `''` inside a literal is the SQL escape for one embedded quote, not a
-/// terminator. Scanning bytes is sound because every byte we compare is ASCII,
-/// and ASCII bytes never occur inside a multi-byte UTF-8 sequence — so the
-/// returned index is always a `char` boundary.
-pub(super) fn quoted_literal_end(value: &str) -> Option<usize> {
-    let bytes = value.as_bytes();
-    debug_assert_eq!(
-        bytes.first(),
-        Some(&b'\''),
-        "caller must pass a string starting with a single quote"
-    );
-    let mut i = 1;
-    while i < bytes.len() {
-        if bytes[i] == b'\'' {
-            if bytes.get(i + 1) == Some(&b'\'') {
-                i += 2;
-                continue;
-            }
-            return Some(i + 1);
-        }
-        i += 1;
-    }
-    None
-}
-
 /// Byte offset of the **last top-level** `::` cast operator in `expr`.
 ///
 /// Top-level means outside every single-quoted string literal *and* outside
@@ -315,31 +287,51 @@ pub(super) fn quoted_literal_end(value: &str) -> Option<usize> {
 ///
 /// Returns `None` when there is no top-level cast, or when a string literal is
 /// left unterminated (at that point syntax cannot be told from data).
+///
+/// Toggling `in_quote` on every `'` also handles the SQL `''` escape for free:
+/// the pair closes and immediately reopens the literal, so its content stays
+/// quoted. Driving the scan from `bytes().enumerate()` keeps the cursor
+/// monotonic by construction — there is no hand-rolled index arithmetic that
+/// could stall the loop. Comparing bytes is sound because every byte matched
+/// here is ASCII, which never occurs inside a multi-byte UTF-8 sequence, so a
+/// returned index is always a `char` boundary.
 pub(super) fn find_last_top_level_cast(expr: &str) -> Option<usize> {
-    let bytes = expr.as_bytes();
+    let mut in_quote = false;
     let mut depth: usize = 0;
+    let mut pending_colon: Option<usize> = None;
     let mut last = None;
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            // `bytes[i]` is ASCII here, so `i` is a `char` boundary and the
-            // slice cannot panic.
-            b'\'' => {
-                i += quoted_literal_end(&expr[i..])?;
-                continue;
+
+    for (index, byte) in expr.bytes().enumerate() {
+        if in_quote {
+            if byte == b'\'' {
+                in_quote = false;
             }
-            b'(' => depth += 1,
-            b')' => depth = depth.saturating_sub(1),
-            b':' if depth == 0 && bytes.get(i + 1) == Some(&b':') => {
-                last = Some(i);
-                i += 2;
-                continue;
-            }
-            _ => {}
+            pending_colon = None;
+            continue;
         }
-        i += 1;
+        match byte {
+            b'\'' => {
+                in_quote = true;
+                pending_colon = None;
+            }
+            b'(' => {
+                depth += 1;
+                pending_colon = None;
+            }
+            b')' => {
+                depth = depth.saturating_sub(1);
+                pending_colon = None;
+            }
+            b':' => match pending_colon.take() {
+                Some(start) if depth == 0 => last = Some(start),
+                Some(_) => {}
+                None => pending_colon = Some(index),
+            },
+            _ => pending_colon = None,
+        }
     }
-    last
+
+    if in_quote { None } else { last }
 }
 
 /// Parse a PostgreSQL-style type cast expression (e.g., `'[]'::json`, `0::boolean`)
