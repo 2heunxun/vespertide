@@ -228,22 +228,6 @@ pub(crate) fn to_sea_fk_action(action: &ReferenceAction) -> ForeignKeyAction {
     }
 }
 
-/// Convert vespertide `ReferenceAction` to SQL string.
-///
-/// Test oracle: production paths go through [`to_sea_fk_action`]; this
-/// string-level mapping is only asserted against in unit tests.
-#[cfg(test)]
-pub(crate) fn reference_action_sql(action: &ReferenceAction) -> &'static str {
-    match action {
-        ReferenceAction::Cascade => "CASCADE",
-        ReferenceAction::Restrict => "RESTRICT",
-        ReferenceAction::SetNull => "SET NULL",
-        ReferenceAction::SetDefault => "SET DEFAULT",
-        ReferenceAction::NoAction => "NO ACTION",
-        _ => unreachable!("ReferenceAction is #[non_exhaustive]; all variants are matched above"),
-    }
-}
-
 /// Convert a default value string to the appropriate backend-specific expression
 pub(crate) fn convert_default_for_backend(default: &str, backend: DatabaseBackend) -> String {
     // UUID generation functions (case-insensitive match against ASCII literals
@@ -788,18 +772,6 @@ pub(super) fn build_sqlite_table_rebuild(
     queries.push(rename_query);
     queries.extend(index_queries);
     queries
-}
-
-/// Extract enum name from column type if it's an enum.
-///
-/// Test oracle: only unit tests consume this accessor today.
-#[cfg(test)]
-pub(crate) fn get_enum_name(column_type: &ColumnType) -> Option<&str> {
-    if let ColumnType::Complex(ComplexColumnType::Enum { name, .. }) = column_type {
-        Some(name.as_str())
-    } else {
-        None
-    }
 }
 
 /// Quote an identifier (table name, column name, constraint name) for the given backend.

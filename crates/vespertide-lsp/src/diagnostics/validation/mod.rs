@@ -16,7 +16,7 @@ pub(super) use visitors::collect_all;
 // `fused_walk_matches_unfused_pipeline` (see diagnostics/mod.rs). Production
 // uses the fused `collect_all` path exclusively.
 #[cfg(test)]
-pub(super) use visitors::{
+pub(super) use visitors::tests::{
     collect_complex_type_violations, collect_duplicate_column_names, collect_syntax_errors,
     collect_unknown_column_types,
 };
