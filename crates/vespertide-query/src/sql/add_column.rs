@@ -2,6 +2,7 @@ use sea_query::{Alias, Expr, Query, Table, TableAlterStatement};
 
 use vespertide_core::{ColumnDef, TableDef};
 
+use super::fill_with::convert_fill_with_for_backend;
 use super::helpers::{
     build_create_enum_type_sql, build_sea_column_def_with_table, build_sqlite_temp_table_create,
     convert_default_for_backend, normalize_enum_default, normalize_fill_with,
@@ -77,7 +78,7 @@ pub fn build_add_column(
             columns_alias.push(alias);
         }
         let fill_expr = if let Some(fill) = normalize_fill_with(fill_with) {
-            let converted = convert_default_for_backend(fill, backend);
+            let converted = convert_fill_with_for_backend(fill, backend);
             Expr::cust(normalize_enum_default(&column.r#type, &converted))
         } else if let Some(def) = &column.default {
             let converted = convert_default_for_backend(&def.to_sql(), backend);
@@ -132,7 +133,7 @@ pub fn build_add_column(
 
         // Backfill with provided value
         if let Some(fill) = normalize_fill_with(fill_with) {
-            let fill = convert_default_for_backend(fill, backend);
+            let fill = convert_fill_with_for_backend(fill, backend);
             let update_stmt = Query::update()
                 .table(Alias::new(table))
                 .value(Alias::new(&column.name), Expr::cust(fill))
@@ -159,7 +160,7 @@ pub fn build_add_column(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{joined_sql, joined_sql_semicolon};
+    use crate::test_support::{backend_tag, joined_sql, joined_sql_semicolon};
     use insta::{assert_snapshot, with_settings};
     use rstest::rstest;
     use vespertide_core::{ColumnType, SimpleColumnType, TableDef};
@@ -698,6 +699,144 @@ mod tests {
         );
 
         with_settings!({ snapshot_suffix => format!("fill_with_empty_string_{:?}", backend) }, {
+            assert_snapshot!(sql);
+        });
+    }
+
+    fn backfill_sql(backend: DatabaseBackend, column: &ColumnDef, fill: &str) -> String {
+        use crate::test_support::{col_n, table_def};
+
+        let current_schema = vec![table_def(
+            "subscription",
+            vec![
+                col_n("id", ColumnType::Simple(SimpleColumnType::Integer), false),
+                col_n(
+                    "plan_key",
+                    ColumnType::Simple(SimpleColumnType::Text),
+                    false,
+                ),
+                col_n(
+                    "plan_tag",
+                    ColumnType::Simple(SimpleColumnType::Text),
+                    false,
+                ),
+                col_n(
+                    "device_os",
+                    ColumnType::Simple(SimpleColumnType::Text),
+                    false,
+                ),
+                col_n(
+                    "device_family",
+                    ColumnType::Simple(SimpleColumnType::Text),
+                    false,
+                ),
+            ],
+            vec![],
+        )];
+        let queries = build_add_column(
+            backend,
+            "subscription",
+            column,
+            Some(fill),
+            &current_schema,
+            &[],
+        )
+        .expect("add_column with fill_with should build");
+        joined_sql_semicolon(backend, &queries)
+    }
+
+    fn not_null_column(name: &str, r#type: ColumnType) -> ColumnDef {
+        ColumnDef {
+            name: name.into(),
+            r#type,
+            nullable: false,
+            default: None,
+            comment: None,
+            primary_key: None,
+            unique: None,
+            index: None,
+            foreign_key: None,
+        }
+    }
+
+    /// Regression: a `fill_with` CASE expression comparing a text-cast column
+    /// to the uppercase literal `API` and returning `MONTHLY_QUOTA` / `SEAT`,
+    /// wrapped in parens and cast to an enum type.
+    ///
+    /// Splitting at the *first* `::` and lower-casing the remainder produced
+    /// `'api'` / `'monthly_quota'` / `'seat'`: the comparison never matched, so
+    /// the backfill silently did nothing, and the lower-cased token was not a
+    /// valid enum label so the cast failed.
+    #[rstest]
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    #[case::sqlite(DatabaseBackend::Sqlite)]
+    fn fill_with_enum_cast_case_expression_is_verbatim(#[case] backend: DatabaseBackend) {
+        use vespertide_core::{ComplexColumnType, EnumValues};
+
+        const FILL: &str = "(CASE WHEN plan_key::text = 'API' THEN 'MONTHLY_QUOTA' ELSE 'SEAT' END)::billing_metric";
+
+        let column = not_null_column(
+            "metric",
+            ColumnType::Complex(ComplexColumnType::Enum {
+                name: "billing_metric".into(),
+                values: EnumValues::String(vec!["MONTHLY_QUOTA".into(), "SEAT".into()]),
+            }),
+        );
+        let sql = backfill_sql(backend, &column, FILL);
+
+        assert!(
+            sql.contains(FILL),
+            "fill_with must survive byte-for-byte, got: {sql}"
+        );
+
+        with_settings!({ snapshot_suffix => format!("fill_with_enum_cast_verbatim_{}", backend_tag(backend)) }, {
+            assert_snapshot!(sql);
+        });
+    }
+
+    /// Regression: uppercase `WINDOWS` sits *before* the first cast operator
+    /// and survived, while the `ELSE` / `END` keywords *after* it were
+    /// lower-cased — the observation that pinpointed the first-`::` split.
+    #[rstest]
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    #[case::sqlite(DatabaseBackend::Sqlite)]
+    fn fill_with_json_array_case_expression_is_verbatim(#[case] backend: DatabaseBackend) {
+        const FILL: &str = "CASE WHEN device_os = 'win' THEN json_build_array('WINDOWS', device_family::text) ELSE '[]'::json END";
+
+        let column = not_null_column("os_tags", ColumnType::Simple(SimpleColumnType::Json));
+        let sql = backfill_sql(backend, &column, FILL);
+
+        assert!(
+            sql.contains(FILL),
+            "fill_with must survive byte-for-byte, got: {sql}"
+        );
+
+        with_settings!({ snapshot_suffix => format!("fill_with_json_array_verbatim_{}", backend_tag(backend)) }, {
+            assert_snapshot!(sql);
+        });
+    }
+
+    /// Regression: the comparison literal itself contains a cast operator
+    /// inside single quotes, followed by a trailing cast to integer. Splitting
+    /// on the first `::` cut the statement open inside the string literal.
+    #[rstest]
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    #[case::sqlite(DatabaseBackend::Sqlite)]
+    fn fill_with_cast_operator_inside_quotes_is_verbatim(#[case] backend: DatabaseBackend) {
+        const FILL: &str = "CASE WHEN plan_tag = 'legacy::v1' THEN 1 ELSE 2 END::integer";
+
+        let column = not_null_column("tier", ColumnType::Simple(SimpleColumnType::Integer));
+        let sql = backfill_sql(backend, &column, FILL);
+
+        assert!(
+            sql.contains(FILL),
+            "fill_with must survive byte-for-byte, got: {sql}"
+        );
+
+        with_settings!({ snapshot_suffix => format!("fill_with_quoted_cast_verbatim_{}", backend_tag(backend)) }, {
             assert_snapshot!(sql);
         });
     }
