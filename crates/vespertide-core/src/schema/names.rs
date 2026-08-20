@@ -334,6 +334,34 @@ mod tests {
     }
 
     #[test]
+    fn into_inner_consumes_newtype_back_into_string() {
+        // Covers the `into_inner` macro-expansion lines. `String::from` goes
+        // through the separate `From<$ty> for String` impl, so the tests above
+        // do not reach this body; call it explicitly on each newtype.
+        assert_eq!(TableName::new("user").into_inner(), "user");
+        assert_eq!(ColumnName::new("email").into_inner(), "email");
+        assert_eq!(
+            IndexName::new("ix_user__email").into_inner(),
+            "ix_user__email"
+        );
+    }
+
+    #[test]
+    fn with_prefix_empty_is_a_no_op() {
+        // Covers the `prefix.is_empty()` early return in `TableName::with_prefix`.
+        // Only the doctest exercised it, and doctests do not run under tarpaulin.
+        let unchanged = TableName::new("user").with_prefix("");
+        assert_eq!(unchanged.as_str(), "user");
+    }
+
+    #[test]
+    fn with_prefix_prepends_in_place() {
+        // Sibling of the empty case: the non-empty branch must actually prepend.
+        let prefixed = TableName::new("user").with_prefix("tenant_");
+        assert_eq!(prefixed.as_str(), "tenant_user");
+    }
+
+    #[test]
     fn join_column_names_empty_returns_empty_string() {
         // Empty-slice path: `for ... in []` never runs, returns the
         // pristine `String::new()`. Locks the empty-input contract that

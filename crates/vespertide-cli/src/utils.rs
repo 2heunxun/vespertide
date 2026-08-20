@@ -330,7 +330,22 @@ mod tests {
         FileFormat::Yaml,
         "한_%v_%m",
         "한_0004_añadir_tabla.vespertide.yaml"
-    )] // UTF-8 pattern + comment lock the byte-scanner and one-pass sanitize
+    )]
+    // UTF-8 pattern + comment lock the byte-scanner and one-pass sanitize
+    // The three cases below close the remaining arms of `render_migration_name`'s
+    // placeholder match. Each arm is a distinct `i` advance, and LLVM attributes
+    // the region to a different line depending on how the crate is built (the
+    // workspace-wide tarpaulin run and a single-package run disagree), so every
+    // arm needs its own case rather than relying on one representative pattern.
+    #[case(9, None, FileFormat::Json, "%z_%v", "%z_0009.vespertide.json")] // `_ => i += 1`: unknown placeholder is copied verbatim, scan resumes
+    #[case(
+        9,
+        Some("Fix Bug"),
+        FileFormat::Json,
+        "%03x-%m-tail",
+        "%03x-fix_bug-tail.vespertide.json"
+    )] // `b'0'` arm's else: digits not terminated by `v` fall through untouched
+    #[case(9, None, FileFormat::Json, "%v%", "0009%.vespertide.json")] // `i + 1 >= bytes.len()`: a trailing bare `%` is not a placeholder
     fn migration_filename_with_format_and_pattern_tests(
         #[case] version: u32,
         #[case] comment: Option<&str>,

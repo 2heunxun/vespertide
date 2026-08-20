@@ -1145,3 +1145,22 @@ fn foreign_key_column_groups_pushes_new_inline_group_after_table_constraint() {
         ]
     );
 }
+
+/// `parse_reference` is only reached indirectly (through
+/// `collect_foreign_key_relations`), which leaves its accept/reject arms
+/// attributed to a region the workspace-wide and single-package tarpaulin runs
+/// disagree about. Calling it directly pins every branch to its own region.
+#[rstest::rstest]
+#[case::table_and_column("users.id", Some(("users", "id")))]
+#[case::three_parts("a.b.c", None)]
+#[case::empty_table(".id", None)]
+#[case::empty_column("users.", None)]
+#[case::no_separator("users", None)]
+#[case::empty_input("", None)]
+fn parse_reference_accepts_only_table_dot_column(
+    #[case] input: &str,
+    #[case] expected: Option<(&str, &str)>,
+) {
+    let expected = expected.map(|(table, column)| (table.to_string(), vec![column.to_string()]));
+    assert_eq!(parse_reference(input), expected);
+}
