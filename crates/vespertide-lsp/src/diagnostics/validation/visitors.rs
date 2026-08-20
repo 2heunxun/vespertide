@@ -330,10 +330,12 @@ fn check_enum_shape(
         return;
     }
 
-    let Some(values_pair) = values_pair else {
-        return;
-    };
-    if let Some(values_value_raw) = values_pair.named_child(1) {
+    // `missing` is empty here, so the `values_pair.is_none()` branch above did
+    // not fire and the pair is present. Folded into the `named_child` let-chain
+    // rather than a `let ... else`, whose `else` arm would be unreachable.
+    if let Some(values_pair) = values_pair
+        && let Some(values_value_raw) = values_pair.named_child(1)
+    {
         let values_value = unwrap_yaml_node(values_value_raw);
         if !matches!(
             values_value.kind(),

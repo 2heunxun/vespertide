@@ -626,6 +626,23 @@ mod tests {
         assert!(!is_column_pair(nested_name, src.as_bytes(), "user"));
     }
 
+    /// The table's own `name` pair sits directly in the outermost mapping, so
+    /// `outer.id() != column_object.id()` is false and the function reaches its
+    /// trailing `false` — the only path that skips both inner `if let`s. Without
+    /// this, a table-level `name` could be mistaken for a column declaration.
+    #[test]
+    fn is_column_pair_returns_false_for_the_tables_own_name_pair() {
+        let src = r#"{"name":"user","columns":[{"name":"id","type":"integer"}]}"#;
+        let tree = parse_json(src);
+        let root_name =
+            find_pair_with_key(tree.root_node(), src.as_bytes(), "name").expect("root name pair");
+
+        assert!(
+            !is_column_pair(root_name, src.as_bytes(), "user"),
+            "the table's own `name` is not a column declaration"
+        );
+    }
+
     #[test]
     fn collect_in_document_keeps_table_and_check_references_distinct() {
         let src = r#"{"name":"user","columns":[{"name":"age","type":"integer"}],"constraints":[{"type":"check","name":"c","expr":"age > 0"}]}"#;

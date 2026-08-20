@@ -168,29 +168,24 @@ fn apply_complex_column_type(
         ComplexColumnType::Custom { custom_type } => {
             col.custom(Alias::new(custom_type));
         }
-        ComplexColumnType::Enum { name, values } => {
-            // For integer enums, use INTEGER type instead of ENUM
-            if values.is_integer() {
+        // Matched on the variant rather than `values.is_integer()`: the former
+        // `enum_variant_aliases` helper carried an `EnumValues::Integer` arm
+        // that the `is_integer()` guard made unreachable.
+        ComplexColumnType::Enum { name, values } => match values {
+            // Integer enums are stored as INTEGER; no native enum type is emitted.
+            EnumValues::Integer(_) => {
                 col.integer();
-            } else {
+            }
+            EnumValues::String(variants) => {
                 // Use table-prefixed enum type name to avoid conflicts
                 let type_name = build_enum_type_name(table, name);
                 // Map each variant name straight into `Alias::new`, skipping the
                 // intermediate `Vec<&str>` that `variant_names()` would allocate.
-                let variants = enum_variant_aliases(values);
-                col.enumeration(Alias::new(&type_name), variants);
+                let aliases: Vec<Alias> = variants.iter().map(Alias::new).collect();
+                col.enumeration(Alias::new(&type_name), aliases);
             }
-        }
+        },
         _ => unreachable!("ComplexColumnType is #[non_exhaustive]; all variants are matched above"),
-    }
-}
-
-/// Build the `sea_query` `Alias` list for a string enum's variants without the
-/// intermediate `Vec<&str>` that `EnumValues::variant_names()` would allocate.
-fn enum_variant_aliases(values: &EnumValues) -> Vec<Alias> {
-    match values {
-        EnumValues::String(variants) => variants.iter().map(Alias::new).collect(),
-        EnumValues::Integer(variants) => variants.iter().map(|v| Alias::new(&v.name)).collect(),
     }
 }
 

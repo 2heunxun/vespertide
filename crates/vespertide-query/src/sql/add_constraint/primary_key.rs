@@ -207,4 +207,28 @@ mod tests {
         let resolved = try_resolve_single_pk_column("logs", &schema, &["id"]);
         assert!(resolved.is_none());
     }
+
+    /// Composite PK declared *inline* (`primary_key: true` on two columns) with
+    /// no table-level PRIMARY KEY constraint. The composite test above goes
+    /// through the table-level branch, so only this one reaches the inline
+    /// branch's second `inline.next().is_some()` guard.
+    #[test]
+    fn try_resolve_single_pk_column_returns_none_for_inline_composite_pk() {
+        let pk = |name: &str| {
+            ColumnDef::new(name, ColumnType::Simple(SimpleColumnType::Integer), false)
+                .primary_key(vespertide_core::schema::primary_key::PrimaryKeySyntax::Bool(true))
+        };
+        let schema = vec![TableDef {
+            name: "memberships".into(),
+            description: None,
+            columns: vec![pk("user_id"), pk("group_id")],
+            constraints: vec![],
+        }];
+
+        let resolved = try_resolve_single_pk_column("memberships", &schema, &["joined_at"]);
+        assert!(
+            resolved.is_none(),
+            "two inline PK columns are a composite PK, not a single-column PK"
+        );
+    }
 }
