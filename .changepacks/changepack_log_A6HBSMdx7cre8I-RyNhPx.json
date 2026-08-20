@@ -1,0 +1,1 @@
+{"changes":{"crates/vespertide-core/Cargo.toml":"Minor","crates/vespertide-query/Cargo.toml":"Minor","crates/vespertide-cli/Cargo.toml":"Minor"},"note":"modify_column_type.fill_with 를 bare enum 라벨로 확정 (스키마 문서와 구현 불일치로 enum 축소 마이그레이션이 invalid input value for enum 으로 실패하던 문제). 따옴표가 이미 붙은 기존 값은 한 겹 제거 + 1회 경고로 하위호환 유지","date":"2026-08-20T11:02:39.1090232Z"}
