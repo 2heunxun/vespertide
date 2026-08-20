@@ -136,6 +136,8 @@ pub(in crate::commands::revision) fn prompt_enum_value_bare(
 
 /// Strip SQL single-quotes from an enum value string.
 /// `BTreeMap` stores bare enum names; the SQL layer handles quoting via `Expr::val()`.
+/// A quoted value gets escaped twice and lands in the column as `'active'`, which
+/// `PostgreSQL` rejects with `invalid input value for enum`.
 pub(in crate::commands::revision) fn strip_enum_quotes(value: &str) -> String {
     value
         .trim_start_matches('\'')
@@ -290,6 +292,9 @@ where
 /// The original ordering of `remaining_values` is preserved for every entry
 /// other than the suggestion (which is hoisted to the top), so non-suggested
 /// options remain in a predictable order.
+///
+/// Every value passes through [`strip_enum_quotes`], so the returned mappings
+/// hold bare labels no matter what `enum_prompt_fn` returns.
 pub(in crate::commands::revision) fn collect_enum_fill_with_values<E>(
     missing: &[EnumFillWithRequired],
     enum_prompt_fn: E,
@@ -333,7 +338,7 @@ where
             }
             let ordered = reorder_with_suggestion(&item.remaining_values, suggestion.as_deref());
             let value = enum_prompt_fn(&prompt, &ordered)?;
-            mappings.insert(removed.clone(), value);
+            mappings.insert(removed.clone(), strip_enum_quotes(&value));
         }
         results.push((item.action_index, mappings));
     }

@@ -563,7 +563,7 @@
               "$ref": "#/$defs/ColumnName"
             },
             "fill_with": {
-              "description": "Mapping of removed enum values to replacement values for safe enum value removal.\ne.g., `{\"cancelled\": \"'pending'\"}` generates an `UPDATE` before the type change.",
+              "description": "Mapping of removed enum values to replacement values for safe enum value removal.\nBoth sides are **bare** enum labels — write them exactly as they appear in the enum\n`values` list, with no surrounding SQL quotes. The SQL generator binds them as data\nvalues and adds the quoting itself.\ne.g., `{\"cancelled\": \"pending\"}` generates an `UPDATE` before the type change.\nA legacy pre-quoted replacement (`\"'pending'\"`) still works: one outer quote layer is\nstripped with a warning.",
               "type": [
                 "object",
                 "null"
