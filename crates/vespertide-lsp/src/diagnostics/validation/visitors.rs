@@ -306,22 +306,11 @@ fn walk_columns_for_complex_type(
 ) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        visit_complex_type_child(child, source, out);
+        if matches!(child.kind(), "object" | "block_mapping") {
+            inspect_complex_type(child, source, out);
+        }
+        walk_columns_for_complex_type(child, source, out);
     }
-}
-
-/// Body of [`walk_columns_for_complex_type`]'s loop, split out so the loop is a
-/// single statement.
-#[cfg(test)]
-fn visit_complex_type_child(
-    child: tree_sitter::Node<'_>,
-    source: &[u8],
-    out: &mut Vec<DomainDiagnostic>,
-) {
-    if matches!(child.kind(), "object" | "block_mapping") {
-        inspect_complex_type(child, source, out);
-    }
-    walk_columns_for_complex_type(child, source, out);
 }
 
 fn inspect_complex_type(

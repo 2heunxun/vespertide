@@ -169,26 +169,20 @@ fn apply_complex_column_type(
             col.custom(Alias::new(custom_type));
         }
         ComplexColumnType::Enum { name, values } => {
-            apply_enum_column_type(col, name, values, table);
+            // For integer enums, use INTEGER type instead of ENUM
+            if values.is_integer() {
+                col.integer();
+            } else {
+                // Use table-prefixed enum type name to avoid conflicts
+                let type_name = build_enum_type_name(table, name);
+                // Map each variant name straight into `Alias::new`, skipping the
+                // intermediate `Vec<&str>` that `variant_names()` would allocate.
+                let variants = enum_variant_aliases(values);
+                col.enumeration(Alias::new(&type_name), variants);
+            }
         }
         _ => unreachable!("ComplexColumnType is #[non_exhaustive]; all variants are matched above"),
     }
-}
-
-/// Enum arm of [`apply_complex_column_type`], split out so the dispatch match
-/// stays one statement per arm.
-fn apply_enum_column_type(col: &mut SeaColumnDef, name: &str, values: &EnumValues, table: &str) {
-    // For integer enums, use INTEGER type instead of ENUM
-    if values.is_integer() {
-        col.integer();
-        return;
-    }
-    // Use table-prefixed enum type name to avoid conflicts
-    let type_name = build_enum_type_name(table, name);
-    // Map each variant name straight into `Alias::new`, skipping the
-    // intermediate `Vec<&str>` that `variant_names()` would allocate.
-    let variants = enum_variant_aliases(values);
-    col.enumeration(Alias::new(&type_name), variants);
 }
 
 /// Build the `sea_query` `Alias` list for a string enum's variants without the
@@ -206,34 +200,15 @@ fn apply_numeric_type(
     scale: u32,
     backend: DatabaseBackend,
 ) {
-    let (safe_precision, safe_scale) = clamp_numeric_precision(precision, scale);
-    apply_numeric_for_backend(col, safe_precision, safe_scale, backend);
-}
-
-/// `decimal_len` rejects oversized precision, so clamp to the widest value every
-/// backend accepts. Split from [`apply_numeric_type`] so the clamp arithmetic is
-/// its own unit.
-fn clamp_numeric_precision(precision: u32, scale: u32) -> (u32, u32) {
     debug_assert!(
         scale <= precision,
         "numeric scale ({scale}) must be <= precision ({precision}); schema validation should reject this before SQL generation"
     );
     let safe_precision = precision.min(28);
     let safe_scale = scale.min(safe_precision);
-    (safe_precision, safe_scale)
-}
-
-/// SQLite has no fixed-point type, so it falls back to `double`; the other two
-/// backends take the clamped `DECIMAL(p, s)`.
-fn apply_numeric_for_backend(
-    col: &mut SeaColumnDef,
-    precision: u32,
-    scale: u32,
-    backend: DatabaseBackend,
-) {
     match backend {
         DatabaseBackend::Postgres | DatabaseBackend::MySql => {
-            col.decimal_len(precision, scale);
+            col.decimal_len(safe_precision, safe_scale);
         }
         DatabaseBackend::Sqlite => {
             col.double();

@@ -192,7 +192,16 @@ mod tests {
             auto_increment: false,
             strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
         };
-        let err_msg = sqlite_missing_table_error(&constraint);
+        let current_schema = vec![]; // Empty schema - table not found
+        let result = build_add_constraint(
+            DatabaseBackend::Sqlite,
+            "users",
+            &constraint,
+            &current_schema,
+            &[],
+        );
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("Table 'users' not found in current schema"));
     }
 
@@ -383,15 +392,6 @@ mod tests {
         let sql = joined_sql(DatabaseBackend::Sqlite, &queries);
         assert!(sql.contains("CREATE TABLE"));
     }
-    /// Adds `constraint` to `users` on SQLite against an empty schema and
-    /// returns the resulting error message. Split out of the two
-    /// `*_table_not_found` tests so each keeps a single-statement body.
-    fn sqlite_missing_table_error(constraint: &TableConstraint) -> String {
-        build_add_constraint(DatabaseBackend::Sqlite, "users", constraint, &[], &[])
-            .expect_err("empty schema must be rejected")
-            .to_string()
-    }
-
     #[test]
     fn test_add_constraint_check_sqlite_table_not_found() {
         let constraint = TableConstraint::Check {
@@ -399,7 +399,16 @@ mod tests {
             expr: "age > 0".into(),
             strategy: vespertide_core::CheckViolationStrategy::default(),
         };
-        let err_msg = sqlite_missing_table_error(&constraint);
+        let current_schema = vec![]; // Empty schema - table not found
+        let result = build_add_constraint(
+            DatabaseBackend::Sqlite,
+            "users",
+            &constraint,
+            &current_schema,
+            &[],
+        );
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("Table 'users' not found in current schema"));
     }
     #[test]
