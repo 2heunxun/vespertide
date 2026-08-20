@@ -60,7 +60,7 @@ vespertide-planner = { workspace = true }
 vespertide-loader = { workspace = true }
 
 [dev-dependencies]
-insta = { version = "1.47", features = ["json", "yaml"] }
+insta = { version = "1.48", features = ["json", "yaml"] }
 proptest = "1"
 rstest = "0.26"
 tempfile = "3"
