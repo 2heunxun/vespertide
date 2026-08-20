@@ -185,24 +185,31 @@ mod tests {
             assert_snapshot!(joined_sql(backend, &result));
         });
     }
-    #[test]
-    fn test_add_constraint_primary_key_sqlite_table_not_found() {
-        let constraint = TableConstraint::PrimaryKey {
-            columns: vec!["id".into()],
-            auto_increment: false,
-            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-        };
-        let current_schema = vec![]; // Empty schema - table not found
-        let result = build_add_constraint(
-            DatabaseBackend::Sqlite,
-            "users",
-            &constraint,
-            &current_schema,
-            &[],
+    /// PrimaryKey and Check are the two constraint kinds that route through the
+    /// SQLite table rebuild, so both must reject a missing table with the same
+    /// message. Parameterized rather than two near-identical `#[test]`s per the
+    /// crate's rstest policy; the call is kept on one line because the
+    /// multi-line argument list left an argument row that `tarpaulin --engine
+    /// llvm` folded out of the executed region.
+    #[rstest]
+    #[case::primary_key(TableConstraint::PrimaryKey {
+        columns: vec!["id".into()],
+        auto_increment: false,
+        strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
+    })]
+    #[case::check(TableConstraint::Check {
+        name: "chk_age".into(),
+        expr: "age > 0".into(),
+        strategy: vespertide_core::CheckViolationStrategy::default(),
+    })]
+    fn add_constraint_on_sqlite_requires_table_in_schema(#[case] constraint: TableConstraint) {
+        let r = build_add_constraint(DatabaseBackend::Sqlite, "users", &constraint, &[], &[]);
+        let err = r.expect_err("missing table must be rejected");
+        assert!(
+            err.to_string()
+                .contains("Table 'users' not found in current schema"),
+            "got: {err}"
         );
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("Table 'users' not found in current schema"));
     }
 
     #[test]
@@ -391,25 +398,6 @@ mod tests {
         let queries = result.unwrap();
         let sql = joined_sql(DatabaseBackend::Sqlite, &queries);
         assert!(sql.contains("CREATE TABLE"));
-    }
-    #[test]
-    fn test_add_constraint_check_sqlite_table_not_found() {
-        let constraint = TableConstraint::Check {
-            name: "chk_age".into(),
-            expr: "age > 0".into(),
-            strategy: vespertide_core::CheckViolationStrategy::default(),
-        };
-        let current_schema = vec![]; // Empty schema - table not found
-        let result = build_add_constraint(
-            DatabaseBackend::Sqlite,
-            "users",
-            &constraint,
-            &current_schema,
-            &[],
-        );
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("Table 'users' not found in current schema"));
     }
     #[test]
     fn test_add_constraint_check_sqlite_without_existing_check() {

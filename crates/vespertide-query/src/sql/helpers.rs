@@ -159,8 +159,28 @@ fn apply_complex_column_type(
         ComplexColumnType::Varchar { length } => {
             col.string_len(*length);
         }
+        // Folded in from the former single-use `apply_numeric_type` helper: the
+        // sibling arms all call a `col` method directly, and routing this one
+        // through a free function left its call site as a region `tarpaulin
+        // --engine llvm` folded into the callee, reporting an executed line as
+        // uncovered. Behaviour is unchanged.
         ComplexColumnType::Numeric { precision, scale } => {
-            apply_numeric_type(col, *precision, *scale, backend);
+            debug_assert!(
+                *scale <= *precision,
+                "numeric scale ({scale}) must be <= precision ({precision}); schema validation should reject this before SQL generation"
+            );
+            // `decimal_len` rejects oversized precision, and SQLite has no
+            // fixed-point type at all, so clamp first and fan out per backend.
+            let safe_precision = (*precision).min(28);
+            let safe_scale = (*scale).min(safe_precision);
+            match backend {
+                DatabaseBackend::Postgres | DatabaseBackend::MySql => {
+                    col.decimal_len(safe_precision, safe_scale);
+                }
+                DatabaseBackend::Sqlite => {
+                    col.double();
+                }
+            }
         }
         ComplexColumnType::Char { length } => {
             col.char_len(*length);
@@ -191,28 +211,6 @@ fn enum_variant_aliases(values: &EnumValues) -> Vec<Alias> {
     match values {
         EnumValues::String(variants) => variants.iter().map(Alias::new).collect(),
         EnumValues::Integer(variants) => variants.iter().map(|v| Alias::new(&v.name)).collect(),
-    }
-}
-
-fn apply_numeric_type(
-    col: &mut SeaColumnDef,
-    precision: u32,
-    scale: u32,
-    backend: DatabaseBackend,
-) {
-    debug_assert!(
-        scale <= precision,
-        "numeric scale ({scale}) must be <= precision ({precision}); schema validation should reject this before SQL generation"
-    );
-    let safe_precision = precision.min(28);
-    let safe_scale = scale.min(safe_precision);
-    match backend {
-        DatabaseBackend::Postgres | DatabaseBackend::MySql => {
-            col.decimal_len(safe_precision, safe_scale);
-        }
-        DatabaseBackend::Sqlite => {
-            col.double();
-        }
     }
 }
 

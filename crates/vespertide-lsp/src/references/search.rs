@@ -195,7 +195,12 @@ fn inspect_pair(
                 if is_check_constraint_pair(source, pair)
                     && check_owning_table_matches(source, pair, table) =>
             {
-                push_check_expr_matches(value, source, column, uri, out);
+                CheckExprScan {
+                    source,
+                    column,
+                    uri,
+                }
+                .push_matches(value, out);
             }
             _ => {}
         }
@@ -274,30 +279,42 @@ fn outer_table_name<'a>(source: &'a [u8], node: tree_sitter::Node<'_>) -> Option
     direct_child_scalar(outer, source, "name")
 }
 
-/// Lex the CHECK expression in `value` and push a reference for every bare
-/// identifier matching `column`, with byte ranges absolute to the document.
-fn push_check_expr_matches(
-    value: tree_sitter::Node<'_>,
-    source: &[u8],
-    column: &str,
-    uri: &Uri,
-    out: &mut Vec<DomainReference>,
-) {
-    if let Some(inner) = crate::check_expr_range::expr_inner_range(value)
-        && let Some(expr_text) = source
+/// Everything `push_check_expr_matches` needs about the document it is
+/// scanning. Grouping the three document-level arguments keeps the signature on
+/// one line: the previous five-parameter list wrapped across rows, and
+/// `tarpaulin --engine llvm` folded the first parameter row out of the
+/// function's executed region.
+struct CheckExprScan<'a> {
+    source: &'a [u8],
+    column: &'a str,
+    uri: &'a Uri,
+}
+
+impl CheckExprScan<'_> {
+    /// Lex the CHECK expression in `value` and push a reference for every bare
+    /// identifier matching `self.column`, byte ranges absolute to the document.
+    fn push_matches(&self, value: tree_sitter::Node<'_>, out: &mut Vec<DomainReference>) {
+        let Some(inner) = crate::check_expr_range::expr_inner_range(value) else {
+            return;
+        };
+        let Some(expr_text) = self
+            .source
             .get(inner.clone())
             .and_then(|bytes| std::str::from_utf8(bytes).ok())
-    {
+        else {
+            return;
+        };
         for token in vespertide_planner::lex_check_expr(expr_text) {
-            if token.kind == vespertide_planner::CheckTokenKind::Column
-                && let Some(ident) = expr_text.get(token.span.clone())
-                && ident == column
-            {
-                out.push(DomainReference {
-                    uri: uri.clone(),
-                    byte_range: (inner.start + token.span.start)..(inner.start + token.span.end),
-                });
+            if token.kind != vespertide_planner::CheckTokenKind::Column {
+                continue;
             }
+            if expr_text.get(token.span.clone()) != Some(self.column) {
+                continue;
+            }
+            out.push(DomainReference {
+                uri: self.uri.clone(),
+                byte_range: (inner.start + token.span.start)..(inner.start + token.span.end),
+            });
         }
     }
 }
