@@ -127,15 +127,9 @@ fn strip_leading_trivia(sql: &str) -> &str {
     let mut rest = sql.trim_start();
     loop {
         rest = if let Some(after) = rest.strip_prefix("--") {
-            match after.find('\n') {
-                Some(idx) => &after[idx + 1..],
-                None => "",
-            }
+            after.split_once('\n').map_or("", |(_, tail)| tail)
         } else if let Some(after) = rest.strip_prefix("/*") {
-            match after.find("*/") {
-                Some(idx) => &after[idx + 2..],
-                None => "",
-            }
+            after.split_once("*/").map_or("", |(_, tail)| tail)
         } else {
             return rest;
         };
