@@ -732,6 +732,25 @@ mod tests {
         );
     }
 
+    /// Every other `collect_complex_type_violations` test above feeds JSON, so
+    /// `walk_columns_for_complex_type` only ever matched the `"object"` arm and
+    /// its `"block_mapping"` sibling — the YAML shape — was never taken. Models
+    /// are a first-class YAML format, so the walker has to be exercised on a
+    /// `block_mapping` tree too.
+    #[test]
+    fn complex_type_walk_reaches_yaml_block_mapping_columns() {
+        let src = "name: u\ncolumns:\n  - name: c\n    type:\n      kind: custom\n";
+        let tree = crate::test_support::parse_yaml(src);
+        let mut out = Vec::new();
+
+        collect_complex_type_violations(&tree, src, &mut out);
+
+        assert!(
+            out.iter().any(|diag| diag.message.contains("custom_type")),
+            "YAML block_mapping column should reach inspect_complex_type; got: {out:?}"
+        );
+    }
+
     #[test]
     fn collect_syntax_errors_recurses_into_children() {
         let src = r#"{"columns":[{"name":"id",}]}"#;

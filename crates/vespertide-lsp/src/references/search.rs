@@ -653,4 +653,41 @@ mod tests {
             "declaration and CHECK expression should both be found: {out:?}"
         );
     }
+
+    /// The test above only ever lexes a CHECK expression whose single column
+    /// identifier matches the symbol, so `push_check_expr_matches` never took
+    /// the `ident == column` false path. A predicate naming two columns forces
+    /// both: `age` is pushed, `score` is skipped.
+    #[test]
+    fn check_expr_matches_skip_identifiers_for_other_columns() {
+        let src = r#"{"name":"user","columns":[{"name":"age","type":"integer"},{"name":"score","type":"integer"}],"constraints":[{"type":"check","name":"c","expr":"age > 0 AND score > age"}]}"#;
+        let tree = parse_json(src);
+        let mut out = Vec::new();
+
+        collect_in_document(
+            &ReferenceSymbol::Column {
+                table: "user".to_string(),
+                column: "age".to_string(),
+            },
+            &uri("user.json"),
+            src,
+            &tree,
+            false,
+            &mut out,
+        );
+
+        let hits: Vec<&str> = out
+            .iter()
+            .map(|reference| &src[reference.byte_range.clone()])
+            .collect();
+        assert!(
+            hits.iter().all(|hit| *hit == "age"),
+            "only `age` identifiers may be reported, got: {hits:?}"
+        );
+        assert_eq!(
+            hits.len(),
+            2,
+            "both `age` occurrences in the CHECK predicate are references: {hits:?}"
+        );
+    }
 }

@@ -6,8 +6,13 @@ use super::super::helpers::{
 use super::*;
 use proptest::prelude::*;
 use sea_query::{Alias, ColumnDef as SeaColumnDef, ForeignKeyAction};
-use vespertide_core::{ComplexColumnType, EnumValues};
+use vespertide_core::{ComplexColumnType, EnumValues, NumValue};
 
+// The `#[values(Postgres, MySql, Sqlite)]` axis on the three type-mapping tests
+// below is the N-BACKEND TRIPLE policy from `crates/vespertide-query/AGENTS.md`:
+// a type-mapping test that only runs Postgres hides every backend-specific arm.
+// Concretely, `apply_numeric_type` splits `Postgres | MySql` (decimal_len) from
+// `Sqlite` (double), so a Postgres-only Numeric case never reached the SQLite arm.
 #[rstest]
 #[case(ColumnType::Simple(SimpleColumnType::Integer))]
 #[case(ColumnType::Simple(SimpleColumnType::BigInt))]
@@ -17,10 +22,18 @@ use vespertide_core::{ComplexColumnType, EnumValues};
 #[case(ColumnType::Simple(SimpleColumnType::Uuid))]
 #[case(ColumnType::Complex(ComplexColumnType::Varchar { length: 255 }))]
 #[case(ColumnType::Complex(ComplexColumnType::Numeric { precision: 10, scale: 2 }))]
-fn test_column_type_conversion(#[case] ty: ColumnType) {
+fn test_column_type_conversion(
+    #[case] ty: ColumnType,
+    #[values(
+        DatabaseBackend::Postgres,
+        DatabaseBackend::MySql,
+        DatabaseBackend::Sqlite
+    )]
+    backend: DatabaseBackend,
+) {
     // Just ensure no panic - test by creating a column with this type
     let mut col = SeaColumnDef::new(Alias::new("test"));
-    apply_column_type_with_table(&mut col, &ty, "test_table", DatabaseBackend::Postgres);
+    apply_column_type_with_table(&mut col, &ty, "test_table", backend);
 }
 
 #[rstest]
@@ -43,30 +56,41 @@ fn test_column_type_conversion(#[case] ty: ColumnType) {
 #[case(SimpleColumnType::Cidr)]
 #[case(SimpleColumnType::Macaddr)]
 #[case(SimpleColumnType::Xml)]
-fn test_all_simple_types_cover_branches(#[case] ty: SimpleColumnType) {
-    let mut col = SeaColumnDef::new(Alias::new("t"));
-    apply_column_type_with_table(
-        &mut col,
-        &ColumnType::Simple(ty),
-        "test_table",
+fn test_all_simple_types_cover_branches(
+    #[case] ty: SimpleColumnType,
+    #[values(
         DatabaseBackend::Postgres,
-    );
+        DatabaseBackend::MySql,
+        DatabaseBackend::Sqlite
+    )]
+    backend: DatabaseBackend,
+) {
+    let mut col = SeaColumnDef::new(Alias::new("t"));
+    apply_column_type_with_table(&mut col, &ColumnType::Simple(ty), "test_table", backend);
 }
 
 #[rstest]
 #[case(ComplexColumnType::Varchar { length: 42 })]
 #[case(ComplexColumnType::Numeric { precision: 8, scale: 3 })]
+// Precision beyond the 28-digit ceiling exercises `apply_numeric_type`'s
+// `precision.min(28)` / `scale.min(safe_precision)` clamp, which a
+// within-range case leaves as a straight pass-through.
+#[case(ComplexColumnType::Numeric { precision: 40, scale: 35 })]
 #[case(ComplexColumnType::Char { length: 3 })]
 #[case(ComplexColumnType::Custom { custom_type: "GEOGRAPHY".into() })]
 #[case(ComplexColumnType::Enum { name: "status".into(), values: EnumValues::String(vec!["active".into(), "inactive".into()]) })]
-fn test_all_complex_types_cover_branches(#[case] ty: ComplexColumnType) {
-    let mut col = SeaColumnDef::new(Alias::new("t"));
-    apply_column_type_with_table(
-        &mut col,
-        &ColumnType::Complex(ty),
-        "test_table",
+#[case(ComplexColumnType::Enum { name: "level".into(), values: EnumValues::Integer(vec![NumValue { name: "low".into(), value: 0 }]) })]
+fn test_all_complex_types_cover_branches(
+    #[case] ty: ComplexColumnType,
+    #[values(
         DatabaseBackend::Postgres,
-    );
+        DatabaseBackend::MySql,
+        DatabaseBackend::Sqlite
+    )]
+    backend: DatabaseBackend,
+) {
+    let mut col = SeaColumnDef::new(Alias::new("t"));
+    apply_column_type_with_table(&mut col, &ColumnType::Complex(ty), "test_table", backend);
 }
 
 #[rstest]
