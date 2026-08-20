@@ -1,6 +1,7 @@
 pub mod add_column;
 pub mod add_constraint;
 pub mod create_table;
+pub mod data_migration;
 pub mod delete_column;
 pub mod delete_table;
 pub(crate) mod fill_with;
@@ -25,8 +26,9 @@ use vespertide_core::{MigrationAction, TableConstraint, TableDef};
 
 use self::{
     add_column::build_add_column, add_constraint::build_add_constraint,
-    create_table::build_create_table, delete_column::build_delete_column,
-    delete_table::build_delete_table, modify_column_comment::build_modify_column_comment,
+    create_table::build_create_table, data_migration::build_data_migration,
+    delete_column::build_delete_column, delete_table::build_delete_table,
+    modify_column_comment::build_modify_column_comment,
     modify_column_default::build_modify_column_default,
     modify_column_nullable::build_modify_column_nullable,
     remap_enum_values::build_remap_enum_values, remove_constraint::build_remove_constraint,
@@ -53,7 +55,7 @@ pub fn build_action_queries(
 /// to avoid recreating indexes that will be created by future `AddConstraint` actions.
 #[expect(
     clippy::too_many_lines,
-    reason = "flat 15-variant MigrationAction dispatcher kept inline so the variant→builder mapping stays auditable; extracting individual arms scatters the routing logic"
+    reason = "flat 16-variant MigrationAction dispatcher kept inline so the variant→builder mapping stays auditable; extracting individual arms scatters the routing logic"
 )]
 pub fn build_action_queries_with_pending(
     backend: DatabaseBackend,
@@ -167,6 +169,8 @@ pub fn build_action_queries_with_pending(
         MigrationAction::RenameTable { from, to } => Ok(vec![build_rename_table(from, to)]),
 
         MigrationAction::RawSql { sql } => Ok(vec![BuiltQuery::Raw(RawSql::uniform(sql.clone()))]),
+
+        MigrationAction::DataMigration { sql, .. } => Ok(build_data_migration(sql)),
 
         MigrationAction::AddConstraint { .. }
         | MigrationAction::RemoveConstraint { .. }

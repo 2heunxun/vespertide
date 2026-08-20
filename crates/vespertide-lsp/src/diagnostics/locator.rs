@@ -44,12 +44,12 @@ impl ErrorLocation {
         use PlannerError::{
             AddColumnWithFkRequiresNullable, BetweenBoundaryReversed, CheckSelfContradiction,
             ColumnExists, ColumnNotFound, ConstraintColumnNotFound, ConstraintTypeChanged,
-            DanglingForeignKeyAfterDrop, DefaultViolatesCheck, DuplicateEnumValue,
-            DuplicateEnumVariantName, DuplicateTableName, EmptyConstraintColumns,
-            ForeignKeyColumnNotFound, ForeignKeyTableNotFound, IndexColumnNotFound, IndexNotFound,
-            InvalidAutoIncrement, InvalidEnumDefault, MissingFillWith, MissingPrimaryKey, Multiple,
-            PrimaryKeyColumnNullable, PrimaryKeyRemovedWithoutReplacement, TableExists,
-            TableNotFound, TableValidation,
+            DanglingForeignKeyAfterDrop, DataMigrationContainsDdl, DefaultViolatesCheck,
+            DuplicateEnumValue, DuplicateEnumVariantName, DuplicateTableName,
+            EmptyConstraintColumns, ForeignKeyColumnNotFound, ForeignKeyTableNotFound,
+            IndexColumnNotFound, IndexNotFound, InvalidAutoIncrement, InvalidEnumDefault,
+            MissingFillWith, MissingPrimaryKey, Multiple, PrimaryKeyColumnNullable,
+            PrimaryKeyRemovedWithoutReplacement, TableExists, TableNotFound, TableValidation,
         };
 
         match err {
@@ -83,7 +83,10 @@ impl ErrorLocation {
             | TableNotFound(table)
             | DuplicateTableName(table)
             | MissingPrimaryKey(table) => Some(Self::table(table)),
-            TableValidation(_) => None,
+            // Neither anchors to a model file: `TableValidation` carries only a
+            // message, and a `data_migration` DDL violation lives in a migration
+            // file, which the model-file locator cannot address.
+            TableValidation(_) | DataMigrationContainsDdl { .. } => None,
             // Column-anchored errors. F12 Scenario C
             // (`PrimaryKeyColumnNullable`) is a struct variant rather than
             // a tuple, so its arm is listed separately even though the

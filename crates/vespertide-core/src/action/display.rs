@@ -1,4 +1,4 @@
-use super::MigrationAction;
+use super::{DataMigrationSql, MigrationAction};
 use crate::schema::TableConstraint;
 use std::borrow::Cow;
 use std::fmt;
@@ -53,6 +53,9 @@ fn write_migration_action(f: &mut fmt::Formatter<'_>, action: &MigrationAction) 
         }
         MigrationAction::RenameTable { from, to } => write!(f, "RenameTable: {from} -> {to}"),
         MigrationAction::RawSql { sql } => write_raw_sql_action(f, sql),
+        MigrationAction::DataMigration { sql, description } => {
+            write_data_migration_action(f, sql, description.as_deref())
+        }
         MigrationAction::RemapEnumValues {
             table,
             column,
@@ -134,6 +137,17 @@ fn write_raw_sql_action(f: &mut fmt::Formatter<'_>, sql: &str) -> fmt::Result {
         write!(f, "RawSql: {head}...")
     } else {
         write!(f, "RawSql: {sql}")
+    }
+}
+
+fn write_data_migration_action(
+    f: &mut fmt::Formatter<'_>,
+    sql: &DataMigrationSql,
+    description: Option<&str>,
+) -> fmt::Result {
+    match description {
+        Some(description) => write!(f, "DataMigration: {description}"),
+        None => write!(f, "DataMigration: {}", super::sql_preview(sql.postgres())),
     }
 }
 

@@ -51,6 +51,9 @@ fn prefix_migration_action(action: MigrationAction, prefix: &str) -> MigrationAc
             to: to.with_prefix(prefix),
         },
         MigrationAction::RawSql { sql } => MigrationAction::RawSql { sql },
+        MigrationAction::DataMigration { sql, description } => {
+            MigrationAction::DataMigration { sql, description }
+        }
         action => prefix_column_or_constraint_action(action, prefix),
     }
 }
@@ -166,6 +169,22 @@ mod tests {
         match prefixed {
             MigrationAction::RawSql { sql } => assert_eq!(sql, "SELECT 1"),
             other => panic!("expected RawSql, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn data_migration_with_prefix_is_a_noop_on_sql_body() {
+        let action = MigrationAction::DataMigration {
+            sql: "UPDATE users SET active = true".into(),
+            description: Some("activate everyone".to_string()),
+        };
+        let prefixed = action.with_prefix("p_");
+        match prefixed {
+            MigrationAction::DataMigration { sql, description } => {
+                assert_eq!(sql.postgres(), "UPDATE users SET active = true");
+                assert_eq!(description.as_deref(), Some("activate everyone"));
+            }
+            other => panic!("expected DataMigration, got {other:?}"),
         }
     }
 

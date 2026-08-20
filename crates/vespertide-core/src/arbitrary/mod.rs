@@ -4,6 +4,7 @@ use proptest::{collection, prelude::*};
 
 use crate::{
     MigrationAction,
+    action::DataMigrationSql,
     schema::{
         ColumnDef, ColumnType, ComplexColumnType, DefaultValue, EnumValues, NumValue,
         ReferenceAction, SimpleColumnType, StrOrBoolOrArray, StringOrBool, TableConstraint,
@@ -313,7 +314,26 @@ pub fn arb_migration_action() -> impl Strategy<Value = MigrationAction> {
             to: to.into()
         }),
         arb_sql().prop_map(|sql| MigrationAction::RawSql { sql }),
+        arb_data_migration_action(),
     ]
+}
+
+fn arb_data_migration_sql() -> impl Strategy<Value = DataMigrationSql> {
+    prop_oneof![
+        arb_sql().prop_map(DataMigrationSql::Uniform),
+        (arb_sql(), arb_sql(), arb_sql()).prop_map(|(postgres, mysql, sqlite)| {
+            DataMigrationSql::PerBackend {
+                postgres,
+                mysql,
+                sqlite,
+            }
+        }),
+    ]
+}
+
+fn arb_data_migration_action() -> impl Strategy<Value = MigrationAction> {
+    (arb_data_migration_sql(), prop::option::of(arb_comment()))
+        .prop_map(|(sql, description)| MigrationAction::DataMigration { sql, description })
 }
 
 fn arb_create_table_action() -> impl Strategy<Value = MigrationAction> {
@@ -591,7 +611,21 @@ mod tests {
                 | MigrationAction::ReplaceConstraint { .. }
                 | MigrationAction::RenameTable { .. }
                 | MigrationAction::RawSql { .. }
+                | MigrationAction::DataMigration { .. }
                 | MigrationAction::RemapEnumValues { .. } => {}
+            }
+        }
+
+        #[test]
+        fn arb_data_migration_action_yields_both_sql_forms(
+            action in arb_data_migration_action()
+        ) {
+            let MigrationAction::DataMigration { sql, .. } = action else {
+                prop_assert!(false, "expected DataMigration");
+                return Ok(());
+            };
+            match sql {
+                DataMigrationSql::Uniform(_) | DataMigrationSql::PerBackend { .. } => {}
             }
         }
 

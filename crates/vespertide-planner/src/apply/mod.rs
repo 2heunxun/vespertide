@@ -1,5 +1,6 @@
 mod column_ops;
 mod constraint_ops;
+mod data_migration;
 mod raw_sql;
 mod table_ops;
 
@@ -86,6 +87,10 @@ pub fn apply_action(
             column,
             mapping,
         } => column_ops::remap_enum_values(schema, table, column, mapping),
+        MigrationAction::DataMigration { .. } => {
+            data_migration::apply_data_migration();
+            Ok(())
+        }
         MigrationAction::RawSql { .. } | _ => {
             raw_sql::apply_raw_sql();
             Ok(())

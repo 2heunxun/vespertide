@@ -565,6 +565,28 @@ fn test_build_action_queries_raw_sql(#[case] backend: DatabaseBackend) {
     });
 }
 
+#[rstest]
+#[case::data_migration_postgres(DatabaseBackend::Postgres)]
+#[case::data_migration_mysql(DatabaseBackend::MySql)]
+#[case::data_migration_sqlite(DatabaseBackend::Sqlite)]
+fn test_build_action_queries_data_migration(#[case] backend: DatabaseBackend) {
+    let action = MigrationAction::DataMigration {
+        sql: "UPDATE \"User\" SET Tier = 'PRO'::text WHERE Kind = 'internal';".into(),
+        description: Some("promote internal accounts".into()),
+    };
+    let result = build_action_queries(backend, &action, &[]).unwrap();
+    assert_eq!(result.len(), 1);
+    let sql = result[0].build(backend);
+    assert_eq!(
+        sql,
+        "UPDATE \"User\" SET Tier = 'PRO'::text WHERE Kind = 'internal';"
+    );
+
+    with_settings!({ snapshot_path => "../snapshots", snapshot_suffix => format!("data_migration_{:?}", backend) }, {
+        assert_snapshot!(sql);
+    });
+}
+
 // Comprehensive index naming tests
 #[rstest]
 #[case::add_index_with_custom_name_postgres(
