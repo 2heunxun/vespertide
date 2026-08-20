@@ -223,15 +223,37 @@ pub(crate) fn to_sea_fk_action(action: &ReferenceAction) -> ForeignKeyAction {
     }
 }
 
+/// Function spellings meaning "generate a UUID". Matched against the **whole**
+/// input, case-insensitively, so they can never rewrite part of a larger
+/// expression.
+pub(super) const UUID_FUNCTION_SPELLINGS: [&str; 3] =
+    ["gen_random_uuid()", "uuid()", "lower(hex(randomblob(16)))"];
+
+/// Function spellings meaning "current timestamp". Same whole-input matching
+/// rule as [`UUID_FUNCTION_SPELLINGS`].
+pub(super) const TIMESTAMP_FUNCTION_SPELLINGS: [&str; 4] = [
+    "current_timestamp()",
+    "now()",
+    "current_timestamp",
+    "getdate()",
+];
+
+/// Whole-string, case-insensitive membership test.
+///
+/// Uses `eq_ignore_ascii_case` rather than `to_lowercase()` so no `String` is
+/// allocated per call, mirroring the convention `needs_quoting` uses below.
+pub(super) fn matches_any_spelling(value: &str, spellings: &[&str]) -> bool {
+    spellings.iter().any(|s| value.eq_ignore_ascii_case(s))
+}
+
 /// Convert a default value string to the appropriate backend-specific expression
+///
+/// This is for a column **DEFAULT** — a single literal or function call the
+/// generator is free to canonicalise. It is *not* safe for a raw SQL
+/// expression slot such as `fill_with`; see
+/// [`super::fill_with::convert_fill_with_for_backend`].
 pub(crate) fn convert_default_for_backend(default: &str, backend: DatabaseBackend) -> String {
-    // UUID generation functions (case-insensitive match against ASCII literals
-    // — avoids the per-call `String` allocation that `to_lowercase()` would
-    // incur, mirroring the convention `needs_quoting` already uses below).
-    if default.eq_ignore_ascii_case("gen_random_uuid()")
-        || default.eq_ignore_ascii_case("uuid()")
-        || default.eq_ignore_ascii_case("lower(hex(randomblob(16)))")
-    {
+    if matches_any_spelling(default, &UUID_FUNCTION_SPELLINGS) {
         return match backend {
             DatabaseBackend::Postgres => "gen_random_uuid()".to_string(),
             DatabaseBackend::MySql => "(UUID())".to_string(),
@@ -239,71 +261,115 @@ pub(crate) fn convert_default_for_backend(default: &str, backend: DatabaseBacken
         };
     }
 
-    // Timestamp functions (case-insensitive)
-    if default.eq_ignore_ascii_case("current_timestamp()")
-        || default.eq_ignore_ascii_case("now()")
-        || default.eq_ignore_ascii_case("current_timestamp")
-        || default.eq_ignore_ascii_case("getdate()")
-    {
+    if matches_any_spelling(default, &TIMESTAMP_FUNCTION_SPELLINGS) {
         return "CURRENT_TIMESTAMP".to_string();
     }
 
     // PostgreSQL-style type casts: 'value'::type or expr::type
     if let Some((value, cast_type)) = parse_pg_type_cast(default) {
-        return convert_type_cast(value, &cast_type, backend);
+        return convert_cast_chain(value, &cast_type, backend);
     }
 
     default.to_string()
 }
 
+/// Byte offset of the **last top-level** `::` cast operator in `expr`.
+///
+/// Top-level means outside every single-quoted string literal *and* outside
+/// every parenthesised group. Both properties matter:
+///
+/// * Taking the **last** operator makes a cast chain (`'x'::text::json`) peel
+///   from the outside in, instead of treating `text::json` as one type name.
+/// * Skipping quoted and nested occurrences stops
+///   `CASE WHEN tag = 'a::b' THEN 1 ELSE 2 END::integer` from being split
+///   inside its own string literal — the defect that let a `fill_with`
+///   expression be silently truncated and case-folded.
+///
+/// Returns `None` when there is no top-level cast, or when a string literal is
+/// left unterminated (at that point syntax cannot be told from data).
+///
+/// Toggling `in_quote` on every `'` also handles the SQL `''` escape for free:
+/// the pair closes and immediately reopens the literal, so its content stays
+/// quoted. Driving the scan from `bytes().enumerate()` keeps the cursor
+/// monotonic by construction — there is no hand-rolled index arithmetic that
+/// could stall the loop. Comparing bytes is sound because every byte matched
+/// here is ASCII, which never occurs inside a multi-byte UTF-8 sequence, so a
+/// returned index is always a `char` boundary.
+pub(super) fn find_last_top_level_cast(expr: &str) -> Option<usize> {
+    let mut in_quote = false;
+    let mut depth: usize = 0;
+    let mut pending_colon: Option<usize> = None;
+    let mut last = None;
+
+    for (index, byte) in expr.bytes().enumerate() {
+        if in_quote {
+            if byte == b'\'' {
+                in_quote = false;
+            }
+            pending_colon = None;
+            continue;
+        }
+        match byte {
+            b'\'' => {
+                in_quote = true;
+                pending_colon = None;
+            }
+            b'(' => {
+                depth += 1;
+                pending_colon = None;
+            }
+            b')' => {
+                depth = depth.saturating_sub(1);
+                pending_colon = None;
+            }
+            b':' => match pending_colon.take() {
+                Some(start) if depth == 0 => last = Some(start),
+                Some(_) => {}
+                None => pending_colon = Some(index),
+            },
+            _ => pending_colon = None,
+        }
+    }
+
+    if in_quote { None } else { last }
+}
+
 /// Parse a PostgreSQL-style type cast expression (e.g., `'[]'::json`, `0::boolean`)
 /// Returns `(value, type)` if parsed, or None if not a type cast.
 ///
-/// The value borrows `expr` (both arms return a contiguous slice of the
-/// input — quotes included for the quoted arm); only `cast_type` is owned
-/// because of the `to_lowercase()` normalisation.
+/// The split happens at the last top-level `::` (see
+/// [`find_last_top_level_cast`]), so `'x'::text::json` yields
+/// `("'x'::text", "json")` and a `::` that only appears inside a string
+/// literal is not a split point at all.
+///
+/// The value borrows `expr` (a contiguous slice of the input, quotes
+/// included); only `cast_type` is owned because of the `to_lowercase()`
+/// normalisation. **Only the type name is lower-cased — the value is returned
+/// byte-for-byte**, so no caller can mangle user SQL through this function.
 pub(super) fn parse_pg_type_cast(expr: &str) -> Option<(&str, String)> {
     let trimmed = expr.trim();
-
-    // Handle quoted values: 'value'::type
-    if let Some(after_open) = trimmed.strip_prefix('\'') {
-        // Find the closing quote (handle escaped quotes '')
-        let mut chars = after_open.char_indices().peekable();
-        while let Some((i, ch)) = chars.next() {
-            if ch == '\'' {
-                // Check for escaped quote ''
-                if chars.next_if(|(_, next)| *next == '\'').is_some() {
-                    continue;
-                }
-                // Found closing quote
-                let value_end = i + ch.len_utf8(); // index in `after_open`
-                let rest = after_open.get(value_end..)?;
-                if let Some(stripped) = rest.strip_prefix("::") {
-                    let cast_type = stripped.trim().to_lowercase();
-                    if !cast_type.is_empty() {
-                        // Opening quote + verbatim content (incl. doubled
-                        // quotes) + closing quote is exactly the contiguous
-                        // input slice `trimmed[..i + 2]` — no allocation.
-                        let value = trimmed.get(..i + 1 + ch.len_utf8())?;
-                        return Some((value, cast_type));
-                    }
-                }
-                return None;
-            }
-        }
+    let split = find_last_top_level_cast(trimmed)?;
+    // `split` and `split + 2` index the two ASCII `:` bytes, so both slices
+    // land on `char` boundaries.
+    let value = trimmed[..split].trim();
+    let cast_type = trimmed[split + 2..].trim().to_lowercase();
+    if value.is_empty() || cast_type.is_empty() {
         return None;
     }
+    Some((value, cast_type))
+}
 
-    // Handle unquoted values: expr::type (e.g., 0::boolean, NULL::json)
-    if let Some((value, cast_type)) = trimmed.split_once("::") {
-        let value = value.trim();
-        let cast_type = cast_type.trim().to_lowercase();
-        if !value.is_empty() && !cast_type.is_empty() {
-            return Some((value, cast_type));
-        }
-    }
-
-    None
+/// Convert a possibly *chained* `PostgreSQL` cast to backend syntax.
+///
+/// Recurses so `'x'::text::json` nests properly: MySQL emits
+/// `CAST(CAST('x' AS CHAR) AS JSON)` and SQLite strips every level rather than
+/// leaving a stray `::text` behind.
+fn convert_cast_chain(value: &str, cast_type: &str, backend: DatabaseBackend) -> String {
+    let inner = match parse_pg_type_cast(value) {
+        Some((inner_value, inner_cast)) => convert_cast_chain(inner_value, &inner_cast, backend),
+        None => value.to_string(),
+    };
+    convert_type_cast(&inner, cast_type, backend)
 }
 
 /// Map `PostgreSQL` type name to `MySQL` CAST target type

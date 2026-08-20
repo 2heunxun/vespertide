@@ -1,8 +1,11 @@
 mod direct;
+mod fill_with;
 mod narrowing_preprocess;
 mod sqlite_rebuild;
 
 pub use narrowing_preprocess::build_narrowing_preprocess;
+
+use fill_with::extend_fill_with_updates;
 
 use vespertide_core::NarrowingStrategy;
 
@@ -138,55 +141,12 @@ fn build_pg_alter_with_timezone(
 
 use std::collections::BTreeMap;
 
-use sea_query::{Alias, Expr, ExprTrait, Query};
-
 use vespertide_core::{ColumnType, TableDef};
 
 use self::direct::build_modify_column_type_direct;
 use self::sqlite_rebuild::build_modify_column_type_sqlite_temp_table;
 use super::types::{BuiltQuery, DatabaseBackend};
 use crate::error::QueryError;
-
-/// Build UPDATE statements for `fill_with` mappings (removed enum values → replacement values).
-/// Each entry generates: UPDATE "table" SET "column" = 'replacement' WHERE "column" = '`removed_value`'
-fn build_fill_with_updates(
-    table: &str,
-    column: &str,
-    fill_with: &BTreeMap<String, String>,
-) -> Vec<BuiltQuery> {
-    fill_with
-        .iter()
-        .map(|(removed_value, replacement)| {
-            let update_stmt = Query::update()
-                .table(Alias::new(table))
-                .value(Alias::new(column), Expr::val(replacement.as_str()))
-                .and_where(Expr::col(Alias::new(column)).eq(removed_value.as_str()))
-                .to_owned();
-            BuiltQuery::Update(Box::new(update_stmt))
-        })
-        .collect()
-}
-
-/// Conditionally prepend `fill_with` UPDATEs to `queries`.
-///
-/// Centralises the byte-identical
-/// `if let Some(fw) = fill_with { queries.extend(build_fill_with_updates(...)); }`
-/// dance that the three `modify_column_type` paths each previously
-/// open-coded (`direct::build_postgres_enum_migration`,
-/// `direct::build_standard_type_modification`, and
-/// `sqlite_rebuild::build_modify_column_type_sqlite_temp_table`). Each
-/// callsite now collapses to a single line whose name reads
-/// "if a fill_with map exists, prepend its UPDATEs".
-pub(super) fn extend_fill_with_updates(
-    queries: &mut Vec<BuiltQuery>,
-    table: &str,
-    column: &str,
-    fill_with: Option<&BTreeMap<String, String>>,
-) {
-    if let Some(fw) = fill_with {
-        queries.extend(build_fill_with_updates(table, column, fw));
-    }
-}
 
 pub fn build_modify_column_type(
     backend: DatabaseBackend,

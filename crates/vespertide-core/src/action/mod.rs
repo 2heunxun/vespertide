@@ -88,7 +88,12 @@ pub enum MigrationAction {
         column: ColumnName,
         new_type: ColumnType,
         /// Mapping of removed enum values to replacement values for safe enum value removal.
-        /// e.g., `{"cancelled": "'pending'"}` generates an `UPDATE` before the type change.
+        /// Both sides are **bare** enum labels — write them exactly as they appear in the enum
+        /// `values` list, with no surrounding SQL quotes. The SQL generator binds them as data
+        /// values and adds the quoting itself.
+        /// e.g., `{"cancelled": "pending"}` generates an `UPDATE` before the type change.
+        /// A legacy pre-quoted replacement (`"'pending'"`) still works: one outer quote layer is
+        /// stripped with a warning.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fill_with: Option<BTreeMap<String, String>>,
         /// Strategy for transforming existing rows that would violate a *narrowed* new type

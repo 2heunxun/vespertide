@@ -4,6 +4,7 @@ pub mod create_table;
 pub mod data_migration;
 pub mod delete_column;
 pub mod delete_table;
+pub(crate) mod fill_with;
 pub mod helpers;
 pub mod modify_column_comment;
 pub mod modify_column_default;
