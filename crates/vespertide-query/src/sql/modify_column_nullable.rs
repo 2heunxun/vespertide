@@ -1,8 +1,9 @@
 use vespertide_core::TableDef;
 
+use super::fill_with::convert_fill_with_for_backend;
 use super::helpers::{
     build_mysql_modify_column_with, build_pg_alter_column_sql, build_sqlite_modify_column_with,
-    convert_default_for_backend, normalize_fill_with, quote_ident,
+    normalize_fill_with, quote_ident,
 };
 use super::types::{BuiltQuery, DatabaseBackend, RawSql};
 use crate::error::QueryError;
@@ -34,7 +35,7 @@ pub fn build_modify_column_nullable(
     }
     // If changing to NOT NULL, first update existing NULL values if fill_with is provided
     else if !nullable && let Some(fill_value) = normalize_fill_with(fill_with) {
-        let fill_value = convert_default_for_backend(fill_value, backend);
+        let fill_value = convert_fill_with_for_backend(fill_value, backend);
         let quoted_table = quote_ident(table, backend);
         let quoted_column = quote_ident(column, backend);
         let update_sql = format!(
@@ -246,7 +247,13 @@ mod tests {
         });
     }
 
-    /// Test `fill_with` containing `NOW()` should be converted to `CURRENT_TIMESTAMP` for all backends
+    /// Test `fill_with` containing `NOW()`.
+    ///
+    /// `fill_with` is a raw SQL expression slot, so PostgreSQL — the dialect
+    /// it is authored in — now emits it verbatim. MySQL and SQLite still get
+    /// `CURRENT_TIMESTAMP` because `NOW()` is not a SQLite function; that
+    /// rewrite is safe only because the spelling is matched against the whole
+    /// value, never a fragment of a larger expression.
     #[rstest]
     #[case::postgres_fill_now(DatabaseBackend::Postgres)]
     #[case::mysql_fill_now(DatabaseBackend::MySql)]
@@ -279,15 +286,21 @@ mod tests {
         let queries = result.unwrap();
         let sql = joined_sql(backend, &queries);
 
-        // NOW() should be converted to CURRENT_TIMESTAMP for all backends
-        assert!(
-            !sql.contains("NOW()"),
-            "SQL should not contain NOW(), got: {sql}"
-        );
-        assert!(
-            sql.contains("CURRENT_TIMESTAMP"),
-            "SQL should contain CURRENT_TIMESTAMP, got: {sql}"
-        );
+        if backend == DatabaseBackend::Postgres {
+            assert!(
+                sql.contains("NOW()"),
+                "PostgreSQL must emit fill_with verbatim, got: {sql}"
+            );
+        } else {
+            assert!(
+                !sql.contains("NOW()"),
+                "SQL should not contain NOW(), got: {sql}"
+            );
+            assert!(
+                sql.contains("CURRENT_TIMESTAMP"),
+                "SQL should contain CURRENT_TIMESTAMP, got: {sql}"
+            );
+        }
 
         let suffix = format!("{}_fill_now", backend_tag(backend));
 

@@ -1,0 +1,1 @@
+{"changes":{"crates/vespertide-query/Cargo.toml":"Patch"},"note":"add_column.fill_with가 사용자 SQL 표현식을 훼손하던 버그 수정: fill_with는 raw SQL 표현식 슬롯이므로 DEFAULT 정규화(convert_default_for_backend)를 태우지 않고 그대로 방출한다. parse_pg_type_cast도 첫 번째 :: 대신 따옴표/괄호를 건너뛴 마지막 top-level :: 에서 분리하도록 수정","date":"2026-08-20T04:00:00.0000000Z"}

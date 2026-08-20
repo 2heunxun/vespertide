@@ -284,6 +284,8 @@ fn test_parse_pg_type_cast_no_cast() {
     assert!(parse_pg_type_cast("42").is_none());
     assert!(parse_pg_type_cast("NOW()").is_none());
     assert!(parse_pg_type_cast("CURRENT_TIMESTAMP").is_none());
+    assert!(parse_pg_type_cast("::json").is_none());
+    assert!(parse_pg_type_cast("0::").is_none());
 }
 
 #[test]
@@ -345,6 +347,61 @@ fn test_parse_pg_type_cast_unterminated_quote() {
     // Unterminated quoted string should return None (line 203)
     assert!(parse_pg_type_cast("'unclosed").is_none());
     assert!(parse_pg_type_cast("'no close quote::json").is_none());
+}
+
+/// The split point is the LAST *top-level* `::`: not one inside a string
+/// literal, and not one nested in parentheses. Splitting at the first
+/// occurrence truncated `fill_with` expressions mid-literal.
+#[rstest]
+#[case::cast_operator_inside_literal(
+    "CASE WHEN plan_tag = 'legacy::v1' THEN 1 ELSE 2 END::integer",
+    "CASE WHEN plan_tag = 'legacy::v1' THEN 1 ELSE 2 END",
+    "integer"
+)]
+#[case::cast_chain("'x'::text::json", "'x'::text", "json")]
+#[case::cast_nested_in_parens(
+    "(CASE WHEN plan_key::text = 'API' THEN 'A' ELSE 'B' END)::billing_metric",
+    "(CASE WHEN plan_key::text = 'API' THEN 'A' ELSE 'B' END)",
+    "billing_metric"
+)]
+#[case::escaped_quote_before_cast("'it''s::not'::text", "'it''s::not'", "text")]
+fn test_parse_pg_type_cast_splits_at_last_top_level_operator(
+    #[case] expr: &str,
+    #[case] expected_value: &str,
+    #[case] expected_type: &str,
+) {
+    let (value, cast_type) = parse_pg_type_cast(expr).expect("expression carries a trailing cast");
+    assert_eq!(value, expected_value);
+    assert_eq!(cast_type, expected_type);
+}
+
+/// A `::` that only ever appears inside a string literal or inside an
+/// unclosed paren group is not a cast at all.
+#[rstest]
+#[case::only_inside_literal("'legacy::v1'")]
+#[case::only_inside_parens("(a::text)")]
+#[case::unbalanced_open_paren("(a::text")]
+fn test_parse_pg_type_cast_ignores_non_top_level_operators(#[case] expr: &str) {
+    assert!(
+        parse_pg_type_cast(expr).is_none(),
+        "no top-level cast in: {expr}"
+    );
+}
+
+/// Chained casts must nest, not collapse: MySQL wraps each level and SQLite
+/// strips every level rather than leaving a stray `::text` behind.
+#[rstest]
+#[case::postgres(DatabaseBackend::Postgres, "'x'::text::json")]
+#[case::mysql(DatabaseBackend::MySql, "CAST(CAST('x' AS CHAR) AS JSON)")]
+#[case::sqlite(DatabaseBackend::Sqlite, "'x'")]
+fn test_convert_default_for_backend_cast_chain(
+    #[case] backend: DatabaseBackend,
+    #[case] expected: &str,
+) {
+    assert_eq!(
+        convert_default_for_backend("'x'::text::json", backend),
+        expected
+    );
 }
 
 #[rstest]

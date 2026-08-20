@@ -512,4 +512,48 @@ mod tests {
         assert!(sql.contains("status"));
         assert!(sql.contains("'active'"));
     }
+
+    /// `backfill` is a raw SQL expression slot, so it is interpolated
+    /// verbatim. This locks that contract against the `fill_with` defect
+    /// (first-`::` split + `to_lowercase`) ever being copied onto this path.
+    #[rstest]
+    #[case::postgres(DatabaseBackend::Postgres)]
+    #[case::mysql(DatabaseBackend::MySql)]
+    #[case::sqlite(DatabaseBackend::Sqlite)]
+    fn build_modify_column_default_backfill_expression_is_verbatim(
+        #[case] backend: DatabaseBackend,
+    ) {
+        const BACKFILL: &str = "(CASE WHEN plan_key::text = 'API' THEN 'MONTHLY_QUOTA' ELSE 'SEAT' END)::billing_metric";
+
+        let schema = vec![table_def(
+            "users",
+            vec![
+                col("id", ColumnType::Simple(SimpleColumnType::Integer), false),
+                col(
+                    "plan_key",
+                    ColumnType::Simple(SimpleColumnType::Text),
+                    false,
+                ),
+                col("metric", ColumnType::Simple(SimpleColumnType::Text), false),
+            ],
+            vec![],
+        )];
+
+        let queries = build_modify_column_default(
+            backend,
+            "users",
+            "metric",
+            None,
+            Some(BACKFILL),
+            &schema,
+            &[],
+        )
+        .expect("backfill path should succeed");
+        let sql = joined_sql(backend, &queries);
+
+        assert!(
+            sql.contains(BACKFILL),
+            "backfill must survive byte-for-byte, got: {sql}"
+        );
+    }
 }
