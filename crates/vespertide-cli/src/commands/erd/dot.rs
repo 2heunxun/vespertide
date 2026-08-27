@@ -45,8 +45,8 @@ pub fn render_dot(tables: &[TableDef]) -> String {
 }
 
 fn record_label(table: &TableDef) -> String {
-    let mut fields = Vec::with_capacity(table.columns.len() + 1);
-    fields.push(escape_record_field(&table.name));
+    let mut fields: Vec<String> = Vec::with_capacity(table.columns.len() + 1);
+    fields.push(escape_record_field(&table.name).into_owned());
 
     for column in &table.columns {
         fields.push(column_record_field(table, column));
@@ -73,7 +73,11 @@ fn relationship_label(relation: &ForeignKeyRelation) -> String {
     )
 }
 
-fn escape_record_field(value: &str) -> String {
+fn escape_record_field(value: &str) -> std::borrow::Cow<'_, str> {
+    if !value.contains(['\\', '{', '}', '|', '<', '>', '"']) {
+        return std::borrow::Cow::Borrowed(value);
+    }
+
     let mut escaped = String::with_capacity(value.len());
 
     for ch in value.chars() {
@@ -87,7 +91,7 @@ fn escape_record_field(value: &str) -> String {
         }
     }
 
-    escaped
+    std::borrow::Cow::Owned(escaped)
 }
 
 #[cfg(test)]

@@ -1,12 +1,14 @@
 //! Helpers to convert `TableDef` models into ORM-specific representations
 //! such as `SeaORM`, `SQLAlchemy`, `SQLModel`, JPA, GORM, Django, and Prisma.
 
+mod constraint_scan;
 pub mod django;
 pub mod gorm;
 pub mod jpa;
 pub mod orm;
 mod parallel_config;
 pub mod prisma;
+pub mod python_naming;
 pub mod seaorm;
 pub mod sqlalchemy;
 pub mod sqlmodel;

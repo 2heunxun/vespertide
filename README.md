@@ -89,6 +89,7 @@ vespertide revision -m "create user table"
 | `vespertide status` | Show configuration and sync status overview |
 | `vespertide log` | List applied migrations with generated SQL |
 | `vespertide export --orm seaorm` | Export models to ORM code |
+| `vespertide erd` | Export schema as an ERD diagram (`--format svg\|mermaid\|dot`, `--include`/`--exclude`/`--depth` filters) |
 
 ## Model Definition
 
@@ -123,12 +124,15 @@ Models are JSON files in the `models/` directory. Always include `$schema` for I
 | `"big_int"` | BIGINT | `"boolean"` | BOOLEAN |
 | `"small_int"` | SMALLINT | `"uuid"` | UUID |
 | `"real"` | REAL | `"json"` | JSON |
-| `"double_precision"` | DOUBLE PRECISION | `"jsonb"` | JSONB |
-| `"date"` | DATE | `"bytea"` | BYTEA |
-| `"time"` | TIME | `"inet"` | INET |
-| `"timestamp"` | TIMESTAMP | `"cidr"` | CIDR |
-| `"timestamptz"` | TIMESTAMPTZ | `"macaddr"` | MACADDR |
-| `"interval"` | INTERVAL | `"xml"` | XML |
+| `"double_precision"` | DOUBLE PRECISION | `"bytea"` | BYTEA |
+| `"date"` | DATE | `"inet"` | INET |
+| `"time"` | TIME | `"cidr"` | CIDR |
+| `"timestamp"` | TIMESTAMP | `"macaddr"` | MACADDR |
+| `"timestamptz"` | TIMESTAMPTZ | `"xml"` | XML |
+| `"interval"` | INTERVAL | | |
+
+> Need `JSONB`? There is no `"jsonb"` simple type — use the custom complex type instead:
+> `{ "kind": "custom", "custom_type": "JSONB" }`.
 
 **Complex Types:**
 
@@ -232,10 +236,10 @@ The only exception is adding `fill_with` values when prompted (for NOT NULL colu
 vespertide export --orm seaorm      # Rust - SeaORM entities
 vespertide export --orm sqlalchemy  # Python - SQLAlchemy models
 vespertide export --orm sqlmodel    # Python - SQLModel (FastAPI)
-vespertide export --orm jpa         # Java - JPA entities
+vespertide export --orm jpa         # Java - JPA/Hibernate entities
 vespertide export --orm gorm        # Go - GORM models
 vespertide export --orm django      # Python - Django models
-vespertide export --orm prisma      # Prisma schema (backend-neutral)
+vespertide export --orm prisma      # Prisma - schema.prisma models (backend-neutral)
 ```
 
 ## Runtime Migrations (Macro)

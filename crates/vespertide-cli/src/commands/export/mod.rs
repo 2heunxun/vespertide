@@ -9,7 +9,7 @@ use vespertide_config::VespertideConfig;
 use vespertide_core::TableDef;
 use vespertide_exporter::{
     Orm, django::DjangoExporterWithConfig, gorm::GormExporterWithConfig, prisma,
-    render_entity_with_schema, seaorm::SeaOrmExporterWithConfig,
+    python_naming::to_pascal_case, render_entity_with_schema, seaorm::SeaOrmExporterWithConfig,
 };
 use vespertide_naming::{IdentifierStart, sanitize_identifier, seaorm_module_name};
 
@@ -335,18 +335,6 @@ fn build_output_path(root: &Path, rel_path: &Path, orm: Orm) -> PathBuf {
     }
 
     out
-}
-
-fn to_pascal_case(s: &str) -> String {
-    s.split('_')
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().chain(chars).collect(),
-            }
-        })
-        .collect()
 }
 
 fn sanitize_filename(name: &str) -> String {

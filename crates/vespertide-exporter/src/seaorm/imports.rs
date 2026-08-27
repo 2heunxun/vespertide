@@ -9,41 +9,17 @@ use vespertide_naming::{IdentifierStart, seaorm_module_name};
 ///
 /// Returns a path like `crate::models::admin::admin`.
 pub(super) fn absolute_module_path(crate_prefix: &str, to_module: &[String]) -> String {
-    let mut path = crate_prefix.to_string();
+    // Pre-size to the exact final length (`crate_prefix` + `"::" + seg` per
+    // segment) so multi-segment paths allocate once instead of climbing the
+    // doubling ladder. Output byte-identical.
+    let cap = crate_prefix.len() + to_module.iter().map(|s| s.len() + 2).sum::<usize>();
+    let mut path = String::with_capacity(cap);
+    path.push_str(crate_prefix);
     for seg in to_module {
         path.push_str("::");
         path.push_str(seg);
     }
     path
-}
-
-/// Look up the module path for a table name from the `module_paths` map.
-/// Uses `super::` for sibling modules in the same folder, `crate::` absolute paths for
-/// cross-directory relations when mappings are available, and falls back to `super::{table_name}`.
-#[cfg(test)]
-pub(super) fn resolve_entity_module_path(
-    current_table: &str,
-    target_table: &str,
-    module_paths: &HashMap<String, Vec<String>>,
-    crate_prefix: &str,
-) -> String {
-    if let (Some(current), Some(target)) = (
-        module_paths.get(current_table),
-        module_paths.get(target_table),
-    ) {
-        let current_parent = current.split_last().map_or(&[][..], |(_, parent)| parent);
-        let target_parent = target.split_last().map_or(&[][..], |(_, parent)| parent);
-
-        if current_parent == target_parent {
-            return format!("super::{}", seaorm_module_name(target_table));
-        }
-
-        if !crate_prefix.is_empty() {
-            return absolute_module_path(crate_prefix, target);
-        }
-    }
-
-    format!("super::{}", seaorm_module_name(target_table))
 }
 
 /// Resolve relation field entity paths for `SeaORM` model macros.
@@ -107,13 +83,15 @@ pub(super) fn sanitize_field_name(name: &str) -> String {
         return "_col".into();
     }
 
-    let result = vespertide_naming::sanitize_identifier(name, IdentifierStart::Letter);
+    let mut result = vespertide_naming::sanitize_identifier(name, IdentifierStart::Letter);
 
     if RUST_KEYWORDS.contains(&result.as_str()) {
-        format!("r#{result}")
-    } else {
-        result
+        // Reuse the already-allocated `result` buffer instead of allocating a
+        // second `String` via `format!`; the 2-byte `"r#"` prefix is a single
+        // memmove. Output is byte-identical to `format!("r#{result}")`.
+        result.insert_str(0, "r#");
     }
+    result
 }
 
 /// Name for a `SeaORM` relation enum variant or `Linked` struct.
@@ -143,7 +121,8 @@ pub(super) fn unique_name(base: &str, used: &mut HashSet<String>) -> String {
     name
 }
 pub(super) fn to_pascal_case(s: &str) -> String {
-    let mut result = String::new();
+    // Separators are dropped, so the output never exceeds `s.len()`.
+    let mut result = String::with_capacity(s.len());
     let mut capitalize = true;
     for c in s.chars() {
         let is_separator = c == '_' || c == '-';
@@ -165,7 +144,9 @@ pub(super) fn to_pascal_case(s: &str) -> String {
 /// Convert `PascalCase` to `snake_case`.
 /// For "`CreatorUser`", generates "`creator_user`".
 pub(super) fn to_snake_case(s: &str) -> String {
-    let mut result = String::new();
+    // Each uppercase run inserts one `_`; a small slack over `s.len()` avoids a
+    // realloc for typical PascalCase input without over-sizing.
+    let mut result = String::with_capacity(s.len() + 4);
     for (i, c) in s.chars().enumerate() {
         if i > 0 && c.is_ascii_uppercase() {
             result.push('_');

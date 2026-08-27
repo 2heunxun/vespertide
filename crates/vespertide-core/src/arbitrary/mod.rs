@@ -4,6 +4,7 @@ use proptest::{collection, prelude::*};
 
 use crate::{
     MigrationAction,
+    action::DataMigrationSql,
     schema::{
         ColumnDef, ColumnType, ComplexColumnType, DefaultValue, EnumValues, NumValue,
         ReferenceAction, SimpleColumnType, StrOrBoolOrArray, StringOrBool, TableConstraint,
@@ -313,7 +314,26 @@ pub fn arb_migration_action() -> impl Strategy<Value = MigrationAction> {
             to: to.into()
         }),
         arb_sql().prop_map(|sql| MigrationAction::RawSql { sql }),
+        arb_data_migration_action(),
     ]
+}
+
+fn arb_data_migration_sql() -> impl Strategy<Value = DataMigrationSql> {
+    prop_oneof![
+        arb_sql().prop_map(DataMigrationSql::Uniform),
+        (arb_sql(), arb_sql(), arb_sql()).prop_map(|(postgres, mysql, sqlite)| {
+            DataMigrationSql::PerBackend {
+                postgres,
+                mysql,
+                sqlite,
+            }
+        }),
+    ]
+}
+
+fn arb_data_migration_action() -> impl Strategy<Value = MigrationAction> {
+    (arb_data_migration_sql(), prop::option::of(arb_comment()))
+        .prop_map(|(sql, description)| MigrationAction::DataMigration { sql, description })
 }
 
 fn arb_create_table_action() -> impl Strategy<Value = MigrationAction> {
@@ -466,171 +486,16 @@ fn names_are_unique<'a>(names: impl Iterator<Item = &'a str>) -> bool {
 
 fn arb_default_string() -> impl Strategy<Value = String> {
     prop_oneof![
-        // Bare identifier: filter PostgreSQL reserved words that cause parse errors
-        // when used as an unquoted DEFAULT expression (e.g. `DEFAULT in` is invalid).
-        arb_safe_ident().prop_filter("avoid pg reserved keyword as bare default", |s| {
-            !is_pg_reserved_keyword(s)
-        }),
+        // Bare identifier used as a raw SQL default expression. The `_d`
+        // suffix guarantees the ident never collides with a fully-reserved
+        // SQL keyword (`do`, `as`, `end`, ...) that PostgreSQL's parser
+        // rejects as an expression head — no reserved keyword in PG, MySQL,
+        // or SQLite ends in `_d`.
+        arb_safe_ident().prop_map(|ident| format!("{ident}_d")),
         arb_safe_ident().prop_map(|ident| format!("'{ident}'")),
         Just("NOW()".to_string()),
         Just("CURRENT_TIMESTAMP".to_string()),
     ]
-}
-
-/// PostgreSQL 17 reserved keywords (§C.1 Type A) that match `[a-z][a-z0-9_]*`.
-/// A bare word from this list in a DEFAULT clause causes a parse error.
-fn is_pg_reserved_keyword(word: &str) -> bool {
-    matches!(
-        word,
-        "all"
-            | "analyse"
-            | "analyze"
-            | "and"
-            | "any"
-            | "array"
-            | "as"
-            | "asc"
-            | "asymmetric"
-            | "authorization"
-            | "between"
-            | "bigint"
-            | "binary"
-            | "bit"
-            | "boolean"
-            | "both"
-            | "case"
-            | "cast"
-            | "char"
-            | "character"
-            | "check"
-            | "coalesce"
-            | "collate"
-            | "collation"
-            | "column"
-            | "concurrently"
-            | "constraint"
-            | "create"
-            | "cross"
-            | "current_catalog"
-            | "current_date"
-            | "current_role"
-            | "current_schema"
-            | "current_time"
-            | "current_timestamp"
-            | "current_user"
-            | "dec"
-            | "decimal"
-            | "default"
-            | "deferrable"
-            | "desc"
-            | "distinct"
-            | "do"
-            | "else"
-            | "end"
-            | "except"
-            | "exists"
-            | "extract"
-            | "false"
-            | "fetch"
-            | "float"
-            | "for"
-            | "foreign"
-            | "freeze"
-            | "from"
-            | "full"
-            | "grant"
-            | "group"
-            | "grouping"
-            | "having"
-            | "ilike"
-            | "in"
-            | "initially"
-            | "inner"
-            | "inout"
-            | "int"
-            | "integer"
-            | "intersect"
-            | "interval"
-            | "into"
-            | "is"
-            | "isnull"
-            | "join"
-            | "json"
-            | "lateral"
-            | "leading"
-            | "left"
-            | "like"
-            | "limit"
-            | "localtime"
-            | "localtimestamp"
-            | "national"
-            | "natural"
-            | "nchar"
-            | "none"
-            | "normalize"
-            | "not"
-            | "notnull"
-            | "null"
-            | "nullif"
-            | "numeric"
-            | "offset"
-            | "on"
-            | "only"
-            | "open"
-            | "or"
-            | "order"
-            | "out"
-            | "outer"
-            | "overlaps"
-            | "overlay"
-            | "placing"
-            | "position"
-            | "precision"
-            | "primary"
-            | "real"
-            | "references"
-            | "returning"
-            | "right"
-            | "row"
-            | "select"
-            | "session_user"
-            | "similar"
-            | "smallint"
-            | "some"
-            | "substring"
-            | "symmetric"
-            | "system_user"
-            | "table"
-            | "tablesample"
-            | "then"
-            | "time"
-            | "timestamp"
-            | "to"
-            | "trailing"
-            | "treat"
-            | "trim"
-            | "true"
-            | "union"
-            | "unique"
-            | "user"
-            | "using"
-            | "values"
-            | "varchar"
-            | "variadic"
-            | "verbose"
-            | "when"
-            | "where"
-            | "window"
-            | "with"
-            | "xmlexists"
-            | "xmlforest"
-            | "xmlnamespaces"
-            | "xmlparse"
-            | "xmlpi"
-            | "xmlroot"
-            | "xmlserialize"
-            | "xmltable"
-    )
 }
 
 fn arb_comment() -> impl Strategy<Value = String> {
@@ -746,7 +611,21 @@ mod tests {
                 | MigrationAction::ReplaceConstraint { .. }
                 | MigrationAction::RenameTable { .. }
                 | MigrationAction::RawSql { .. }
+                | MigrationAction::DataMigration { .. }
                 | MigrationAction::RemapEnumValues { .. } => {}
+            }
+        }
+
+        #[test]
+        fn arb_data_migration_action_yields_both_sql_forms(
+            action in arb_data_migration_action()
+        ) {
+            let MigrationAction::DataMigration { sql, .. } = action else {
+                prop_assert!(false, "expected DataMigration");
+                return Ok(());
+            };
+            match sql {
+                DataMigrationSql::Uniform(_) | DataMigrationSql::PerBackend { .. } => {}
             }
         }
 
