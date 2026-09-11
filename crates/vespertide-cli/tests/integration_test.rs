@@ -108,3 +108,23 @@ fn test_main_with_export_command() {
     cmd.args(["export", "--orm", "seaorm"]);
     let _ = cmd.assert();
 }
+
+#[test]
+fn test_unknown_subcommand_exits_two() {
+    vespertide()
+        .arg("bogus")
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("unrecognized subcommand"));
+}
+
+#[test]
+fn test_failed_command_exits_one_with_error_prefix() {
+    let tmp = tempfile::tempdir().unwrap();
+    vespertide()
+        .current_dir(tmp.path())
+        .arg("status")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::starts_with("Error: "));
+}

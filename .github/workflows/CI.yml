@@ -157,7 +157,8 @@ jobs:
           echo "Computed cargo-semver-checks release-type: '${RT:-<derive-from-version>}'"
       - uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
-          # Only check published crates; skip cli (binary) and schema-gen (publish=false)
+          # Only check published crates; skip schema-gen (publish=false) and cli, whose
+          # lib target is new — add it once a release with the lib is on crates.io
           package: vespertide,vespertide-core,vespertide-config,vespertide-loader,vespertide-naming,vespertide-planner,vespertide-query,vespertide-exporter,vespertide-macro
           feature-group: default-features
           # Empty => action derives strictly from the Cargo.toml version.
@@ -563,6 +564,144 @@ jobs:
         run: cargo run -p vespertide-schema-gen -- --out _tmp_schemas
       - name: Check schema drift
         run: git diff --no-index --exit-code -- schemas _tmp_schemas
+
+  # npm: the CLI as a Node addon (bridge/node, napi-rs). Fires only when the
+  # npm manifest is in the changepacks wave. Mirrors lsp-release's target
+  # table; `cross` is used for the same single aarch64-linux cell.
+  node-build:
+    name: npm Build (${{ matrix.target }})
+    needs: changepacks
+    if: ${{ contains(needs.changepacks.outputs.changepacks, 'bridge/node/package.json') }}
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runs-on: ubuntu-latest
+            use_cross: false
+          - target: aarch64-unknown-linux-gnu
+            runs-on: ubuntu-latest
+            use_cross: true
+          - target: x86_64-apple-darwin
+            # Cross-arch on the ARM runner, as in lsp-release.
+            runs-on: macos-latest
+            use_cross: false
+          - target: aarch64-apple-darwin
+            runs-on: macos-latest
+            use_cross: false
+          - target: x86_64-pc-windows-msvc
+            runs-on: windows-latest
+            use_cross: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install cross (aarch64-unknown-linux-gnu only)
+        if: matrix.use_cross
+        uses: taiki-e/install-action@v2.86.3
+        with:
+          tool: cross
+
+      - name: Install
+        working-directory: bridge/node
+        run: bun install --frozen-lockfile
+
+      - name: Build addon (native)
+        if: ${{ !matrix.use_cross }}
+        working-directory: bridge/node
+        run: bun run build --target ${{ matrix.target }}
+
+      - name: Build addon (cross)
+        if: matrix.use_cross
+        working-directory: bridge/node
+        run: bun run build --target ${{ matrix.target }} --use-cross
+
+      # The addon only loads where it was built for; the two cross-arch
+      # cells skip the smoke test.
+      - name: Smoke test
+        if: ${{ matrix.target != 'aarch64-unknown-linux-gnu' && matrix.target != 'x86_64-apple-darwin' }}
+        working-directory: bridge/node
+        run: bun test
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bindings-${{ matrix.target }}
+          path: bridge/node/vespertide.*.node
+          if-no-files-found: error
+          retention-days: 1
+
+  node-publish:
+    name: npm Publish
+    needs: [changepacks, node-build]
+    if: ${{ contains(needs.changepacks.outputs.changepacks, 'bridge/node/package.json') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # npm (not bun) performs the publish so the registry auth from
+      # setup-node applies; `npm publish` runs `prepublishOnly`, which pushes
+      # the five platform packages before the root one.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install
+        working-directory: bridge/node
+        run: bun install --frozen-lockfile
+
+      # `index.js` / `index.d.ts` are build outputs (gitignored); only
+      # `napi build` writes them, so the publish host builds once for
+      # its own platform before assembling the packages.
+      - name: Build addon (regenerates the JS loader)
+        working-directory: bridge/node
+        run: bun run build
+
+      - name: Create platform package dirs
+        working-directory: bridge/node
+        run: bunx napi create-npm-dirs
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: bridge/node/artifacts
+
+      - name: Move addons into platform packages
+        working-directory: bridge/node
+        run: bun run artifacts
+
+      - name: Upload addons to changepacks release
+        uses: owjs3901/upload-github-release-asset@main
+        with:
+          upload_url: ${{ fromJson(needs.changepacks.outputs.release_assets_urls)['bridge/node/package.json'] }}
+          asset_path: bridge/node/npm/*/vespertide.*.node
+
+      - name: Publish to npm
+        working-directory: bridge/node
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::warning::NPM_TOKEN not set — skipping npm publish"
+          else
+            npm publish --access public
+          fi
+        shell: bash
 
   insta-pending:
     name: insta-pending

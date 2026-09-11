@@ -6,7 +6,9 @@ CLI for declarative database schema management. Uses clap for argument parsing, 
 
 ```
 src/
-├── main.rs           # Clap CLI definition, command dispatch
+├── main.rs           # Binary shell: `ExitCode::from(run_cli(std::env::args_os()))`
+├── lib.rs            # Entry points: run (dispatch) / main (parse, embedder-safe) / run_cli (reports failure, returns the exit code)
+├── cli.rs            # Clap CLI definition (Cli, Commands, BackendArg)
 ├── utils.rs          # Re-exports loader functions, migration filename generation
 └── commands/
     ├── mod.rs        # Public exports: cmd_{init,new,diff,sql,revision,status,log,export} + cmd_erd_with_filters
@@ -43,7 +45,7 @@ src/
 
 | Task | File | Key Functions |
 |------|------|---------------|
-| Add new CLI command | `main.rs` | Add to `Commands` enum, match in `main()` |
+| Add new CLI command | `cli.rs` + `lib.rs` | Add to `Commands` enum, match in `run()` |
 | Modify action display | `diff/mod.rs` | `format_action()`, `format_constraint_type()` |
 | Change fill-with flow | `revision/prompts/fill_with.rs` | fill-with prompt + collection helpers |
 | Export logic | `export/mod.rs` | `walk_models()`, `ensure_mod_chain()`, `build_output_path()` |

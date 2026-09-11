@@ -54,6 +54,12 @@ The `vespertide-lsp` binary ships with VSCode and Zed extensions (`apps/vscode-e
 ## Installation
 
 ```bash
+# npm (no Rust toolchain needed)
+npm install -g vespertide
+# or try it without installing
+npx vespertide init
+
+# crates.io
 cargo install vespertide-cli
 ```
 

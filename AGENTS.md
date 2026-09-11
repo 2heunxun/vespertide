@@ -26,6 +26,7 @@ vespertide/
 │   ├── vespertide-naming/    # Naming convention utilities
 │   ├── vespertide-schema-gen/# JSON Schema generation
 │   └── vespertide/           # Re-export crate (user-facing API)
+├── bridge/node/              # N-API bridge: the CLI as the `vespertide` npm package (+ @vespertide/cli-* platform packages)
 ├── examples/app/             # Example project with models/migrations (out-of-workspace)
 ├── tools/lsp-profile/        # LSP synthetic / realistic workload + latency profiler (out-of-workspace)
 ├── fuzz/                     # cargo-fuzz targets (4 targets, see FUZZING section)
@@ -522,6 +523,13 @@ There is no separate `lsp-release.yml` or `vscode-release.yml`.
      `crates/vespertide-lsp/Cargo.toml` is in the wave. Builds the
      `vespertide-lsp` binary natively + cross + windows, packages `tar.gz`/`zip`
      with `sha256`, uploads to the changepacks release.
+   - **`node-build`** (matrix × 5 targets) + **`node-publish`** — fire only when
+     `bridge/node/package.json` is in the wave. Build the napi addon per
+     target, rebuild once on the publish host (only `napi build` writes the
+     gitignored `index.js` loader), assemble the `@vespertide/cli-*` platform packages with
+     `napi create-npm-dirs` / `napi artifacts`, upload the `.node` files to
+     the changepacks release, then `npm publish` (skipped with a warning
+     when `NPM_TOKEN` is unset).
    - **`vscode-release`** (matrix × 5 vsce targets) — fires only when
      `apps/vscode-extension/package.json` is in the wave. Pulls the matching
      LSP binary (just-released if LSP is also in the wave, otherwise the latest
@@ -530,10 +538,13 @@ There is no separate `lsp-release.yml` or `vscode-release.yml`.
 
 ### Configuration
 - `.changepacks/config.json` — tracks `crates/**/Cargo.toml` (except
-  `vespertide-schema-gen` which is `publish=false`) and
-  `apps/vscode-extension/package.json`. `apps/landing`, `apps/zed-extension`,
+  `vespertide-schema-gen` which is `publish=false`),
+  `apps/vscode-extension/package.json` and `bridge/node/package.json`.
+  `updateOn` adds the npm manifest to every crate wave as a **Patch** bump so
+  `node-publish` always fires; list it explicitly in the descriptor when the
+  npm version should move at the same level as the crates. `apps/landing`, `apps/zed-extension`,
   `tools/`, and `tests/` are intentionally not tracked.
-- Required secrets: `CARGO_REGISTRY_TOKEN`, `VSCE_PAT`, `OVSX_PAT`.
+- Required secrets: `CARGO_REGISTRY_TOKEN`, `VSCE_PAT`, `OVSX_PAT`, `NPM_TOKEN`.
 - `.changepacks/changepack_log_*.json` files are the **committed bump
   descriptors** (written by `bunx @changepacks/cli`, consumed by
   `changepacks/action` on merge — analogous to changesets' `.changeset/*.md`),
