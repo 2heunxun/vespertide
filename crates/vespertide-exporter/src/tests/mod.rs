@@ -394,9 +394,8 @@ orm_cases!(
 
 /// Dispatch the per-ORM `to_pascal_case` helper from a single entry point so
 /// the cross-ORM consolidation test can exercise every implementation without
-/// leaking the helper as a generally-public crate API. Prisma has no local
-/// implementation — it calls `vespertide_naming::to_pascal_case` directly, so
-/// this arm exercises the shared crate helper.
+/// leaking a backend's private helper as a crate-public API. The backends that
+/// have no local implementation name the shared helper they delegate to.
 fn to_pascal_case_for(orm: Orm, s: &str) -> String {
     match orm {
         Orm::SeaOrm => crate::seaorm::to_pascal_case_for_tests(s),
@@ -404,8 +403,7 @@ fn to_pascal_case_for(orm: Orm, s: &str) -> String {
         Orm::SqlModel => crate::sqlmodel::to_pascal_case_for_tests(s),
         Orm::Jpa => crate::jpa::to_pascal_case_for_tests(s),
         Orm::Prisma | Orm::Drizzle => vespertide_naming::to_pascal_case(s),
-        Orm::Gorm => crate::gorm::to_pascal_case_for_tests(s),
-        Orm::Django => crate::django::to_pascal_case_for_tests(s),
+        Orm::Gorm | Orm::Django => crate::python_naming::to_pascal_case(s),
     }
 }
 

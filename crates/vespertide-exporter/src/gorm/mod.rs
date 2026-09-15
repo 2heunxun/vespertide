@@ -72,11 +72,6 @@ pub fn render_entity_with_schema(table: &TableDef, schema: &[TableDef]) -> Resul
     Ok(render_entity_inner(table, schema))
 }
 
-#[cfg(test)]
-pub(crate) fn to_pascal_case_for_tests(s: &str) -> String {
-    render::to_pascal_case(s)
-}
-
 fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> String {
     render_entity_inner_with_package(table, schema, DEFAULT_GORM_PACKAGE_NAME)
 }
