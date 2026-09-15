@@ -1,8 +1,9 @@
 use vespertide_core::TableDef;
 
 use crate::{
-    django::DjangoExporter, gorm::GormExporter, jpa::JpaExporter, prisma::PrismaExporter,
-    seaorm::SeaOrmExporter, sqlalchemy::SqlAlchemyExporter, sqlmodel::SqlModelExporter,
+    django::DjangoExporter, drizzle::DrizzleExporter, gorm::GormExporter, jpa::JpaExporter,
+    prisma::PrismaExporter, seaorm::SeaOrmExporter, sqlalchemy::SqlAlchemyExporter,
+    sqlmodel::SqlModelExporter,
 };
 
 /// Supported ORM targets.
@@ -15,9 +16,10 @@ pub enum Orm {
     SqlAlchemy,
     SqlModel,
     Jpa,
+    Prisma,
+    Drizzle,
     Gorm,
     Django,
-    Prisma,
 }
 
 impl Orm {
@@ -29,6 +31,7 @@ impl Orm {
             Orm::Jpa => "java",
             Orm::Gorm => "go",
             Orm::Prisma => "prisma",
+            Orm::Drizzle => "ts",
         }
     }
 }
@@ -58,6 +61,7 @@ pub fn render_entity(orm: Orm, table: &TableDef) -> Result<String, String> {
         Orm::Gorm => GormExporter.render_entity(table),
         Orm::Django => DjangoExporter.render_entity(table),
         Orm::Prisma => PrismaExporter.render_entity(table),
+        Orm::Drizzle => DrizzleExporter.render_entity(table),
     }
 }
 
@@ -75,6 +79,7 @@ pub fn render_entity_with_schema(
         Orm::Gorm => GormExporter.render_entity_with_schema(table, schema),
         Orm::Django => DjangoExporter.render_entity_with_schema(table, schema),
         Orm::Prisma => PrismaExporter.render_entity_with_schema(table, schema),
+        Orm::Drizzle => DrizzleExporter.render_entity_with_schema(table, schema),
     }
 }
 
@@ -89,9 +94,10 @@ mod tests {
     #[case::sqlalchemy(Orm::SqlAlchemy)]
     #[case::sqlmodel(Orm::SqlModel)]
     #[case::jpa(Orm::Jpa)]
+    #[case::prisma(Orm::Prisma)]
+    #[case::drizzle(Orm::Drizzle)]
     #[case::gorm(Orm::Gorm)]
     #[case::django(Orm::Django)]
-    #[case::prisma(Orm::Prisma)]
     fn dispatch_render_entity_succeeds(#[case] orm: Orm) {
         let table = basic_single_pk();
         assert!(render_entity(orm, &table).is_ok());
@@ -102,9 +108,10 @@ mod tests {
     #[case::sqlalchemy(Orm::SqlAlchemy)]
     #[case::sqlmodel(Orm::SqlModel)]
     #[case::jpa(Orm::Jpa)]
+    #[case::prisma(Orm::Prisma)]
+    #[case::drizzle(Orm::Drizzle)]
     #[case::gorm(Orm::Gorm)]
     #[case::django(Orm::Django)]
-    #[case::prisma(Orm::Prisma)]
     fn dispatch_render_entity_with_schema_succeeds(#[case] orm: Orm) {
         let table = basic_single_pk();
         let schema = vec![table.clone()];
@@ -116,9 +123,10 @@ mod tests {
     #[case::sqlalchemy(Orm::SqlAlchemy, "py")]
     #[case::sqlmodel(Orm::SqlModel, "py")]
     #[case::jpa(Orm::Jpa, "java")]
+    #[case::prisma(Orm::Prisma, "prisma")]
+    #[case::drizzle(Orm::Drizzle, "ts")]
     #[case::gorm(Orm::Gorm, "go")]
     #[case::django(Orm::Django, "py")]
-    #[case::prisma(Orm::Prisma, "prisma")]
     fn file_extension_matches_backend(#[case] orm: Orm, #[case] expected: &str) {
         assert_eq!(orm.file_extension(), expected);
     }
@@ -133,6 +141,7 @@ mod tests {
     #[case::gorm("gorm", Orm::Gorm)]
     #[case::django("django", Orm::Django)]
     #[case::prisma("prisma", Orm::Prisma)]
+    #[case::drizzle("drizzle", Orm::Drizzle)]
     fn value_enum_parses_cli_name(#[case] input: &str, #[case] expected: Orm) {
         assert_eq!(
             clap::ValueEnum::from_str(input, false),

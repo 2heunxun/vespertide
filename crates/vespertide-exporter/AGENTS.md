@@ -1,16 +1,17 @@
 # vespertide-exporter
 
-ORM code generation from `TableDef` schemas → SeaORM (Rust), SQLAlchemy (Python), SQLModel (Python),
-JPA (Java), GORM (Go), Django (Python), Prisma (schema.prisma).
+ORM code generation from `TableDef` schemas → SeaORM (Rust), SQLAlchemy (Python), SQLModel (Python), JPA (Java), Prisma (schema.prisma), Drizzle (TypeScript), GORM (Go), Django (Python).
 
 ## STRUCTURE
 
 ```
 src/
 ├── lib.rs              # Re-exports all backends
-├── orm.rs              # OrmExporter trait, Orm enum (SeaOrm/SqlAlchemy/SqlModel/Jpa/Gorm/Django/Prisma),
+├── orm.rs              # OrmExporter trait, Orm enum (SeaOrm/SqlAlchemy/SqlModel/Jpa/Prisma/Drizzle/Gorm/Django),
 │                       #   Orm::file_extension(), dispatch
-├── constraint_scan.rs  # Shared constraint scanning helpers
+├── constraint_scan.rs  # Shared constraint scans + FK relation naming
+│                       #   (fk_relation_names/relation_segment/collect_back_relations)
+├── enum_scan.rs        # Shared per-table enum-column scan (Prisma/Drizzle)
 ├── parallel_config.rs  # Rayon parallelism thresholds
 ├── python_naming.rs    # Shared Python PascalCase naming (SQLAlchemy/SQLModel/JPA/Django/CLI)
 ├── seaorm/             # mod.rs, render.rs, types.rs, enums.rs, imports.rs,
@@ -18,18 +19,18 @@ src/
 ├── sqlalchemy/         # mod.rs, render.rs, types.rs, enums.rs — declarative_base models
 ├── sqlmodel/           # mod.rs, render.rs, types.rs, enums.rs — SQLModel + Pydantic models
 ├── jpa/                # mod.rs, render.rs, types.rs — JPA/Hibernate entities
-├── gorm/                # mod.rs — GORM struct + gorm-tag generation; tests/ holds its own snapshot suite
-├── django/              # mod.rs, render.rs, types.rs, enums.rs — Django models.Model generation;
-│                        #   snapshots/ holds its own snapshot suite
 ├── prisma/             # mod.rs, render.rs, types.rs, enums.rs — schema.prisma models
-├── utils/              # common.rs (join_quoted/push_attr/join_qualified_refs/unquote), python.rs
-│                       #   (shared by sqlalchemy AND django, since both target Python)
-└── tests/              # Shared orm_cases! cross-ORM snapshot suite + fixtures/ + snapshots/ (all seven ORMs)
+├── drizzle/            # mod.rs, render.rs, types.rs, enums.rs — Drizzle TypeScript models
+├── gorm/               # mod.rs + tests/ — GORM structs with gorm tags
+├── django/             # mod.rs, render.rs, types.rs, enums.rs — Django models.Model classes
+├── utils/              # common.rs (join_quoted/unquote/claim_field_name), python.rs,
+│                       #   typescript.rs (ts_binding/ts_string)
+└── tests/              # Shared orm_cases! cross-ORM snapshot suite + fixtures/ + snapshots/
 ```
 
 Identifier escaping is centralized in `vespertide-naming`: `sanitize_identifier`
 with `IdentifierStart::Underscore` (Java, SQLAlchemy, ERD) or
-`IdentifierStart::Letter` (SeaORM, SQLModel/Pydantic, Prisma), plus
+`IdentifierStart::Letter` (SeaORM, SQLModel/Pydantic, Prisma, Drizzle), plus
 `seaorm_module_name` and `to_screaming_snake_case`. A backend that renames an
 identifier MUST also emit the original database name (`@map`, `column_name`,
 SQLAlchemy's positional column name).
@@ -107,11 +108,27 @@ SQLAlchemy's positional column name).
 
 ### Prisma (schema.prisma)
 - Emits models only — no `datasource`/`generator` block, so the output drops into an existing schema
-- Backend-neutral: provider-specific `@db.*` mapping is derived from `DatabaseBackend`
+- Backend-neutral: no provider-specific `@db.*` native attributes are emitted
 - `render_schema` is a Prisma-only single-file entry point that deduplicates enums globally,
   so its snapshot tests live inline in the module (still writing into `src/tests/snapshots/`)
 - Renamed identifiers carry `@map` / `@@map`; enum members go through
   `to_screaming_snake_case` + `sanitize_identifier(IdentifierStart::Letter)`
+
+### Drizzle (TypeScript)
+- No backend-neutral form exists (`pgTable`/`mysqlTable`/`sqliteTable` fork at the
+  `import` line), so one export writes one file per dialect:
+  `models.pg.ts` / `models.mysql.ts` / `models.sqlite.ts` (`DrizzleDialect::ALL`)
+- Constraint names go through the same `vespertide-naming` builders as the SQL
+  layer (`build_unique_constraint_name` / `build_index_name` /
+  `build_foreign_key_name`), so `drizzle-kit` sees the indexes vespertide created;
+  SQLite FKs stay unnamed (SQLite stores no FK constraint names)
+- FKs use the named `foreignKey({...})` operator in an array-form table callback;
+  a self-referential key takes its foreign columns from the callback's `t`, which
+  keeps the table const out of its own initializer's type inference
+- The only backend that renders `TableConstraint::Check`, via its `check` builder with a `sql` template
+- The `OrmExporter` trait path renders the Pg dialect (single-`String` trait);
+  `render_schema(tables, dialect)` is the dialect-aware single-file entry point,
+  so its snapshot tests live inline in the module (Prisma-exception pattern)
 
 ## TESTING
 
@@ -126,10 +143,8 @@ cargo insta accept
 
 - Snapshot testing with `insta` crate (YAML format)
 - `rstest` for parameterized tests across all ORM backends
-- Shared cross-ORM suite (`src/tests/snapshots/`, driven by the `orm_cases!` macro in
-  `src/tests/mod.rs`): 473 snapshots, one per scenario per ORM across all seven ORMs — a scenario
-  snapshotted for only one ORM is a defect. Plus module-local suites for backend behavior that
-  doesn't fit the shared fixture shape: `gorm/tests/snapshots/` (9), `django/snapshots/` (7).
+- Drizzle's cross-ORM snapshots carry the dialect the trait path renders (`…_Drizzle_pg.snap`); the other two dialects live in the module's own `render_schema_full_file_per_dialect@{pg,mysql,sqlite}` snapshots
+- 566 snapshot files, all in the single shared `src/tests/snapshots/` directory; every export scenario goes through the shared `orm_cases!` macro in `src/tests/mod.rs`, producing one snapshot per ORM (all eight) — a scenario snapshotted for only one ORM is a defect
 
 ## NOTES
 

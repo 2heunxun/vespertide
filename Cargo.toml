@@ -12,7 +12,7 @@
 #   cargo test --manifest-path tests/runtime-sqlite/Cargo.toml
 #   cargo build --manifest-path examples/app/Cargo.toml
 #   cargo run --release --manifest-path tools/lsp-profile/Cargo.toml -- --workload synthetic
-members = ["crates/*", "fuzz"]
+members = ["crates/*", "fuzz", "bridge/*"]
 exclude = ["apps/zed-extension", "examples/app", "tests/runtime-sqlite", "tools/lsp-profile"]
 default-members = [
     "crates/vespertide",
@@ -82,6 +82,7 @@ too_many_lines = { level = "allow", priority = 1 }            # large scenario t
 useless_vec = { level = "allow", priority = 1 }               # tests sometimes use Vec shape to mirror production APIs
 float_cmp = { level = "allow", priority = 1 }                 # SVG geometry tests assert exact constants where produced deterministically
 default_trait_access = { level = "allow", priority = 1 }      # test fixtures often rely on contextual Default for brevity
+unused_async_trait_impl = { level = "allow", priority = 1 }   # LSP handlers keep the trait's `async` signature even when they delegate synchronously
 
 [workspace.dependencies]
 rayon = "1.12"
@@ -94,6 +95,7 @@ vespertide-planner = { path = "crates/vespertide-planner", version = "=0.3.0" }
 vespertide-query = { path = "crates/vespertide-query", version = "=0.3.0" }
 vespertide-exporter = { path = "crates/vespertide-exporter", version = "=0.3.0" }
 vespertide-lsp = { path = "crates/vespertide-lsp", version = "=0.3.0" }
+vespertide-cli = { path = "crates/vespertide-cli", version = "=0.3.0" }
 
 [profile.dev]
 debug = 1  # Line tables only — faster DWARF generation for large codegen output

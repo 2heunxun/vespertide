@@ -1,7 +1,7 @@
 //! Shared test-only helpers for the vespertide-cli crate.
 //!
 //! All items are gated under `#[cfg(test)]` via the parent module declaration
-//! in `main.rs` and exposed `pub(crate)` so every inline `mod tests` and
+//! in `lib.rs` and exposed `pub(crate)` so every inline `mod tests` and
 //! `commands/<cmd>/tests/mod.rs` entry can reuse the same implementation.
 
 use std::fs;

@@ -3,11 +3,18 @@
     "**",
     "!crates/**",
     "crates/vespertide-schema-gen/Cargo.toml",
-    "!apps/vscode-extension/package.json"
+    "!apps/vscode-extension/package.json",
+    "!bridge/node/package.json"
   ],
   "baseBranch": "main",
   "latestPackage": "crates/vespertide/Cargo.toml",
   "publish": {
-    "apps/vscode-extension/package.json": "echo skip npm publish for vscode-extension - shipped via vsce in the vscode-release job"
+    "apps/vscode-extension/package.json": "echo skip npm publish for vscode-extension - shipped via vsce in the vscode-release job",
+    "bridge/node/package.json": "echo skip npm publish here - published by the node-publish job"
+  },
+  "updateOn": {
+    "crates/*": [
+      "bridge/node/package.json"
+    ]
   }
 }

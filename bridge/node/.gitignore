@@ -1,0 +1,5 @@
+# napi-rs build outputs
+*.node
+/npm
+index.js
+index.d.ts

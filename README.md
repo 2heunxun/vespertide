@@ -16,7 +16,7 @@ Declarative database schema management. Define your schemas in JSON, and Vespert
 - **Enum Types**: Native string enums and integer enums (no migration needed for new values)
 - **Zero-Runtime Migrations**: Compile-time macro generates database-specific SQL
 - **JSON Schema Validation**: Ships with JSON Schemas for IDE autocompletion and validation
-- **ORM Export**: Export schemas to SeaORM, SQLAlchemy, SQLModel, JPA, GORM, Django, Prisma
+- **ORM Export**: Export schemas to SeaORM, SQLAlchemy, SQLModel, JPA, Prisma, Drizzle, GORM, Django
 - **Language Server**: First-class editor support via the bundled `vespertide-lsp` — see [LSP Features](#lsp-features) below
 
 ## What's new in 0.2.0
@@ -54,6 +54,12 @@ The `vespertide-lsp` binary ships with VSCode and Zed extensions (`apps/vscode-e
 ## Installation
 
 ```bash
+# npm (no Rust toolchain needed)
+npm install -g vespertide
+# or try it without installing
+npx vespertide init
+
+# crates.io
 cargo install vespertide-cli
 ```
 
@@ -237,9 +243,10 @@ vespertide export --orm seaorm      # Rust - SeaORM entities
 vespertide export --orm sqlalchemy  # Python - SQLAlchemy models
 vespertide export --orm sqlmodel    # Python - SQLModel (FastAPI)
 vespertide export --orm jpa         # Java - JPA/Hibernate entities
+vespertide export --orm prisma      # Prisma - schema.prisma models
+vespertide export --orm drizzle     # TypeScript - Drizzle ORM (pg/mysql/sqlite files)
 vespertide export --orm gorm        # Go - GORM models
 vespertide export --orm django      # Python - Django models
-vespertide export --orm prisma      # Prisma - schema.prisma models (backend-neutral)
 ```
 
 ## Runtime Migrations (Macro)

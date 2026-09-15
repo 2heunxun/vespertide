@@ -1,0 +1,49 @@
+{
+  "name": "vespertide",
+  "version": "0.3.0",
+  "description": "Declarative database schema management: models in JSON/YAML, migration planning, SQL and ORM code generation",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dev-five-git/vespertide.git",
+    "directory": "bridge/node"
+  },
+  "main": "index.js",
+  "types": "index.d.ts",
+  "bin": {
+    "vespertide": "./main.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "main.js",
+    "index.js",
+    "index.d.ts",
+    "README.md"
+  ],
+  "napi": {
+    "binaryName": "vespertide",
+    "packageName": "@vespertide/cli",
+    "targets": [
+      "x86_64-pc-windows-msvc",
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu"
+    ]
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "artifacts": "napi artifacts",
+    "prepublishOnly": "napi prepublish -t npm --no-gh-release",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.9"
+  }
+}
