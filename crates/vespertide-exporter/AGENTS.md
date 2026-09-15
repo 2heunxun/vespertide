@@ -81,7 +81,11 @@ SQLAlchemy's positional column name).
   pluralized table name to avoid colliding with the struct's own name
 - **No M2M/junction detection**: a junction table (composite-PK, 2+ FKs) is rendered as a plain
   has-many to the junction struct itself, not a dedicated M2M relation
-- **Config**: `GormExporterWithConfig` takes the *resolved* package name (a `&str`), not a `GormConfig` — callers get it from `VespertideConfig::gorm_package_name(export_dir)`, which uses an explicit `gorm.package_name` if set, otherwise infers one from the actual export directory's final path segment (sanitized to a valid Go identifier), falling back to `"models"`. The CLI passes the real write target (`--export-dir` override or `model_export_dir`), not the config's static default, since Go requires `package` to match the directory the files live in.
+- **Package name**: there is no `gorm` config section. `GormExporterWithConfig` takes a resolved
+  `&str`, which callers get from `vespertide_config::go_package_name(export_dir)` — the export
+  directory's final path segment sanitized into a Go identifier, falling back to `"models"`. The
+  CLI passes the real write target (`--export-dir` override or `model_export_dir`) because Go
+  expects `package` to name the directory the files live in.
 - **Tests**: rendered output is pinned by the shared `orm_cases!` suite; `gorm/tests/` holds only
   non-snapshot unit tests — `tests/mod.rs` (type mapping, naming, tag/relation
   regressions, package-name config) and `tests/relations.rs`

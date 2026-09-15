@@ -62,10 +62,11 @@ pub async fn cmd_export(orm: Orm, export_dir: Option<PathBuf>) -> Result<()> {
     // Derive crate:: prefix from export directory (e.g., "src/models" -> "crate::models")
     let crate_prefix = export_dir_to_crate_prefix(&target_root);
 
-    // Create per-ORM exporters that honor their `vespertide.json` config section
+    // SeaORM and Django read their `vespertide.json` section; GORM's package
+    // name comes from the directory the files are written to.
     let seaorm_exporter = SeaOrmExporterWithConfig::new(config.seaorm(), config.prefix());
     let django_exporter = DjangoExporterWithConfig::new(config.django());
-    let gorm_package_name = config.gorm_package_name(&target_root);
+    let gorm_package_name = vespertide_config::go_package_name(&target_root);
     let gorm_exporter = GormExporterWithConfig::new(&gorm_package_name);
     let render_context = ExportRenderContext {
         target_root: &target_root,
