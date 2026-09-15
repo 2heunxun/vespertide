@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::enums::render_enum;
 use super::types::{UsedImports, go_type_for_column_mapped};
+use crate::utils::common::claim_binding;
 use vespertide_core::schema::column::{
     ColumnType, ComplexColumnType, EnumValues, SimpleColumnType,
 };
@@ -531,19 +532,8 @@ fn render_fk_relation_field(
     }
     // The name above only rules out colliding with this FK's own scalar
     // field; it can still collide with an unrelated real column (or another
-    // relation) elsewhere in the table, so fall back to a numbered suffix.
-    if used_relation_names.contains(&relation_field_name) {
-        let mut n = 2;
-        loop {
-            let candidate = format!("{relation_field_name}{n}");
-            if !used_relation_names.contains(&candidate) {
-                relation_field_name = candidate;
-                break;
-            }
-            n += 1;
-        }
-    }
-    used_relation_names.insert(relation_field_name.clone());
+    // relation) elsewhere in the table.
+    let relation_field_name = claim_binding(relation_field_name, used_relation_names);
 
     let mut constraint_parts: Vec<String> = Vec::new();
     if let Some(ref action) = fk.on_delete {
@@ -583,19 +573,7 @@ fn render_composite_fk_relation_field(
     let ref_struct =
         sanitize_identifier(&to_pascal_case(&fk.ref_table), IdentifierStart::Underscore);
 
-    let mut relation_field_name = ref_struct.clone();
-    if used_relation_names.contains(&relation_field_name) {
-        let mut n = 2;
-        loop {
-            let candidate = format!("{relation_field_name}{n}");
-            if !used_relation_names.contains(&candidate) {
-                relation_field_name = candidate;
-                break;
-            }
-            n += 1;
-        }
-    }
-    used_relation_names.insert(relation_field_name.clone());
+    let relation_field_name = claim_binding(ref_struct.clone(), used_relation_names);
 
     let fk_fields: Vec<String> = fk.local_cols.iter().map(|c| to_go_field_name(c)).collect();
     let ref_fields: Vec<String> = fk.ref_cols.iter().map(|c| to_go_field_name(c)).collect();
