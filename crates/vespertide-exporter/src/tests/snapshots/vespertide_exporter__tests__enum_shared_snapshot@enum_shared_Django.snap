@@ -8,9 +8,9 @@ from django.db import models
 
 
 class DocStatus(models.TextChoices):
-    DRAFT = "draft", "draft"
-    PUBLISHED = "published", "published"
-    ARCHIVED = "archived", "archived"
+    DRAFT = "draft"
+    PUBLISHED = "published"
+    ARCHIVED = "archived"
 
 class Documents(models.Model):
     id = models.IntegerField()

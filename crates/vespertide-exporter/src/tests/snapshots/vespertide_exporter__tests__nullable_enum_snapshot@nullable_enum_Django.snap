@@ -8,8 +8,8 @@ from django.db import models
 
 
 class StatusType(models.TextChoices):
-    ACTIVE = "active", "active"
-    INACTIVE = "inactive", "inactive"
+    ACTIVE = "active"
+    INACTIVE = "inactive"
 
 class NullableEnum(models.Model):
     id = models.IntegerField(primary_key=True)

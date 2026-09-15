@@ -8,8 +8,8 @@ from django.db import models
 
 
 class TaskRunStatus(models.IntegerChoices):
-    PENDING = 0, "Pending"
-    COMPLETED = 100, "Completed"
+    PENDING = 0
+    COMPLETED = 100
 
 class TaskRuns(models.Model):
     id = models.IntegerField()

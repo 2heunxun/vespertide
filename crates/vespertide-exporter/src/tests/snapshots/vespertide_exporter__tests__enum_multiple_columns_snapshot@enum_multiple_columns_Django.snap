@@ -8,14 +8,14 @@ from django.db import models
 
 
 class ProductCategory(models.TextChoices):
-    ELECTRONICS = "electronics", "electronics"
-    CLOTHING = "clothing", "clothing"
-    FOOD = "food", "food"
+    ELECTRONICS = "electronics"
+    CLOTHING = "clothing"
+    FOOD = "food"
 
 class AvailabilityStatus(models.TextChoices):
-    IN_STOCK = "in_stock", "in_stock"
-    OUT_OF_STOCK = "out_of_stock", "out_of_stock"
-    PRE_ORDER = "pre_order", "pre_order"
+    IN_STOCK = "in_stock"
+    OUT_OF_STOCK = "out_of_stock"
+    PRE_ORDER = "pre_order"
 
 class Products(models.Model):
     id = models.IntegerField()

@@ -8,10 +8,10 @@ from django.db import models
 
 
 class EdgeState(models.IntegerChoices):
-    UNKNOWN = -1, "unknown"
-    NOT_STARTED = 0, "not_started"
-    IN_PROGRESS = 10, "InProgress"
-    HTTP_500 = 500, "HTTP_500"
+    UNKNOWN = -1
+    NOT_STARTED = 0
+    IN_PROGRESS = 10
+    HTTP_500 = 500
 
 class WorkflowRuns(models.Model):
     id = models.IntegerField(primary_key=True)
