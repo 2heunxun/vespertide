@@ -258,13 +258,9 @@ impl ColumnDef {
 ///
 /// Each variant maps directly to a standard SQL type. Use these via
 /// [`ColumnType::Simple`] when no length, precision, or scale is needed.
-///
-/// This enum is `#[non_exhaustive]`: new variants may be added in future releases.
-/// Downstream `match` expressions should include a wildcard arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
-#[non_exhaustive]
 pub enum SimpleColumnType {
     /// 16-bit signed integer (`SMALLINT`).
     SmallInt,
@@ -440,68 +436,6 @@ impl SimpleColumnType {
             SimpleColumnType::Inet | SimpleColumnType::Cidr => "'0.0.0.0'",
             SimpleColumnType::Macaddr => "'00:00:00:00:00:00'",
             SimpleColumnType::Xml => "'<xml/>'",
-        }
-    }
-}
-
-/// Closed, exhaustive mirror of [`SimpleColumnType`] for downstream crates that need to
-/// `match` on it without a wildcard arm.
-///
-/// [`SimpleColumnType`] is `#[non_exhaustive]`, so every match on it made *outside*
-/// `vespertide-core` must carry a `_` arm even when every current variant is already
-/// handled — that arm is genuinely unreachable and shows up as a permanent 0-hit line
-/// under coverage instrumentation. This type is deliberately **not** `#[non_exhaustive]`:
-/// the conversion below is written inside the crate that owns `SimpleColumnType`, where
-/// the non-exhaustiveness restriction doesn't apply, so it can be matched exhaustively
-/// with no wildcard, here and in every downstream crate. If `SimpleColumnType` ever gains
-/// a variant, `From<SimpleColumnType> for SimpleColumnKind` below fails to compile until
-/// a matching variant is added here — a compile-time forcing function that replaces the
-/// old pattern of a runtime `unreachable!()` guard that only a test could catch.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SimpleColumnKind {
-    SmallInt,
-    Integer,
-    BigInt,
-    Real,
-    DoublePrecision,
-    Text,
-    Boolean,
-    Date,
-    Time,
-    Timestamp,
-    Timestamptz,
-    Interval,
-    Bytea,
-    Uuid,
-    Json,
-    Inet,
-    Cidr,
-    Macaddr,
-    Xml,
-}
-
-impl From<SimpleColumnType> for SimpleColumnKind {
-    fn from(ty: SimpleColumnType) -> Self {
-        match ty {
-            SimpleColumnType::SmallInt => Self::SmallInt,
-            SimpleColumnType::Integer => Self::Integer,
-            SimpleColumnType::BigInt => Self::BigInt,
-            SimpleColumnType::Real => Self::Real,
-            SimpleColumnType::DoublePrecision => Self::DoublePrecision,
-            SimpleColumnType::Text => Self::Text,
-            SimpleColumnType::Boolean => Self::Boolean,
-            SimpleColumnType::Date => Self::Date,
-            SimpleColumnType::Time => Self::Time,
-            SimpleColumnType::Timestamp => Self::Timestamp,
-            SimpleColumnType::Timestamptz => Self::Timestamptz,
-            SimpleColumnType::Interval => Self::Interval,
-            SimpleColumnType::Bytea => Self::Bytea,
-            SimpleColumnType::Uuid => Self::Uuid,
-            SimpleColumnType::Json => Self::Json,
-            SimpleColumnType::Inet => Self::Inet,
-            SimpleColumnType::Cidr => Self::Cidr,
-            SimpleColumnType::Macaddr => Self::Macaddr,
-            SimpleColumnType::Xml => Self::Xml,
         }
     }
 }
