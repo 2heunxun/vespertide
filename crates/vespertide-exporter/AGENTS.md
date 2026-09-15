@@ -88,7 +88,7 @@ SQLAlchemy's positional column name).
   expects `package` to name the directory the files live in.
 - **Tests**: rendered output is pinned by the shared `orm_cases!` suite; `gorm/tests/` holds only
   non-snapshot unit tests — `tests/mod.rs` (type mapping, naming, tag/relation
-  regressions, package-name config) and `tests/relations.rs`
+  regressions) and `tests/relations.rs`
   (composite-FK + self-ref regressions)
 
 ### Django (Python)

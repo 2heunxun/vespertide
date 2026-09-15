@@ -23,30 +23,16 @@ impl OrmExporter for GormExporter {
     }
 }
 
-/// GORM exporter that honors `vespertide.json`'s `gorm` config section
-/// (currently the effective Go package name — see
-/// `VespertideConfig::gorm_package_name`, which resolves an explicit
-/// `gorm.package_name` or infers one from the actual export directory —
-/// emitted at the top of every file). Mirrors `seaorm::SeaOrmExporterWithConfig`.
+/// GORM exporter that emits a caller-chosen `package` clause. Go expects that
+/// name to match the directory the files live in, so the CLI resolves it from
+/// the real write target via `vespertide_config::go_package_name`.
 pub struct GormExporterWithConfig<'a> {
     package_name: &'a str,
 }
 
 impl<'a> GormExporterWithConfig<'a> {
-    /// `package_name` is the already-resolved effective package name (see
-    /// `VespertideConfig::gorm_package_name`), not the raw `GormConfig`
-    /// field — resolving requires the actual export directory, which the
-    /// `GormConfig` alone doesn't know.
     pub fn new(package_name: &'a str) -> Self {
         Self { package_name }
-    }
-
-    pub fn render_entity(&self, table: &TableDef) -> Result<String, String> {
-        Ok(render_entity_inner_with_package(
-            table,
-            &[],
-            self.package_name,
-        ))
     }
 
     pub fn render_entity_with_schema(

@@ -261,14 +261,13 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
     lines.push("}".into());
     lines.push(String::new());
 
-    // --- TableName() method ---
-    if needs_table_name_method(&table.name, &struct_name) {
-        lines.push(format!(
-            "func ({struct_name}) TableName() string {{ return \"{name}\" }}",
-            name = table.name,
-        ));
-        lines.push(String::new());
-    }
+    // GORM would otherwise derive the table name by pluralizing the struct
+    // name, which does not reproduce an arbitrary database name.
+    lines.push(format!(
+        "func ({struct_name}) TableName() string {{ return \"{name}\" }}",
+        name = table.name,
+    ));
+    lines.push(String::new());
 
     lines
 }
@@ -704,21 +703,4 @@ pub(super) fn to_go_field_name(s: &str) -> String {
 pub(super) fn infer_relation_field_name(fk_column: &str) -> String {
     let base = fk_column.strip_suffix("_id").unwrap_or(fk_column);
     sanitize_identifier(&to_pascal_case(base), IdentifierStart::Underscore)
-}
-
-fn pascal_to_snake(s: &str) -> String {
-    let mut result = String::new();
-    for c in s.chars() {
-        if c.is_uppercase() && !result.is_empty() {
-            result.push('_');
-        }
-        result.extend(c.to_lowercase());
-    }
-    result
-}
-
-pub(super) fn needs_table_name_method(table_name: &str, struct_name: &str) -> bool {
-    let snake = pascal_to_snake(struct_name);
-    let gorm_default = format!("{snake}s");
-    gorm_default != table_name
 }

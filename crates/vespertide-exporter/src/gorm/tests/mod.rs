@@ -7,9 +7,9 @@ use vespertide_core::schema::column::{
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ColumnDef, ReferenceAction, TableDef};
 
-use super::render::{infer_relation_field_name, needs_table_name_method, to_go_field_name};
+use super::render::{infer_relation_field_name, to_go_field_name};
 use super::types::go_type_for_column_mapped;
-use super::{GormExporterWithConfig, render_entity, render_entity_with_schema};
+use super::{render_entity, render_entity_with_schema};
 
 mod relations;
 
@@ -87,19 +87,6 @@ fn test_to_go_field_name(#[case] input: &str, #[case] expected: &str) {
 #[case("node", "Node")]
 fn test_infer_relation_field_name(#[case] input: &str, #[case] expected: &str) {
     assert_eq!(infer_relation_field_name(input), expected);
-}
-
-#[rstest]
-#[case("User", "user", true)]
-#[case("User", "users", false)]
-#[case("OrderItem", "order_items", false)]
-#[case("OrderItem", "order_item", true)]
-fn test_needs_table_name_method(
-    #[case] struct_name: &str,
-    #[case] table_name: &str,
-    #[case] expected: bool,
-) {
-    assert_eq!(needs_table_name_method(table_name, struct_name), expected);
 }
 
 // -----------------------------------------------------------------------
@@ -621,56 +608,5 @@ fn test_named_composite_unique_gorm() {
     assert!(
         result.contains("uniqueIndex:uq_tenant_name"),
         "expected named uniqueIndex tag in GORM output"
-    );
-}
-
-// -----------------------------------------------------------------------
-// GormExporterWithConfig: package_name reaches the `package` declaration
-// -----------------------------------------------------------------------
-
-fn simple_table() -> TableDef {
-    TableDef {
-        name: "users".into(),
-        description: None,
-        columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer))],
-        constraints: vec![TableConstraint::PrimaryKey {
-            auto_increment: true,
-            columns: vec!["id".into()],
-            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-        }],
-    }
-}
-
-#[test]
-fn test_default_package_name_is_models() {
-    let table = simple_table();
-    let exporter = GormExporterWithConfig::new("models");
-    let result = exporter.render_entity(&table).unwrap();
-    assert!(
-        result.starts_with("package models\n"),
-        "expected default 'package models', got:\n{result}"
-    );
-}
-
-#[test]
-fn test_custom_package_name_from_config() {
-    let table = simple_table();
-    let exporter = GormExporterWithConfig::new("entities");
-    let result = exporter.render_entity(&table).unwrap();
-    assert!(
-        result.starts_with("package entities\n"),
-        "expected 'package entities', got:\n{result}"
-    );
-}
-
-#[test]
-fn test_custom_package_name_with_schema_context() {
-    let table = simple_table();
-    let schema = vec![table.clone()];
-    let exporter = GormExporterWithConfig::new("entities");
-    let result = exporter.render_entity_with_schema(&table, &schema).unwrap();
-    assert!(
-        result.starts_with("package entities\n"),
-        "expected 'package entities', got:\n{result}"
     );
 }

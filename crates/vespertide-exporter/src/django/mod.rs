@@ -31,7 +31,7 @@ impl OrmExporter for DjangoExporter {
 /// (currently an optional `app_label` written into every model's `Meta`
 /// class). Mirrors `seaorm::SeaOrmExporterWithConfig`.
 pub struct DjangoExporterWithConfig<'a> {
-    pub config: &'a DjangoConfig,
+    config: &'a DjangoConfig,
 }
 
 impl<'a> DjangoExporterWithConfig<'a> {
