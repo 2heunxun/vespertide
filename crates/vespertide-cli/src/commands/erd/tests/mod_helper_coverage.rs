@@ -1,14 +1,9 @@
-//! `erd/mod.rs` private-helper mutation-coverage tests, split out of
-//! `tests/mod.rs` to keep that file under the 1200-line budget. `use
-//! super::*;` reaches the shared fixtures (`table`, `primary_key`, `integer`,
-//! `text`, `column`, `foreign_key`, `unique_foreign_key`, `normalize`,
-//! `is_junction_table`, `are_columns_unique`, `foreign_key_column_groups`,
-//! `parse_reference`, `ForeignKeySyntax`, …) defined in `tests/mod.rs`.
+//! Unit tests for `erd/mod.rs`'s private relation and junction helpers.
+//! `use super::*;` reaches the shared fixtures defined in `tests/mod.rs`.
 use super::*;
 
-/// `is_junction_table` returns false when fewer than 2 distinct FK column
-/// groups are present even though the table has 2+ PK columns → covers
-/// mod.rs:259 (`return false;` after `foreign_key_groups.len() < 2`).
+/// A table with 2+ primary key columns but only one foreign key group is not
+/// a junction table.
 #[test]
 fn is_junction_table_with_fewer_than_two_fk_groups_returns_false() {
     // 2 PK columns, only 1 inline FK → foreign_key_groups.len() == 1.
@@ -22,8 +17,7 @@ fn is_junction_table_with_fewer_than_two_fk_groups_returns_false() {
     assert!(!is_junction_table(&tbl));
 }
 
-/// `are_columns_unique` short-circuits to false when the FK column list is
-/// empty → covers mod.rs:269 (`return false;`).
+/// An empty column list is never unique.
 #[test]
 fn are_columns_unique_empty_columns_returns_false() {
     let tbl = table("foo", vec![primary_key("id", integer())]);
@@ -31,10 +25,9 @@ fn are_columns_unique_empty_columns_returns_false() {
     assert!(!are_columns_unique(&tbl, &empty));
 }
 
-/// `are_columns_unique` returns true when the queried columns match the
-/// table's primary key set → covers mod.rs:274 (`return true;`). Driven via
-/// `collect_foreign_key_relations` so the OneToOne classification proves the
-/// path executed end-to-end.
+/// Columns matching the table's primary key are unique, which makes the
+/// relation one-to-one. Driven through `collect_foreign_key_relations` so the
+/// classification proves it end to end.
 #[test]
 fn are_columns_unique_pk_match_drives_one_to_one_via_collect_relations() {
     let users = normalize(&table("user", vec![primary_key("id", integer())]));
@@ -56,10 +49,8 @@ fn are_columns_unique_pk_match_drives_one_to_one_via_collect_relations() {
     assert_eq!(rel.cardinality, Cardinality::OneToOne);
 }
 
-/// `foreign_key_column_groups` collects inline FK columns when not yet
-/// normalized → covers mod.rs:305 (`if column.foreign_key.is_some()`) +
-/// 308 (`groups.push(group)`). Drives through `is_junction_table` so the
-/// branch executes on a real public path.
+/// An un-normalized table's inline foreign keys still make it a junction
+/// table. Driven through `is_junction_table` rather than the helper directly.
 #[test]
 fn foreign_key_column_groups_collects_inline_fk_for_unnormalized_junction() {
     // NOT normalized — inline FKs remain inline so foreign_key_column_groups'
@@ -78,9 +69,7 @@ fn foreign_key_column_groups_collects_inline_fk_for_unnormalized_junction() {
     );
 }
 
-/// `inline_unique_column_groups` handles `StrOrBoolOrArray::Bool(true)` by
-/// inserting an auto-named group → covers mod.rs:332 (arm header) + 333
-/// (`groups.insert(format!("__auto_{}", column.name), ...)`).
+/// An inline `unique: true` foreign key column yields a one-to-one relation.
 #[test]
 fn inline_unique_column_groups_bool_true_creates_auto_group() {
     let users = normalize(&table("user", vec![primary_key("id", integer())]));
@@ -103,11 +92,7 @@ fn inline_unique_column_groups_bool_true_creates_auto_group() {
     assert_eq!(rel.cardinality, Cardinality::OneToOne);
 }
 
-/// Direct cover for `foreign_key_column_groups` line 305
-/// (`if column.foreign_key.is_some()`). Calls the private helper with a
-/// table whose columns carry inline FK syntax (un-normalized) so the
-/// `column.foreign_key.is_some()` predicate evaluates true for each
-/// inline-FK column and the `groups.push(group)` body executes.
+/// Each inline foreign key column becomes its own single-column group.
 #[test]
 fn foreign_key_column_groups_inline_fk_column_executes_is_some_branch() {
     let tbl = table(
@@ -123,9 +108,7 @@ fn foreign_key_column_groups_inline_fk_column_executes_is_some_branch() {
     assert!(groups.iter().any(|g| g == &vec!["author_id".to_string()]));
 }
 
-/// Companion: column without `foreign_key` does NOT push a group. Locks
-/// the false-branch of line 305 so a future refactor that reverses the
-/// predicate is caught.
+/// A table with no inline foreign key produces no groups.
 #[test]
 fn foreign_key_column_groups_skips_columns_without_inline_fk() {
     let tbl = table(
@@ -253,10 +236,8 @@ fn foreign_key_column_groups_pushes_new_inline_group_after_table_constraint() {
     );
 }
 
-/// `parse_reference` is only reached indirectly (through
-/// `collect_foreign_key_relations`), which leaves its accept/reject arms
-/// attributed to a region the workspace-wide and single-package tarpaulin runs
-/// disagree about. Calling it directly pins every branch to its own region.
+/// `parse_reference` accepts exactly `table.column` and rejects every other
+/// shape.
 #[rstest::rstest]
 #[case::table_and_column("users.id", Some(("users", "id")))]
 #[case::three_parts("a.b.c", None)]

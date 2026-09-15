@@ -11,9 +11,8 @@ use super::dot::render_dot;
 use super::mermaid::render_mermaid;
 use super::svg::render_svg;
 
-// SVG / junction mutation-coverage tests live in sibling files to keep this
-// module under the 1200-line budget. `use super::*;` there reaches the shared
-// fixtures defined below.
+// SVG rendering and `erd/mod.rs` helper tests live in sibling files; their
+// `use super::*;` reaches the shared fixtures defined below.
 mod mod_helper_coverage;
 mod svg_coverage;
 

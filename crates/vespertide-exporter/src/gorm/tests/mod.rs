@@ -272,7 +272,7 @@ fn test_reverse_relation_disambiguation() {
 }
 
 // -----------------------------------------------------------------------
-// Numeric column: add_column_type needs_decimal, build_gorm_tag Numeric, decimal import
+// A numeric column renders decimal.Decimal and pulls in the decimal import.
 // -----------------------------------------------------------------------
 
 #[test]
@@ -312,7 +312,7 @@ fn test_numeric_column_gorm() {
 }
 
 // -----------------------------------------------------------------------
-// Unnamed Index: build_gorm_tag unnamed index tag + collect_index_info inner body
+// An unnamed index renders a bare `index` tag.
 // -----------------------------------------------------------------------
 
 #[test]
@@ -341,7 +341,7 @@ fn test_unnamed_index_gorm() {
 }
 
 // -----------------------------------------------------------------------
-// Named Index: build_gorm_tag named index tag + collect_index_info name closure
+// A named index carries its name in the tag.
 // -----------------------------------------------------------------------
 
 #[test]
@@ -373,7 +373,7 @@ fn test_named_index_gorm() {
 }
 
 // -----------------------------------------------------------------------
-// Unnamed composite unique: collect_composite_unique_info auto-name (uq_{cols})
+// An unnamed composite unique is named after its columns.
 // -----------------------------------------------------------------------
 
 #[test]
@@ -412,7 +412,7 @@ fn test_unnamed_composite_unique_gorm() {
 }
 
 // -----------------------------------------------------------------------
-// Singular source table name: find_reverse_relations appends 's' for non-plural
+// A reverse relation from a singular table name renders a pluralized field.
 // -----------------------------------------------------------------------
 
 #[test]
@@ -461,7 +461,7 @@ fn test_singular_source_table_name() {
 }
 
 // -----------------------------------------------------------------------
-// FK with on_update + nullable column: render_fk_relation_field lines 547, 559-560
+// A nullable FK with ON UPDATE renders a pointer relation field carrying both actions.
 // -----------------------------------------------------------------------
 
 #[test]
@@ -576,7 +576,7 @@ fn test_gorm_double_underscore_table_name() {
 }
 
 // -----------------------------------------------------------------------
-// collect_composite_unique_info: named branch (|n| n.as_str().to_owned())
+// A named composite unique keeps its declared name in the uniqueIndex tag.
 // -----------------------------------------------------------------------
 
 #[test]

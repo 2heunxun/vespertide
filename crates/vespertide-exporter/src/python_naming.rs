@@ -8,9 +8,11 @@
 //! `sanitize_identifier` instead — that pair is shared with the Prisma backend,
 //! so the case rule lives in `vespertide-naming` rather than here.
 //!
-//! `seaorm` deliberately keeps its own `to_pascal_case` in
-//! `seaorm/imports.rs` — that variant carries reserved-keyword guards and a
-//! different allocation pattern and is NOT in scope for this consolidation.
+//! `seaorm` keeps its own `to_pascal_case` in `seaorm/imports.rs`: that variant
+//! also treats `-` as a separator and upper-cases with `to_ascii_uppercase`
+//! rather than Unicode-aware `char::to_uppercase`, so the two are not
+//! interchangeable. Reserved-keyword escaping is a separate concern, handled
+//! by `seaorm::imports::sanitize_field_name`.
 
 /// Convert snake_case (or single-word) input to PascalCase. Splits on
 /// underscores, upper-cases the first character of each segment, and

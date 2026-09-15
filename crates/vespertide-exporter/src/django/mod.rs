@@ -118,7 +118,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Type coverage — all simple types
+    // Every SimpleColumnType maps to a Django field class.
     // -----------------------------------------------------------------------
 
     #[rstest]

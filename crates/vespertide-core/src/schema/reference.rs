@@ -42,9 +42,7 @@ impl ReferenceAction {
 
 #[cfg(test)]
 mod tests {
-    //! Coverage-closure tests for `ReferenceAction::to_sql_keyword`.
-    //! Targets `uncovered-detail.json` lines 40, 41, 42
-    //! (`SetNull` / `SetDefault` / `NoAction` match arms).
+    //! `ReferenceAction::to_sql_keyword` emits one SQL keyword per variant.
     use super::*;
     use rstest::rstest;
 
@@ -58,9 +56,6 @@ mod tests {
         #[case] action: ReferenceAction,
         #[case] expected: &'static str,
     ) {
-        // Each rstest case visits one match arm of to_sql_keyword. The
-        // SetNull/SetDefault/NoAction cases cover the previously-uncovered
-        // lines 40, 41, 42.
         assert_eq!(action.to_sql_keyword(), expected);
     }
 }
