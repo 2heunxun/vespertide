@@ -20,5 +20,5 @@ class Membership(models.Model):
             models.Index(fields=["3created"]),
         ]
         constraints = [
-            models.UniqueConstraint(fields=["user-email", "1tenant_id"]),
+            models.UniqueConstraint(fields=["user-email", "1tenant_id"], name="uq_membership__1tenant_id_user-email"),
         ]

@@ -15,5 +15,5 @@ class UnnamedUnique(models.Model):
     class Meta:
         db_table = "unnamed_unique"
         constraints = [
-            models.UniqueConstraint(fields=["col_a", "col_b"]),
+            models.UniqueConstraint(fields=["col_a", "col_b"], name="uq_unnamed_unique__col_a_col_b"),
         ]

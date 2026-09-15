@@ -18,5 +18,5 @@ class Events(models.Model):
             models.Index(fields=["venue_id", "date"]),
         ]
         constraints = [
-            models.UniqueConstraint(fields=["venue_id", "date"]),
+            models.UniqueConstraint(fields=["venue_id", "date"], name="uq_events__date_venue_id"),
         ]

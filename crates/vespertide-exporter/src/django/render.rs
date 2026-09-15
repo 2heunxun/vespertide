@@ -6,7 +6,7 @@ use crate::utils::python::collect_composite_fks;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType};
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ReferenceAction, TableDef};
-use vespertide_naming::{IdentifierStart, sanitize_identifier};
+use vespertide_naming::{IdentifierStart, build_unique_constraint_name, sanitize_identifier};
 
 pub fn render_entity(table: &TableDef) -> Result<String, String> {
     let mut used = UsedImports::default();
@@ -482,15 +482,15 @@ fn render_entity_part(
                 .map(|c| format!("\"{c}\""))
                 .collect::<Vec<_>>()
                 .join(", ");
-            if let Some(n) = name {
-                lines.push(format!(
-                    "            models.UniqueConstraint(fields=[{fields}], name=\"{n}\"),"
-                ));
-            } else {
-                lines.push(format!(
-                    "            models.UniqueConstraint(fields=[{fields}]),"
-                ));
-            }
+            // `name` is required on every Django constraint, so an unnamed
+            // source constraint takes the name the SQL layer gives it.
+            let n = name.map_or_else(
+                || build_unique_constraint_name(&table.name, cols, None),
+                str::to_string,
+            );
+            lines.push(format!(
+                "            models.UniqueConstraint(fields=[{fields}], name=\"{n}\"),"
+            ));
         }
         lines.push("        ]".into());
     }

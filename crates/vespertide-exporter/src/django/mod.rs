@@ -412,11 +412,11 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Unnamed index and unnamed composite unique in Meta
+    // Unnamed index stays unnamed; unnamed unique constraint gets a name
     // -----------------------------------------------------------------------
 
     #[test]
-    fn test_index_and_unique_no_name() {
+    fn test_unnamed_index_stays_unnamed_but_unnamed_unique_is_named() {
         let table = TableDef {
             name: "entries".into(),
             description: None,
@@ -451,9 +451,13 @@ mod tests {
             result.contains("models.Index(fields=[\"slug\"]),"),
             "expected unnamed Index"
         );
+        // Django generates an `Index` name itself but rejects a constraint
+        // without one, so the unnamed unique takes the SQL layer's name.
         assert!(
-            result.contains("models.UniqueConstraint(fields=[\"slug\", \"tag\"]),"),
-            "expected unnamed UniqueConstraint"
+            result.contains(
+                "models.UniqueConstraint(fields=[\"slug\", \"tag\"], name=\"uq_entries__slug_tag\"),"
+            ),
+            "expected the SQL-layer name on the unnamed UniqueConstraint"
         );
     }
 
