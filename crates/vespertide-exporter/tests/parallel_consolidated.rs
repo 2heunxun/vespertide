@@ -41,11 +41,7 @@ fn render_schema(orm: Orm, schema: &[TableDef]) -> Result<String, String> {
         Orm::Jpa => {
             vespertide_exporter::jpa::render_entities(schema).map(|entities| entities.join("\n"))
         }
-        Orm::Gorm => schema
-            .iter()
-            .map(vespertide_exporter::gorm::render_entity)
-            .collect::<Result<Vec<_>, _>>()
-            .map(|v| v.join("\n\n")),
+        Orm::Gorm => vespertide_exporter::gorm::export(schema),
         Orm::Django => vespertide_exporter::django::export(schema),
         Orm::Prisma => vespertide_exporter::prisma::export(schema),
         Orm::Drizzle => vespertide_exporter::drizzle::export(schema),

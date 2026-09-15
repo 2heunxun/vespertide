@@ -134,6 +134,70 @@ fn render_entity_inner_with_package(
     schema: &[TableDef],
     package_name: &str,
 ) -> String {
+    let mut lines = render_header(package_name, &imports_for(std::slice::from_ref(table)));
+    lines.extend(render_table_body(table, schema));
+    lines.join("\n")
+}
+
+/// Render a whole schema as one Go source file: a single `package` clause,
+/// one import block covering every table, then each table's declarations.
+/// Concatenating per-table files instead would repeat the `package` clause,
+/// which Go rejects.
+pub fn export(schema: &[TableDef]) -> Result<String, String> {
+    let mut lines = render_header(DEFAULT_GORM_PACKAGE_NAME, &imports_for(schema));
+    for (i, table) in schema.iter().enumerate() {
+        if i > 0 {
+            lines.push(String::new());
+        }
+        lines.extend(render_table_body(table, schema));
+    }
+    Ok(lines.join("\n"))
+}
+
+/// The Go imports the columns of `tables` need, so one import block can
+/// serve a single entity file or a whole-schema file alike.
+fn imports_for<'a>(tables: impl IntoIterator<Item = &'a TableDef>) -> UsedImports {
+    let mut used = UsedImports::default();
+    for col in tables.into_iter().flat_map(|table| &table.columns) {
+        used.add_column_type(&col.r#type);
+    }
+    used
+}
+
+/// The `package` clause and the import block, stdlib first.
+fn render_header(package_name: &str, used_imports: &UsedImports) -> Vec<String> {
+    let mut lines = vec![format!("package {package_name}"), String::new()];
+
+    let has_stdlib = used_imports.needs_time;
+    let has_external =
+        used_imports.needs_uuid || used_imports.needs_datatypes || used_imports.needs_decimal;
+
+    if has_stdlib || has_external {
+        lines.push("import (".into());
+        if has_stdlib {
+            lines.push("    \"time\"".into());
+        }
+        if has_stdlib && has_external {
+            lines.push(String::new());
+        }
+        if used_imports.needs_datatypes {
+            lines.push("    \"gorm.io/datatypes\"".into());
+        }
+        if used_imports.needs_uuid {
+            lines.push("    \"github.com/google/uuid\"".into());
+        }
+        if used_imports.needs_decimal {
+            lines.push("    \"github.com/shopspring/decimal\"".into());
+        }
+        lines.push(")".into());
+        lines.push(String::new());
+    }
+    lines
+}
+
+/// Everything below the header for one table: enum types, the struct, and
+/// its methods.
+fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
 
     let struct_name =
@@ -245,42 +309,7 @@ fn render_entity_inner_with_package(
     let index_map = collect_index_info(&table.constraints);
     let composite_unique_map = collect_composite_unique_info(&table.constraints);
 
-    let mut used_imports = UsedImports::default();
-    for col in &table.columns {
-        used_imports.add_column_type(&col.r#type);
-    }
-
     let reverse_relations = find_reverse_relations(&table.name, schema);
-
-    // --- Package declaration ---
-    lines.push(format!("package {package_name}"));
-    lines.push(String::new());
-
-    // --- Imports ---
-    let has_stdlib = used_imports.needs_time;
-    let has_external =
-        used_imports.needs_uuid || used_imports.needs_datatypes || used_imports.needs_decimal;
-
-    if has_stdlib || has_external {
-        lines.push("import (".into());
-        if has_stdlib {
-            lines.push("    \"time\"".into());
-        }
-        if has_stdlib && has_external {
-            lines.push(String::new());
-        }
-        if used_imports.needs_datatypes {
-            lines.push("    \"gorm.io/datatypes\"".into());
-        }
-        if used_imports.needs_uuid {
-            lines.push("    \"github.com/google/uuid\"".into());
-        }
-        if used_imports.needs_decimal {
-            lines.push("    \"github.com/shopspring/decimal\"".into());
-        }
-        lines.push(")".into());
-        lines.push(String::new());
-    }
 
     // --- Enum type declarations ---
     for (_, values, qualified_name) in &enums {
@@ -379,7 +408,7 @@ fn render_entity_inner_with_package(
         lines.push(String::new());
     }
 
-    lines.join("\n")
+    lines
 }
 
 // ---------------------------------------------------------------------------

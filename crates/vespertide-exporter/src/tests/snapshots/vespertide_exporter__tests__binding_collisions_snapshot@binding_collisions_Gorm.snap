@@ -12,16 +12,13 @@ type UserRelations struct {
 func (UserRelations) TableName() string { return "user_relations" }
 
 
-package models
-
 type User struct {
     ID int32 `gorm:"column:id;primaryKey" json:"id"`
+    Posts []Posts `gorm:"foreignKey:UserID" json:"-"`
 }
 
 func (User) TableName() string { return "user" }
 
-
-package models
 
 type Sql struct {
     ID int32 `gorm:"column:id;primaryKey" json:"id"`
@@ -30,8 +27,6 @@ type Sql struct {
 
 func (Sql) TableName() string { return "sql" }
 
-
-package models
 
 type Posts struct {
     ID int32 `gorm:"column:id;primaryKey" json:"id"`

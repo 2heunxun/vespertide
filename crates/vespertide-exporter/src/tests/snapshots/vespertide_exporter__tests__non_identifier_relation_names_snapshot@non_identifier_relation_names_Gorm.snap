@@ -7,12 +7,12 @@ package models
 type _1users struct {
     _1id int32 `gorm:"column:1id;primaryKey" json:"1id"`
     Email string `gorm:"column:email;not null;type:text" json:"email"`
+    PostsBy_1stOwnerID []Posts `gorm:"foreignKey:_1stOwnerID" json:"-"`
+    PostsBy_2ndOwnerID []Posts `gorm:"foreignKey:_2ndOwnerID" json:"-"`
 }
 
 func (_1users) TableName() string { return "1users" }
 
-
-package models
 
 type Posts struct {
     ID int32 `gorm:"column:id;primaryKey" json:"id"`

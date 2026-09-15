@@ -7,12 +7,12 @@ package models
 type Target struct {
     ID int32 `gorm:"column:id;primaryKey" json:"id"`
     Alt int32 `gorm:"column:alt;not null;unique" json:"alt"`
+    SrcsByAID []Src `gorm:"foreignKey:AID" json:"-"`
+    SrcsByA []Src `gorm:"foreignKey:A" json:"-"`
 }
 
 func (Target) TableName() string { return "target" }
 
-
-package models
 
 type Src struct {
     Pk int32 `gorm:"column:pk;primaryKey" json:"pk"`

@@ -33,11 +33,7 @@ fn render_schema(orm: Orm, schema: &[TableDef]) -> Result<String, String> {
         Orm::SqlAlchemy => crate::sqlalchemy::export(schema),
         Orm::SqlModel => crate::sqlmodel::render_entities(schema),
         Orm::Jpa => crate::jpa::render_entities(schema).map(|entities| entities.join("\n")),
-        Orm::Gorm => schema
-            .iter()
-            .map(crate::gorm::render_entity)
-            .collect::<Result<Vec<_>, _>>()
-            .map(|v| v.join("\n\n")),
+        Orm::Gorm => crate::gorm::export(schema),
         Orm::Django => crate::django::export(schema),
         Orm::Prisma => crate::prisma::export(schema),
         Orm::Drizzle => crate::drizzle::export(schema),
