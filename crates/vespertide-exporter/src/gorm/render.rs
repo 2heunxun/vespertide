@@ -167,7 +167,13 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
     let reverse_relations = find_reverse_relations(&table.name, schema);
 
     // --- Enum type declarations ---
+    // Two columns of one table may share an enum; Go rejects the second
+    // declaration of the same type.
+    let mut declared_enums: HashSet<&str> = HashSet::new();
     for (_, values, qualified_name) in &enums {
+        if !declared_enums.insert(qualified_name.as_str()) {
+            continue;
+        }
         render_enum(&mut lines, qualified_name, values);
         lines.push(String::new());
     }

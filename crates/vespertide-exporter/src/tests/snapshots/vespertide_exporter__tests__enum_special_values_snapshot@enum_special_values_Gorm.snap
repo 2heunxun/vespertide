@@ -7,7 +7,7 @@ package models
 type EventSeverity string
 
 const (
-    EventSeverityInfo-level EventSeverity = "info-level"
+    EventSeverityInfo_level EventSeverity = "info-level"
     EventSeverityWarningLevel EventSeverity = "warning_level"
     EventSeverityERRORLEVEL EventSeverity = "ERROR_LEVEL"
     EventSeverity1critical EventSeverity = "1critical"

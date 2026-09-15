@@ -12,14 +12,6 @@ const (
     DocStatusArchived DocStatus = "archived"
 )
 
-type DocStatus string
-
-const (
-    DocStatusDraft DocStatus = "draft"
-    DocStatusPublished DocStatus = "published"
-    DocStatusArchived DocStatus = "archived"
-)
-
 type Documents struct {
     ID int32 `gorm:"column:id;not null" json:"id"`
     Status DocStatus `gorm:"column:status;not null" json:"status"`

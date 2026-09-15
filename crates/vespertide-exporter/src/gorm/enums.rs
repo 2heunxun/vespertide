@@ -1,4 +1,5 @@
 use vespertide_core::schema::column::EnumValues;
+use vespertide_naming::{IdentifierStart, sanitize_identifier};
 
 use super::render::to_pascal_case;
 
@@ -29,13 +30,13 @@ pub(super) fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValu
     match values {
         EnumValues::String(vals) => {
             for val in vals {
-                let const_name = format!("{type_name}{}", to_pascal_case(val));
+                let const_name = const_name(type_name, val);
                 rendered.push(format!("    {const_name} {type_name} = \"{val}\""));
             }
         }
         EnumValues::Integer(vals) => {
             for val in vals {
-                let const_name = format!("{type_name}{}", to_pascal_case(&val.name));
+                let const_name = const_name(type_name, &val.name);
                 rendered.push(format!("    {const_name} {type_name} = {}", val.value));
             }
         }
@@ -43,4 +44,15 @@ pub(super) fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValu
 
     rendered.push(")".into());
     lines.extend(rendered);
+}
+
+/// A Go constant name for one enum member. The value is arbitrary text —
+/// `info-level` and `1critical` are legal in the database — so it is escaped
+/// the same way column names are. The `type_name` prefix already supplies a
+/// leading letter, so only interior characters can need replacing.
+fn const_name(type_name: &str, value: &str) -> String {
+    sanitize_identifier(
+        &format!("{type_name}{}", to_pascal_case(value)),
+        IdentifierStart::Underscore,
+    )
 }
