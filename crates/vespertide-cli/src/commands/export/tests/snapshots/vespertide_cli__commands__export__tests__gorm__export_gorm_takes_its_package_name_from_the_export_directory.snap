@@ -1,0 +1,11 @@
+---
+source: crates/vespertide-cli/src/commands/export/tests/gorm.rs
+expression: written
+---
+package store
+
+type Widgets struct {
+    ID int32 `gorm:"column:id;primaryKey" json:"id"`
+}
+
+func (Widgets) TableName() string { return "widgets" }
