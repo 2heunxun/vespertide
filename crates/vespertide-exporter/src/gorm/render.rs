@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::enums::render_enum;
-use super::types::{UsedImports, go_type_for_column_mapped, reference_action_str};
+use super::types::{UsedImports, go_type_for_column_mapped};
 use vespertide_core::schema::column::{
     ColumnType, ComplexColumnType, EnumValues, SimpleColumnType,
 };
@@ -229,10 +229,10 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
     for rel in &reverse_relations {
         let mut constraint_parts: Vec<String> = Vec::new();
         if let Some(ref action) = rel.on_delete {
-            constraint_parts.push(format!("OnDelete:{}", reference_action_str(action)));
+            constraint_parts.push(format!("OnDelete:{}", action.to_sql_keyword()));
         }
         if let Some(ref action) = rel.on_update {
-            constraint_parts.push(format!("OnUpdate:{}", reference_action_str(action)));
+            constraint_parts.push(format!("OnUpdate:{}", action.to_sql_keyword()));
         }
         let fk_field = to_go_field_name(&rel.fk_column);
         let gorm_tag = if constraint_parts.is_empty() {
@@ -541,10 +541,10 @@ fn render_fk_relation_field(
 
     let mut constraint_parts: Vec<String> = Vec::new();
     if let Some(ref action) = fk.on_delete {
-        constraint_parts.push(format!("OnDelete:{}", reference_action_str(action)));
+        constraint_parts.push(format!("OnDelete:{}", action.to_sql_keyword()));
     }
     if let Some(ref action) = fk.on_update {
-        constraint_parts.push(format!("OnUpdate:{}", reference_action_str(action)));
+        constraint_parts.push(format!("OnUpdate:{}", action.to_sql_keyword()));
     }
 
     let gorm_tag = if constraint_parts.is_empty() {
@@ -596,10 +596,10 @@ fn render_composite_fk_relation_field(
 
     let mut constraint_parts: Vec<String> = Vec::new();
     if let Some(ref action) = fk.on_delete {
-        constraint_parts.push(format!("OnDelete:{}", reference_action_str(action)));
+        constraint_parts.push(format!("OnDelete:{}", action.to_sql_keyword()));
     }
     if let Some(ref action) = fk.on_update {
-        constraint_parts.push(format!("OnUpdate:{}", reference_action_str(action)));
+        constraint_parts.push(format!("OnUpdate:{}", action.to_sql_keyword()));
     }
 
     let gorm_tag = if constraint_parts.is_empty() {
@@ -705,17 +705,7 @@ fn build_default_tag(default: &DefaultValue) -> Option<String> {
 // Naming utilities
 // ---------------------------------------------------------------------------
 
-pub(super) fn to_pascal_case(s: &str) -> String {
-    s.split('_')
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().chain(chars).collect(),
-            }
-        })
-        .collect()
-}
+pub(super) use crate::python_naming::to_pascal_case;
 
 pub(super) fn to_go_field_name(s: &str) -> String {
     let pascal = to_pascal_case(s);

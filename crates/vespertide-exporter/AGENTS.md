@@ -13,7 +13,7 @@ src/
 │                       #   (fk_relation_names/relation_segment/collect_back_relations)
 ├── enum_scan.rs        # Shared per-table enum-column scan (Prisma/Drizzle)
 ├── parallel_config.rs  # Rayon parallelism thresholds
-├── python_naming.rs    # Shared Python PascalCase naming (SQLAlchemy/SQLModel/JPA/Django/CLI)
+├── python_naming.rs    # Shared PascalCase naming (SQLAlchemy/SQLModel/JPA/Django/GORM/CLI)
 ├── seaorm/             # mod.rs, render.rs, types.rs, enums.rs, imports.rs,
 │                       #   relations/ (fk_resolve, naming, self_ref, reverse), tests/
 ├── sqlalchemy/         # mod.rs, render.rs, types.rs, enums.rs — declarative_base models

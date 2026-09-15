@@ -1,6 +1,8 @@
-//! Shared naming helpers for the Python-targeted ORM exporters (SQLAlchemy,
-//! SQLModel). Both backends share an identical, snake-case-aware
-//! `to_pascal_case`.
+//! Shared `to_pascal_case`: split on `_`, upper-case the first character of
+//! each segment, keep the rest verbatim. SQLAlchemy, SQLModel, JPA, Django,
+//! GORM and the CLI's filename derivation all want exactly that rule, which
+//! is a naming convention rather than a language feature — which is why the
+//! Java and Go backends share it instead of carrying copies.
 //!
 //! Enum member names go through `vespertide_naming::to_screaming_snake_case` +
 //! `sanitize_identifier` instead — that pair is shared with the Prisma backend,

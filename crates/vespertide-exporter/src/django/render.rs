@@ -582,17 +582,7 @@ fn assemble_with_imports(used: &UsedImports, parts: &[String]) -> String {
     lines.join("\n")
 }
 
-pub(super) fn to_pascal_case(s: &str) -> String {
-    s.split('_')
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().chain(chars).collect(),
-            }
-        })
-        .collect()
-}
+pub(super) use crate::python_naming::to_pascal_case;
 
 pub(super) fn to_upper_snake_case(s: &str) -> String {
     let mut result = String::new();
@@ -655,7 +645,7 @@ mod tests {
 
     #[test]
     fn test_to_pascal_case_double_underscore() {
-        // Double underscore produces an empty word, triggering the None arm in to_pascal_case
+        // An empty segment between two underscores contributes nothing
         assert_eq!(to_pascal_case("order__item"), "OrderItem");
         assert_eq!(to_pascal_case("_leading"), "Leading");
         assert_eq!(to_pascal_case("trailing_"), "Trailing");

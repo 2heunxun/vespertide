@@ -4,7 +4,6 @@ use super::render::to_pascal_case;
 use vespertide_core::schema::column::{
     ColumnType, ComplexColumnType, SimpleColumnKind, SimpleColumnType,
 };
-use vespertide_core::{ReferenceAction, ReferenceActionKind};
 use vespertide_naming::{IdentifierStart, sanitize_identifier};
 
 /// Track which Go imports are actually used to generate minimal import statements.
@@ -109,15 +108,5 @@ fn go_base_type(col_type: &ColumnType) -> String {
                 unreachable!("ComplexColumnType is #[non_exhaustive]; all variants matched")
             }
         },
-    }
-}
-
-pub(super) fn reference_action_str(action: &ReferenceAction) -> &'static str {
-    match ReferenceActionKind::from(action) {
-        ReferenceActionKind::Cascade => "CASCADE",
-        ReferenceActionKind::Restrict => "RESTRICT",
-        ReferenceActionKind::SetNull => "SET NULL",
-        ReferenceActionKind::SetDefault => "SET DEFAULT",
-        ReferenceActionKind::NoAction => "NO ACTION",
     }
 }

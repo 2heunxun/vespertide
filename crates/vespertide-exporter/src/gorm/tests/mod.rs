@@ -985,7 +985,7 @@ fn test_fk_with_on_update_and_nullable() {
 }
 
 // -----------------------------------------------------------------------
-// reference_action_str: SetNull, SetDefault, NoAction (via FK on_delete)
+// FK on_delete keywords: SetNull, SetDefault, NoAction
 // -----------------------------------------------------------------------
 
 #[rstest]
@@ -1025,12 +1025,12 @@ fn test_gorm_fk_on_delete_actions(#[case] action: ReferenceAction, #[case] expec
 }
 
 // -----------------------------------------------------------------------
-// to_pascal_case: None arm via double-underscore table name
+// Double-underscore table name
 // -----------------------------------------------------------------------
 
 #[test]
 fn test_gorm_double_underscore_table_name() {
-    // "order__item" splits into ["order", "", "item"] → empty word hits None => String::new()
+    // "order__item" splits into ["order", "", "item"]; the empty segment adds nothing
     let table = TableDef {
         name: "order__item".into(),
         description: None,
