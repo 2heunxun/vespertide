@@ -60,11 +60,9 @@ pub(super) fn django_field_type(
                 EnumValues::String(_) => "models.CharField",
                 EnumValues::Integer(_) => "models.IntegerField",
             },
-            // `#[non_exhaustive]` future-variant guard; unreachable today.
-            #[cfg(not(tarpaulin_include))]
-            _ => {
-                unreachable!("ComplexColumnType is #[non_exhaustive]; all variants matched")
-            }
+            _ => unreachable!(
+                "ComplexColumnType is #[non_exhaustive]; all variants are matched above"
+            ),
         },
     }
 }

@@ -100,11 +100,9 @@ fn go_base_type(col_type: &ColumnType) -> String {
                 }
             }
             ComplexColumnType::Numeric { .. } => "decimal.Decimal".to_string(),
-            // `#[non_exhaustive]` future-variant guard; unreachable today.
-            #[cfg(not(tarpaulin_include))]
-            _ => {
-                unreachable!("ComplexColumnType is #[non_exhaustive]; all variants matched")
-            }
+            _ => unreachable!(
+                "ComplexColumnType is #[non_exhaustive]; all variants are matched above"
+            ),
         },
     }
 }
