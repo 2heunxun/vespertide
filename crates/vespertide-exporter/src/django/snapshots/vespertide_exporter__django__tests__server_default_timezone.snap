@@ -1,6 +1,5 @@
 ---
 source: crates/vespertide-exporter/src/django/mod.rs
-assertion_line: 286
 expression: result
 ---
 from __future__ import annotations

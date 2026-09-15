@@ -1,6 +1,5 @@
 ---
 source: crates/vespertide-exporter/src/tests/mod.rs
-assertion_line: 135
 expression: rendered
 ---
 from __future__ import annotations

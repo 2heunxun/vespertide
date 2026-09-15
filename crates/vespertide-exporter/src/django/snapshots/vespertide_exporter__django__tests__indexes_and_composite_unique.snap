@@ -1,6 +1,5 @@
 ---
 source: crates/vespertide-exporter/src/django/mod.rs
-assertion_line: 252
 expression: render_entity(&table).unwrap()
 ---
 from __future__ import annotations
