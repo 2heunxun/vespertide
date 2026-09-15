@@ -1,0 +1,21 @@
+---
+source: crates/vespertide-exporter/src/tests/mod.rs
+expression: rendered
+---
+package models
+
+type Users struct {
+    ID int32 `gorm:"column:id;primaryKey" json:"id"`
+    Posts []Posts `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE,OnUpdate:RESTRICT" json:"-"`
+}
+
+func (Users) TableName() string { return "users" }
+
+
+type Posts struct {
+    ID int32 `gorm:"column:id;primaryKey" json:"id"`
+    UserID int32 `gorm:"column:user_id;not null" json:"user_id"`
+    User Users `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE,OnUpdate:RESTRICT" json:"-"`
+}
+
+func (Posts) TableName() string { return "posts" }

@@ -11,6 +11,9 @@ use vespertide_core::{
 mod collisions;
 pub(crate) use collisions::binding_collisions;
 
+mod reference_actions;
+pub(crate) use reference_actions::reference_actions;
+
 pub(crate) fn col(name: &str, ty: ColumnType) -> ColumnDef {
     ColumnDef::new(name, ty, false)
 }

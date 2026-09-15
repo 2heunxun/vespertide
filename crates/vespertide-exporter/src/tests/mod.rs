@@ -385,6 +385,12 @@ orm_cases!(
     "binding_collisions",
     fixtures::binding_collisions
 );
+// The only fixture that sets `ON UPDATE` as well as `ON DELETE`.
+orm_cases!(
+    multi reference_actions_snapshot,
+    "reference_actions",
+    fixtures::reference_actions
+);
 
 /// Dispatch the per-ORM `to_pascal_case` helper from a single entry point so
 /// the cross-ORM consolidation test can exercise every implementation without
