@@ -56,13 +56,10 @@ pub(crate) fn to_pascal_case_for_tests(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use insta::assert_snapshot;
     use rstest::rstest;
-    use vespertide_core::schema::column::{EnumValues, SimpleColumnType};
+    use vespertide_core::schema::column::SimpleColumnType;
     use vespertide_core::schema::constraint::TableConstraint;
-    use vespertide_core::{
-        ColumnType, ComplexColumnType, DefaultValue, NumValue, ReferenceAction, TableDef,
-    };
+    use vespertide_core::{ColumnType, ComplexColumnType, DefaultValue, ReferenceAction, TableDef};
 
     fn col(name: &str, ty: ColumnType) -> vespertide_core::ColumnDef {
         vespertide_core::ColumnDef::new(name, ty, false)
@@ -100,153 +97,6 @@ mod tests {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Basic table with autoincrement PK + nullable field
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_basic_table() {
-        let table = TableDef {
-            name: "users".into(),
-            description: Some("User accounts".into()),
-            columns: vec![
-                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-                col(
-                    "email",
-                    ColumnType::Complex(ComplexColumnType::Varchar { length: 255 }),
-                ),
-                nullable_col("name", ColumnType::Simple(SimpleColumnType::Text)),
-            ],
-            constraints: vec![
-                auto_pk(&["id"]),
-                TableConstraint::Unique {
-                    name: None,
-                    columns: vec!["email".into()],
-                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
-                        keep: vespertide_core::KeepPolicy::First,
-                    },
-                },
-            ],
-        };
-        assert_snapshot!(render_entity(&table).unwrap());
-    }
-
-    // -----------------------------------------------------------------------
-    // FK field: `_id` suffix stripping
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_table_with_fk() {
-        let table = TableDef {
-            name: "posts".into(),
-            description: None,
-            columns: vec![
-                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-                col("author_id", ColumnType::Simple(SimpleColumnType::Integer)),
-                col("title", ColumnType::Simple(SimpleColumnType::Text)),
-            ],
-            constraints: vec![
-                auto_pk(&["id"]),
-                fk("author_id", "users", Some(ReferenceAction::Cascade)),
-            ],
-        };
-        assert_snapshot!(render_entity(&table).unwrap());
-    }
-
-    // -----------------------------------------------------------------------
-    // TextChoices enum
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_table_with_string_enum() {
-        let table = TableDef {
-            name: "orders".into(),
-            description: None,
-            columns: vec![col("id", ColumnType::Simple(SimpleColumnType::Integer)), {
-                let mut c = col(
-                    "status",
-                    ColumnType::Complex(ComplexColumnType::Enum {
-                        name: "order_status".into(),
-                        values: EnumValues::String(vec![
-                            "pending".into(),
-                            "shipped".into(),
-                            "delivered".into(),
-                        ]),
-                    }),
-                );
-                c.default = Some(DefaultValue::String("'pending'".into()));
-                c
-            }],
-            constraints: vec![auto_pk(&["id"])],
-        };
-        assert_snapshot!(render_entity(&table).unwrap());
-    }
-
-    // -----------------------------------------------------------------------
-    // IntegerChoices enum
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_table_with_integer_enum() {
-        let table = TableDef {
-            name: "tasks".into(),
-            description: None,
-            columns: vec![
-                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-                col(
-                    "priority",
-                    ColumnType::Complex(ComplexColumnType::Enum {
-                        name: "priority_level".into(),
-                        values: EnumValues::Integer(vec![
-                            NumValue {
-                                name: "low".into(),
-                                value: 0,
-                            },
-                            NumValue {
-                                name: "medium".into(),
-                                value: 10,
-                            },
-                            NumValue {
-                                name: "high".into(),
-                                value: 20,
-                            },
-                        ]),
-                    }),
-                ),
-            ],
-            constraints: vec![pk(&["id"])],
-        };
-        assert_snapshot!(render_entity(&table).unwrap());
-    }
-
-    // -----------------------------------------------------------------------
-    // Composite PK
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_composite_pk() {
-        let table = TableDef {
-            name: "order_items".into(),
-            description: None,
-            columns: vec![
-                col("order_id", ColumnType::Simple(SimpleColumnType::Integer)),
-                col("product_id", ColumnType::Simple(SimpleColumnType::Integer)),
-                col("quantity", ColumnType::Simple(SimpleColumnType::Integer)),
-            ],
-            constraints: vec![pk(&["order_id", "product_id"])],
-        };
-        let result = render_entity(&table).unwrap();
-        assert!(
-            result.contains("pk = models.CompositePrimaryKey(\"order_id\", \"product_id\")"),
-            "expected Django 5.2+ CompositePrimaryKey declaration, got:\n{result}"
-        );
-        assert!(
-            !result.contains("primary_key=True"),
-            "individual composite-PK columns must not also carry primary_key=True, got:\n{result}"
-        );
-        assert_snapshot!(result);
-    }
-
     #[test]
     fn test_composite_pk_of_fk_columns_uses_attname_not_field_name() {
         // Composite PK made of FK columns: CompositePrimaryKey must reference
@@ -270,79 +120,6 @@ mod tests {
             result.contains("pk = models.CompositePrimaryKey(\"article_id\", \"user_id\")"),
             "expected attname-based CompositePrimaryKey args, got:\n{result}"
         );
-    }
-
-    // -----------------------------------------------------------------------
-    // Indexes and composite unique in Meta
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_indexes_and_composite_unique() {
-        let table = TableDef {
-            name: "articles".into(),
-            description: None,
-            columns: vec![
-                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-                col(
-                    "slug",
-                    ColumnType::Complex(ComplexColumnType::Varchar { length: 200 }),
-                ),
-                col("author_id", ColumnType::Simple(SimpleColumnType::Integer)),
-                col(
-                    "created_at",
-                    ColumnType::Simple(SimpleColumnType::Timestamptz),
-                ),
-            ],
-            constraints: vec![
-                auto_pk(&["id"]),
-                TableConstraint::Index {
-                    name: Some("ix_articles__created_at".into()),
-                    columns: vec!["created_at".into()],
-                },
-                TableConstraint::Unique {
-                    name: Some("uq_articles__slug_author".into()),
-                    columns: vec!["slug".into(), "author_id".into()],
-                    strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
-                        keep: vespertide_core::KeepPolicy::First,
-                    },
-                },
-            ],
-        };
-        assert_snapshot!(render_entity(&table).unwrap());
-    }
-
-    // -----------------------------------------------------------------------
-    // server default (NOW()) → timezone.now
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_server_default_timezone() {
-        let table = TableDef {
-            name: "events".into(),
-            description: None,
-            columns: vec![
-                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-                {
-                    let mut c = col(
-                        "created_at",
-                        ColumnType::Simple(SimpleColumnType::Timestamptz),
-                    );
-                    c.default = Some(DefaultValue::String("NOW()".into()));
-                    c
-                },
-                {
-                    let mut c = col("count", ColumnType::Simple(SimpleColumnType::Integer));
-                    c.default = Some(DefaultValue::Integer(0));
-                    c
-                },
-            ],
-            constraints: vec![auto_pk(&["id"])],
-        };
-        let result = render_entity(&table).unwrap();
-        assert!(result.contains("from django.utils import timezone"));
-        assert!(result.contains("default=timezone.now"));
-        assert!(result.contains("default=0"));
-        assert_snapshot!(result);
     }
 
     // -----------------------------------------------------------------------

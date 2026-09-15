@@ -82,9 +82,10 @@ SQLAlchemy's positional column name).
 - **No M2M/junction detection**: a junction table (composite-PK, 2+ FKs) is rendered as a plain
   has-many to the junction struct itself, not a dedicated M2M relation
 - **Config**: `GormExporterWithConfig` takes the *resolved* package name (a `&str`), not a `GormConfig` — callers get it from `VespertideConfig::gorm_package_name(export_dir)`, which uses an explicit `gorm.package_name` if set, otherwise infers one from the actual export directory's final path segment (sanitized to a valid Go identifier), falling back to `"models"`. The CLI passes the real write target (`--export-dir` override or `model_export_dir`), not the config's static default, since Go requires `package` to match the directory the files live in.
-- **Tests**: own snapshot suite under `gorm/tests/` (not the shared `orm_cases!` fixtures until the
-  Django/GORM cross-ORM wiring pass), split into `tests/mod.rs` (type mapping, snapshots) and
-  `tests/relations.rs` (composite-FK + self-ref regression tests)
+- **Tests**: rendered output is pinned by the shared `orm_cases!` suite; `gorm/tests/` holds only
+  non-snapshot unit tests — `tests/mod.rs` (type mapping, naming, tag/relation
+  regressions, package-name config) and `tests/relations.rs`
+  (composite-FK + self-ref regressions)
 
 ### Django (Python)
 - Renders `models.Model` classes with a `class Meta` (`db_table`, `indexes`, `constraints`)
@@ -102,8 +103,8 @@ SQLAlchemy's positional column name).
   of field type — `models.AutoField`/`SmallAutoField`/`BigAutoField` do **not** imply
   `primary_key=True` in real Django; omitting it fails Django's own `fields.E100` system check
 - **Config**: `DjangoExporterWithConfig` for `app_label` (omitted from `Meta` when unset)
-- **Tests**: own snapshot suite under `django/snapshots/` (via inline `#[cfg(test)] mod tests` in
-  `django/mod.rs`)
+- **Tests**: rendered output is pinned by the shared `orm_cases!` suite; the inline
+  `#[cfg(test)] mod tests` in `django/mod.rs` holds only non-snapshot unit tests
 
 ### Prisma (schema.prisma)
 - Emits models only — no `datasource`/`generator` block, so the output drops into an existing schema
@@ -143,7 +144,7 @@ cargo insta accept
 - Snapshot testing with `insta` crate (YAML format)
 - `rstest` for parameterized tests across all ORM backends
 - Drizzle's cross-ORM snapshots carry the dialect the trait path renders (`…_Drizzle_pg.snap`); the other two dialects live in the module's own `render_schema_full_file_per_dialect@{pg,mysql,sqlite}` snapshots
-- 566 snapshot files, all in the single shared `src/tests/snapshots/` directory; every export scenario goes through the shared `orm_cases!` macro in `src/tests/mod.rs`, producing one snapshot per ORM (all eight) — a scenario snapshotted for only one ORM is a defect
+- 574 snapshot files, all in the single shared `src/tests/snapshots/` directory; every export scenario goes through the shared `orm_cases!` macro in `src/tests/mod.rs`, producing one snapshot per ORM (all eight) — a scenario snapshotted for only one ORM is a defect
 
 ## NOTES
 
