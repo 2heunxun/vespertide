@@ -1,0 +1,123 @@
+use std::collections::HashMap;
+
+use super::render::to_pascal_case;
+use vespertide_core::schema::column::{
+    ColumnType, ComplexColumnType, SimpleColumnKind, SimpleColumnType,
+};
+use vespertide_core::{ReferenceAction, ReferenceActionKind};
+use vespertide_naming::{IdentifierStart, sanitize_identifier};
+
+/// Track which Go imports are actually used to generate minimal import statements.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "four independent import-presence flags; enum would add verbosity without clarity"
+)]
+#[derive(Default)]
+pub(super) struct UsedImports {
+    pub(super) needs_time: bool,
+    pub(super) needs_uuid: bool,
+    pub(super) needs_datatypes: bool,
+    pub(super) needs_decimal: bool,
+}
+
+impl UsedImports {
+    pub(super) fn add_column_type(&mut self, col_type: &ColumnType) {
+        match col_type {
+            ColumnType::Simple(ty) => match ty {
+                SimpleColumnType::Date
+                | SimpleColumnType::Time
+                | SimpleColumnType::Timestamp
+                | SimpleColumnType::Timestamptz => {
+                    self.needs_time = true;
+                }
+                SimpleColumnType::Uuid => {
+                    self.needs_uuid = true;
+                }
+                SimpleColumnType::Json => {
+                    self.needs_datatypes = true;
+                }
+                _ => {}
+            },
+            ColumnType::Complex(ty) => {
+                if let ComplexColumnType::Numeric { .. } = ty {
+                    self.needs_decimal = true;
+                }
+                if let ComplexColumnType::Custom { custom_type } = ty
+                    && custom_type.to_uppercase() == "JSONB"
+                {
+                    self.needs_datatypes = true;
+                }
+            }
+        }
+    }
+}
+
+pub(super) fn go_type_for_column_mapped(
+    col_type: &ColumnType,
+    nullable: bool,
+    enum_map: &HashMap<&str, String>,
+) -> String {
+    let base = match col_type {
+        ColumnType::Complex(ComplexColumnType::Enum { name, .. }) => {
+            enum_map.get(name.as_str()).cloned().unwrap_or_else(|| {
+                sanitize_identifier(&to_pascal_case(name), IdentifierStart::Underscore)
+            })
+        }
+        _ => go_base_type(col_type),
+    };
+    if nullable { format!("*{base}") } else { base }
+}
+
+fn go_base_type(col_type: &ColumnType) -> String {
+    match col_type {
+        ColumnType::Simple(ty) => match SimpleColumnKind::from(*ty) {
+            SimpleColumnKind::SmallInt => "int16".to_string(),
+            SimpleColumnKind::Integer => "int32".to_string(),
+            SimpleColumnKind::BigInt => "int64".to_string(),
+            SimpleColumnKind::Real => "float32".to_string(),
+            SimpleColumnKind::DoublePrecision => "float64".to_string(),
+            SimpleColumnKind::Text
+            | SimpleColumnKind::Xml
+            | SimpleColumnKind::Inet
+            | SimpleColumnKind::Cidr
+            | SimpleColumnKind::Macaddr
+            | SimpleColumnKind::Interval => "string".to_string(),
+            SimpleColumnKind::Boolean => "bool".to_string(),
+            SimpleColumnKind::Date
+            | SimpleColumnKind::Time
+            | SimpleColumnKind::Timestamp
+            | SimpleColumnKind::Timestamptz => "time.Time".to_string(),
+            SimpleColumnKind::Bytea => "[]byte".to_string(),
+            SimpleColumnKind::Uuid => "uuid.UUID".to_string(),
+            SimpleColumnKind::Json => "datatypes.JSON".to_string(),
+        },
+        ColumnType::Complex(ty) => match ty {
+            ComplexColumnType::Varchar { .. } | ComplexColumnType::Char { .. } => {
+                "string".to_string()
+            }
+            ComplexColumnType::Custom { custom_type } => {
+                if custom_type.to_uppercase() == "JSONB" {
+                    "datatypes.JSON".to_string()
+                } else {
+                    "string".to_string()
+                }
+            }
+            ComplexColumnType::Numeric { .. } => "decimal.Decimal".to_string(),
+            // `#[non_exhaustive]` future-variant guard; unreachable today.
+            #[cfg(not(tarpaulin_include))]
+            _ => {
+                unreachable!("ComplexColumnType is #[non_exhaustive]; all variants matched")
+            }
+        },
+    }
+}
+
+pub(super) fn reference_action_str(action: &ReferenceAction) -> &'static str {
+    match ReferenceActionKind::from(action) {
+        ReferenceActionKind::Cascade => "CASCADE",
+        ReferenceActionKind::Restrict => "RESTRICT",
+        ReferenceActionKind::SetNull => "SET NULL",
+        ReferenceActionKind::SetDefault => "SET DEFAULT",
+        ReferenceActionKind::NoAction => "NO ACTION",
+    }
+}

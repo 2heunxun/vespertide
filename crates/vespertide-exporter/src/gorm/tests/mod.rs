@@ -8,10 +8,9 @@ use vespertide_core::schema::column::{
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ColumnDef, DefaultValue, NumValue, ReferenceAction, TableDef};
 
-use super::{
-    GormExporterWithConfig, go_type_for_column_mapped, infer_relation_field_name,
-    needs_table_name_method, render_entity, render_entity_with_schema, to_go_field_name,
-};
+use super::render::{infer_relation_field_name, needs_table_name_method, to_go_field_name};
+use super::types::go_type_for_column_mapped;
+use super::{GormExporterWithConfig, render_entity, render_entity_with_schema};
 
 mod relations;
 
