@@ -33,10 +33,10 @@ fn render_schema(orm: Orm, schema: &[TableDef]) -> Result<String, String> {
         Orm::SqlAlchemy => crate::sqlalchemy::export(schema),
         Orm::SqlModel => crate::sqlmodel::render_entities(schema),
         Orm::Jpa => crate::jpa::render_entities(schema).map(|entities| entities.join("\n")),
-        Orm::Gorm => crate::gorm::export(schema),
-        Orm::Django => crate::django::export(schema),
         Orm::Prisma => crate::prisma::export(schema),
         Orm::Drizzle => crate::drizzle::export(schema),
+        Orm::Gorm => crate::gorm::export(schema),
+        Orm::Django => crate::django::export(schema),
     }
 }
 
@@ -397,9 +397,9 @@ fn to_pascal_case_for(orm: Orm, s: &str) -> String {
         Orm::SqlAlchemy => crate::sqlalchemy::to_pascal_case_for_tests(s),
         Orm::SqlModel => crate::sqlmodel::to_pascal_case_for_tests(s),
         Orm::Jpa => crate::jpa::to_pascal_case_for_tests(s),
+        Orm::Prisma | Orm::Drizzle => vespertide_naming::to_pascal_case(s),
         Orm::Gorm => crate::gorm::to_pascal_case_for_tests(s),
         Orm::Django => crate::django::to_pascal_case_for_tests(s),
-        Orm::Prisma | Orm::Drizzle => vespertide_naming::to_pascal_case(s),
     }
 }
 

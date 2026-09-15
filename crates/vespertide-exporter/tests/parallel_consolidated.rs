@@ -41,10 +41,10 @@ fn render_schema(orm: Orm, schema: &[TableDef]) -> Result<String, String> {
         Orm::Jpa => {
             vespertide_exporter::jpa::render_entities(schema).map(|entities| entities.join("\n"))
         }
-        Orm::Gorm => vespertide_exporter::gorm::export(schema),
-        Orm::Django => vespertide_exporter::django::export(schema),
         Orm::Prisma => vespertide_exporter::prisma::export(schema),
         Orm::Drizzle => vespertide_exporter::drizzle::export(schema),
+        Orm::Gorm => vespertide_exporter::gorm::export(schema),
+        Orm::Django => vespertide_exporter::django::export(schema),
     }
 }
 

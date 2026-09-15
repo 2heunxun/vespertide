@@ -29,9 +29,9 @@ impl Orm {
             Orm::SeaOrm => "rs",
             Orm::SqlAlchemy | Orm::SqlModel | Orm::Django => "py",
             Orm::Jpa => "java",
-            Orm::Gorm => "go",
             Orm::Prisma => "prisma",
             Orm::Drizzle => "ts",
+            Orm::Gorm => "go",
         }
     }
 }
@@ -58,10 +58,10 @@ pub fn render_entity(orm: Orm, table: &TableDef) -> Result<String, String> {
         Orm::SqlAlchemy => SqlAlchemyExporter.render_entity(table),
         Orm::SqlModel => SqlModelExporter.render_entity(table),
         Orm::Jpa => JpaExporter.render_entity(table),
-        Orm::Gorm => GormExporter.render_entity(table),
-        Orm::Django => DjangoExporter.render_entity(table),
         Orm::Prisma => PrismaExporter.render_entity(table),
         Orm::Drizzle => DrizzleExporter.render_entity(table),
+        Orm::Gorm => GormExporter.render_entity(table),
+        Orm::Django => DjangoExporter.render_entity(table),
     }
 }
 
@@ -76,10 +76,10 @@ pub fn render_entity_with_schema(
         Orm::SqlAlchemy => SqlAlchemyExporter.render_entity_with_schema(table, schema),
         Orm::SqlModel => SqlModelExporter.render_entity_with_schema(table, schema),
         Orm::Jpa => JpaExporter.render_entity_with_schema(table, schema),
-        Orm::Gorm => GormExporter.render_entity_with_schema(table, schema),
-        Orm::Django => DjangoExporter.render_entity_with_schema(table, schema),
         Orm::Prisma => PrismaExporter.render_entity_with_schema(table, schema),
         Orm::Drizzle => DrizzleExporter.render_entity_with_schema(table, schema),
+        Orm::Gorm => GormExporter.render_entity_with_schema(table, schema),
+        Orm::Django => DjangoExporter.render_entity_with_schema(table, schema),
     }
 }
 
@@ -138,10 +138,10 @@ mod tests {
     #[case::sqlalchemy("sqlalchemy", Orm::SqlAlchemy)]
     #[case::sqlmodel("sqlmodel", Orm::SqlModel)]
     #[case::jpa("jpa", Orm::Jpa)]
-    #[case::gorm("gorm", Orm::Gorm)]
-    #[case::django("django", Orm::Django)]
     #[case::prisma("prisma", Orm::Prisma)]
     #[case::drizzle("drizzle", Orm::Drizzle)]
+    #[case::gorm("gorm", Orm::Gorm)]
+    #[case::django("django", Orm::Django)]
     fn value_enum_parses_cli_name(#[case] input: &str, #[case] expected: Orm) {
         assert_eq!(
             clap::ValueEnum::from_str(input, false),
