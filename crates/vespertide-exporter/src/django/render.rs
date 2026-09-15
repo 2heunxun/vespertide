@@ -323,25 +323,9 @@ fn render_entity_part(
     // of any `db_column` override). Without this, Django would fall back to
     // adding its own implicit auto `id` PK, which doesn't correspond to any
     // real uniqueness constraint on the actual table.
-    if is_composite_pk {
-        let attnames: Vec<String> = pk_columns_ordered
-            .iter()
-            .map(|col| {
-                if fk_map.contains_key(col.as_str()) {
-                    let (field_name, _) = fk_field_name(col);
-                    format!("{field_name}_id")
-                } else {
-                    col.clone()
-                }
-            })
-            .collect();
-        let args = attnames
-            .iter()
-            .map(|a| format!("\"{a}\""))
-            .collect::<Vec<_>>()
-            .join(", ");
-        lines.push(format!("    pk = models.CompositePrimaryKey({args})"));
-    }
+    // Rendered after the fields, which is where the attnames come from,
+    // but emitted here at the top of the class body.
+    let composite_pk_at = lines.len();
 
     // --- Fields ---
     // Sanitizing distinct column names (e.g. `a_id` -> `a`, `a` -> `a`) can
@@ -349,6 +333,7 @@ fn render_entity_part(
     // attribute name; disambiguate with a numeric suffix rather than
     // silently emitting a duplicate class attribute.
     let mut used_field_names: HashSet<String> = HashSet::new();
+    let mut attnames: HashMap<&str, String> = HashMap::new();
     for col in &table.columns {
         let is_pk = pk_columns.contains(col.name.as_str());
         let is_unique = single_unique_cols.contains(col.name.as_str());
@@ -357,49 +342,66 @@ fn render_entity_part(
             lines.push(format!("    # {}", comment.replace('\n', " ")));
         }
 
-        if let Some(&(ref_table, on_delete, on_update)) = fk_map.get(col.name.as_str()) {
-            render_fk_field(
-                &mut lines,
-                &col.name,
-                ref_table,
-                on_delete,
-                on_update,
-                col.nullable,
-                &mut used_field_names,
-            );
-        } else {
-            let effective_pk = is_pk && !is_composite_pk;
-            let field_type = django_field_type(
-                &col.r#type,
-                effective_pk,
-                auto_increment && !is_composite_pk,
-            );
-            let field_name = unique_name(
-                &sanitize_identifier(col.name.as_str(), IdentifierStart::Underscore),
-                &mut used_field_names,
-            );
-            let db_column = if field_name == col.name.as_str() {
-                None
+        let attname =
+            if let Some(&(ref_table, on_delete, on_update)) = fk_map.get(col.name.as_str()) {
+                let field_name = render_fk_field(
+                    &mut lines,
+                    &col.name,
+                    ref_table,
+                    on_delete,
+                    on_update,
+                    col.nullable,
+                    &mut used_field_names,
+                );
+                // A ForeignKey's attname is `{field}_id` whatever `db_column` says.
+                format!("{field_name}_id")
             } else {
-                Some(col.name.as_str())
+                let effective_pk = is_pk && !is_composite_pk;
+                let field_type = django_field_type(
+                    &col.r#type,
+                    effective_pk,
+                    auto_increment && !is_composite_pk,
+                );
+                let field_name = unique_name(
+                    &sanitize_identifier(col.name.as_str(), IdentifierStart::Underscore),
+                    &mut used_field_names,
+                );
+                let db_column = if field_name == col.name.as_str() {
+                    None
+                } else {
+                    Some(col.name.as_str())
+                };
+                let kwargs = build_field_kwargs(
+                    &col.r#type,
+                    effective_pk,
+                    is_unique,
+                    col.nullable,
+                    col.default.as_ref(),
+                    enum_class_map.get(col.name.as_str()).map(String::as_str),
+                    db_column,
+                    used,
+                );
+                let kwargs_str = kwargs.join(", ");
+                if kwargs_str.is_empty() {
+                    lines.push(format!("    {field_name} = {field_type}()"));
+                } else {
+                    lines.push(format!("    {field_name} = {field_type}({kwargs_str})"));
+                }
+                field_name
             };
-            let kwargs = build_field_kwargs(
-                &col.r#type,
-                effective_pk,
-                is_unique,
-                col.nullable,
-                col.default.as_ref(),
-                enum_class_map.get(col.name.as_str()).map(String::as_str),
-                db_column,
-                used,
-            );
-            let kwargs_str = kwargs.join(", ");
-            if kwargs_str.is_empty() {
-                lines.push(format!("    {field_name} = {field_type}()"));
-            } else {
-                lines.push(format!("    {field_name} = {field_type}({kwargs_str})"));
-            }
-        }
+        attnames.insert(col.name.as_str(), attname);
+    }
+
+    if is_composite_pk {
+        let args = pk_columns_ordered
+            .iter()
+            .map(|col| format!("\"{}\"", attname_of(&attnames, col)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        lines.insert(
+            composite_pk_at,
+            format!("    pk = models.CompositePrimaryKey({args})"),
+        );
     }
 
     for line in extra_fields {
@@ -460,7 +462,7 @@ fn render_entity_part(
         for (name, cols) in &indexes {
             let fields = cols
                 .iter()
-                .map(|c| format!("\"{c}\""))
+                .map(|c| format!("\"{}\"", attname_of(&attnames, c)))
                 .collect::<Vec<_>>()
                 .join(", ");
             if let Some(n) = name {
@@ -479,7 +481,7 @@ fn render_entity_part(
         for (name, cols) in &composite_uniques {
             let fields = cols
                 .iter()
-                .map(|c| format!("\"{c}\""))
+                .map(|c| format!("\"{}\"", attname_of(&attnames, c)))
                 .collect::<Vec<_>>()
                 .join(", ");
             // `name` is required on every Django constraint, so an unnamed
@@ -507,7 +509,7 @@ fn render_fk_field(
     on_update: Option<&ReferenceAction>,
     nullable: bool,
     used_field_names: &mut HashSet<String>,
-) {
+) -> String {
     let (field_name, db_column) = fk_field_name(col_name);
     // The `_id` strip can collapse two distinct columns onto the same
     // attribute name (e.g. `a_id` -> `a` colliding with a real column `a`).
@@ -537,6 +539,16 @@ fn render_fk_field(
     lines.push(format!(
         "    {field_name} = models.ForeignKey({kwargs_str})"
     ));
+    field_name
+}
+
+/// What Django calls a column inside `Meta.indexes`, `Meta.constraints` and
+/// `CompositePrimaryKey`: the declared field name, or a ForeignKey's attname.
+/// Those three resolve against field names only — never `db_column` — so a
+/// column whose name had to be escaped is unreachable under its database
+/// spelling.
+fn attname_of<'a>(attnames: &'a HashMap<&str, String>, column: &'a str) -> &'a str {
+    attnames.get(column).map_or(column, String::as_str)
 }
 
 /// Returns (field_name, Option<db_column>).
