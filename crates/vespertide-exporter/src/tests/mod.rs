@@ -23,10 +23,10 @@ fn orm_label(orm: Orm) -> String {
 }
 
 /// Dispatch the per-ORM **multi-table** entry point so the cross-ORM
-/// `orm_cases!(multi ...)` arm renders a `Vec<TableDef>` schema for all six
+/// `orm_cases!(multi ...)` arm renders a `Vec<TableDef>` schema for all eight
 /// ORMs through a single call. JPA's `render_entities` returns `Vec<String>`
 /// (one entry per entity); we join with `"\n"` to match the
-/// `String`-returning shape of the other four.
+/// `String`-returning shape of the other seven.
 fn render_schema(orm: Orm, schema: &[TableDef]) -> Result<String, String> {
     match orm {
         Orm::SeaOrm => crate::seaorm::export(schema),
@@ -298,7 +298,7 @@ orm_cases!(
 );
 // Cross-ORM comparison of identifier escaping. Each language starts identifiers
 // differently — Prisma and Pydantic reject a leading `_`, the rest accept it —
-// so the six snapshots must differ, and every one has to carry the original
+// so the eight snapshots must differ, and every one has to carry the original
 // name (`@@map` / `@map`, `column_name`, the positional column name,
 // `sa_column_kwargs`, `@Table`/`@Column`).
 orm_cases!(
@@ -326,9 +326,12 @@ orm_cases!(
     fixtures::non_identifier_relation_names
 );
 // A composite FK becomes a relation only where the backend can express one
-// (`SeaORM`'s tuple `from`/`to`, Prisma's multi-column `fields`/`references`);
-// the Python backends keep it as a `ForeignKeyConstraint` and JPA currently
-// drops it, so the six outputs disagree in a way worth pinning.
+// (`SeaORM`'s tuple `from`/`to`, Prisma's multi-column `fields`/`references`,
+// Drizzle's `foreignKey({columns, foreignColumns})` plus a `one(...)` relation,
+// GORM's comma-separated `foreignKey`/`references`); SQLAlchemy and SQLModel
+// keep it as a `ForeignKeyConstraint`, Django emits a `# composite foreign key:`
+// comment, and JPA currently drops it, so the eight outputs disagree in a way
+// worth pinning.
 orm_cases!(
     multi composite_fk_relation_snapshot,
     "composite_fk_relation",
@@ -408,9 +411,9 @@ fn to_pascal_case_for(orm: Orm, s: &str) -> String {
 /// * `-` as separator: `SeaORM`, Prisma and Drizzle treat it as a separator
 ///   (the latter two via `vespertide_naming`), the other five ORMs leave it
 ///   intact (their splits operate on `_` only).
-/// * Non-ASCII characters: `SeaORM` and Prisma use `to_ascii_uppercase`, the
-///   others use `to_uppercase` (Unicode-aware).
-/// These divergences are exercised in the per-ORM `tests.rs` files where
+/// * Non-ASCII characters: `SeaORM`, Prisma and Drizzle use
+///   `to_ascii_uppercase`, the other five use `to_uppercase` (Unicode-aware).
+/// These divergences are exercised in each backend's own test module where
 /// applicable.
 #[rstest]
 #[case::seaorm(Orm::SeaOrm)]

@@ -21,7 +21,7 @@ src/
 ├── jpa/                # mod.rs, render.rs, types.rs — JPA/Hibernate entities
 ├── prisma/             # mod.rs, render.rs, types.rs, enums.rs — schema.prisma models
 ├── drizzle/            # mod.rs, render.rs, types.rs, enums.rs — Drizzle TypeScript models
-├── gorm/               # mod.rs + tests/ — GORM structs with gorm tags
+├── gorm/               # mod.rs, render.rs, types.rs, enums.rs, tests/ — GORM structs
 ├── django/             # mod.rs, render.rs, types.rs, enums.rs — Django models.Model classes
 ├── utils/              # common.rs (join_quoted/unquote/claim_field_name), python.rs,
 │                       #   typescript.rs (ts_binding/ts_string)
@@ -74,14 +74,13 @@ SQLAlchemy's positional column name).
 ### GORM (Go)
 - **Forward FK**: single-column FK → belongs-to struct field with a `gorm:"foreignKey:..."` tag;
   composite (multi-column) FK → single relation field via comma-separated
-  `foreignKey:Col1,Col2;references:RefCol1,RefCol2` (a real GORM feature, unlike Django below)
+  `foreignKey:Col1,Col2;references:RefCol1,RefCol2`
 - **Reverse (has-many)**: `find_reverse_relations()` scans the full schema for FKs pointing back at
   the table, including **self-referencing FKs** (a table referencing itself, e.g.
   `categories.parent_id -> categories.id`) — the self-ref case is named `Children` rather than a
   pluralized table name to avoid colliding with the struct's own name
 - **No M2M/junction detection**: a junction table (composite-PK, 2+ FKs) is rendered as a plain
-  has-many to the junction struct itself, not a dedicated M2M relation — same limitation Django had
-  before this was added there; not yet closed for GORM
+  has-many to the junction struct itself, not a dedicated M2M relation
 - **Config**: `GormExporterWithConfig` takes the *resolved* package name (a `&str`), not a `GormConfig` — callers get it from `VespertideConfig::gorm_package_name(export_dir)`, which uses an explicit `gorm.package_name` if set, otherwise infers one from the actual export directory's final path segment (sanitized to a valid Go identifier), falling back to `"models"`. The CLI passes the real write target (`--export-dir` override or `model_export_dir`), not the config's static default, since Go requires `package` to match the directory the files live in.
 - **Tests**: own snapshot suite under `gorm/tests/` (not the shared `orm_cases!` fixtures until the
   Django/GORM cross-ORM wiring pass), split into `tests/mod.rs` (type mapping, snapshots) and

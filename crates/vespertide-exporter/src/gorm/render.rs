@@ -10,8 +10,7 @@ use vespertide_core::schema::names::ColumnName;
 use vespertide_core::{ColumnDef, DefaultValue, ReferenceAction, TableDef};
 use vespertide_naming::{IdentifierStart, sanitize_identifier};
 
-/// The Go imports the columns of `tables` need, so one import block can
-/// serve a single entity file or a whole-schema file alike.
+/// The Go imports the columns of `tables` need.
 pub(super) fn imports_for<'a>(tables: impl IntoIterator<Item = &'a TableDef>) -> UsedImports {
     let mut used = UsedImports::default();
     for col in tables.into_iter().flat_map(|table| &table.columns) {

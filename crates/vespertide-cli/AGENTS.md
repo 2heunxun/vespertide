@@ -55,7 +55,7 @@ src/
 ## NOTES
 
 - **revision/**: Most complex command — handles interactive `--fill-with` prompts for NOT NULL columns without defaults; long ago split from a single 3064-line file into `revision/{mod,parse,emit,write,timezones}.rs` + `prompts/` + `tests/`
-- **export/**: Generates the `mod.rs` chain for SeaORM exports; Python/Java ORMs skip it. Prisma and Drizzle take separate single-file paths rather than one file per model — Prisma writes one `models.prisma`, Drizzle one file per dialect (`models.pg.ts` / `models.mysql.ts` / `models.sqlite.ts`)
+- **export/**: Generates the `mod.rs` chain for SeaORM exports; the non-Rust ORMs (Python/Java/Go) skip it. Prisma and Drizzle take separate single-file paths rather than one file per model — Prisma writes one `models.prisma`, Drizzle one file per dialect (`models.pg.ts` / `models.mysql.ts` / `models.sqlite.ts`)
 - All commands use `load_config()`, `load_models()`, `load_migrations()` from `vespertide_loader`
 - YAML and JSON are both fully supported for models and migrations; `new <name> -f yaml` creates YAML templates.
 - Prefer typed `MigrationAction` enums; `RawSql` exists as a documented emergency escape hatch, but is not recommended for normal use.
