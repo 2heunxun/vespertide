@@ -199,22 +199,21 @@ fn render_entity_part(
             ));
         }
         let attname = if let Some(fk) = fk.filter(|fk| is_relatable(fk, schema)) {
-            let default = col
-                .default
-                .as_ref()
-                .and_then(|dv| build_default(&col.r#type, &dv.to_sql(), used));
-            render_fk_field(
-                &mut lines,
-                &col.name,
-                field_name,
-                &class_of(names, fk.ref_table),
-                to_field(fk, schema).as_deref(),
-                fk.on_delete,
-                default.as_deref(),
-                effective_pk,
+            let field = ForeignKeyField {
+                column: &col.name,
+                name: field_name,
+                target_class: class_of(names, fk.ref_table),
+                to_field: to_field(fk, schema),
+                on_delete: fk.on_delete,
+                default: col
+                    .default
+                    .as_ref()
+                    .and_then(|dv| build_default(&col.r#type, &dv.to_sql(), used)),
+                is_pk: effective_pk,
                 is_unique,
-                col.nullable,
-            );
+                nullable: col.nullable,
+            };
+            lines.push(field.render());
             // A ForeignKey's attname is `{field}_id` whatever `db_column` says.
             format!("{field_name}_id")
         } else {
@@ -390,70 +389,78 @@ fn render_entity_part(
     lines.join("\n")
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "all params are independent field-rendering inputs; a context struct would add noise without reducing coupling"
-)]
-fn render_fk_field(
-    lines: &mut Vec<String>,
-    col_name: &str,
-    field_name: &str,
-    ref_class: &str,
-    to_field: Option<&str>,
-    on_delete: Option<&ReferenceAction>,
-    default: Option<&str>,
+/// A single-column foreign key Django can express, as the field it renders.
+struct ForeignKeyField<'a> {
+    column: &'a str,
+    name: &'a str,
+    target_class: String,
+    to_field: Option<String>,
+    on_delete: Option<&'a ReferenceAction>,
+    default: Option<String>,
     is_pk: bool,
     is_unique: bool,
     nullable: bool,
-) {
-    // Django reads a ForeignKey through `{field}_id`, so the column keeps its
-    // database name exactly when the stripped base survives every rename.
-    let db_column = (format!("{field_name}_id") != col_name).then(|| col_name.to_string());
-    let null = nullable && !is_pk;
-    // `ON UPDATE` has no counterpart on a Django ForeignKey.
-    let on_delete_str = on_delete_for(on_delete, default.is_some(), null);
-
-    let mut kwargs = vec![
-        format!("\"{ref_class}\""),
-        format!("on_delete={on_delete_str}"),
-    ];
-    if let Some(to_field) = to_field {
-        kwargs.push(format!("to_field={}", string_literal(to_field)));
-    }
-    if is_pk {
-        kwargs.push("primary_key=True".into());
-    }
-    if let Some(default) = default {
-        kwargs.push(format!("default={default}"));
-    }
-    if let Some(db_col) = db_column {
-        kwargs.push(format!("db_column={}", string_literal(&db_col)));
-    }
-    kwargs.push("related_name=\"+\"".into());
-    if null {
-        kwargs.push("null=True".into());
-        kwargs.push("blank=True".into());
-    }
-
-    // A FK that is the PK or unique holds at most one row per target: Django's
-    // one-to-one. `ForeignKey(unique=True)` only draws fields.W342 pointing here.
-    let field_class = if is_pk || is_unique {
-        "models.OneToOneField"
-    } else {
-        "models.ForeignKey"
-    };
-    let kwargs_str = kwargs.join(", ");
-    lines.push(format!("    {field_name} = {field_class}({kwargs_str})"));
 }
 
-/// Django cannot relate to a model with a composite primary key
-/// (fields.E347), so a foreign key into one stays a plain column. A target
-/// outside `schema` is taken at its word.
+impl ForeignKeyField<'_> {
+    fn render(&self) -> String {
+        // Django reads a ForeignKey through `{field}_id`, so the column keeps
+        // its database name exactly when the stripped base survives every
+        // rename.
+        let db_column = (format!("{}_id", self.name) != self.column).then_some(self.column);
+        let null = self.nullable && !self.is_pk;
+        // `ON UPDATE` has no counterpart on a Django ForeignKey.
+        let on_delete = on_delete_for(self.on_delete, self.default.is_some(), null);
+
+        let mut kwargs = vec![
+            format!("\"{}\"", self.target_class),
+            format!("on_delete={on_delete}"),
+        ];
+        if let Some(to_field) = &self.to_field {
+            kwargs.push(format!("to_field={}", string_literal(to_field)));
+        }
+        if self.is_pk {
+            kwargs.push("primary_key=True".into());
+        }
+        if let Some(default) = &self.default {
+            kwargs.push(format!("default={default}"));
+        }
+        if let Some(db_column) = db_column {
+            kwargs.push(format!("db_column={}", string_literal(db_column)));
+        }
+        kwargs.push("related_name=\"+\"".into());
+        if null {
+            kwargs.push("null=True".into());
+            kwargs.push("blank=True".into());
+        }
+
+        // A FK that is the PK or unique holds at most one row per target:
+        // Django's one-to-one. `ForeignKey(unique=True)` only draws fields.W342
+        // pointing here.
+        let field_class = if self.is_pk || self.is_unique {
+            "models.OneToOneField"
+        } else {
+            "models.ForeignKey"
+        };
+        format!("    {} = {field_class}({})", self.name, kwargs.join(", "))
+    }
+}
+
+/// Whether Django can express `fk` as a relation. It cannot relate to a model
+/// with a composite primary key (fields.E347), and the field a key references
+/// must be unique (fields.E311): the target's primary key, or a column with a
+/// unique of its own. Such a key stays a plain column. A target outside
+/// `schema` is taken at its word.
 fn is_relatable(fk: &FkDetails, schema: &[TableDef]) -> bool {
     schema
         .iter()
         .find(|t| t.name.as_str() == fk.ref_table)
-        .is_none_or(|target| primary_key_columns(&target.constraints).len() < 2)
+        .is_none_or(|target| {
+            let pk = primary_key_columns(&target.constraints);
+            pk.len() < 2
+                && (pk.contains(fk.ref_column)
+                    || single_column_uniques(&target.constraints).contains(fk.ref_column))
+        })
 }
 
 /// The `to_field` a foreign key needs: the target's field for the referenced
@@ -491,15 +498,32 @@ fn column_field_names<'a>(
             let is_relation = fk_map
                 .get(col.name.as_str())
                 .is_some_and(|fk| is_relatable(fk, schema));
-            let base = if is_relation {
-                vespertide_naming::infer_relation_field_name(&col.name)
+            let name = if is_relation {
+                let base = vespertide_naming::infer_relation_field_name(&col.name);
+                claim_relation_field_name(&django_identifier(base), &mut taken)
             } else {
-                col.name.as_str()
+                django_field_name(&col.name, &mut taken)
             };
-            (col.name.as_str(), django_field_name(base, &mut taken))
+            (col.name.as_str(), name)
         })
         .collect();
     (names, taken)
+}
+
+/// Claim a relation's field name together with its attname: Django stores the
+/// key under `{field}_id`, so a plain `owner_id` column next to an `owner` key
+/// would share that attribute with it (models.E006). The first numbered name
+/// with both free wins.
+fn claim_relation_field_name(preferred: &str, taken: &mut HashSet<String>) -> String {
+    let mut name = preferred.to_string();
+    let mut n = 2usize;
+    while taken.contains(&name) || taken.contains(&format!("{name}_id")) {
+        name = format!("{preferred}{n}");
+        n += 1;
+    }
+    taken.insert(format!("{name}_id"));
+    taken.insert(name.clone());
+    name
 }
 
 /// Every class `tables` declare in their module: models, then choices classes.
@@ -574,13 +598,19 @@ const MODEL_ATTRIBUTES: &[&str] = &[
     "validate_unique",
 ];
 
-/// A column's Django field name: a Python identifier that also passes Django's
-/// field checks — no `__` (the lookup separator, fields.E002), no trailing `_`
-/// (fields.E001), not a keyword and not one of the model's own attributes —
-/// claimed against `taken`. The repairs are `inspectdb`'s, so a renamed field
-/// reads the way Django's own tooling would spell it; callers emit `db_column`
-/// whenever the result differs from the column.
+/// A column's Django field name: its [`django_identifier`], claimed against
+/// `taken`. Callers emit `db_column` whenever the result differs from the
+/// column.
 fn django_field_name(column: &str, taken: &mut HashSet<String>) -> String {
+    claim_binding(django_identifier(column), taken)
+}
+
+/// A Python identifier that also passes Django's field checks — no `__` (the
+/// lookup separator, fields.E002), no trailing `_` (fields.E001), not a
+/// keyword and not one of the model's own attributes. The repairs are
+/// `inspectdb`'s, so a renamed field reads the way Django's own tooling would
+/// spell it.
+fn django_identifier(column: &str) -> String {
     let mut name = sanitize_identifier(column, IdentifierStart::Underscore);
     while name.contains("__") {
         name = name.replace("__", "_");
@@ -591,7 +621,7 @@ fn django_field_name(column: &str, taken: &mut HashSet<String>) -> String {
     if MODEL_ATTRIBUTES.contains(&name.as_str()) || is_python_keyword(&name) {
         name.push_str("_field");
     }
-    claim_binding(name, taken)
+    name
 }
 
 fn assemble_with_imports(used: &UsedImports, parts: &[String]) -> String {
@@ -617,7 +647,10 @@ fn assemble_with_imports(used: &UsedImports, parts: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use vespertide_core::schema::column::SimpleColumnType;
+
     use super::*;
+    use crate::tests::fixtures::{fk, pk, simple};
 
     #[rstest::rstest]
     #[case::plain("author", "author")]
@@ -634,6 +667,70 @@ mod tests {
     fn django_field_name_passes_the_field_checks(#[case] column: &str, #[case] expected: &str) {
         let mut taken = HashSet::new();
         assert_eq!(django_field_name(column, &mut taken), expected);
+    }
+
+    fn owners(constraints: Vec<TableConstraint>) -> TableDef {
+        TableDef {
+            name: "owners".into(),
+            description: None,
+            columns: vec![
+                simple("id", SimpleColumnType::Integer),
+                simple("region", SimpleColumnType::Integer),
+                simple("code", SimpleColumnType::Integer),
+            ],
+            constraints,
+        }
+    }
+
+    fn unique(column: &str) -> TableConstraint {
+        TableConstraint::Unique {
+            name: None,
+            columns: vec![column.into()],
+            strategy: vespertide_core::UniqueConstraintStrategy::DeleteDuplicates {
+                keep: vespertide_core::KeepPolicy::First,
+            },
+        }
+    }
+
+    /// A key's attname is `{field}_id`, so the key and a column of that name
+    /// cannot both keep theirs, whichever the table declares first.
+    #[rstest::rstest]
+    #[case::key_first(&["owner", "owner_id"], &["owner", "owner_id2"])]
+    #[case::column_first(&["owner_id", "owner"], &["owner_id", "owner2"])]
+    fn a_key_claims_its_attname_with_its_field_name(
+        #[case] columns: &[&str],
+        #[case] expected: &[&str],
+    ) {
+        let table = TableDef {
+            name: "pets".into(),
+            description: None,
+            columns: columns
+                .iter()
+                .map(|name| simple(name, SimpleColumnType::Integer))
+                .collect(),
+            constraints: vec![fk(&["owner"], "owners", &["id"])],
+        };
+        let (names, _) = column_field_names(&table, &[]);
+        let names: Vec<&str> = columns.iter().map(|c| names[c].as_str()).collect();
+        assert_eq!(names, expected);
+    }
+
+    #[rstest::rstest]
+    #[case::primary_key(vec![pk(&["id"])], "id", true)]
+    #[case::unique_column(vec![pk(&["id"]), unique("code")], "code", true)]
+    #[case::column_that_is_not_unique(vec![pk(&["id"])], "code", false)]
+    #[case::part_of_a_composite_key(vec![pk(&["id", "region"])], "id", false)]
+    fn a_key_is_a_relation_only_onto_a_unique_field_of_a_single_key_model(
+        #[case] target_constraints: Vec<TableConstraint>,
+        #[case] ref_column: &str,
+        #[case] expected: bool,
+    ) {
+        let schema = [owners(target_constraints)];
+        let key = fk(&["owner_id"], "owners", &[ref_column]);
+        let fk_map = single_column_fk_details(std::slice::from_ref(&key));
+        assert_eq!(is_relatable(&fk_map["owner_id"], &schema), expected);
+        // A target the schema does not hold is taken at its word.
+        assert!(is_relatable(&fk_map["owner_id"], &[]));
     }
 
     #[rstest::rstest]

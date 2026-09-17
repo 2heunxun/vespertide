@@ -76,7 +76,7 @@ pub(super) fn django_field_type(
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "all params are independent field-kwarg inputs; a context struct would add noise without reducing coupling"
+    reason = "independent field-kwarg inputs, read once at a single call site"
 )]
 pub(super) fn build_field_kwargs(
     col_type: &ColumnType,

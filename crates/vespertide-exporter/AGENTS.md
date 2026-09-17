@@ -187,9 +187,12 @@ repairs.
   at that class — and the PK one keeps `primary_key=True`. A key that references anything but
   the target's primary key carries `to_field=` (Django would otherwise join on the primary key
   and silently return the wrong rows), named through the target's own `column_field_names`. A
-  key into a model with a composite primary key stays a plain column plus a
+  key into a model with a composite primary key, or onto a column that is neither the target's
+  primary key nor unique on its own, stays a plain column plus a
   `# foreign key: (col) -> table(ref)` comment: Django cannot relate to such a model
-  (fields.E347)
+  (fields.E347) or through such a field (fields.E311). A key claims its attname along with its
+  field name (`claim_relation_field_name`): Django stores it under `{field}_id`, which a plain
+  column of that name would clash with (models.E006)
 - **Config**: `DjangoExporterWithConfig` for `app_label` (omitted from `Meta` when unset); its
   `export` renders the whole schema as one module, which is what the CLI writes (`models.py`) —
   Django loads an app's models from its one `models` module

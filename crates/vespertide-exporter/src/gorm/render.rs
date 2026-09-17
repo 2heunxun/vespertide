@@ -361,7 +361,7 @@ fn reverse_field_names(target: &str, rels: &[BackRelation]) -> Vec<String> {
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "all params are independent field-rendering inputs; a context struct would add noise without reducing coupling"
+    reason = "independent field-rendering inputs, read once at a single call site"
 )]
 fn render_column_field(
     lines: &mut Vec<String>,
