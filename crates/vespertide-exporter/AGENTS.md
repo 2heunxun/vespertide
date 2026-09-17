@@ -125,7 +125,8 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
   at that class — and the PK one keeps `primary_key=True`
 - **Config**: `DjangoExporterWithConfig` for `app_label` (omitted from `Meta` when unset)
 - **Tests**: rendered output is pinned by the shared `orm_cases!` suite; the inline
-  `#[cfg(test)] mod tests` in `django/mod.rs` holds only non-snapshot unit tests
+  `#[cfg(test)] mod tests` in `django/mod.rs` holds only function-level unit tests (field-class
+  and `on_delete` mappings)
 
 ### Prisma (schema.prisma)
 - Emits models only — no `datasource`/`generator` block, so the output drops into an existing schema
