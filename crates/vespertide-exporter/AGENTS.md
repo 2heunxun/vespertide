@@ -89,6 +89,14 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
   pluralized table name to avoid colliding with the struct's own name
 - **No M2M/junction detection**: a junction table (composite-PK, 2+ FKs) is rendered as a plain
   has-many to the junction struct itself, not a dedicated M2M relation
+- **Identifiers**: every struct, field and type name is an exported Go name (`exported_go_name`:
+  `1users` → `X1users`), `Id` becomes `ID` only where it ends a word (`UserID`, but `Identity`),
+  and one taken set per struct covers the columns first and then every relation field, so a
+  has-many or belongs-to never takes a column's name (`Posts2`, `OrderRegions3`)
+- **Tags**: `index:`/`uniqueIndex:` names come from the naming builders, so they match what the
+  SQL layer creates and GORM groups a composite index by them; `char(N)` and the PG network types
+  carry an explicit `type:`; a default GORM's tag syntax cannot hold (`"`, `;`, a function call)
+  is omitted, and an integer enum's variant-name default becomes its value
 - **Package name**: there is no `gorm` config section. `GormExporterWithConfig` takes a resolved
   `&str`, which callers get from `vespertide_config::go_package_name(export_dir)` — the export
   directory's final path segment sanitized into a Go identifier, falling back to `"models"`. The
@@ -111,9 +119,9 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
   junctions reach one target) and run through `django_field_name` after the columns, so it never
   shadows a scalar field. Purely self-referential junctions are skipped rather than guessed at
 - **Composite (multi-column) FK**: Django has no native multi-column FK field, so
-  `collect_composite_fks` (from `utils/common.rs`, shared with SQLAlchemy, SQLModel and GORM) is used to emit a
-  `# composite foreign key: (...) -> ref_table(...)` comment instead of silently dropping the
-  relationship
+  `collect_composite_fks` (from `utils/common.rs`, shared with SQLAlchemy, SQLModel and GORM)
+  emits a `# composite foreign key: (...) -> ref_table(...)` comment instead of silently dropping
+  the relationship
 - **`build_default()`**: only emits a bare (unquoted) SQL default when it parses as a numeric
   literal — an unrecognized bare constant (e.g. a named SQL constant) is omitted rather than
   emitted as an undefined Python name
