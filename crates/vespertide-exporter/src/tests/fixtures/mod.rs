@@ -14,6 +14,9 @@ pub(crate) use collisions::binding_collisions;
 mod reference_actions;
 pub(crate) use reference_actions::reference_actions;
 
+mod identifiers;
+pub(crate) use identifiers::relation_field_names;
+
 pub(crate) fn col(name: &str, ty: ColumnType) -> ColumnDef {
     ColumnDef::new(name, ty, false)
 }
@@ -26,7 +29,7 @@ pub(crate) fn simple(name: &str, ty: SimpleColumnType) -> ColumnDef {
     col(name, ColumnType::Simple(ty))
 }
 
-fn nullable_simple(name: &str, ty: SimpleColumnType) -> ColumnDef {
+pub(crate) fn nullable_simple(name: &str, ty: SimpleColumnType) -> ColumnDef {
     nullable_col(name, ColumnType::Simple(ty))
 }
 

@@ -1,0 +1,48 @@
+---
+source: crates/vespertide-exporter/src/tests/mod.rs
+expression: rendered
+---
+model OrderRegions {
+  order_id Int
+  region_id Int
+  order_items OrderItems[]
+
+  @@id([order_id, region_id])
+  @@map("order_regions")
+}
+
+model OrderItems {
+  id Int @id
+  order_id Int
+  region_id Int
+  order_regions String
+  order_regions2 String
+  order_regions_rel OrderRegions @relation(fields: [order_id, region_id], references: [order_id, region_id], onDelete: Cascade, onUpdate: Restrict)
+
+  @@map("order_items")
+}
+
+model Users {
+  id Int @id
+  posts String
+  posts_rel Posts[]
+
+  @@map("users")
+}
+
+model Posts {
+  id Int @id
+  user_id Int
+  user Users @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("posts")
+}
+
+model Categories {
+  id Int @id
+  parent_id Int?
+  parent Categories? @relation("CategoriesParent", fields: [parent_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  parent_categories Categories[] @relation("CategoriesParent")
+
+  @@map("categories")
+}

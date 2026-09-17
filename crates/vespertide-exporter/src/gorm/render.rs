@@ -154,16 +154,11 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
 
     lines.push(format!("type {struct_name} struct {{"));
 
-    // Every real column's field name is reserved up front so belongs-to
-    // relation fields (single-column and composite) can detect a collision
-    // regardless of which column — FK or plain — happens to come first in
-    // the table definition.
-    let used_field_names: HashSet<String> = table
-        .columns
-        .iter()
-        .map(|c| to_go_field_name(&c.name))
-        .collect();
-    let mut used_relation_names = used_field_names.clone();
+    // One set of taken names for the whole struct, columns first: no relation
+    // field — belongs-to, composite or has-many — may take a column's name,
+    // whichever order the table declares them in.
+    let field_names = column_field_names(table);
+    let mut taken: HashSet<String> = field_names.values().cloned().collect();
 
     for col in &table.columns {
         let is_pk = pk_columns.contains(col.name.as_str());
@@ -180,6 +175,7 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
         render_column_field(
             &mut lines,
             col,
+            &field_names[col.name.as_str()],
             is_pk,
             auto_increment && !is_composite_pk,
             is_unique,
@@ -189,7 +185,13 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
         );
 
         if let Some(fk) = fk_by_column.get(col.name.as_str()) {
-            render_fk_relation_field(&mut lines, col, fk, &mut used_relation_names);
+            render_fk_relation_field(
+                &mut lines,
+                col,
+                &field_names[col.name.as_str()],
+                fk,
+                &mut taken,
+            );
         }
     }
 
@@ -197,7 +199,7 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
     // associations via comma-separated `foreignKey`/`references` tags, unlike
     // Django which has no native equivalent.
     for fk in collect_composite_fks(table) {
-        render_composite_fk_relation_field(&mut lines, &fk, &mut used_relation_names);
+        render_composite_fk_relation_field(&mut lines, &fk, &field_names, schema, &mut taken);
     }
 
     // Reverse relation fields (HasMany) derived from schema context
@@ -209,7 +211,7 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
         if let Some(ref action) = rel.on_update {
             constraint_parts.push(format!("OnUpdate:{}", action.to_sql_keyword()));
         }
-        let fk_field = to_go_field_name(&rel.fk_column);
+        let fk_field = field_name_in(schema, &rel.ref_table, &rel.fk_column);
         let gorm_tag = if constraint_parts.is_empty() {
             format!("foreignKey:{fk_field}")
         } else {
@@ -220,7 +222,7 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
         };
         lines.push(format!(
             "    {field_name} []{ref_struct} `gorm:\"{gorm_tag}\" json:\"-\"`",
-            field_name = rel.field_name,
+            field_name = claim_binding(rel.field_name.clone(), &mut taken),
             ref_struct = exported_go_name(&rel.ref_table),
         ));
     }
@@ -373,6 +375,7 @@ fn find_reverse_relations(table_name: &str, schema: &[TableDef]) -> Vec<ReverseR
 fn render_column_field(
     lines: &mut Vec<String>,
     col: &ColumnDef,
+    field_name: &str,
     is_pk: bool,
     auto_increment: bool,
     is_unique: bool,
@@ -381,7 +384,6 @@ fn render_column_field(
     enum_name_map: &HashMap<&str, String>,
 ) {
     let go_type = go_type_for_column_mapped(&col.r#type, col.nullable, enum_name_map);
-    let field_name = to_go_field_name(&col.name);
     let gorm_tag = build_gorm_tag(
         col,
         is_pk,
@@ -400,11 +402,11 @@ fn render_column_field(
 fn render_fk_relation_field(
     lines: &mut Vec<String>,
     col: &ColumnDef,
+    fk_field_name: &str,
     fk: &FkDetails,
-    used_relation_names: &mut HashSet<String>,
+    taken: &mut HashSet<String>,
 ) {
     let ref_struct = exported_go_name(fk.ref_table);
-    let fk_field_name = to_go_field_name(&col.name);
     let mut relation_field_name = go_relation_field_name(&col.name);
     if relation_field_name == fk_field_name {
         relation_field_name = format!("{relation_field_name}{ref_struct}");
@@ -412,7 +414,7 @@ fn render_fk_relation_field(
     // The name above only rules out colliding with this FK's own scalar
     // field; it can still collide with an unrelated real column (or another
     // relation) elsewhere in the table.
-    let relation_field_name = claim_binding(relation_field_name, used_relation_names);
+    let relation_field_name = claim_binding(relation_field_name, taken);
 
     let mut constraint_parts: Vec<String> = Vec::new();
     if let Some(action) = fk.on_delete {
@@ -447,14 +449,24 @@ fn render_fk_relation_field(
 fn render_composite_fk_relation_field(
     lines: &mut Vec<String>,
     fk: &CompositeFk,
-    used_relation_names: &mut HashSet<String>,
+    field_names: &HashMap<&str, String>,
+    schema: &[TableDef],
+    taken: &mut HashSet<String>,
 ) {
     let ref_struct = exported_go_name(fk.ref_table);
 
-    let relation_field_name = claim_binding(ref_struct.clone(), used_relation_names);
+    let relation_field_name = claim_binding(ref_struct.clone(), taken);
 
-    let fk_fields: Vec<String> = fk.local_cols.iter().map(|c| to_go_field_name(c)).collect();
-    let ref_fields: Vec<String> = fk.ref_cols.iter().map(|c| to_go_field_name(c)).collect();
+    let fk_fields: Vec<String> = fk
+        .local_cols
+        .iter()
+        .map(|c| field_names[*c].clone())
+        .collect();
+    let ref_fields: Vec<String> = fk
+        .ref_cols
+        .iter()
+        .map(|c| field_name_in(schema, fk.ref_table, c))
+        .collect();
 
     let mut constraint_parts: Vec<String> = Vec::new();
     if let Some(action) = fk.on_delete {
@@ -579,6 +591,34 @@ pub(super) fn exported_go_name(s: &str) -> String {
 /// Go field name for a column: [`exported_go_name`] with Go's `ID` initialism.
 pub(super) fn to_go_field_name(s: &str) -> String {
     export(&go_initialisms(&to_pascal_case(s)))
+}
+
+/// Go field name for every column of `table`, claimed in declaration order so
+/// two columns that map to one Go name (`user_id`, `userId`) get distinct
+/// fields.
+pub(super) fn column_field_names(table: &TableDef) -> HashMap<&str, String> {
+    let mut taken = HashSet::new();
+    table
+        .columns
+        .iter()
+        .map(|col| {
+            (
+                col.name.as_str(),
+                claim_binding(to_go_field_name(&col.name), &mut taken),
+            )
+        })
+        .collect()
+}
+
+/// The field name `column` has in `table_name`'s struct: its claimed name when
+/// that table is part of `schema`, the plain derivation otherwise (a
+/// single-table render knows nothing about its FK targets).
+fn field_name_in(schema: &[TableDef], table_name: &str, column: &str) -> String {
+    schema
+        .iter()
+        .find(|t| t.name.as_str() == table_name)
+        .and_then(|t| column_field_names(t).remove(column))
+        .unwrap_or_else(|| to_go_field_name(column))
 }
 
 /// Go field name for a belongs-to relation: the FK column without its `_id`

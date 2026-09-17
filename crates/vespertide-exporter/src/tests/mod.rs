@@ -391,6 +391,11 @@ orm_cases!(
     "reference_actions",
     fixtures::reference_actions
 );
+orm_cases!(
+    multi relation_field_names_snapshot,
+    "relation_field_names",
+    fixtures::relation_field_names
+);
 
 /// Dispatch the per-ORM `to_pascal_case` helper from a single entry point so
 /// the cross-ORM consolidation test can exercise every implementation without

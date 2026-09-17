@@ -7,7 +7,7 @@ use vespertide_core::schema::column::{
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ColumnDef, ReferenceAction, TableDef};
 
-use super::render::{go_relation_field_name, to_go_field_name};
+use super::render::{column_field_names, go_relation_field_name, to_go_field_name};
 use super::types::go_type_for_column_mapped;
 use super::{render_entity, render_entity_with_schema};
 
@@ -81,6 +81,23 @@ fn test_go_type_mapping(
 #[case("1st_place", "X1stPlace")]
 fn test_to_go_field_name(#[case] input: &str, #[case] expected: &str) {
     assert_eq!(to_go_field_name(input), expected);
+}
+
+/// Two columns that map to one Go name get distinct fields, in declaration order.
+#[test]
+fn column_field_names_disambiguate_go_collisions() {
+    let table = TableDef {
+        name: "sessions".into(),
+        description: None,
+        columns: vec![
+            col("user_id", ColumnType::Simple(SimpleColumnType::Integer)),
+            col("userId", ColumnType::Simple(SimpleColumnType::Integer)),
+        ],
+        constraints: vec![],
+    };
+    let names = column_field_names(&table);
+    assert_eq!(names["user_id"], "UserID");
+    assert_eq!(names["userId"], "UserID2");
 }
 
 #[rstest]
