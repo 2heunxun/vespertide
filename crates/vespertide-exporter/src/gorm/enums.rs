@@ -4,10 +4,10 @@ use vespertide_naming::{IdentifierStart, sanitize_identifier};
 use super::render::to_pascal_case;
 
 pub(super) fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValues) {
-    // `name` is already the sanitized, PascalCased (and possibly struct-qualified)
+    // `name` is already the exported, PascalCased (and possibly struct-qualified)
     // identifier built by the caller — re-running `to_pascal_case` here would
-    // split on the `_` a leading-digit escape (e.g. `_1users`) introduces and
-    // silently drop it.
+    // fold the `_` the sanitizer substitutes for a character Go rejects
+    // (`User_id` -> `UserId`) and desync the type from its field.
     let type_name = name;
 
     let mut rendered = match values {
@@ -53,6 +53,6 @@ pub(super) fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValu
 fn const_name(type_name: &str, value: &str) -> String {
     sanitize_identifier(
         &format!("{type_name}{}", to_pascal_case(value)),
-        IdentifierStart::Underscore,
+        IdentifierStart::Letter,
     )
 }

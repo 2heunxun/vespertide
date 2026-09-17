@@ -76,6 +76,9 @@ fn test_go_type_mapping(
 #[case("created_at", "CreatedAt")]
 #[case("profile_image", "ProfileImage")]
 #[case("media_id", "MediaID")]
+#[case("identity", "Identity")]
+#[case("idx", "Idx")]
+#[case("1st_place", "X1stPlace")]
 fn test_to_go_field_name(#[case] input: &str, #[case] expected: &str) {
     assert_eq!(to_go_field_name(input), expected);
 }

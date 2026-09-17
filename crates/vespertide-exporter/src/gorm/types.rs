@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
-use super::render::to_pascal_case;
+use super::render::exported_go_name;
 use crate::utils::common::is_jsonb_custom_type;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, SimpleColumnType};
-use vespertide_naming::{IdentifierStart, sanitize_identifier};
 
 /// Track which Go imports are actually used to generate minimal import statements.
 #[expect(
@@ -56,11 +55,10 @@ pub(super) fn go_type_for_column_mapped(
     enum_map: &HashMap<&str, String>,
 ) -> String {
     let base = match col_type {
-        ColumnType::Complex(ComplexColumnType::Enum { name, .. }) => {
-            enum_map.get(name.as_str()).cloned().unwrap_or_else(|| {
-                sanitize_identifier(&to_pascal_case(name), IdentifierStart::Underscore)
-            })
-        }
+        ColumnType::Complex(ComplexColumnType::Enum { name, .. }) => enum_map
+            .get(name.as_str())
+            .cloned()
+            .unwrap_or_else(|| exported_go_name(name)),
         _ => go_base_type(col_type),
     };
     if nullable { format!("*{base}") } else { base }

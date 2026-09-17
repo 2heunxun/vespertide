@@ -4,22 +4,22 @@ expression: rendered
 ---
 package models
 
-type _1users struct {
-    _1id int32 `gorm:"column:1id;primaryKey" json:"1id"`
+type X1users struct {
+    X1id int32 `gorm:"column:1id;primaryKey" json:"1id"`
     Email string `gorm:"column:email;not null;type:text" json:"email"`
-    PostsBy_1stOwnerID []Posts `gorm:"foreignKey:_1stOwnerID" json:"-"`
-    PostsBy_2ndOwnerID []Posts `gorm:"foreignKey:_2ndOwnerID" json:"-"`
+    PostsByX1stOwnerID []Posts `gorm:"foreignKey:X1stOwnerID" json:"-"`
+    PostsByX2ndOwnerID []Posts `gorm:"foreignKey:X2ndOwnerID" json:"-"`
 }
 
-func (_1users) TableName() string { return "1users" }
+func (X1users) TableName() string { return "1users" }
 
 
 type Posts struct {
     ID int32 `gorm:"column:id;primaryKey" json:"id"`
-    _1stOwnerID *int32 `gorm:"column:1st_owner_id" json:"1st_owner_id"`
-    _1stOwner *_1users `gorm:"foreignKey:_1stOwnerID" json:"-"`
-    _2ndOwnerID *int32 `gorm:"column:2nd_owner_id" json:"2nd_owner_id"`
-    _2ndOwner *_1users `gorm:"foreignKey:_2ndOwnerID" json:"-"`
+    X1stOwnerID *int32 `gorm:"column:1st_owner_id" json:"1st_owner_id"`
+    X1stOwner *X1users `gorm:"foreignKey:X1stOwnerID" json:"-"`
+    X2ndOwnerID *int32 `gorm:"column:2nd_owner_id" json:"2nd_owner_id"`
+    X2ndOwner *X1users `gorm:"foreignKey:X2ndOwnerID" json:"-"`
 }
 
 func (Posts) TableName() string { return "posts" }

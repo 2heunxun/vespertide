@@ -30,8 +30,9 @@ src/
 ```
 
 Identifier escaping is centralized in `vespertide-naming`: `sanitize_identifier`
-with `IdentifierStart::Underscore` (Java, SQLAlchemy, ERD) or
-`IdentifierStart::Letter` (SeaORM, SQLModel/Pydantic, Prisma, Drizzle), plus
+with `IdentifierStart::Underscore` (Java, SQLAlchemy, Django, ERD) or
+`IdentifierStart::Letter` (SeaORM, SQLModel/Pydantic, Prisma, Drizzle, and GORM,
+which also upper-cases the first letter because Go exports by case), plus
 `seaorm_module_name` and `to_screaming_snake_case`. A backend that renames an
 identifier MUST also emit the original database name (`@map`, `column_name`,
 SQLAlchemy's positional column name).

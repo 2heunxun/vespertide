@@ -59,20 +59,14 @@ pub(super) fn render_header(package_name: &str, used_imports: &UsedImports) -> V
 pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
 
-    let struct_name =
-        sanitize_identifier(&to_pascal_case(&table.name), IdentifierStart::Underscore);
+    let struct_name = exported_go_name(&table.name);
 
     // Find enum names that appear in multiple schema tables (need qualified Go type names)
     let conflicting_enums: HashSet<String> = {
         let mut counts: HashMap<String, usize> = HashMap::new();
         for col in &table.columns {
             if let ColumnType::Complex(ComplexColumnType::Enum { name, .. }) = &col.r#type {
-                counts
-                    .entry(sanitize_identifier(
-                        &to_pascal_case(name),
-                        IdentifierStart::Underscore,
-                    ))
-                    .or_insert(1);
+                counts.entry(exported_go_name(name)).or_insert(1);
             }
         }
         for other in schema {
@@ -82,8 +76,7 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
             let mut seen = HashSet::new();
             for col in &other.columns {
                 if let ColumnType::Complex(ComplexColumnType::Enum { name, .. }) = &col.r#type {
-                    let pascal =
-                        sanitize_identifier(&to_pascal_case(name), IdentifierStart::Underscore);
+                    let pascal = exported_go_name(name);
                     if seen.insert(pascal.clone()) {
                         *counts.entry(pascal).or_default() += 1;
                     }
@@ -103,8 +96,7 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
         .iter()
         .filter_map(|col| {
             if let ColumnType::Complex(ComplexColumnType::Enum { name, values }) = &col.r#type {
-                let pascal =
-                    sanitize_identifier(&to_pascal_case(name), IdentifierStart::Underscore);
+                let pascal = exported_go_name(name);
                 let qualified = if conflicting_enums.contains(&pascal) {
                     format!("{struct_name}{pascal}")
                 } else {
@@ -229,8 +221,7 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
         lines.push(format!(
             "    {field_name} []{ref_struct} `gorm:\"{gorm_tag}\" json:\"-\"`",
             field_name = rel.field_name,
-            ref_struct =
-                sanitize_identifier(&to_pascal_case(&rel.ref_table), IdentifierStart::Underscore),
+            ref_struct = exported_go_name(&rel.ref_table),
         ));
     }
 
@@ -335,10 +326,7 @@ fn find_reverse_relations(table_name: &str, schema: &[TableDef]) -> Vec<ReverseR
                 let base_name = if is_self_ref {
                     "Children".to_string()
                 } else {
-                    sanitize_identifier(
-                        &to_pascal_case(&pluralize(other.name.as_str())),
-                        IdentifierStart::Underscore,
-                    )
+                    exported_go_name(&pluralize(other.name.as_str()))
                 };
                 raw.push((
                     other.name.as_str().to_owned(),
@@ -415,8 +403,7 @@ fn render_fk_relation_field(
     fk: &FkDetails,
     used_relation_names: &mut HashSet<String>,
 ) {
-    let ref_struct =
-        sanitize_identifier(&to_pascal_case(fk.ref_table), IdentifierStart::Underscore);
+    let ref_struct = exported_go_name(fk.ref_table);
     let fk_field_name = to_go_field_name(&col.name);
     let mut relation_field_name = go_relation_field_name(&col.name);
     if relation_field_name == fk_field_name {
@@ -462,8 +449,7 @@ fn render_composite_fk_relation_field(
     fk: &CompositeFk,
     used_relation_names: &mut HashSet<String>,
 ) {
-    let ref_struct =
-        sanitize_identifier(&to_pascal_case(fk.ref_table), IdentifierStart::Underscore);
+    let ref_struct = exported_go_name(fk.ref_table);
 
     let relation_field_name = claim_binding(ref_struct.clone(), used_relation_names);
 
@@ -583,21 +569,48 @@ fn build_default_tag(default: &DefaultValue) -> Option<String> {
 
 pub(super) use crate::python_naming::to_pascal_case;
 
+/// Exported Go identifier for a database name: PascalCase, with a digit-led
+/// start given an upper-case letter prefix. GORM skips unexported struct
+/// fields, and a `_`-led type is unreachable from other packages.
+pub(super) fn exported_go_name(s: &str) -> String {
+    export(&to_pascal_case(s))
+}
+
+/// Go field name for a column: [`exported_go_name`] with Go's `ID` initialism.
 pub(super) fn to_go_field_name(s: &str) -> String {
-    let pascal = to_pascal_case(s);
-    // Apply Go conventions for common abbreviations
-    let pascal = pascal.replace("Id", "ID");
-    // Go identifiers can't start with a digit or contain non-alphanumeric
-    // characters; a leading `_` is legal (matches Rust module / Java field
-    // escaping elsewhere in the exporter).
-    sanitize_identifier(&pascal, IdentifierStart::Underscore)
+    export(&go_initialisms(&to_pascal_case(s)))
 }
 
 /// Go field name for a belongs-to relation: the FK column without its `_id`
 /// suffix, in PascalCase.
 pub(super) fn go_relation_field_name(fk_column: &str) -> String {
-    sanitize_identifier(
-        &to_pascal_case(vespertide_naming::infer_relation_field_name(fk_column)),
-        IdentifierStart::Underscore,
-    )
+    exported_go_name(vespertide_naming::infer_relation_field_name(fk_column))
+}
+
+fn export(pascal: &str) -> String {
+    let mut name = sanitize_identifier(pascal, IdentifierStart::Letter);
+    // `Letter` copies the case of the first letter it finds (`x1users`), and Go
+    // exports by case. The first byte is always an ASCII letter after
+    // sanitizing, so the slice cannot split a character.
+    name[..1].make_ascii_uppercase();
+    name
+}
+
+/// Every `Id` that ends a PascalCase word becomes `ID`, as Go spells the
+/// initialism; `Identity` and `Idx` keep their words.
+fn go_initialisms(pascal: &str) -> String {
+    let chars: Vec<char> = pascal.chars().collect();
+    let mut out = String::with_capacity(pascal.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let ends_word = chars.get(i + 2).is_none_or(|c| !c.is_ascii_lowercase());
+        if chars[i] == 'I' && chars.get(i + 1) == Some(&'d') && ends_word {
+            out.push_str("ID");
+            i += 2;
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    out
 }
