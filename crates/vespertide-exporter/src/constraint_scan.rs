@@ -263,26 +263,20 @@ pub(crate) fn collect_back_relations(target_table: &str, schema: &[TableDef]) ->
                 continue;
             }
 
-            let is_one_to_one = if let [fk_col] = fk_cols.as_slice() {
-                source.constraints.iter().any(|c| {
+            // A key is one-to-one when the source can hold at most one row
+            // per target key: its FK columns are exactly its own PK, or a
+            // unique covers exactly that set.
+            let fk_set: HashSet<&str> = fk_cols.iter().map(ColumnName::as_str).collect();
+            let pk_cols = primary_key(&source.constraints)
+                .map(TableConstraint::columns)
+                .unwrap_or_default();
+            let is_one_to_one = pk_cols.len() == fk_set.len()
+                && pk_cols.iter().all(|c| fk_set.contains(c.as_str()))
+                || source.constraints.iter().any(|c| {
                     matches!(c, TableConstraint::Unique { columns, .. }
-                        if columns.len() == 1 && columns[0] == *fk_col)
-                })
-            } else {
-                // A composite FK is one-to-one when the source can hold at
-                // most one row per target key: its FK columns are exactly its
-                // own PK, or a composite unique covers exactly that set.
-                let fk_set: HashSet<&str> = fk_cols.iter().map(ColumnName::as_str).collect();
-                let pk_cols = primary_key(&source.constraints)
-                    .map(TableConstraint::columns)
-                    .unwrap_or_default();
-                pk_cols.len() == fk_set.len() && pk_cols.iter().all(|c| fk_set.contains(c.as_str()))
-                    || source.constraints.iter().any(|c| {
-                        matches!(c, TableConstraint::Unique { columns, .. }
-                            if columns.len() == fk_set.len()
-                                && columns.iter().all(|col| fk_set.contains(col.as_str())))
-                    })
-            };
+                        if columns.len() == fk_set.len()
+                            && columns.iter().all(|col| fk_set.contains(col.as_str())))
+                });
 
             let rel_segment = relation_segment(fk_cols);
             let relation_name = if multi_fk || is_self_ref {

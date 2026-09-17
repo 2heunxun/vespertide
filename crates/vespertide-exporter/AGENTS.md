@@ -91,7 +91,8 @@ repairs.
   The field is always a pointer (`*User`), nullable or not: held by value, a struct could not
   reference itself or a struct that references it back (`invalid recursive type`)
 - **Reverse (has-one / has-many)**: built on the shared `constraint_scan::collect_back_relations`,
-  so composite FKs get a reverse side and a one-to-one renders as `*T` under the source struct's
+  so composite FKs get a reverse side and a one-to-one — a key that is the source's whole
+  primary key, or that a unique covers exactly — renders as `*T` under the source struct's
   name instead of `[]T` under its plural. Tags mirror the forward side. A **self-referencing FK**
   (e.g. `categories.parent_id -> categories.id`) is named `Children` rather than a pluralized
   table name to avoid colliding with the struct's own name; names that would repeat gain a
@@ -239,7 +240,7 @@ cargo insta accept
 - Snapshot testing with `insta` crate (YAML format)
 - `rstest` for parameterized tests across all ORM backends
 - Drizzle's cross-ORM snapshots carry the dialect the trait path renders (`…_Drizzle_pg.snap`); the other two dialects live in the module's own `render_schema_full_file_per_dialect@{pg,mysql,sqlite}` snapshots
-- 638 snapshot files, all in the single shared `src/tests/snapshots/` directory; every export scenario goes through the shared `orm_cases!` macro in `src/tests/mod.rs`, producing one snapshot per ORM (all eight) — a scenario snapshotted for only one ORM is a defect
+- 646 snapshot files, all in the single shared `src/tests/snapshots/` directory; every export scenario goes through the shared `orm_cases!` macro in `src/tests/mod.rs`, producing one snapshot per ORM (all eight) — a scenario snapshotted for only one ORM is a defect
 
 ## NOTES
 
