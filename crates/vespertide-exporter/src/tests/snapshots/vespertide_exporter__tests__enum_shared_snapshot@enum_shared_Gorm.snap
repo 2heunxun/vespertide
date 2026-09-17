@@ -7,15 +7,15 @@ package models
 type DocStatus string
 
 const (
-    DocStatusDraft DocStatus = "draft"
-    DocStatusPublished DocStatus = "published"
-    DocStatusArchived DocStatus = "archived"
+	DocStatusDraft     DocStatus = "draft"
+	DocStatusPublished DocStatus = "published"
+	DocStatusArchived  DocStatus = "archived"
 )
 
 type Documents struct {
-    ID int32 `gorm:"column:id;not null" json:"id"`
-    Status DocStatus `gorm:"column:status;not null" json:"status"`
-    ReviewStatus *DocStatus `gorm:"column:review_status" json:"review_status"`
+	ID           int32      `gorm:"column:id;not null" json:"id"`
+	Status       DocStatus  `gorm:"column:status;not null" json:"status"`
+	ReviewStatus *DocStatus `gorm:"column:review_status" json:"review_status"`
 }
 
 func (Documents) TableName() string { return "documents" }

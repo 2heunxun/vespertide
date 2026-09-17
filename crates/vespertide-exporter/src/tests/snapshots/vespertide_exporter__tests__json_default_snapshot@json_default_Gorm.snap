@@ -5,12 +5,12 @@ expression: rendered
 package models
 
 import (
-    "gorm.io/datatypes"
+	"gorm.io/datatypes"
 )
 
 type Configs struct {
-    ID int32 `gorm:"column:id;primaryKey" json:"id"`
-    Data datatypes.JSON `gorm:"column:data;not null" json:"data"`
+	ID   int32          `gorm:"column:id;primaryKey" json:"id"`
+	Data datatypes.JSON `gorm:"column:data;not null" json:"data"`
 }
 
 func (Configs) TableName() string { return "configs" }

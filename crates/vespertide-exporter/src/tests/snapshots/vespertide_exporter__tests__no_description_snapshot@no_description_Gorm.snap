@@ -5,7 +5,7 @@ expression: rendered
 package models
 
 type NoDesc struct {
-    ID int32 `gorm:"column:id;primaryKey" json:"id"`
+	ID int32 `gorm:"column:id;primaryKey" json:"id"`
 }
 
 func (NoDesc) TableName() string { return "no_desc" }

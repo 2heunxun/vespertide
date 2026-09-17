@@ -5,8 +5,8 @@ expression: rendered
 package models
 
 type Other struct {
-    ID int32 `gorm:"column:id;primaryKey" json:"id"`
-    NotJunctions []NotJunction `gorm:"foreignKey:OtherID" json:"-"`
+	ID           int32         `gorm:"column:id;primaryKey" json:"id"`
+	NotJunctions []NotJunction `gorm:"foreignKey:OtherID" json:"-"`
 }
 
 func (Other) TableName() string { return "other" }

@@ -44,19 +44,58 @@ pub(super) fn render_header(package_name: &str, used_imports: &UsedImports) -> V
         if has_stdlib && has_external {
             lines.push(String::new());
         }
-        if used_imports.needs_datatypes {
-            lines.push("    \"gorm.io/datatypes\"".into());
-        }
         if used_imports.needs_uuid {
             lines.push("    \"github.com/google/uuid\"".into());
         }
         if used_imports.needs_decimal {
             lines.push("    \"github.com/shopspring/decimal\"".into());
         }
+        if used_imports.needs_datatypes {
+            lines.push("    \"gorm.io/datatypes\"".into());
+        }
         lines.push(")".into());
         lines.push(String::new());
     }
     lines
+}
+
+/// Lay rendered `lines` out the way `gofmt` does, so the file passes a
+/// project's `gofmt -l` check untouched: tab indents, the name / type / rest
+/// cells of consecutive struct fields or constants padded into columns, and
+/// no doubled blank lines. A comment or an import path has no cells and ends
+/// the run of lines being aligned, as it does in `gofmt`.
+pub(super) fn gofmt_layout(lines: &[String]) -> String {
+    fn flush(run: &mut Vec<[&str; 3]>, out: &mut Vec<String>) {
+        let name_width = run.iter().map(|cells| cells[0].len()).max().unwrap_or(0);
+        let type_width = run.iter().map(|cells| cells[1].len()).max().unwrap_or(0);
+        for [name, ty, rest] in run.drain(..) {
+            out.push(format!("\t{name:<name_width$} {ty:<type_width$} {rest}"));
+        }
+    }
+
+    let mut out: Vec<String> = Vec::new();
+    let mut run: Vec<[&str; 3]> = Vec::new();
+    for line in lines {
+        let cells = line
+            .strip_prefix("    ")
+            .filter(|body| !body.starts_with("//"))
+            .and_then(|body| {
+                let (name, rest) = body.split_once(' ')?;
+                let (ty, rest) = rest.split_once(' ')?;
+                Some([name, ty, rest])
+            });
+        if let Some(cells) = cells {
+            run.push(cells);
+            continue;
+        }
+        flush(&mut run, &mut out);
+        if let Some(body) = line.strip_prefix("    ") {
+            out.push(format!("\t{body}"));
+        } else if !(line.is_empty() && out.last().is_some_and(String::is_empty)) {
+            out.push(line.clone());
+        }
+    }
+    out.join("\n")
 }
 
 /// Everything below the header for one table: enum types, the struct, and

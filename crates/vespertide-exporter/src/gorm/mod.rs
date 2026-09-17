@@ -3,7 +3,7 @@ mod render;
 mod types;
 
 use crate::orm::OrmExporter;
-use render::{imports_for, render_header, render_table_body};
+use render::{gofmt_layout, imports_for, render_header, render_table_body};
 use vespertide_config::DEFAULT_GORM_PACKAGE_NAME;
 use vespertide_core::TableDef;
 
@@ -57,7 +57,7 @@ fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> String {
         &imports_for(std::slice::from_ref(table)),
     );
     lines.extend(render_table_body(table, schema));
-    lines.join("\n")
+    gofmt_layout(&lines)
 }
 
 /// Render a whole schema as one Go source file: a single `package` clause,
@@ -76,7 +76,7 @@ fn export_with_package(schema: &[TableDef], package_name: &str) -> String {
         }
         lines.extend(render_table_body(table, schema));
     }
-    lines.join("\n")
+    gofmt_layout(&lines)
 }
 
 #[cfg(test)]

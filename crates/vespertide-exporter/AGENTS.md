@@ -109,6 +109,9 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
   that is what the CLI writes (`models.go`). A Go directory is one package and a relation is
   rendered from both of its ends, so models spread over directories would import each other in
   a cycle
+- **Layout**: `gofmt_layout` is the last step of every render — tab indents, struct-field and
+  constant columns padded the way `gofmt` aligns them, single blank lines, import groups sorted —
+  so the file passes a project's `gofmt -l` check as written
 - **Tests**: rendered output is pinned by the shared `orm_cases!` suite; `gorm/tests/mod.rs`
   holds only function-level unit tests (Go type mapping, field and relation naming)
 
