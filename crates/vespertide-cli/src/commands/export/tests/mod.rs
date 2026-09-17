@@ -9,6 +9,7 @@ pub(super) use vespertide_core::{ColumnDef, ColumnType, SimpleColumnType, TableC
 mod django;
 mod drizzle;
 mod gorm;
+mod models_file;
 mod prisma;
 
 fn write_config() {
@@ -343,7 +344,6 @@ fn build_output_path_handles_special_path_components() {
 #[rstest::rstest]
 #[case::sqlalchemy(Orm::SqlAlchemy)]
 #[case::sqlmodel(Orm::SqlModel)]
-#[case::django(Orm::Django)]
 fn build_output_path_makes_python_stems_importable(#[case] orm: Orm) {
     let out = build_output_path(Path::new("src/models"), Path::new("1st-users.json"), orm);
     assert_eq!(out, Path::new("src/models/_1st_users.py"));

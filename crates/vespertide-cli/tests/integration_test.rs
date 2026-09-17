@@ -151,7 +151,7 @@ fn test_export_django_writes_files_end_to_end() {
         .assert()
         .success();
 
-    let output_file = temp_dir.path().join("generated").join("users.py");
+    let output_file = temp_dir.path().join("generated").join("models.py");
     assert!(
         output_file.exists(),
         "expected {} to exist",
@@ -172,7 +172,7 @@ fn test_export_gorm_writes_files_end_to_end() {
         .assert()
         .success();
 
-    let output_file = temp_dir.path().join("generated").join("users.go");
+    let output_file = temp_dir.path().join("generated").join("models.go");
     assert!(
         output_file.exists(),
         "expected {} to exist",

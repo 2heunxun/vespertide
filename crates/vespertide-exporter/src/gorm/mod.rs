@@ -24,7 +24,7 @@ impl OrmExporter for GormExporter {
 }
 
 /// GORM exporter that emits a caller-chosen `package` clause. Go expects that
-/// name to match the directory the files live in, so the CLI resolves it from
+/// name to match the directory the file lives in, so the CLI resolves it from
 /// the real write target via `vespertide_config::go_package_name`.
 pub struct GormExporterWithConfig<'a> {
     package_name: &'a str,
@@ -35,16 +35,9 @@ impl<'a> GormExporterWithConfig<'a> {
         Self { package_name }
     }
 
-    pub fn render_entity_with_schema(
-        &self,
-        table: &TableDef,
-        schema: &[TableDef],
-    ) -> Result<String, String> {
-        Ok(render_entity_inner_with_package(
-            table,
-            schema,
-            self.package_name,
-        ))
+    /// [`export`] under the configured package name.
+    pub fn export(&self, schema: &[TableDef]) -> Result<String, String> {
+        Ok(export_with_package(schema, self.package_name))
     }
 }
 
@@ -59,15 +52,10 @@ pub fn render_entity_with_schema(table: &TableDef, schema: &[TableDef]) -> Resul
 }
 
 fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> String {
-    render_entity_inner_with_package(table, schema, DEFAULT_GORM_PACKAGE_NAME)
-}
-
-fn render_entity_inner_with_package(
-    table: &TableDef,
-    schema: &[TableDef],
-    package_name: &str,
-) -> String {
-    let mut lines = render_header(package_name, &imports_for(std::slice::from_ref(table)));
+    let mut lines = render_header(
+        DEFAULT_GORM_PACKAGE_NAME,
+        &imports_for(std::slice::from_ref(table)),
+    );
     lines.extend(render_table_body(table, schema));
     lines.join("\n")
 }
@@ -77,14 +65,18 @@ fn render_entity_inner_with_package(
 /// Concatenating per-table files instead would repeat the `package` clause,
 /// which Go rejects.
 pub fn export(schema: &[TableDef]) -> Result<String, String> {
-    let mut lines = render_header(DEFAULT_GORM_PACKAGE_NAME, &imports_for(schema));
+    Ok(export_with_package(schema, DEFAULT_GORM_PACKAGE_NAME))
+}
+
+fn export_with_package(schema: &[TableDef], package_name: &str) -> String {
+    let mut lines = render_header(package_name, &imports_for(schema));
     for (i, table) in schema.iter().enumerate() {
         if i > 0 {
             lines.push(String::new());
         }
         lines.extend(render_table_body(table, schema));
     }
-    Ok(lines.join("\n"))
+    lines.join("\n")
 }
 
 #[cfg(test)]

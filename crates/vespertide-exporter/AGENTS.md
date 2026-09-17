@@ -101,7 +101,11 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
   `&str`, which callers get from `vespertide_config::go_package_name(export_dir)` — the export
   directory's final path segment sanitized into a Go identifier, falling back to `"models"`. The
   CLI passes the real write target (`--export-dir` override or `model_export_dir`) because Go
-  expects `package` to name the directory the files live in.
+  expects `package` to name the directory the file lives in.
+- **One file**: `GormExporterWithConfig::export` renders the whole schema as one source file, and
+  that is what the CLI writes (`models.go`). A Go directory is one package and a relation is
+  rendered from both of its ends, so models spread over directories would import each other in
+  a cycle
 - **Tests**: rendered output is pinned by the shared `orm_cases!` suite; `gorm/tests/mod.rs`
   holds only function-level unit tests (Go type mapping, field and relation naming)
 
@@ -131,7 +135,9 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
 - **FK fields**: a FK column that is the table's (non-composite) PK or carries a single-column
   unique renders as `models.OneToOneField` — `ForeignKey(unique=True)` is only fields.W342 pointing
   at that class — and the PK one keeps `primary_key=True`
-- **Config**: `DjangoExporterWithConfig` for `app_label` (omitted from `Meta` when unset)
+- **Config**: `DjangoExporterWithConfig` for `app_label` (omitted from `Meta` when unset); its
+  `export` renders the whole schema as one module, which is what the CLI writes (`models.py`) —
+  Django loads an app's models from its one `models` module
 - **Tests**: rendered output is pinned by the shared `orm_cases!` suite; the inline
   `#[cfg(test)] mod tests` in `django/mod.rs` holds only function-level unit tests (field-class
   and `on_delete` mappings)

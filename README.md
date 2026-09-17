@@ -245,8 +245,8 @@ vespertide export --orm sqlmodel    # Python - SQLModel (FastAPI)
 vespertide export --orm jpa         # Java - JPA/Hibernate entities
 vespertide export --orm prisma      # Prisma - schema.prisma models
 vespertide export --orm drizzle     # TypeScript - Drizzle ORM (pg/mysql/sqlite files)
-vespertide export --orm gorm        # Go - GORM models
-vespertide export --orm django      # Python - Django models
+vespertide export --orm gorm        # Go - GORM models (models.go)
+vespertide export --orm django      # Python - Django models (models.py)
 ```
 
 ## Runtime Migrations (Macro)

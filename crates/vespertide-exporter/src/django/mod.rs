@@ -6,10 +6,7 @@ use crate::orm::OrmExporter;
 use vespertide_config::DjangoConfig;
 use vespertide_core::TableDef;
 
-pub use render::{
-    export, export_with_config, render_entity, render_entity_with_schema,
-    render_entity_with_schema_and_config,
-};
+pub use render::{export, export_with_config, render_entity, render_entity_with_schema};
 
 pub struct DjangoExporter;
 
@@ -39,12 +36,9 @@ impl<'a> DjangoExporterWithConfig<'a> {
         Self { config }
     }
 
-    pub fn render_entity_with_schema(
-        &self,
-        table: &TableDef,
-        schema: &[TableDef],
-    ) -> Result<String, String> {
-        render_entity_with_schema_and_config(table, schema, self.config.app_label())
+    /// [`export`] with the configured `app_label`.
+    pub fn export(&self, schema: &[TableDef]) -> Result<String, String> {
+        export_with_config(schema, self.config.app_label())
     }
 }
 

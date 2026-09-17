@@ -25,21 +25,10 @@ pub fn render_entity(table: &TableDef) -> Result<String, String> {
 /// Render a single table with full schema context so many-to-many junction
 /// tables can be recognized and exposed as `ManyToManyField(..., through=...)`.
 pub fn render_entity_with_schema(table: &TableDef, schema: &[TableDef]) -> Result<String, String> {
-    render_entity_with_schema_and_config(table, schema, None)
-}
-
-/// Same as [`render_entity_with_schema`], but with an optional `app_label`
-/// (from `vespertide.json`'s `django` config) written into every model's
-/// `Meta` class.
-pub fn render_entity_with_schema_and_config(
-    table: &TableDef,
-    schema: &[TableDef],
-    app_label: Option<&str>,
-) -> Result<String, String> {
     let mut used = UsedImports::default();
     let m2m = many_to_many_targets(table, schema);
     let shared_enums = enum_identifiers_shared_across_tables(schema, enum_class_name);
-    let body = render_entity_part(table, &mut used, &m2m, &shared_enums, app_label);
+    let body = render_entity_part(table, &mut used, &m2m, &shared_enums, None);
     Ok(assemble_with_imports(&used, &[body]))
 }
 
@@ -47,8 +36,9 @@ pub fn export(schema: &[TableDef]) -> Result<String, String> {
     export_with_config(schema, None)
 }
 
-/// Same as [`export`], but with an optional `app_label` written into every
-/// model's `Meta` class.
+/// Same as [`export`], but with an optional `app_label` (from
+/// `vespertide.json`'s `django` config) written into every model's `Meta`
+/// class.
 pub fn export_with_config(schema: &[TableDef], app_label: Option<&str>) -> Result<String, String> {
     let mut used = UsedImports::default();
     let shared_enums = enum_identifiers_shared_across_tables(schema, enum_class_name);
