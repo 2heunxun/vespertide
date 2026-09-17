@@ -1,5 +1,6 @@
 use super::enums::render_enum;
 use super::types::{UsedTypes, column_type_to_python, column_type_to_sqlalchemy};
+use crate::constraint_scan::FkDetails;
 use crate::parallel_config::{
     PYTHON_EXPORT_PAR_TABLE_MIN_LEN, SQLALCHEMY_EXPORT_PAR_TABLE_THRESHOLD,
 };
@@ -76,7 +77,7 @@ fn render_entity_part(table: &TableDef, used_types: &mut UsedTypes<'static>) -> 
 
     // Collect single-column foreign key targets once; the import flag below and
     // the per-column render lookups both read from this single scan.
-    let fk_info = crate::constraint_scan::single_column_fk_targets(&table.constraints);
+    let fk_info = crate::constraint_scan::single_column_fk_details(&table.constraints);
 
     // Check for single-column foreign keys
     if !fk_info.is_empty() {
@@ -272,7 +273,7 @@ fn render_column(
     col: &ColumnDef,
     is_pk: bool,
     is_unique: bool,
-    fk_info: Option<&(&str, &str)>,
+    fk_info: Option<&FkDetails>,
 ) {
     // Add column comment
     if let Some(ref comment) = col.comment {
@@ -291,10 +292,10 @@ fn render_column(
     push_attr(&mut attrs, &sa_type);
 
     // Foreign key
-    if let Some((ref_table, ref_col)) = fk_info {
+    if let Some(fk) = fk_info {
         push_attr(
             &mut attrs,
-            &format!("ForeignKey(\"{ref_table}.{ref_col}\")"),
+            &format!("ForeignKey(\"{}.{}\")", fk.ref_table, fk.ref_column),
         );
     }
 

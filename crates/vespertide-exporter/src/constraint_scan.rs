@@ -116,18 +116,6 @@ pub(crate) fn single_column_fk_details(
     map
 }
 
-/// Map each single-column foreign key's column name to its
-/// `(ref_table, ref_col)` target — [`single_column_fk_details`] without the
-/// referential actions.
-pub(crate) fn single_column_fk_targets(
-    constraints: &[TableConstraint],
-) -> HashMap<&str, (&str, &str)> {
-    single_column_fk_details(constraints)
-        .into_iter()
-        .map(|(col, fk)| (col, (fk.ref_table, fk.ref_column)))
-        .collect()
-}
-
 /// The tables `junction` links `current` to, when `junction` is a many-to-many
 /// junction: a composite primary key (`junction_pk`, two or more columns), two
 /// or more foreign keys whose columns all lie in that key, and one of them
