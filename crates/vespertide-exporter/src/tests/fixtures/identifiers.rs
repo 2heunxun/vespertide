@@ -4,7 +4,7 @@ use vespertide_core::schema::column::SimpleColumnType;
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ReferenceAction, TableDef};
 
-use super::{fk, nullable_simple, pk, simple};
+use super::{col, fk, nullable_simple, pk, simple, string_enum};
 
 /// Relation field names that run into a struct's own columns: a composite FK
 /// whose target struct name is already taken by two columns (`order_regions`,
@@ -74,5 +74,36 @@ pub(crate) fn relation_field_names() -> Vec<TableDef> {
     [order_regions, order_items, users, posts, categories]
         .into_iter()
         .map(|t| t.normalize().expect("relation_field_names normalizes"))
+        .collect()
+}
+
+/// Two tables declare an enum with the same name and different values. A
+/// backend whose enum types share one namespace (GORM's package, Prisma's
+/// single file) has to qualify the type names by table.
+pub(crate) fn enum_name_shared_across_tables() -> Vec<TableDef> {
+    let orders = TableDef {
+        name: "orders".into(),
+        description: None,
+        columns: vec![
+            simple("id", SimpleColumnType::Integer),
+            col("status", string_enum("status", &["pending", "shipped"])),
+        ],
+        constraints: vec![pk(&["id"])],
+    };
+    let tasks = TableDef {
+        name: "tasks".into(),
+        description: None,
+        columns: vec![
+            simple("id", SimpleColumnType::Integer),
+            col("status", string_enum("status", &["todo", "done"])),
+        ],
+        constraints: vec![pk(&["id"])],
+    };
+    [orders, tasks]
+        .into_iter()
+        .map(|t| {
+            t.normalize()
+                .expect("enum_name_shared_across_tables normalizes")
+        })
         .collect()
 }

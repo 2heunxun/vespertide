@@ -15,7 +15,7 @@ mod reference_actions;
 pub(crate) use reference_actions::reference_actions;
 
 mod identifiers;
-pub(crate) use identifiers::relation_field_names;
+pub(crate) use identifiers::{enum_name_shared_across_tables, relation_field_names};
 
 pub(crate) fn col(name: &str, ty: ColumnType) -> ColumnDef {
     ColumnDef::new(name, ty, false)
@@ -337,7 +337,7 @@ pub(crate) fn enum_special_values() -> TableDef {
     )
 }
 
-fn string_enum(name: &str, values: &[&str]) -> ColumnType {
+pub(crate) fn string_enum(name: &str, values: &[&str]) -> ColumnType {
     ColumnType::Complex(ComplexColumnType::Enum {
         name: name.into(),
         values: EnumValues::String(values.iter().copied().map(Into::into).collect()),

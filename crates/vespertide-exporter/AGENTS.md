@@ -88,10 +88,8 @@ SQLAlchemy's positional column name).
   directory's final path segment sanitized into a Go identifier, falling back to `"models"`. The
   CLI passes the real write target (`--export-dir` override or `model_export_dir`) because Go
   expects `package` to name the directory the files live in.
-- **Tests**: rendered output is pinned by the shared `orm_cases!` suite; `gorm/tests/` holds only
-  non-snapshot unit tests — `tests/mod.rs` (type mapping, naming, tag/relation
-  regressions) and `tests/relations.rs`
-  (composite-FK + self-ref regressions)
+- **Tests**: rendered output is pinned by the shared `orm_cases!` suite; `gorm/tests/mod.rs`
+  holds only function-level unit tests (Go type mapping, field and relation naming)
 
 ### Django (Python)
 - Renders `models.Model` classes with a `class Meta` (`db_table`, `indexes`, `constraints`)

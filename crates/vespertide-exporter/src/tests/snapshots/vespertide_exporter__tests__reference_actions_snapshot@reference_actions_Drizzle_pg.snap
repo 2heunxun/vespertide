@@ -19,4 +19,16 @@ export const posts = pgTable("posts", {
 
 export const postsRelations = relations(posts, ({ one, many }) => ({
   user: one(users, { fields: [posts.userId], references: [users.id] }),
+  comments: many(comments),
+}));
+
+export const comments = pgTable("comments", {
+  id: integer("id").primaryKey(),
+  postId: integer("post_id"),
+}, (t) => [
+  foreignKey({ columns: [t.postId], foreignColumns: [posts.id], name: "fk_comments__post_id" }).onDelete("set default").onUpdate("no action"),
+]);
+
+export const commentsRelations = relations(comments, ({ one, many }) => ({
+  post: one(posts, { fields: [comments.postId], references: [posts.id] }),
 }));

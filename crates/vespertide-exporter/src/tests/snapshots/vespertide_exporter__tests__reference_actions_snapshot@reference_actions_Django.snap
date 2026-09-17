@@ -19,3 +19,10 @@ class Posts(models.Model):
 
     class Meta:
         db_table = "posts"
+
+class Comments(models.Model):
+    id = models.IntegerField(primary_key=True)
+    post = models.ForeignKey("Posts", on_delete=models.SET_DEFAULT, related_name="+", null=True, blank=True)
+
+    class Meta:
+        db_table = "comments"

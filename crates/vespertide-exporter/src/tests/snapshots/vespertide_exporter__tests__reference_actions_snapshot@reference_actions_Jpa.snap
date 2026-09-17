@@ -33,3 +33,21 @@ public class Posts {
     protected Posts() {
     }
 }
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "comments")
+public class Comments {
+
+    @Id
+    @Column(name = "id")
+    private Integer id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "post_id")
+    private Posts post;
+
+    protected Comments() {
+    }
+}

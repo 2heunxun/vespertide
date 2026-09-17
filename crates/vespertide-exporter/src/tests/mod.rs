@@ -401,6 +401,11 @@ orm_cases!(
     "relation_field_names",
     fixtures::relation_field_names
 );
+orm_cases!(
+    multi enum_name_shared_across_tables_snapshot,
+    "enum_name_shared_across_tables",
+    fixtures::enum_name_shared_across_tables
+);
 
 /// Dispatch the per-ORM `to_pascal_case` helper from a single entry point so
 /// the cross-ORM consolidation test can exercise every implementation without
