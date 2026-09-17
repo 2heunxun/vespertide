@@ -3,7 +3,8 @@ use std::collections::{HashMap, HashSet};
 use super::enums::render_enum;
 use super::types::{UsedImports, go_type_for_column_mapped};
 use crate::constraint_scan::{
-    FkDetails, primary_key_columns, single_column_fk_details, single_column_uniques,
+    BackRelation, FkDetails, collect_back_relations, primary_key_columns, single_column_fk_details,
+    single_column_uniques,
 };
 use crate::enum_scan::enum_identifiers_shared_across_tables;
 use crate::utils::common::{
@@ -111,8 +112,6 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
     let index_map = collect_index_names(table);
     let composite_unique_map = collect_composite_unique_names(table);
 
-    let reverse_relations = find_reverse_relations(&table.name, schema);
-
     // --- Enum type declarations ---
     // Two columns of one table may share an enum; Go rejects the second
     // declaration of the same type.
@@ -168,6 +167,7 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
                 col,
                 &field_names[col.name.as_str()],
                 fk,
+                schema,
                 &mut taken,
             );
         }
@@ -180,28 +180,31 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
         render_composite_fk_relation_field(&mut lines, &fk, &field_names, schema, &mut taken);
     }
 
-    // Reverse relation fields (HasMany) derived from schema context
-    for rel in &reverse_relations {
-        let mut constraint_parts: Vec<String> = Vec::new();
-        if let Some(ref action) = rel.on_delete {
-            constraint_parts.push(format!("OnDelete:{}", action.to_sql_keyword()));
-        }
-        if let Some(ref action) = rel.on_update {
-            constraint_parts.push(format!("OnUpdate:{}", action.to_sql_keyword()));
-        }
-        let fk_field = field_name_in(schema, &rel.ref_table, &rel.fk_column);
-        let gorm_tag = if constraint_parts.is_empty() {
-            format!("foreignKey:{fk_field}")
+    // Reverse relation fields (has-one / has-many) derived from schema context
+    let back_relations = collect_back_relations(&table.name, schema);
+    let reverse_names = reverse_field_names(&table.name, &back_relations);
+    for (rel, field_name) in back_relations.iter().zip(reverse_names) {
+        let foreign_key: Vec<String> = rel
+            .fk_columns
+            .iter()
+            .map(|c| field_name_in(schema, &rel.source_table, c))
+            .collect();
+        let ref_columns: Vec<&str> = rel.ref_columns.iter().map(String::as_str).collect();
+        let gorm_tag = relation_tag(
+            &foreign_key,
+            &reference_fields(schema, &table.name, &ref_columns),
+            rel.on_delete.as_ref(),
+            rel.on_update.as_ref(),
+        );
+        let source_struct = exported_go_name(&rel.source_table);
+        let go_type = if rel.is_one_to_one {
+            format!("*{source_struct}")
         } else {
-            format!(
-                "foreignKey:{fk_field};constraint:{}",
-                constraint_parts.join(",")
-            )
+            format!("[]{source_struct}")
         };
         lines.push(format!(
-            "    {field_name} []{ref_struct} `gorm:\"{gorm_tag}\" json:\"-\"`",
-            field_name = claim_binding(rel.field_name.clone(), &mut taken),
-            ref_struct = exported_go_name(&rel.ref_table),
+            "    {field_name} {go_type} `gorm:\"{gorm_tag}\" json:\"-\"`",
+            field_name = claim_binding(field_name, &mut taken),
         ));
     }
 
@@ -259,78 +262,35 @@ fn collect_composite_unique_names(table: &TableDef) -> HashMap<&str, String> {
 }
 
 // ---------------------------------------------------------------------------
-// Reverse relation discovery
+// Reverse relation naming
 // ---------------------------------------------------------------------------
 
-struct ReverseRelation {
-    field_name: String,
-    ref_table: String,
-    fk_column: String,
-    on_delete: Option<ReferenceAction>,
-    on_update: Option<ReferenceAction>,
-}
-
-fn find_reverse_relations(table_name: &str, schema: &[TableDef]) -> Vec<ReverseRelation> {
-    type RawRelation = (
-        String,
-        String,
-        String,
-        Option<ReferenceAction>,
-        Option<ReferenceAction>,
-    );
-    let mut raw: Vec<RawRelation> = Vec::new();
-    for other in schema {
-        // Note: self-referencing tables (other.name == table_name) are NOT
-        // skipped here — a table's own FK column pointing back at itself
-        // (e.g. categories.parent_id -> categories.id) must still produce a
-        // reverse has-many ("Children") relation on the same struct.
-        for c in &other.constraints {
-            if let TableConstraint::ForeignKey {
-                columns,
-                ref_table,
-                on_delete,
-                on_update,
-                ..
-            } = c
-                && ref_table.as_str() == table_name
-                && columns.len() == 1
-            {
-                let fk_col = columns[0].as_str().to_owned();
-                let is_self_ref = other.name.as_str() == table_name;
-                let base_name = if is_self_ref {
-                    "Children".to_string()
-                } else {
-                    exported_go_name(&pluralize(other.name.as_str()))
-                };
-                raw.push((
-                    other.name.as_str().to_owned(),
-                    fk_col,
-                    base_name,
-                    on_delete.clone(),
-                    on_update.clone(),
-                ));
-            }
-        }
-    }
-
-    let mut name_count: HashMap<String, usize> = HashMap::new();
-    for (_, _, base_name, _, _) in &raw {
-        *name_count.entry(base_name.clone()).or_default() += 1;
-    }
-
-    raw.into_iter()
-        .map(|(ref_table, fk_col, base_name, on_delete, on_update)| {
-            let field_name = if *name_count.get(&base_name).unwrap_or(&0) > 1 {
-                format!("{}By{}", base_name, to_go_field_name(&fk_col))
+/// Go field names for `rels`, in order: `Children` for a self-reference,
+/// otherwise the source struct — as is for a has-one, pluralized for a
+/// has-many. A name more than one relation would take is told apart by the
+/// key it hangs on (`SettingsByCreatedByUserID`).
+fn reverse_field_names(target: &str, rels: &[BackRelation]) -> Vec<String> {
+    let bases: Vec<String> = rels
+        .iter()
+        .map(|rel| {
+            if rel.source_table == target {
+                "Children".to_string()
+            } else if rel.is_one_to_one {
+                exported_go_name(&rel.source_table)
             } else {
-                base_name
-            };
-            ReverseRelation {
-                field_name,
-                ref_table,
-                fk_column: fk_col,
-                on_delete,
-                on_update,
+                exported_go_name(&pluralize(&rel.source_table))
+            }
+        })
+        .collect();
+
+    rels.iter()
+        .zip(&bases)
+        .map(|(rel, base)| {
+            if bases.iter().filter(|other| *other == base).count() > 1 {
+                let key: String = rel.fk_columns.iter().map(|c| to_go_field_name(c)).collect();
+                format!("{base}By{key}")
+            } else {
+                base.clone()
             }
         })
         .collect()
@@ -376,6 +336,7 @@ fn render_fk_relation_field(
     col: &ColumnDef,
     fk_field_name: &str,
     fk: &FkDetails,
+    schema: &[TableDef],
     taken: &mut HashSet<String>,
 ) {
     let ref_struct = exported_go_name(fk.ref_table);
@@ -388,22 +349,12 @@ fn render_fk_relation_field(
     // relation) elsewhere in the table.
     let relation_field_name = claim_binding(relation_field_name, taken);
 
-    let mut constraint_parts: Vec<String> = Vec::new();
-    if let Some(action) = fk.on_delete {
-        constraint_parts.push(format!("OnDelete:{}", action.to_sql_keyword()));
-    }
-    if let Some(action) = fk.on_update {
-        constraint_parts.push(format!("OnUpdate:{}", action.to_sql_keyword()));
-    }
-
-    let gorm_tag = if constraint_parts.is_empty() {
-        format!("foreignKey:{fk_field_name}")
-    } else {
-        format!(
-            "foreignKey:{fk_field_name};constraint:{}",
-            constraint_parts.join(",")
-        )
-    };
+    let gorm_tag = relation_tag(
+        &[fk_field_name.to_string()],
+        &reference_fields(schema, fk.ref_table, &[fk.ref_column]),
+        fk.on_delete,
+        fk.on_update,
+    );
 
     let type_expr = if col.nullable {
         format!("*{ref_struct}")
@@ -434,34 +385,12 @@ fn render_composite_fk_relation_field(
         .iter()
         .map(|c| field_names[*c].clone())
         .collect();
-    let ref_fields: Vec<String> = fk
-        .ref_cols
-        .iter()
-        .map(|c| field_name_in(schema, fk.ref_table, c))
-        .collect();
-
-    let mut constraint_parts: Vec<String> = Vec::new();
-    if let Some(action) = fk.on_delete {
-        constraint_parts.push(format!("OnDelete:{}", action.to_sql_keyword()));
-    }
-    if let Some(action) = fk.on_update {
-        constraint_parts.push(format!("OnUpdate:{}", action.to_sql_keyword()));
-    }
-
-    let gorm_tag = if constraint_parts.is_empty() {
-        format!(
-            "foreignKey:{};references:{}",
-            fk_fields.join(","),
-            ref_fields.join(",")
-        )
-    } else {
-        format!(
-            "foreignKey:{};references:{};constraint:{}",
-            fk_fields.join(","),
-            ref_fields.join(","),
-            constraint_parts.join(",")
-        )
-    };
+    let gorm_tag = relation_tag(
+        &fk_fields,
+        &reference_fields(schema, fk.ref_table, &fk.ref_cols),
+        fk.on_delete,
+        fk.on_update,
+    );
 
     lines.push(format!(
         "    {relation_field_name} {ref_struct} `gorm:\"{gorm_tag}\" json:\"-\"`"
@@ -471,6 +400,51 @@ fn render_composite_fk_relation_field(
 // ---------------------------------------------------------------------------
 // GORM tag building
 // ---------------------------------------------------------------------------
+
+/// The `references` fields of a relation on `ref_table`: none when the key is
+/// the target's primary key, which GORM assumes. A composite key is always
+/// spelled out, since GORM pairs its fields by position.
+fn reference_fields(schema: &[TableDef], ref_table: &str, ref_columns: &[&str]) -> Vec<String> {
+    if let [column] = ref_columns {
+        let is_primary_key = schema
+            .iter()
+            .find(|t| t.name.as_str() == ref_table)
+            .is_none_or(|target| {
+                let pk = primary_key_columns(&target.constraints);
+                pk.len() == 1 && pk.contains(column)
+            });
+        if is_primary_key {
+            return Vec::new();
+        }
+    }
+    ref_columns
+        .iter()
+        .map(|c| field_name_in(schema, ref_table, c))
+        .collect()
+}
+
+/// The `gorm:"..."` tag of a relation field: the fields on the foreign-key
+/// side, the fields they reference when GORM could not infer them, and the
+/// referential actions.
+fn relation_tag(
+    foreign_key: &[String],
+    references: &[String],
+    on_delete: Option<&ReferenceAction>,
+    on_update: Option<&ReferenceAction>,
+) -> String {
+    let mut parts = vec![format!("foreignKey:{}", foreign_key.join(","))];
+    if !references.is_empty() {
+        parts.push(format!("references:{}", references.join(",")));
+    }
+    let actions: Vec<String> = [("OnDelete", on_delete), ("OnUpdate", on_update)]
+        .into_iter()
+        .filter_map(|(key, action)| Some(format!("{key}:{}", action?.to_sql_keyword())))
+        .collect();
+    if !actions.is_empty() {
+        parts.push(format!("constraint:{}", actions.join(",")));
+    }
+    parts.join(";")
+}
 
 fn build_gorm_tag(
     col: &ColumnDef,

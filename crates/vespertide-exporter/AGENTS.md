@@ -82,11 +82,14 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
 ### GORM (Go)
 - **Forward FK**: single-column FK → belongs-to struct field with a `gorm:"foreignKey:..."` tag;
   composite (multi-column) FK → single relation field via comma-separated
-  `foreignKey:Col1,Col2;references:RefCol1,RefCol2`
-- **Reverse (has-many)**: `find_reverse_relations()` scans the full schema for FKs pointing back at
-  the table, including **self-referencing FKs** (a table referencing itself, e.g.
-  `categories.parent_id -> categories.id`) — the self-ref case is named `Children` rather than a
-  pluralized table name to avoid colliding with the struct's own name
+  `foreignKey:Col1,Col2;references:RefCol1,RefCol2`. A single-column key names `references:` too
+  when it points at anything but the target's primary key, which is what GORM would assume
+- **Reverse (has-one / has-many)**: built on the shared `constraint_scan::collect_back_relations`,
+  so composite FKs get a reverse side and a one-to-one renders as `*T` under the source struct's
+  name instead of `[]T` under its plural. Tags mirror the forward side. A **self-referencing FK**
+  (e.g. `categories.parent_id -> categories.id`) is named `Children` rather than a pluralized
+  table name to avoid colliding with the struct's own name; names that would repeat gain a
+  `By{key fields}` suffix (`SettingsByCreatedByUserID`)
 - **No M2M/junction detection**: a junction table (composite-PK, 2+ FKs) is rendered as a plain
   has-many to the junction struct itself, not a dedicated M2M relation
 - **Identifiers**: every struct, field and type name is an exported Go name (`exported_go_name`:

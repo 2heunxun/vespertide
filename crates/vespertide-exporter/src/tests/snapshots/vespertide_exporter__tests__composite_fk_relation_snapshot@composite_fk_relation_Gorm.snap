@@ -7,6 +7,7 @@ package models
 type Orders struct {
     ID int32 `gorm:"column:id;primaryKey" json:"id"`
     Version int32 `gorm:"column:version;primaryKey" json:"version"`
+    LineItems []LineItems `gorm:"foreignKey:OrderID,OrderVersion;references:ID,Version" json:"-"`
 }
 
 func (Orders) TableName() string { return "orders" }

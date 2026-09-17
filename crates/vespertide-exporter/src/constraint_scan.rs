@@ -227,6 +227,10 @@ pub(crate) fn fk_relation_names(table: &TableDef) -> HashMap<usize, String> {
 /// name both ends must agree on — is the same everywhere.
 pub(crate) struct BackRelation {
     pub(crate) source_table: String,
+    pub(crate) fk_columns: Vec<String>,
+    pub(crate) ref_columns: Vec<String>,
+    pub(crate) on_delete: Option<ReferenceAction>,
+    pub(crate) on_update: Option<ReferenceAction>,
     pub(crate) rel_segment: String,
     pub(crate) is_one_to_one: bool,
     pub(crate) relation_name: Option<String>,
@@ -238,36 +242,40 @@ pub(crate) fn collect_back_relations(target_table: &str, schema: &[TableDef]) ->
     let mut result = Vec::new();
 
     for source in schema {
-        let fks_to_target: Vec<(usize, &[ColumnName])> = source
+        let fks_to_target = source
             .constraints
             .iter()
-            .enumerate()
-            .filter_map(|(idx, c)| {
-                if let TableConstraint::ForeignKey {
-                    columns, ref_table, ..
-                } = c
-                {
-                    if ref_table.as_str() == target_table {
-                        Some((idx, columns.as_slice()))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
+            .filter(|c| {
+                matches!(c, TableConstraint::ForeignKey { ref_table, .. }
+                    if ref_table.as_str() == target_table)
             })
-            .collect();
+            .count();
 
-        if fks_to_target.is_empty() {
+        if fks_to_target == 0 {
             continue;
         }
 
         let source_relation_names = fk_relation_names(source);
-        let multi_fk = fks_to_target.len() > 1;
+        let multi_fk = fks_to_target > 1;
         let is_self_ref = source.name.as_str() == target_table;
 
-        for (constraint_idx, fk_cols) in &fks_to_target {
-            let is_one_to_one = if let [fk_col] = fk_cols {
+        for (constraint_idx, constraint) in source.constraints.iter().enumerate() {
+            let TableConstraint::ForeignKey {
+                columns: fk_cols,
+                ref_table,
+                ref_columns,
+                on_delete,
+                on_update,
+                ..
+            } = constraint
+            else {
+                continue;
+            };
+            if ref_table.as_str() != target_table {
+                continue;
+            }
+
+            let is_one_to_one = if let [fk_col] = fk_cols.as_slice() {
                 source.constraints.iter().any(|c| {
                     matches!(c, TableConstraint::Unique { columns, .. }
                         if columns.len() == 1 && columns[0] == *fk_col)
@@ -290,13 +298,17 @@ pub(crate) fn collect_back_relations(target_table: &str, schema: &[TableDef]) ->
 
             let rel_segment = relation_segment(fk_cols);
             let relation_name = if multi_fk || is_self_ref {
-                source_relation_names.get(constraint_idx).cloned()
+                source_relation_names.get(&constraint_idx).cloned()
             } else {
                 None
             };
 
             result.push(BackRelation {
                 source_table: source.name.as_str().to_string(),
+                fk_columns: fk_cols.iter().map(ToString::to_string).collect(),
+                ref_columns: ref_columns.iter().map(ToString::to_string).collect(),
+                on_delete: on_delete.clone(),
+                on_update: on_update.clone(),
                 rel_segment,
                 is_one_to_one,
                 relation_name,
