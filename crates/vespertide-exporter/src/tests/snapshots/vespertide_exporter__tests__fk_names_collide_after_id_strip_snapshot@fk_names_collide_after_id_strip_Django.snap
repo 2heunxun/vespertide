@@ -15,7 +15,7 @@ class Target(models.Model):
         db_table = "target"
 
 class Src(models.Model):
-    pk = models.IntegerField(primary_key=True)
+    pk_field = models.IntegerField(db_column="pk", primary_key=True)
     a = models.ForeignKey("Target", on_delete=models.RESTRICT, related_name="+", null=True, blank=True)
     a2 = models.ForeignKey("Target", on_delete=models.RESTRICT, db_column="a", related_name="+", null=True, blank=True)
 

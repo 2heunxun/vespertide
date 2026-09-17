@@ -29,6 +29,29 @@ pub(crate) fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValu
     }
 }
 
+/// Python's hard keywords (`keyword.kwlist`, 3.12). Soft keywords (`match`,
+/// `case`, `type`, `_`) stay valid identifiers and need no escape.
+const PYTHON_KEYWORDS: [&str; 35] = [
+    "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue",
+    "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import",
+    "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while",
+    "with", "yield",
+];
+
+pub(crate) fn is_python_keyword(name: &str) -> bool {
+    PYTHON_KEYWORDS.contains(&name)
+}
+
+/// PEP 8's escape for a name that is a Python keyword: a trailing `_`. The
+/// callers already emit the database column name whenever the attribute
+/// differs from it.
+pub(crate) fn escape_python_keyword(mut name: String) -> String {
+    if is_python_keyword(&name) {
+        name.push('_');
+    }
+    name
+}
+
 /// Member name for a Python enum class: `SCREAMING_SNAKE_CASE` of the value.
 /// Python accepts a leading `_` in a member name, so the digit escape is `_`
 /// rather than the letter Prisma needs.

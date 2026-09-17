@@ -37,6 +37,11 @@ which also upper-cases the first letter because Go exports by case), plus
 identifier MUST also emit the original database name (`@map`, `column_name`,
 SQLAlchemy's positional column name).
 
+Python keywords are escaped by `utils/python.rs::escape_python_keyword` (PEP 8's trailing
+`_`) in SQLAlchemy and SQLModel. Django cannot use that form — fields.E001 forbids a
+trailing `_` — so `django/render.rs::django_field_name` applies Django's field checks
+(no `__`, no trailing `_`, not `pk`, not a keyword) with `inspectdb`'s `_field` repairs.
+
 ## WHERE TO LOOK
 
 | Task | Location |

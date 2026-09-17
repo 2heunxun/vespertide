@@ -406,6 +406,11 @@ orm_cases!(
     "enum_name_shared_across_tables",
     fixtures::enum_name_shared_across_tables
 );
+orm_cases!(
+    python_reserved_names_snapshot,
+    "python_reserved_names",
+    fixtures::python_reserved_names
+);
 
 /// Dispatch the per-ORM `to_pascal_case` helper from a single entry point so
 /// the cross-ORM consolidation test can exercise every implementation without

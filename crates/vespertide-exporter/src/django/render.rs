@@ -6,6 +6,7 @@ use crate::constraint_scan::{
     primary_key, primary_key_columns, single_column_fk_details, single_column_uniques,
 };
 use crate::utils::common::{claim_binding, collect_composite_fks};
+use crate::utils::python::is_python_keyword;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType};
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ReferenceAction, TableDef};
@@ -284,10 +285,7 @@ fn render_entity_part(
                 effective_pk,
                 auto_increment && !is_composite_pk,
             );
-            let field_name = claim_binding(
-                sanitize_identifier(col.name.as_str(), IdentifierStart::Underscore),
-                &mut used_field_names,
-            );
+            let field_name = django_field_name(col.name.as_str(), &mut used_field_names);
             let db_column = if field_name == col.name.as_str() {
                 None
             } else {
@@ -438,13 +436,13 @@ fn render_fk_field(
     nullable: bool,
     used_field_names: &mut HashSet<String>,
 ) -> String {
-    let (field_name, db_column) = fk_field_name(col_name);
-    // The `_id` strip can collapse two distinct columns onto the same
-    // attribute name (e.g. `a_id` -> `a` colliding with a real column `a`).
-    let deduped_field_name = claim_binding(field_name.clone(), used_field_names);
-    let db_column =
-        db_column.or_else(|| (deduped_field_name != field_name).then(|| col_name.to_string()));
-    let field_name = deduped_field_name;
+    // Django reads a ForeignKey through `{field}_id`, so the column keeps its
+    // database name exactly when the stripped base survives every rename.
+    let field_name = django_field_name(
+        vespertide_naming::infer_relation_field_name(col_name),
+        used_field_names,
+    );
+    let db_column = (format!("{field_name}_id") != col_name).then(|| col_name.to_string());
     let ref_class = sanitize_identifier(&to_pascal_case(ref_table), IdentifierStart::Underscore);
     let on_delete_str = on_delete.map_or("models.RESTRICT", reference_action_str);
 
@@ -487,26 +485,24 @@ fn attname_of<'a>(attnames: &'a HashMap<&str, String>, column: &'a str) -> &'a s
     attnames.get(column).map_or(column, String::as_str)
 }
 
-/// Returns (field_name, Option<db_column>).
-/// If col_name ends with `_id`, strip it — Django automatically appends `_id`.
-/// Otherwise, emit db_column explicitly so Django uses the raw column name.
-/// Either way, `field_name` is sanitized into a valid Python identifier; if
-/// that sanitization (or the `_id` strip) changes anything, `db_column` is
-/// set to the original column name so the DB mapping isn't lost.
-fn fk_field_name(col_name: &str) -> (String, Option<String>) {
-    if let Some(base) = col_name.strip_suffix("_id") {
-        let sanitized = sanitize_identifier(base, IdentifierStart::Underscore);
-        if sanitized == base {
-            (sanitized, None)
-        } else {
-            (sanitized, Some(col_name.to_string()))
-        }
-    } else {
-        (
-            sanitize_identifier(col_name, IdentifierStart::Underscore),
-            Some(col_name.to_string()),
-        )
+/// A column's Django field name: a Python identifier that also passes Django's
+/// field checks — no `__` (the lookup separator, fields.E002), no trailing `_`
+/// (fields.E001), not `pk` (fields.E003) and not a keyword — claimed against
+/// `taken`. The repairs are `inspectdb`'s, so a renamed field reads the way
+/// Django's own tooling would spell it; callers emit `db_column` whenever the
+/// result differs from the column.
+fn django_field_name(column: &str, taken: &mut HashSet<String>) -> String {
+    let mut name = sanitize_identifier(column, IdentifierStart::Underscore);
+    while name.contains("__") {
+        name = name.replace("__", "_");
     }
+    if name.ends_with('_') {
+        name.push_str("field");
+    }
+    if name == "pk" || is_python_keyword(&name) {
+        name.push_str("_field");
+    }
+    claim_binding(name, taken)
 }
 
 fn assemble_with_imports(used: &UsedImports, parts: &[String]) -> String {
@@ -537,18 +533,16 @@ mod tests {
     use super::*;
 
     #[rstest::rstest]
-    #[case("author_id", "author", None)]
-    #[case("user_id", "user", None)]
-    #[case("parent", "parent", Some("parent"))]
-    #[case("ref", "ref", Some("ref"))]
-    fn test_fk_field_name(
-        #[case] col: &str,
-        #[case] expected_field: &str,
-        #[case] expected_db_col: Option<&str>,
-    ) {
-        let (field, db_col) = fk_field_name(col);
-        assert_eq!(field, expected_field);
-        assert_eq!(db_col.as_deref(), expected_db_col);
+    #[case::plain("author", "author")]
+    #[case::keyword("from", "from_field")]
+    #[case::reserved_pk("pk", "pk_field")]
+    #[case::lookup_separator("user__name", "user_name")]
+    #[case::trailing_underscore("total_", "total_field")]
+    #[case::separator_from_sanitizing("a--b", "a_b")]
+    #[case::digit_led("1st", "_1st")]
+    fn django_field_name_passes_the_field_checks(#[case] column: &str, #[case] expected: &str) {
+        let mut taken = HashSet::new();
+        assert_eq!(django_field_name(column, &mut taken), expected);
     }
 
     #[test]
