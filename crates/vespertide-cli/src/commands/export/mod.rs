@@ -494,8 +494,7 @@ async fn cmd_export_models_file(
 ) -> Result<()> {
     let all_tables: Vec<TableDef> = normalized_models.iter().map(|(t, _)| t.clone()).collect();
     let (comment, code) = if matches!(orm, Orm::Gorm) {
-        let package_name = vespertide_config::go_package_name(&target_root);
-        let exporter = GormExporterWithConfig::new(&package_name);
+        let exporter = GormExporterWithConfig::for_export_dir(&target_root);
         ("//", exporter.export(&all_tables))
     } else {
         let exporter = DjangoExporterWithConfig::new(config.django());

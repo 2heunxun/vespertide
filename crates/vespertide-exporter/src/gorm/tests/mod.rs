@@ -102,3 +102,17 @@ fn column_field_names_disambiguate_go_collisions() {
 fn test_go_relation_field_name(#[case] input: &str, #[case] expected: &str) {
     assert_eq!(go_relation_field_name(input), expected);
 }
+
+#[rstest]
+#[case::default_dir_matches_folder("src/models", "models")]
+#[case::infers_from_folder_name("src/entities", "entities")]
+#[case::strips_invalid_chars("src/db-models", "dbmodels")]
+#[case::falls_back_when_digit_led("src/2024-models", "models")]
+#[case::falls_back_on_non_ascii("src/모델", "models")]
+#[case::falls_back_on_reserved_word("src/type", "models")]
+fn go_package_name_inferred_from_export_dir(#[case] export_dir: &str, #[case] expected: &str) {
+    assert_eq!(
+        super::go_package_name(std::path::Path::new(export_dir)),
+        expected
+    );
+}

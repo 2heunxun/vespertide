@@ -8,8 +8,7 @@ pub mod file_format;
 pub mod name_case;
 
 pub use config::{
-    DEFAULT_GORM_PACKAGE_NAME, DjangoConfig, SeaOrmConfig, VespertideConfig,
-    default_migration_filename_pattern, go_package_name,
+    DjangoConfig, SeaOrmConfig, VespertideConfig, default_migration_filename_pattern,
 };
 pub use file_format::FileFormat;
 pub use name_case::NameCase;
@@ -17,8 +16,6 @@ pub use name_case::NameCase;
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
-
-    use rstest::rstest;
 
     use super::*;
 
@@ -137,11 +134,7 @@ mod tests {
     #[test]
     fn django_config_app_label_absent_from_json_when_none() {
         let cfg = DjangoConfig::default();
-        let json = serde_json::to_string(&cfg).unwrap();
-        assert!(
-            !json.contains("appLabel"),
-            "None app_label must not serialize: {json}"
-        );
+        assert_eq!(serde_json::to_value(&cfg).unwrap(), serde_json::json!({}));
     }
 
     #[test]
@@ -163,16 +156,5 @@ mod tests {
         }"#;
         let cfg: VespertideConfig = serde_json::from_str(json).unwrap();
         assert_eq!(cfg.django().app_label(), Some("myapp"));
-    }
-
-    #[rstest]
-    #[case::default_dir_matches_folder("src/models", "models")]
-    #[case::infers_from_folder_name("src/entities", "entities")]
-    #[case::strips_invalid_chars("src/db-models", "dbmodels")]
-    #[case::falls_back_when_digit_led("src/2024-models", "models")]
-    #[case::falls_back_on_non_ascii("src/모델", "models")]
-    #[case::falls_back_on_reserved_word("src/type", "models")]
-    fn go_package_name_inferred_from_export_dir(#[case] export_dir: &str, #[case] expected: &str) {
-        assert_eq!(go_package_name(Path::new(export_dir)), expected);
     }
 }

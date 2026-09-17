@@ -100,8 +100,8 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
   SQL layer creates and GORM groups a composite index by them; `char(N)` and the PG network types
   carry an explicit `type:`; a default GORM's tag syntax cannot hold (`"`, `;`, a function call)
   is omitted, and an integer enum's variant-name default becomes its value
-- **Package name**: there is no `gorm` config section. `GormExporterWithConfig` takes a resolved
-  `&str`, which callers get from `vespertide_config::go_package_name(export_dir)` — the export
+- **Package name**: there is no `gorm` config section. `GormExporterWithConfig::for_export_dir`
+  derives it from the directory the file is written to (`go_package_name`) — the export
   directory's final path segment sanitized into a Go identifier, falling back to `"models"`. The
   CLI passes the real write target (`--export-dir` override or `model_export_dir`) because Go
   expects `package` to name the directory the file lives in.

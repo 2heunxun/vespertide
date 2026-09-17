@@ -2,9 +2,10 @@ mod enums;
 mod render;
 mod types;
 
+use std::path::Path;
+
 use crate::orm::OrmExporter;
 use render::{gofmt_layout, imports_for, render_header, render_table_body};
-use vespertide_config::DEFAULT_GORM_PACKAGE_NAME;
 use vespertide_core::TableDef;
 
 pub struct GormExporter;
@@ -23,21 +24,89 @@ impl OrmExporter for GormExporter {
     }
 }
 
-/// GORM exporter that emits a caller-chosen `package` clause. Go expects that
-/// name to match the directory the file lives in, so the CLI resolves it from
-/// the real write target via `vespertide_config::go_package_name`.
-pub struct GormExporterWithConfig<'a> {
-    package_name: &'a str,
+/// Go package name for renders that have no export directory to derive one
+/// from, and the fallback when the directory's name does not yield a usable
+/// Go identifier.
+const DEFAULT_GORM_PACKAGE_NAME: &str = "models";
+
+/// Go reserved words, which can't be used as a package name.
+const GO_RESERVED_WORDS: &[&str] = &[
+    "break",
+    "default",
+    "func",
+    "interface",
+    "select",
+    "case",
+    "defer",
+    "go",
+    "map",
+    "struct",
+    "chan",
+    "else",
+    "goto",
+    "package",
+    "switch",
+    "const",
+    "fallthrough",
+    "if",
+    "range",
+    "type",
+    "continue",
+    "for",
+    "import",
+    "return",
+    "var",
+];
+
+/// Sanitize a candidate string into a valid, idiomatic Go package identifier:
+/// lowercase ASCII letters/digits only, must not start with a digit, must
+/// not collide with a Go reserved word. Returns `None` when nothing usable
+/// remains (e.g. an all-Unicode or empty candidate).
+fn sanitize_go_package_name(candidate: &str) -> Option<String> {
+    let cleaned: String = candidate
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+
+    if cleaned.is_empty() || cleaned.starts_with(|c: char| c.is_ascii_digit()) {
+        return None;
+    }
+    if GO_RESERVED_WORDS.contains(&cleaned.as_str()) {
+        return None;
+    }
+    Some(cleaned)
 }
 
-impl<'a> GormExporterWithConfig<'a> {
-    pub fn new(package_name: &'a str) -> Self {
-        Self { package_name }
+/// Go package name for a GORM export: the export directory's final path
+/// segment, sanitized into a Go identifier, or [`DEFAULT_GORM_PACKAGE_NAME`]
+/// when that segment yields nothing usable.
+fn go_package_name(export_dir: &Path) -> String {
+    export_dir
+        .file_name()
+        .and_then(|s| s.to_str())
+        .and_then(sanitize_go_package_name)
+        .unwrap_or_else(|| DEFAULT_GORM_PACKAGE_NAME.to_string())
+}
+
+/// GORM exporter whose `package` clause names the directory the file is
+/// written to, which is what Go expects of it.
+pub struct GormExporterWithConfig {
+    package_name: String,
+}
+
+impl GormExporterWithConfig {
+    /// `export_dir` is the directory `models.go` is actually written to —
+    /// whatever wins after resolving `--export-dir`.
+    pub fn for_export_dir(export_dir: &Path) -> Self {
+        Self {
+            package_name: go_package_name(export_dir),
+        }
     }
 
-    /// [`export`] under the configured package name.
+    /// [`export`] under the directory's package name.
     pub fn export(&self, schema: &[TableDef]) -> Result<String, String> {
-        Ok(export_with_package(schema, self.package_name))
+        Ok(export_with_package(schema, &self.package_name))
     }
 }
 
