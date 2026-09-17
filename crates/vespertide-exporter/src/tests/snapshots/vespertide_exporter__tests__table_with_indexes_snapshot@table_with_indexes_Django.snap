@@ -16,6 +16,6 @@ class Articles(models.Model):
         managed = False
         db_table = "articles"
         indexes = [
-            models.Index(fields=["created_at"], name="idx_articles_created_at"),
-            models.Index(fields=["title"]),
+            models.Index(fields=["created_at"]),
+            models.Index(fields=["title"], name="ix_articles__title"),
         ]

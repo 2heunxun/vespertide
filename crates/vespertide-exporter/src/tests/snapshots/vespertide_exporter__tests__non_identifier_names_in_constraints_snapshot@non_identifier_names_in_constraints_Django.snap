@@ -18,7 +18,7 @@ class Membership(models.Model):
         managed = False
         db_table = "membership"
         indexes = [
-            models.Index(fields=["_3created"]),
+            models.Index(fields=["_3created"], name="ix_membership__3created"),
         ]
         constraints = [
             models.UniqueConstraint(fields=["user_email", "_1tenant_id"], name="uq_membership__1tenant_id_user-email"),

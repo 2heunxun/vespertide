@@ -16,5 +16,5 @@ class CompositeIndex(models.Model):
         managed = False
         db_table = "composite_index"
         indexes = [
-            models.Index(fields=["tenant_id", "name"], name="idx_tenant_name"),
+            models.Index(fields=["tenant_id", "name"]),
         ]

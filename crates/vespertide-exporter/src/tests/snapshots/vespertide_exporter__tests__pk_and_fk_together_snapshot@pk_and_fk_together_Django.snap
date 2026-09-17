@@ -21,6 +21,6 @@ class ArticleUser(models.Model):
         managed = False
         db_table = "article_user"
         indexes = [
-            models.Index(fields=["article_id"]),
-            models.Index(fields=["user_id"]),
+            models.Index(fields=["article_id"], name="ix_article_user__article_id"),
+            models.Index(fields=["user_id"], name="ix_article_user__user_id"),
         ]

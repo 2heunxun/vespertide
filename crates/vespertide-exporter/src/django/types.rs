@@ -201,7 +201,25 @@ pub(super) fn build_default(
     None
 }
 
-pub(super) fn reference_action_str(action: &ReferenceAction) -> &'static str {
+/// The `on_delete` a ForeignKey can carry; a key without an action restricts.
+/// Django emulates the action itself and rejects one the field cannot carry
+/// out: SET_DEFAULT without a default (fields.E321), SET_NULL on a field that
+/// is not null (fields.E320). The table is unmanaged, so the database still
+/// applies its own rule; DO_NOTHING leaves it to.
+pub(super) fn on_delete_for(
+    action: Option<&ReferenceAction>,
+    has_default: bool,
+    null: bool,
+) -> &'static str {
+    match action {
+        Some(ReferenceAction::SetDefault) if !has_default => "models.DO_NOTHING",
+        Some(ReferenceAction::SetNull) if !null => "models.DO_NOTHING",
+        Some(action) => reference_action_str(action),
+        None => "models.RESTRICT",
+    }
+}
+
+fn reference_action_str(action: &ReferenceAction) -> &'static str {
     match action {
         ReferenceAction::Cascade => "models.CASCADE",
         ReferenceAction::Restrict => "models.RESTRICT",

@@ -18,5 +18,5 @@ class Users(models.Model):
         managed = False
         db_table = "users"
         indexes = [
-            models.Index(fields=["department"], name="idx_department"),
+            models.Index(fields=["department"], name="ix_users__idx_department"),
         ]

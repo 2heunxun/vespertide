@@ -42,7 +42,9 @@ SQLAlchemy's positional column name).
 Python keywords are escaped by `utils/python.rs::escape_python_keyword` (PEP 8's trailing
 `_`) in SQLAlchemy and SQLModel. Django cannot use that form — fields.E001 forbids a
 trailing `_` — so `django/render.rs::django_field_name` applies Django's field checks
-(no `__`, no trailing `_`, not `pk`, not a keyword) with `inspectdb`'s `_field` repairs.
+(no `__`, no trailing `_`, not a keyword, not one of the model's own attributes in
+`MODEL_ATTRIBUTES` — `pk`, `save`, `check`, `objects`, `Meta`, …) with `inspectdb`'s `_field`
+repairs.
 
 ## WHERE TO LOOK
 
@@ -142,8 +144,11 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
 - Renders `models.Model` classes with a `class Meta` (`managed = False` — vespertide owns the DDL,
   so `makemigrations` must not create or alter these tables — `db_table`, `indexes`, `constraints`).
   `UniqueConstraint` names come from `build_unique_constraint_name` with the source name as the
-  key, matching the SQL layer; `Meta.indexes` keep their source names because Django caps index
-  names at 30 characters (models.E034)
+  key, matching the SQL layer; `Meta.indexes` use `build_index_name` the same way while the
+  result fits Django's 30-character cap on index names (models.E034), and carry no `name=`
+  past it — Django never creates the index of an unmanaged model, so its own name will do.
+  The built name is `ix_{table}__{key}`, so a long table name reaches the cap on its own and
+  even a short source name then goes unnamed
 - **JSONB**: a `Custom` column type spelled `jsonb` maps to `models.JSONField` (the shared
   `is_jsonb_custom_type`); other custom types fall back to `TextField`
 - **M2M junction detection**: `constraint_scan::junction_targets` (shared with SeaORM) recognizes
@@ -157,8 +162,9 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
 - **Names and actions Django's checks reject**: a model class never starts with `_` (models.E023;
   `1users` → `x1users`, the same letter escape SQLModel uses), and `on_delete=SET_DEFAULT` is only
   emitted when the FK column has a default, which then renders as `default=`; without one it
-  falls back to `DO_NOTHING` (fields.E321) — the table is unmanaged, so the database keeps
-  applying its own rule
+  falls back to `DO_NOTHING` (fields.E321), and so does `SET_NULL` on a field that is not null
+  (fields.E320) — the table is unmanaged, so the database keeps applying its own rule
+  (`types.rs::on_delete_for`)
 - **Composite (multi-column) FK**: Django has no native multi-column FK field, so
   `collect_composite_fks` (from `utils/common.rs`, shared with SQLAlchemy, SQLModel and GORM)
   emits a `# composite foreign key: (...) -> ref_table(...)` comment instead of silently dropping

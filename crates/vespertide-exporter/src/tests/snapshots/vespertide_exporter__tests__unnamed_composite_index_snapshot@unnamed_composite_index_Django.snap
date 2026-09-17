@@ -16,5 +16,5 @@ class UnnamedIndex(models.Model):
         managed = False
         db_table = "unnamed_index"
         indexes = [
-            models.Index(fields=["col_a", "col_b"]),
+            models.Index(fields=["col_a", "col_b"], name="ix_unnamed_index__col_a_col_b"),
         ]

@@ -48,7 +48,7 @@ mod tests {
     use vespertide_core::ReferenceAction;
     use vespertide_core::schema::column::{ColumnType, SimpleColumnType};
 
-    use super::types::{UsedImports, build_default, django_field_type, reference_action_str};
+    use super::types::{UsedImports, build_default, django_field_type, on_delete_for};
 
     /// A SQL string default becomes the Python value it spells: the outer
     /// quotes go, a doubled `''` is one quote, and what Python's literal
@@ -114,12 +114,30 @@ mod tests {
     }
 
     #[rstest]
-    #[case::cascade(ReferenceAction::Cascade, "models.CASCADE")]
-    #[case::restrict(ReferenceAction::Restrict, "models.RESTRICT")]
-    #[case::set_null(ReferenceAction::SetNull, "models.SET_NULL")]
-    #[case::set_default(ReferenceAction::SetDefault, "models.SET_DEFAULT")]
-    #[case::no_action(ReferenceAction::NoAction, "models.DO_NOTHING")]
-    fn reference_actions_map_to_on_delete(#[case] action: ReferenceAction, #[case] expected: &str) {
-        assert_eq!(reference_action_str(&action), expected);
+    #[case::cascade(Some(ReferenceAction::Cascade), true, true, "models.CASCADE")]
+    #[case::restrict(Some(ReferenceAction::Restrict), true, true, "models.RESTRICT")]
+    #[case::set_null(Some(ReferenceAction::SetNull), true, true, "models.SET_NULL")]
+    #[case::set_default(Some(ReferenceAction::SetDefault), true, true, "models.SET_DEFAULT")]
+    #[case::no_action(Some(ReferenceAction::NoAction), true, true, "models.DO_NOTHING")]
+    #[case::no_action_given(None, true, true, "models.RESTRICT")]
+    #[case::set_null_on_a_field_that_is_not_null(
+        Some(ReferenceAction::SetNull),
+        true,
+        false,
+        "models.DO_NOTHING"
+    )]
+    #[case::set_default_without_a_default(
+        Some(ReferenceAction::SetDefault),
+        false,
+        true,
+        "models.DO_NOTHING"
+    )]
+    fn reference_actions_map_to_on_delete(
+        #[case] action: Option<ReferenceAction>,
+        #[case] has_default: bool,
+        #[case] null: bool,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(on_delete_for(action.as_ref(), has_default, null), expected);
     }
 }

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::enums::render_enum;
 use super::types::{
-    UsedImports, build_default, build_field_kwargs, django_field_type, reference_action_str,
+    UsedImports, build_default, build_field_kwargs, django_field_type, on_delete_for,
 };
 use crate::constraint_scan::{
     FkDetails, junction_targets, primary_key, primary_key_columns, single_column_fk_details,
@@ -16,7 +16,7 @@ use vespertide_core::schema::column::{ColumnType, ComplexColumnType};
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ReferenceAction, TableDef};
 use vespertide_naming::{
-    IdentifierStart, build_unique_constraint_name, pluralize, sanitize_identifier,
+    IdentifierStart, build_index_name, build_unique_constraint_name, pluralize, sanitize_identifier,
 };
 
 pub fn render_entity(table: &TableDef) -> Result<String, String> {
@@ -349,10 +349,16 @@ fn render_entity_part(
                 .map(|c| format!("\"{}\"", attname_of(&attnames, c)))
                 .collect::<Vec<_>>()
                 .join(", ");
-            if let Some(n) = name {
+            // The name the SQL layer gave the index — a source name is the
+            // builder's key, not the final name — while it fits Django's
+            // 30-character cap (models.E034). Past the cap the index goes
+            // unnamed: Django never creates the index of an unmanaged model,
+            // so the name it makes up is never used.
+            let n = build_index_name(&table.name, cols, *name);
+            if n.len() <= 30 {
                 lines.push(format!(
                     "            models.Index(fields=[{fields}], name={}),",
-                    string_literal(n)
+                    string_literal(&n)
                 ));
             } else {
                 lines.push(format!("            models.Index(fields=[{fields}]),"));
@@ -369,9 +375,8 @@ fn render_entity_part(
                 .map(|c| format!("\"{}\"", attname_of(&attnames, c)))
                 .collect::<Vec<_>>()
                 .join(", ");
-            // Spelled as the SQL layer spells it — a source name is the builder's
-            // key, not the final name — so Django and the migration agree on
-            // which constraint exists.
+            // Likewise the database's name. A constraint must carry one, and
+            // Django puts no cap on it.
             let n = build_unique_constraint_name(&table.name, cols, *name);
             lines.push(format!(
                 "            models.UniqueConstraint(fields=[{fields}], name={}),",
@@ -404,15 +409,9 @@ fn render_fk_field(
     // Django reads a ForeignKey through `{field}_id`, so the column keeps its
     // database name exactly when the stripped base survives every rename.
     let db_column = (format!("{field_name}_id") != col_name).then(|| col_name.to_string());
-    // Django emulates `on_delete` itself and rejects SET_DEFAULT on a field
-    // without a default (fields.E321). The table is unmanaged, so the
-    // database still applies its own rule; DO_NOTHING leaves it to. `ON
-    // UPDATE` has no counterpart on a Django ForeignKey.
-    let on_delete_str = match on_delete {
-        Some(ReferenceAction::SetDefault) if default.is_none() => "models.DO_NOTHING",
-        Some(action) => reference_action_str(action),
-        None => "models.RESTRICT",
-    };
+    let null = nullable && !is_pk;
+    // `ON UPDATE` has no counterpart on a Django ForeignKey.
+    let on_delete_str = on_delete_for(on_delete, default.is_some(), null);
 
     let mut kwargs = vec![
         format!("\"{ref_class}\""),
@@ -431,7 +430,7 @@ fn render_fk_field(
         kwargs.push(format!("db_column={}", string_literal(&db_col)));
     }
     kwargs.push("related_name=\"+\"".into());
-    if nullable && !is_pk {
+    if null {
         kwargs.push("null=True".into());
         kwargs.push("blank=True".into());
     }
@@ -541,12 +540,46 @@ fn attname_of<'a>(attnames: &'a HashMap<&str, String>, column: &'a str) -> &'a s
     attnames.get(column).map_or(column, String::as_str)
 }
 
+/// Attributes every Django model already has: `Model`'s public API and what its
+/// metaclass adds. A field of the same name replaces the method (`save`,
+/// `clean`: a `TypeError` at the first call), fails the checks (`pk`:
+/// fields.E003, `check`: models.E020), stops the module importing (`objects`)
+/// or is rebound by the `class Meta` written below the fields (`Meta`).
+const MODEL_ATTRIBUTES: &[&str] = &[
+    "DoesNotExist",
+    "Meta",
+    "MultipleObjectsReturned",
+    "NotUpdated",
+    "adelete",
+    "arefresh_from_db",
+    "asave",
+    "check",
+    "clean",
+    "clean_fields",
+    "date_error_message",
+    "delete",
+    "from_db",
+    "full_clean",
+    "get_constraints",
+    "get_deferred_fields",
+    "objects",
+    "pk",
+    "prepare_database_save",
+    "refresh_from_db",
+    "save",
+    "save_base",
+    "serializable_value",
+    "unique_error_message",
+    "validate_constraints",
+    "validate_unique",
+];
+
 /// A column's Django field name: a Python identifier that also passes Django's
 /// field checks — no `__` (the lookup separator, fields.E002), no trailing `_`
-/// (fields.E001), not `pk` (fields.E003) and not a keyword — claimed against
-/// `taken`. The repairs are `inspectdb`'s, so a renamed field reads the way
-/// Django's own tooling would spell it; callers emit `db_column` whenever the
-/// result differs from the column.
+/// (fields.E001), not a keyword and not one of the model's own attributes —
+/// claimed against `taken`. The repairs are `inspectdb`'s, so a renamed field
+/// reads the way Django's own tooling would spell it; callers emit `db_column`
+/// whenever the result differs from the column.
 fn django_field_name(column: &str, taken: &mut HashSet<String>) -> String {
     let mut name = sanitize_identifier(column, IdentifierStart::Underscore);
     while name.contains("__") {
@@ -555,7 +588,7 @@ fn django_field_name(column: &str, taken: &mut HashSet<String>) -> String {
     if name.ends_with('_') {
         name.push_str("field");
     }
-    if name == "pk" || is_python_keyword(&name) {
+    if MODEL_ATTRIBUTES.contains(&name.as_str()) || is_python_keyword(&name) {
         name.push_str("_field");
     }
     claim_binding(name, taken)
@@ -590,6 +623,10 @@ mod tests {
     #[case::plain("author", "author")]
     #[case::keyword("from", "from_field")]
     #[case::reserved_pk("pk", "pk_field")]
+    #[case::model_method("save", "save_field")]
+    #[case::model_check("check", "check_field")]
+    #[case::default_manager("objects", "objects_field")]
+    #[case::options_class("Meta", "Meta_field")]
     #[case::lookup_separator("user__name", "user_name")]
     #[case::trailing_underscore("total_", "total_field")]
     #[case::separator_from_sanitizing("a--b", "a_b")]
