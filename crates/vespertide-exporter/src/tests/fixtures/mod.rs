@@ -14,6 +14,9 @@ pub(crate) use collisions::binding_collisions;
 mod reference_actions;
 pub(crate) use reference_actions::reference_actions;
 
+mod junctions;
+pub(crate) use junctions::junction_over_composite_key;
+
 mod identifiers;
 pub(crate) use identifiers::{
     enum_name_shared_across_tables, python_reserved_names, relation_field_names,

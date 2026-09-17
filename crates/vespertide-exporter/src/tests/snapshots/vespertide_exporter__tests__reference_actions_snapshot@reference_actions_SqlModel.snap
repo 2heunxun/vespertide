@@ -25,3 +25,4 @@ class Comments(SQLModel, table=True):
 
     id: int = Field(primary_key=True)
     post_id: Optional[int] = Field(default=None, foreign_key="posts.id")
+    author_id: int = Field(default=1, foreign_key="users.id")

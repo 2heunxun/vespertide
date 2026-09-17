@@ -5,6 +5,7 @@ expression: rendered
 model Users {
   id Int @id
   posts Posts[]
+  comments Comments[]
 
   @@map("users")
 }
@@ -22,6 +23,8 @@ model Comments {
   id Int @id
   post_id Int?
   post Posts? @relation(fields: [post_id], references: [id], onDelete: SetDefault, onUpdate: NoAction)
+  author_id Int @default(1)
+  author Users @relation(fields: [author_id], references: [id], onDelete: SetDefault, onUpdate: Cascade)
 
   @@map("comments")
 }

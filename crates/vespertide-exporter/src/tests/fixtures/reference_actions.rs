@@ -13,7 +13,8 @@ use super::{nullable_simple, pk, simple};
 /// but `SET NULL` (pinned by `self_referencing_fk`) appears, each paired with a
 /// different one so a backend that emits one in the other's place is visible;
 /// `comments.post_id` is nullable so the pointer form of a relation field
-/// carries actions too.
+/// carries actions too. `SET DEFAULT` appears with a column default
+/// (`comments.author_id`) and without one: Django accepts only the former.
 pub(crate) fn reference_actions() -> Vec<TableDef> {
     let users = TableDef {
         name: "users".into(),
@@ -44,6 +45,7 @@ pub(crate) fn reference_actions() -> Vec<TableDef> {
         columns: vec![
             simple("id", SimpleColumnType::Integer),
             nullable_simple("post_id", SimpleColumnType::Integer),
+            simple("author_id", SimpleColumnType::Integer).default("1".into()),
         ],
         constraints: vec![
             pk(&["id"]),
@@ -52,6 +54,12 @@ pub(crate) fn reference_actions() -> Vec<TableDef> {
                 "posts",
                 ReferenceAction::SetDefault,
                 ReferenceAction::NoAction,
+            ),
+            fk_with_actions(
+                "author_id",
+                "users",
+                ReferenceAction::SetDefault,
+                ReferenceAction::Cascade,
             ),
         ],
     };

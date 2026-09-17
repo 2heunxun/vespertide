@@ -402,6 +402,11 @@ orm_cases!(
     fixtures::relation_field_names
 );
 orm_cases!(
+    multi junction_over_composite_key_snapshot,
+    "junction_over_composite_key",
+    fixtures::junction_over_composite_key
+);
+orm_cases!(
     multi enum_name_shared_across_tables_snapshot,
     "enum_name_shared_across_tables",
     fixtures::enum_name_shared_across_tables

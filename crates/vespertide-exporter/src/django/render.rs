@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use super::enums::render_enum;
-use super::types::{UsedImports, build_field_kwargs, django_field_type, reference_action_str};
+use super::types::{
+    UsedImports, build_default, build_field_kwargs, django_field_type, reference_action_str,
+};
 use crate::constraint_scan::{
     junction_targets, primary_key, primary_key_columns, single_column_fk_details,
     single_column_uniques,
@@ -54,7 +56,11 @@ pub fn export_with_config(schema: &[TableDef], app_label: Option<&str>) -> Resul
 
 /// The other side of every many-to-many junction that links `table`: each
 /// `(target, junction)` pair whose target `schema` also knows, in schema
-/// order. Purely self-referential junctions yield no pairs.
+/// order. Purely self-referential junctions yield no pairs, and neither does
+/// a junction that reaches either end by a composite key: that key renders as
+/// a comment, and a `through` model needs a real `ForeignKey` to both ends
+/// (fields.E336) — nor can Django relate to the composite-key model such a
+/// key points at (fields.E347).
 fn many_to_many_targets<'a>(table: &TableDef, schema: &'a [TableDef]) -> Vec<(&'a str, &'a str)> {
     let mut pairs = Vec::new();
     for junction in schema {
@@ -65,8 +71,17 @@ fn many_to_many_targets<'a>(table: &TableDef, schema: &'a [TableDef]) -> Vec<(&'
         let Some(targets) = junction_targets(table, junction, &junction_pk) else {
             continue;
         };
+        let reached_by_foreign_key: HashSet<&str> = single_column_fk_details(&junction.constraints)
+            .values()
+            .map(|fk| fk.ref_table)
+            .collect();
+        if !reached_by_foreign_key.contains(table.name.as_str()) {
+            continue;
+        }
         for target in targets {
-            if schema.iter().any(|t| t.name == *target) {
+            if reached_by_foreign_key.contains(target.as_str())
+                && schema.iter().any(|t| t.name == *target)
+            {
                 pairs.push((target.as_str(), junction.name.as_str()));
             }
         }
@@ -107,7 +122,7 @@ fn render_entity_part(
     let single_unique_cols = single_column_uniques(&table.constraints);
     let fk_map = single_column_fk_details(&table.constraints);
 
-    let class_name = sanitize_identifier(&to_pascal_case(&table.name), IdentifierStart::Underscore);
+    let class_name = model_class_name(&table.name);
 
     // Enum class names for this table's columns. A name another table also
     // declares is qualified with the model, as the module is one namespace.
@@ -177,12 +192,16 @@ fn render_entity_part(
 
         let effective_pk = is_pk && !is_composite_pk;
         let attname = if let Some(fk) = fk_map.get(col.name.as_str()) {
+            let default = col
+                .default
+                .as_ref()
+                .and_then(|dv| build_default(&col.r#type, &dv.to_sql(), used));
             let field_name = render_fk_field(
                 &mut lines,
                 &col.name,
                 fk.ref_table,
                 fk.on_delete,
-                fk.on_update,
+                default.as_deref(),
                 effective_pk,
                 is_unique,
                 col.nullable,
@@ -251,10 +270,8 @@ fn render_entity_part(
             base
         };
         let field_name = django_field_name(&raw, &mut used_field_names);
-        let target_class =
-            sanitize_identifier(&to_pascal_case(target), IdentifierStart::Underscore);
-        let junction_class =
-            sanitize_identifier(&to_pascal_case(junction), IdentifierStart::Underscore);
+        let target_class = model_class_name(target);
+        let junction_class = model_class_name(junction);
         lines.push(format!(
             "    {field_name} = models.ManyToManyField(\"{target_class}\", through=\"{junction_class}\", related_name=\"+\")"
         ));
@@ -363,7 +380,7 @@ fn render_fk_field(
     col_name: &str,
     ref_table: &str,
     on_delete: Option<&ReferenceAction>,
-    on_update: Option<&ReferenceAction>,
+    default: Option<&str>,
     is_pk: bool,
     is_unique: bool,
     nullable: bool,
@@ -376,10 +393,16 @@ fn render_fk_field(
         used_field_names,
     );
     let db_column = (format!("{field_name}_id") != col_name).then(|| col_name.to_string());
-    let ref_class = sanitize_identifier(&to_pascal_case(ref_table), IdentifierStart::Underscore);
-    let on_delete_str = on_delete.map_or("models.RESTRICT", reference_action_str);
-
-    let _ = on_update; // Django ForeignKey has no on_update param; silently ignored
+    let ref_class = model_class_name(ref_table);
+    // Django emulates `on_delete` itself and rejects SET_DEFAULT on a field
+    // without a default (fields.E321). The table is unmanaged, so the
+    // database still applies its own rule; DO_NOTHING leaves it to. `ON
+    // UPDATE` has no counterpart on a Django ForeignKey.
+    let on_delete_str = match on_delete {
+        Some(ReferenceAction::SetDefault) if default.is_none() => "models.DO_NOTHING",
+        Some(action) => reference_action_str(action),
+        None => "models.RESTRICT",
+    };
 
     let mut kwargs = vec![
         format!("\"{ref_class}\""),
@@ -387,6 +410,9 @@ fn render_fk_field(
     ];
     if is_pk {
         kwargs.push("primary_key=True".into());
+    }
+    if let Some(default) = default {
+        kwargs.push(format!("default={default}"));
     }
     if let Some(db_col) = db_column {
         kwargs.push(format!("db_column=\"{db_col}\""));
@@ -407,6 +433,13 @@ fn render_fk_field(
     let kwargs_str = kwargs.join(", ");
     lines.push(format!("    {field_name} = {field_class}({kwargs_str})"));
     field_name
+}
+
+/// A table's model class. Django rejects a model name that starts with `_`
+/// (models.E023), so a name that cannot lead with its own first character
+/// gains a letter instead.
+fn model_class_name(table: &str) -> String {
+    sanitize_identifier(&to_pascal_case(table), IdentifierStart::Letter)
 }
 
 fn enum_class_name(name: &str) -> String {

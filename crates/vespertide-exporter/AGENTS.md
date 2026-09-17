@@ -124,7 +124,15 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
   composite-PK, 2+ FK junction tables; each side gets `ManyToManyField(..., through=...,
   related_name="+")`, named after the pluralized target (`{target}_via_{junction}` when two
   junctions reach one target) and run through `django_field_name` after the columns, so it never
-  shadows a scalar field. Purely self-referential junctions are skipped rather than guessed at
+  shadows a scalar field. Purely self-referential junctions are skipped rather than guessed at,
+  and so is a junction that reaches either end by a composite key: that key renders as a
+  comment, a `through` model needs a real `ForeignKey` to both ends (fields.E336), and Django
+  cannot relate to the composite-key model it points at (fields.E347)
+- **Names and actions Django's checks reject**: a model class never starts with `_` (models.E023;
+  `1users` → `x1users`, the same letter escape SQLModel uses), and `on_delete=SET_DEFAULT` is only
+  emitted when the FK column has a default, which then renders as `default=`; without one it
+  falls back to `DO_NOTHING` (fields.E321) — the table is unmanaged, so the database keeps
+  applying its own rule
 - **Composite (multi-column) FK**: Django has no native multi-column FK field, so
   `collect_composite_fks` (from `utils/common.rs`, shared with SQLAlchemy, SQLModel and GORM)
   emits a `# composite foreign key: (...) -> ref_table(...)` comment instead of silently dropping

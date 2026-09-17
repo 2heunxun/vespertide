@@ -7,7 +7,7 @@ from __future__ import annotations
 from django.db import models
 
 
-class _1users(models.Model):
+class x1users(models.Model):
     _1id = models.IntegerField(db_column="1id", primary_key=True)
     email = models.TextField()
 
@@ -17,8 +17,8 @@ class _1users(models.Model):
 
 class Posts(models.Model):
     id = models.IntegerField(primary_key=True)
-    _1st_owner = models.ForeignKey("_1users", on_delete=models.RESTRICT, db_column="1st_owner_id", related_name="+", null=True, blank=True)
-    _2nd_owner = models.ForeignKey("_1users", on_delete=models.RESTRICT, db_column="2nd_owner_id", related_name="+", null=True, blank=True)
+    _1st_owner = models.ForeignKey("x1users", on_delete=models.RESTRICT, db_column="1st_owner_id", related_name="+", null=True, blank=True)
+    _2nd_owner = models.ForeignKey("x1users", on_delete=models.RESTRICT, db_column="2nd_owner_id", related_name="+", null=True, blank=True)
 
     class Meta:
         managed = False
