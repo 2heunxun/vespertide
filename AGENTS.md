@@ -397,7 +397,7 @@ fn create_table_snapshot(#[case] backend: DatabaseBackend) {
 ```
 
 This is the same pattern used by `vespertide-query` (3 backends, 564 snapshots)
-and `vespertide-exporter` (8 ORMs via `Orm` enum, 560 cross-ORM snapshots). When
+and `vespertide-exporter` (8 ORMs via `Orm` enum, 624 cross-ORM snapshots). When
 adding a new backend / ORM / format, the change is **one `#[case::name(Value)]`
 line**.
 
