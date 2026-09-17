@@ -39,7 +39,7 @@ src/
 | `revision -m` | `cmd_revision(msg, fill_with)` | Interactive prompts via `dialoguer::Input` |
 | `status` | `cmd_status()` | Display config paths and migration count |
 | `log` | `cmd_log(backend)` | Iterate applied migrations, print SQL |
-| `export --orm` | `cmd_export(orm, dir)` | `render_entity_with_schema()` + mod.rs wiring |
+| `export --orm` | `cmd_export(orm, dir)` | per-table `render_entity_with_schema()` + mod.rs wiring; Prisma/Drizzle/GORM/Django render the whole schema into fixed file names |
 | `erd -f svg\|mermaid\|dot` | `cmd_erd_with_filters(format, output, include, exclude, depth)` | FK-graph filtered ERD rendering |
 
 ## WHERE TO LOOK

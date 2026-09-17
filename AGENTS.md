@@ -103,7 +103,7 @@ When constructing struct literals (e.g. `TableDef { name: ... }`), prefer `.into
 from string literals over the explicit constructor for terseness.
 
 ### `#[non_exhaustive]` Structs (0.2.0+)
-`VespertideConfig`, `SeaOrmConfig`, `MigrationOptions` are `#[non_exhaustive]`:
+`VespertideConfig`, `SeaOrmConfig`, `DjangoConfig`, `MigrationOptions` are `#[non_exhaustive]`:
 external callers MUST construct via `..Default::default()` or the provided
 constructor.
 
@@ -235,7 +235,7 @@ Files near the ceiling (next split candidates — line counts as of the
 | `query/src/sql/delete_column/mod.rs` | 1138 | prod+inline-tests (≤1200) | DROP COLUMN with SQLite rebuild |
 | `query/src/sql/add_constraint/mod.rs` | 1138 | prod+inline-tests (≤1200) | ADD CONSTRAINT |
 | `core/src/schema/table/tests/mod.rs` | 1137 | test-file (≤1200) | Table normalization tests |
-| `exporter/src/tests/fixtures/mod.rs` | 1146 | test-file (≤1200) | Shared 8-ORM fixture schemas |
+| `exporter/src/tests/fixtures/mod.rs` | 1173 | test-file (≤1200) | Shared 8-ORM fixture schemas |
 | `planner/src/validate/check_strengthening.rs` | 1121 | prod+inline-tests (≤1200) | CHECK strengthening analysis |
 | `query/src/sql/helpers.rs` | 1109 | prod+inline-tests (≤1200) | Identifier quoting / type-cast helpers |
 | `lsp/src/code_actions.rs` | 1107 | prod+inline-tests (≤1200) | LSP code actions (incl. CHECK BETWEEN-swap) |
