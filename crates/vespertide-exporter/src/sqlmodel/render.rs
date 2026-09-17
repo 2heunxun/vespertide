@@ -3,8 +3,9 @@ use rayon::prelude::*;
 use crate::parallel_config::{
     PYTHON_EXPORT_PAR_TABLE_MIN_LEN, SQLMODEL_EXPORT_PAR_TABLE_THRESHOLD,
 };
-use crate::utils::common::{CompositeFk, collect_composite_fks};
-use crate::utils::common::{join_qualified_refs, join_quoted, unquote};
+use crate::utils::common::{
+    CompositeFk, collect_composite_fks, join_qualified_refs, join_quoted, unquote,
+};
 use crate::utils::python::escape_python_keyword;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
 use vespertide_core::schema::constraint::TableConstraint;
