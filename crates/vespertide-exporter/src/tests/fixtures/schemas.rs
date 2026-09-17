@@ -131,6 +131,11 @@ pub(crate) fn schema_scenario(name: &str) -> (TableDef, Vec<TableDef>) {
             &["created_by_user_id", "updated_by_user_id"],
             true,
         ),
+        // The unique-FK side of a one-to-one, rendered as the focus table.
+        "one_to_one_source" => {
+            let (_, schema) = reverse_user_schema("profile", &["user_id"], true);
+            (schema[1].clone(), schema)
+        }
         "composite_and_single_fk_same_target" => {
             let target = table(
                 "target",

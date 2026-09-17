@@ -106,6 +106,9 @@ SQLAlchemy's positional column name).
 - **PK kwarg**: `primary_key=True` is always emitted for the (non-composite) PK column, regardless
   of field type — `models.AutoField`/`SmallAutoField`/`BigAutoField` do **not** imply
   `primary_key=True` in real Django; omitting it fails Django's own `fields.E100` system check
+- **FK fields**: a FK column that is the table's (non-composite) PK or carries a single-column
+  unique renders as `models.OneToOneField` — `ForeignKey(unique=True)` is only fields.W342 pointing
+  at that class — and the PK one keeps `primary_key=True`
 - **Config**: `DjangoExporterWithConfig` for `app_label` (omitted from `Meta` when unset)
 - **Tests**: rendered output is pinned by the shared `orm_cases!` suite; the inline
   `#[cfg(test)] mod tests` in `django/mod.rs` holds only non-snapshot unit tests

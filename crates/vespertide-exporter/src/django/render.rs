@@ -263,6 +263,7 @@ fn render_entity_part(
             lines.push(format!("    # {}", comment.replace('\n', " ")));
         }
 
+        let effective_pk = is_pk && !is_composite_pk;
         let attname = if let Some(fk) = fk_map.get(col.name.as_str()) {
             let field_name = render_fk_field(
                 &mut lines,
@@ -270,13 +271,14 @@ fn render_entity_part(
                 fk.ref_table,
                 fk.on_delete,
                 fk.on_update,
+                effective_pk,
+                is_unique,
                 col.nullable,
                 &mut used_field_names,
             );
             // A ForeignKey's attname is `{field}_id` whatever `db_column` says.
             format!("{field_name}_id")
         } else {
-            let effective_pk = is_pk && !is_composite_pk;
             let field_type = django_field_type(
                 &col.r#type,
                 effective_pk,
@@ -421,12 +423,18 @@ fn render_entity_part(
     lines.join("\n")
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "all params are independent field-rendering inputs; a context struct would add noise without reducing coupling"
+)]
 fn render_fk_field(
     lines: &mut Vec<String>,
     col_name: &str,
     ref_table: &str,
     on_delete: Option<&ReferenceAction>,
     on_update: Option<&ReferenceAction>,
+    is_pk: bool,
+    is_unique: bool,
     nullable: bool,
     used_field_names: &mut HashSet<String>,
 ) -> String {
@@ -446,19 +454,27 @@ fn render_fk_field(
         format!("\"{ref_class}\""),
         format!("on_delete={on_delete_str}"),
     ];
+    if is_pk {
+        kwargs.push("primary_key=True".into());
+    }
     if let Some(db_col) = db_column {
         kwargs.push(format!("db_column=\"{db_col}\""));
     }
     kwargs.push("related_name=\"+\"".into());
-    if nullable {
+    if nullable && !is_pk {
         kwargs.push("null=True".into());
         kwargs.push("blank=True".into());
     }
 
+    // A FK that is the PK or unique holds at most one row per target: Django's
+    // one-to-one. `ForeignKey(unique=True)` only draws fields.W342 pointing here.
+    let field_class = if is_pk || is_unique {
+        "models.OneToOneField"
+    } else {
+        "models.ForeignKey"
+    };
     let kwargs_str = kwargs.join(", ");
-    lines.push(format!(
-        "    {field_name} = models.ForeignKey({kwargs_str})"
-    ));
+    lines.push(format!("    {field_name} = {field_class}({kwargs_str})"));
     field_name
 }
 

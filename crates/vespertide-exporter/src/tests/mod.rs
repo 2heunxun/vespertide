@@ -489,7 +489,8 @@ fn render_entity_with_schema_snapshots(
         "multiple_reverse_relations",
         "dual_reverse_relations",
         "triple_reverse_relations",
-        "multiple_has_one_relations"
+        "multiple_has_one_relations",
+        "one_to_one_source"
     )]
     scenario: &str,
     #[case] orm: Orm,
