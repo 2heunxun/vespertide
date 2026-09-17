@@ -596,49 +596,9 @@ fn assemble_with_imports(used: &UsedImports, parts: &[String]) -> String {
 
 pub(super) use crate::python_naming::to_pascal_case;
 
-pub(super) fn to_upper_snake_case(s: &str) -> String {
-    let mut result = String::new();
-    let chars: Vec<char> = s.chars().collect();
-    for (i, &c) in chars.iter().enumerate() {
-        if c == '-' || c == ' ' {
-            if !result.ends_with('_') {
-                result.push('_');
-            }
-        } else if c == '_' {
-            result.push('_');
-        } else if c.is_uppercase() && i > 0 && !result.ends_with('_') {
-            // Only split on camelCase transitions (lowercase/digit → uppercase).
-            // Adjacent uppercase letters (e.g. "ERROR") are not split.
-            let prev = chars[i - 1];
-            if prev.is_lowercase() || prev.is_ascii_digit() {
-                result.push('_');
-            }
-            result.push(c);
-        } else {
-            result.push(c.to_ascii_uppercase());
-        }
-    }
-    // Python identifiers cannot start with a digit
-    if result.starts_with(|c: char| c.is_ascii_digit()) {
-        result.insert(0, '_');
-    }
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[rstest::rstest]
-    #[case("pending", "PENDING")]
-    #[case("in_progress", "IN_PROGRESS")]
-    #[case("inProgress", "IN_PROGRESS")]
-    #[case("ERROR_LEVEL", "ERROR_LEVEL")]
-    #[case("info-level", "INFO_LEVEL")]
-    #[case("1critical", "_1CRITICAL")]
-    fn test_to_upper_snake_case(#[case] input: &str, #[case] expected: &str) {
-        assert_eq!(to_upper_snake_case(input), expected);
-    }
 
     #[rstest::rstest]
     #[case("author_id", "author", None)]

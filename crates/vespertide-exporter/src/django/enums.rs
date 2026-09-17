@@ -1,6 +1,5 @@
 use vespertide_core::schema::column::EnumValues;
-
-use super::render::to_upper_snake_case;
+use vespertide_naming::{IdentifierStart, sanitize_identifier, to_screaming_snake_case};
 
 /// Members carry only their value. Django derives the human label from the
 /// member name (`PENDING` -> "Pending"); passing the raw database value as an
@@ -10,16 +9,21 @@ pub(super) fn render_enum(lines: &mut Vec<String>, class_name: &str, values: &En
         EnumValues::String(vals) => {
             lines.push(format!("class {class_name}(models.TextChoices):"));
             for val in vals {
-                let const_name = to_upper_snake_case(val);
+                let const_name = member_name(val);
                 lines.push(format!("    {const_name} = \"{val}\""));
             }
         }
         EnumValues::Integer(vals) => {
             lines.push(format!("class {class_name}(models.IntegerChoices):"));
             for val in vals {
-                let const_name = to_upper_snake_case(&val.name);
+                let const_name = member_name(&val.name);
                 lines.push(format!("    {const_name} = {}", val.value));
             }
         }
     }
+}
+
+/// Python identifiers may begin with `_`, so a digit-led value takes that prefix.
+fn member_name(value: &str) -> String {
+    sanitize_identifier(&to_screaming_snake_case(value), IdentifierStart::Underscore)
 }
