@@ -48,7 +48,29 @@ mod tests {
     use vespertide_core::ReferenceAction;
     use vespertide_core::schema::column::{ColumnType, SimpleColumnType};
 
-    use super::types::{django_field_type, reference_action_str};
+    use super::types::{UsedImports, build_default, django_field_type, reference_action_str};
+
+    /// A SQL string default becomes the Python value it spells: the outer
+    /// quotes go, a doubled `''` is one quote, and what Python's literal
+    /// cannot hold is escaped.
+    #[rstest]
+    #[case::plain("'draft'", r#""draft""#)]
+    #[case::doubled_sql_quote("'it''s'", r#""it's""#)]
+    #[case::double_quote_inside(r#"'say "hi"'"#, r#""say \"hi\"""#)]
+    #[case::backslash(r"'a\b'", r#""a\\b""#)]
+    #[case::empty("''", r#""""#)]
+    fn string_defaults_become_python_literals(#[case] sql: &str, #[case] expected: &str) {
+        let text = ColumnType::Simple(SimpleColumnType::Text);
+        let default = build_default(&text, sql, &mut UsedImports::default());
+        assert_eq!(default.as_deref(), Some(expected));
+    }
+
+    #[test]
+    fn a_json_default_is_left_to_the_database() {
+        let json = ColumnType::Simple(SimpleColumnType::Json);
+        let default = build_default(&json, r#"'{"a": 1}'"#, &mut UsedImports::default());
+        assert_eq!(default, None);
+    }
 
     #[rstest]
     #[case::small_int(SimpleColumnType::SmallInt, "models.SmallIntegerField")]

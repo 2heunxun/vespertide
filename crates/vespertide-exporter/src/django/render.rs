@@ -10,7 +10,7 @@ use crate::constraint_scan::{
 };
 use crate::enum_scan::enum_identifiers_shared_across_tables;
 use crate::python_naming::to_pascal_case;
-use crate::utils::common::{claim_binding, collect_composite_fks};
+use crate::utils::common::{claim_binding, collect_composite_fks, string_literal};
 use crate::utils::python::is_python_keyword;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType};
 use vespertide_core::schema::constraint::TableConstraint;
@@ -160,7 +160,11 @@ fn render_entity_part(
     // --- Class declaration ---
     if let Some(ref desc) = table.description {
         lines.push(format!("class {class_name}(models.Model):"));
-        lines.push(format!("    \"\"\"{}\"\"\"", desc.replace('\n', " ")));
+        // A docstring keeps its triple quotes: `string_literal` supplies the
+        // inner pair and escapes every `\` and `"` of the text, the two
+        // characters that could end it early.
+        let docstring = string_literal(&desc.replace('\n', " "));
+        lines.push(format!("    \"\"{docstring}\"\""));
         lines.push(String::new());
     } else {
         lines.push(format!("class {class_name}(models.Model):"));
@@ -325,9 +329,12 @@ fn render_entity_part(
     // vespertide owns the DDL; `makemigrations` must not try to create or
     // alter these tables.
     lines.push("        managed = False".into());
-    lines.push(format!("        db_table = \"{}\"", table.name));
+    lines.push(format!(
+        "        db_table = {}",
+        string_literal(&table.name)
+    ));
     if let Some(label) = app_label {
-        lines.push(format!("        app_label = \"{label}\""));
+        lines.push(format!("        app_label = {}", string_literal(label)));
     }
 
     if !indexes.is_empty() {
@@ -340,7 +347,8 @@ fn render_entity_part(
                 .join(", ");
             if let Some(n) = name {
                 lines.push(format!(
-                    "            models.Index(fields=[{fields}], name=\"{n}\"),"
+                    "            models.Index(fields=[{fields}], name={}),",
+                    string_literal(n)
                 ));
             } else {
                 lines.push(format!("            models.Index(fields=[{fields}]),"));
@@ -362,7 +370,8 @@ fn render_entity_part(
             // which constraint exists.
             let n = build_unique_constraint_name(&table.name, cols, *name);
             lines.push(format!(
-                "            models.UniqueConstraint(fields=[{fields}], name=\"{n}\"),"
+                "            models.UniqueConstraint(fields=[{fields}], name={}),",
+                string_literal(&n)
             ));
         }
         lines.push("        ]".into());
@@ -416,7 +425,7 @@ fn render_fk_field(
         kwargs.push(format!("default={default}"));
     }
     if let Some(db_col) = db_column {
-        kwargs.push(format!("db_column=\"{db_col}\""));
+        kwargs.push(format!("db_column={}", string_literal(&db_col)));
     }
     kwargs.push("related_name=\"+\"".into());
     if nullable && !is_pk {

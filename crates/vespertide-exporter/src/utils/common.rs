@@ -72,6 +72,32 @@ pub(crate) fn join_qualified_refs(ref_table: &str, ref_cols: &[&str]) -> String 
     out
 }
 
+/// Quote `value` as a double-quoted string literal.
+///
+/// Backslashes, quotes and the line terminators are escaped so a database name
+/// or enum value containing any of them cannot end the literal early. The
+/// escapes are the ones TypeScript, Go and Python share, so every literal the
+/// Drizzle, GORM and Django renderers emit — table names, column names, enum
+/// values — goes through here.
+pub(crate) fn string_literal(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    for ch in value.chars() {
+        match ch {
+            '\\' | '"' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
+}
+
 /// Strip one matching pair of surrounding quotes from a SQL literal.
 ///
 /// Only an outer pair is removed, so quotes *inside* the literal survive:
@@ -278,5 +304,17 @@ mod tests {
     #[case::empty("", "")]
     fn unquote_removes_only_a_matching_outer_pair(#[case] input: &str, #[case] expected: &str) {
         assert_eq!(unquote(input), expected);
+    }
+
+    #[rstest]
+    #[case::plain("users", r#""users""#)]
+    #[case::double_quote("say \"hi\"", r#""say \"hi\"""#)]
+    #[case::backslash("back\\slash", r#""back\\slash""#)]
+    #[case::newline("two\nlines", r#""two\nlines""#)]
+    #[case::carriage_return("a\rb", r#""a\rb""#)]
+    #[case::tab("a\tb", r#""a\tb""#)]
+    #[case::empty("", r#""""#)]
+    fn string_literal_escapes_literal_terminators(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(string_literal(input), expected);
     }
 }

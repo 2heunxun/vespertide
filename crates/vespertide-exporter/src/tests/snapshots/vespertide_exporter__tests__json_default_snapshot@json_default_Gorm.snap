@@ -10,7 +10,7 @@ import (
 
 type Configs struct {
 	ID   int32          `gorm:"column:id;primaryKey" json:"id"`
-	Data datatypes.JSON `gorm:"column:data;not null" json:"data"`
+	Data datatypes.JSON `gorm:"column:data;not null;default:{\"hello\": \"world\"}" json:"data"`
 }
 
 func (Configs) TableName() string { return "configs" }

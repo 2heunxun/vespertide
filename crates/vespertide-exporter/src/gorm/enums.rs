@@ -2,6 +2,7 @@ use vespertide_core::schema::column::EnumValues;
 use vespertide_naming::{IdentifierStart, sanitize_identifier};
 
 use super::render::to_pascal_case;
+use crate::utils::common::string_literal;
 
 pub(super) fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValues) {
     // `name` is already the exported, PascalCased (and possibly struct-qualified)
@@ -31,7 +32,10 @@ pub(super) fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValu
         EnumValues::String(vals) => {
             for val in vals {
                 let const_name = const_name(type_name, val);
-                rendered.push(format!("    {const_name} {type_name} = \"{val}\""));
+                rendered.push(format!(
+                    "    {const_name} {type_name} = {}",
+                    string_literal(val)
+                ));
             }
         }
         EnumValues::Integer(vals) => {

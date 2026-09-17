@@ -1,5 +1,6 @@
 use vespertide_core::schema::column::EnumValues;
 
+use crate::utils::common::string_literal;
 use crate::utils::python::enum_member_name;
 
 /// Members carry only their value. Django derives the human label from the
@@ -11,7 +12,7 @@ pub(super) fn render_enum(lines: &mut Vec<String>, class_name: &str, values: &En
             lines.push(format!("class {class_name}(models.TextChoices):"));
             for val in vals {
                 let const_name = enum_member_name(val);
-                lines.push(format!("    {const_name} = \"{val}\""));
+                lines.push(format!("    {const_name} = {}", string_literal(val)));
             }
         }
         EnumValues::Integer(vals) => {

@@ -3,7 +3,7 @@ use vespertide_core::schema::column::{
 };
 use vespertide_core::{DefaultValue, ReferenceAction};
 
-use crate::utils::common::is_jsonb_custom_type;
+use crate::utils::common::{is_jsonb_custom_type, string_literal, unquote};
 
 #[derive(Default)]
 pub(super) struct UsedImports {
@@ -91,7 +91,7 @@ pub(super) fn build_field_kwargs(
     let mut kwargs: Vec<String> = Vec::new();
 
     if let Some(db_col) = db_column {
-        kwargs.push(format!("db_column=\"{db_col}\""));
+        kwargs.push(format!("db_column={}", string_literal(db_col)));
     }
 
     // Size / precision kwargs
@@ -151,6 +151,13 @@ pub(super) fn build_default(
     sql: &str,
     used: &mut UsedImports,
 ) -> Option<String> {
+    // A `JSONField` default has to be a callable (fields.E010), and the SQL
+    // literal is the document's text, not its value. The database keeps its
+    // own default.
+    if django_field_type(col_type, false, false) == "models.JSONField" {
+        return None;
+    }
+
     if sql.contains('(') {
         let up = sql.to_uppercase();
         let is_timestamp_col = matches!(
@@ -176,9 +183,10 @@ pub(super) fn build_default(
         return Some("False".into());
     }
 
-    if sql.starts_with('\'') && sql.ends_with('\'') && sql.len() >= 2 {
-        let inner = &sql[1..sql.len() - 1];
-        return Some(format!("\"{}\"", inner.replace('"', "\\\"")));
+    if sql.len() >= 2 && sql.starts_with('\'') && sql.ends_with('\'') {
+        // `unquote` keeps the doubled SQL escape (its other consumers re-emit
+        // into SQL); a Python string wants the actual value.
+        return Some(string_literal(&unquote(sql).replace("''", "'")));
     }
 
     // A bare numeric literal (e.g. "0", "-1.5") is valid Python as-is. Any

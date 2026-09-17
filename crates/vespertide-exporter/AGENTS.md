@@ -24,9 +24,9 @@ src/
 ├── drizzle/            # mod.rs, render.rs, types.rs, enums.rs — Drizzle TypeScript models
 ├── gorm/               # mod.rs, render.rs, types.rs, enums.rs — GORM structs
 ├── django/             # mod.rs, render.rs, types.rs, enums.rs — Django models.Model classes
-├── utils/              # common.rs (join_quoted/unquote/claim_field_name/collect_composite_fks/is_jsonb_custom_type),
+├── utils/              # common.rs (join_quoted/string_literal/unquote/claim_field_name/collect_composite_fks/is_jsonb_custom_type),
 │                       #   python.rs (render_enum/enum_member_name/column_type_to_python),
-│                       #   typescript.rs (ts_binding/ts_string)
+│                       #   typescript.rs (ts_binding)
 └── tests/              # Shared orm_cases! cross-ORM snapshot suite + fixtures/ + snapshots/
 ```
 
@@ -98,8 +98,13 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
   has-many or belongs-to never takes a column's name (`Posts2`, `OrderRegions3`)
 - **Tags**: `index:`/`uniqueIndex:` names come from the naming builders, so they match what the
   SQL layer creates and GORM groups a composite index by them; `char(N)` and the PG network types
-  carry an explicit `type:`; a default GORM's tag syntax cannot hold (`"`, `;`, a function call)
-  is omitted, and an integer enum's variant-name default becomes its value
+  carry an explicit `type:`; a default GORM's tag syntax cannot hold (`;`, a function call)
+  is omitted, an integer enum's variant-name default becomes its value, and a string field's
+  default loses the doubled SQL quote (`'it''s'` → `'it's'`): GORM reads it as the value, while
+  every other field's default stays the SQL it is. GORM trims every quote off both ends of that
+  value, so a string default that starts or ends with `'` or `"` is omitted too. `struct_tag` quotes
+  each tag value as the Go string `reflect.StructTag` reads, so a `"` or `\` in a column name or
+  default is escaped, and the whole tag is an interpreted string when a value holds a backtick
 - **Package name**: there is no `gorm` config section. `GormExporterWithConfig::for_export_dir`
   derives it from the directory the file is written to (`go_package_name`) — the export
   directory's final path segment sanitized into a Go identifier, falling back to `"models"`. The
@@ -143,7 +148,9 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
   the relationship
 - **`build_default()`**: only emits a bare (unquoted) SQL default when it parses as a numeric
   literal — an unrecognized bare constant (e.g. a named SQL constant) is omitted rather than
-  emitted as an undefined Python name
+  emitted as an undefined Python name. A quoted default becomes the Python string it spells
+  (`'it''s'` → `"it's"`), and a `JSONField` gets none: Django wants a callable there
+  (fields.E010), and the SQL literal is the document's text rather than its value
 - **PK kwarg**: `primary_key=True` is always emitted for the (non-composite) PK column, regardless
   of field type — `models.AutoField`/`SmallAutoField`/`BigAutoField` do **not** imply
   `primary_key=True` in real Django; omitting it fails Django's own `fields.E100` system check

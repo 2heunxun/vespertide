@@ -1,14 +1,15 @@
 use std::collections::{HashMap, HashSet};
 
 use super::enums::render_enum;
-use super::types::{UsedImports, go_type_for_column_mapped};
+use super::types::{UsedImports, go_type_for_column_mapped, is_go_string};
 use crate::constraint_scan::{
     BackRelation, FkDetails, collect_back_relations, primary_key_columns, single_column_fk_details,
     single_column_uniques,
 };
 use crate::enum_scan::enum_identifiers_shared_across_tables;
 use crate::utils::common::{
-    CompositeFk, claim_binding, collect_composite_fks, integer_enum_variant_value, unquote,
+    CompositeFk, claim_binding, collect_composite_fks, integer_enum_variant_value, string_literal,
+    unquote,
 };
 use vespertide_core::schema::column::{
     ColumnType, ComplexColumnType, EnumValues, SimpleColumnType,
@@ -242,8 +243,9 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
             format!("[]{source_struct}")
         };
         lines.push(format!(
-            "    {field_name} {go_type} `gorm:\"{gorm_tag}\" json:\"-\"`",
+            "    {field_name} {go_type} {tag}",
             field_name = claim_binding(field_name, &mut taken),
+            tag = struct_tag(&gorm_tag, "-"),
         ));
     }
 
@@ -253,8 +255,8 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
     // GORM would otherwise derive the table name by pluralizing the struct
     // name, which does not reproduce an arbitrary database name.
     lines.push(format!(
-        "func ({struct_name}) TableName() string {{ return \"{name}\" }}",
-        name = table.name,
+        "func ({struct_name}) TableName() string {{ return {name} }}",
+        name = string_literal(&table.name),
     ));
     lines.push(String::new());
 
@@ -365,8 +367,8 @@ fn render_column_field(
     );
 
     lines.push(format!(
-        "    {field_name} {go_type} `gorm:\"{gorm_tag}\" json:\"{json_name}\"`",
-        json_name = col.name,
+        "    {field_name} {go_type} {tag}",
+        tag = struct_tag(&gorm_tag, &col.name),
     ));
 }
 
@@ -402,7 +404,8 @@ fn render_fk_relation_field(
     };
 
     lines.push(format!(
-        "    {relation_field_name} {type_expr} `gorm:\"{gorm_tag}\" json:\"-\"`"
+        "    {relation_field_name} {type_expr} {tag}",
+        tag = struct_tag(&gorm_tag, "-"),
     ));
 }
 
@@ -432,13 +435,31 @@ fn render_composite_fk_relation_field(
     );
 
     lines.push(format!(
-        "    {relation_field_name} {ref_struct} `gorm:\"{gorm_tag}\" json:\"-\"`"
+        "    {relation_field_name} {ref_struct} {tag}",
+        tag = struct_tag(&gorm_tag, "-"),
     ));
 }
 
 // ---------------------------------------------------------------------------
 // GORM tag building
 // ---------------------------------------------------------------------------
+
+/// A field's struct tag. `reflect.StructTag` reads each value as a quoted Go
+/// string, so a `\` or `"` from a column name or default is escaped there; the
+/// tag as a whole is a raw string unless a value holds a backtick, the one
+/// character a raw string cannot.
+fn struct_tag(gorm: &str, json: &str) -> String {
+    let tag = format!(
+        "gorm:{} json:{}",
+        string_literal(gorm),
+        string_literal(json)
+    );
+    if tag.contains('`') {
+        string_literal(&tag)
+    } else {
+        format!("`{tag}`")
+    }
+}
 
 /// The `references` fields of a relation on `ref_table`: none when the key is
 /// the target's primary key, which GORM assumes. A composite key is always
@@ -554,9 +575,9 @@ fn build_gorm_tag(
 
 fn build_default_tag(default: &DefaultValue, col_type: &ColumnType) -> Option<String> {
     let sql = default.to_sql();
-    // A function call has no literal to pin, and `"` or `;` would end the
-    // struct tag or the gorm setting early, taking every later tag with it.
-    if sql.contains(['(', '"', ';']) {
+    // A function call has no literal to pin, and `;` would end the gorm
+    // setting early, taking every later setting with it.
+    if sql.contains(['(', ';']) {
         return None;
     }
     // An integer enum's default may name a variant; the column stores its value.
@@ -567,6 +588,18 @@ fn build_default_tag(default: &DefaultValue, col_type: &ColumnType) -> Option<St
         && let Some(value) = integer_enum_variant_value(variants, unquote(&sql))
     {
         return Some(format!("default:{value}"));
+    }
+    // GORM takes a string field's default for the value itself, so the doubled
+    // SQL escape must not reach it. It also trims every quote off both ends
+    // rather than one pair, so a value that starts or ends with a quote has no
+    // spelling. Every other kind of field keeps the tag as the SQL it was
+    // written in.
+    if is_go_string(col_type) && sql.len() >= 2 && sql.starts_with('\'') && sql.ends_with('\'') {
+        let value = unquote(&sql).replace("''", "'");
+        if value.starts_with(['\'', '"']) || value.ends_with(['\'', '"']) {
+            return None;
+        }
+        return Some(format!("default:'{value}'"));
     }
     Some(format!("default:{sql}"))
 }
@@ -657,7 +690,9 @@ mod tests {
     use vespertide_core::schema::column::{ColumnType, SimpleColumnType};
     use vespertide_core::{ColumnDef, TableDef};
 
-    use super::{column_field_names, go_relation_field_name, to_go_field_name};
+    use super::{
+        build_default_tag, column_field_names, go_relation_field_name, struct_tag, to_go_field_name,
+    };
 
     #[rstest]
     #[case("user_id", "UserID")]
@@ -688,6 +723,56 @@ mod tests {
         let names = column_field_names(&table);
         assert_eq!(names["user_id"], "UserID");
         assert_eq!(names["userId"], "UserID2");
+    }
+
+    #[rstest]
+    #[case::plain(
+        "column:id;primaryKey",
+        "id",
+        r#"`gorm:"column:id;primaryKey" json:"id"`"#
+    )]
+    #[case::quote_and_backslash(
+        r#"column:a"b\c"#,
+        r#"a"b\c"#,
+        r#"`gorm:"column:a\"b\\c" json:"a\"b\\c"`"#
+    )]
+    #[case::backtick("column:a`b", "a`b", r#""gorm:\"column:a`b\" json:\"a`b\"""#)]
+    fn struct_tags_escape_what_their_literal_cannot_hold(
+        #[case] gorm: &str,
+        #[case] json: &str,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(struct_tag(gorm, json), expected);
+    }
+
+    /// GORM reads a string field's default as the value and every other
+    /// field's as SQL, so only the former loses the doubled quote — and, as
+    /// GORM trims every quote off its ends, a value that ends in one.
+    #[rstest]
+    #[case::string(SimpleColumnType::Text, "'draft'", Some("default:'draft'"))]
+    #[case::doubled_quote_in_a_string(SimpleColumnType::Text, "'it''s'", Some("default:'it's'"))]
+    #[case::quotes_inside_a_string(
+        SimpleColumnType::Text,
+        r#"'a "b" c'"#,
+        Some(r#"default:'a "b" c'"#)
+    )]
+    #[case::string_ending_in_a_quote(SimpleColumnType::Text, r#"'say "hi"'"#, None)]
+    #[case::string_starting_with_a_quote(SimpleColumnType::Text, "'''tis'", None)]
+    #[case::doubled_quote_in_json(
+        SimpleColumnType::Json,
+        r#"'{"a": "it''s"}'"#,
+        Some(r#"default:'{"a": "it''s"}'"#)
+    )]
+    #[case::number(SimpleColumnType::Integer, "0", Some("default:0"))]
+    #[case::function_call(SimpleColumnType::Timestamp, "now()", None)]
+    #[case::setting_separator(SimpleColumnType::Text, "'a;b'", None)]
+    fn defaults_become_gorm_default_tags(
+        #[case] ty: SimpleColumnType,
+        #[case] sql: &str,
+        #[case] expected: Option<&str>,
+    ) {
+        let tag = build_default_tag(&sql.into(), &ColumnType::Simple(ty));
+        assert_eq!(tag.as_deref(), expected);
     }
 
     #[rstest]
