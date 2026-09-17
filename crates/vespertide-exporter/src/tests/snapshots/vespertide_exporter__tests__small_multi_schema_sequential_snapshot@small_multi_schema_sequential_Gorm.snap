@@ -15,7 +15,7 @@ func (Users) TableName() string { return "users" }
 type Posts struct {
 	ID     int32  `gorm:"column:id;primaryKey" json:"id"`
 	UserID int32  `gorm:"column:user_id;not null" json:"user_id"`
-	User   Users  `gorm:"foreignKey:UserID" json:"-"`
+	User   *Users `gorm:"foreignKey:UserID" json:"-"`
 	Title  string `gorm:"column:title;not null;type:text" json:"title"`
 }
 

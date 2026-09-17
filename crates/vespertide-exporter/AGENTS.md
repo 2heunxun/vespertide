@@ -86,7 +86,9 @@ repairs.
 - **Forward FK**: single-column FK → belongs-to struct field with a `gorm:"foreignKey:..."` tag;
   composite (multi-column) FK → single relation field via comma-separated
   `foreignKey:Col1,Col2;references:RefCol1,RefCol2`. A single-column key names `references:` too
-  when it points at anything but the target's primary key, which is what GORM would assume
+  when it points at anything but the target's primary key, which is what GORM would assume.
+  The field is always a pointer (`*User`), nullable or not: held by value, a struct could not
+  reference itself or a struct that references it back (`invalid recursive type`)
 - **Reverse (has-one / has-many)**: built on the shared `constraint_scan::collect_back_relations`,
   so composite FKs get a reverse side and a one-to-one renders as `*T` under the source struct's
   name instead of `[]T` under its plural. Tags mirror the forward side. A **self-referencing FK**

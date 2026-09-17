@@ -12,8 +12,8 @@ use super::{nullable_simple, pk, simple};
 /// — a spread this fixture pins. Between the two children every action
 /// but `SET NULL` (pinned by `self_referencing_fk`) appears, each paired with a
 /// different one so a backend that emits one in the other's place is visible;
-/// `comments.post_id` is nullable so the pointer form of a relation field
-/// carries actions too. `SET DEFAULT` appears with a column default
+/// `comments.post_id` is nullable so a relation on a nullable key carries
+/// actions too. `SET DEFAULT` appears with a column default
 /// (`comments.author_id`) and without one: Django accepts only the former.
 pub(crate) fn reference_actions() -> Vec<TableDef> {
     let users = TableDef {

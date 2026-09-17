@@ -416,14 +416,11 @@ fn render_fk_relation_field(
         fk.on_update,
     );
 
-    let type_expr = if col.nullable {
-        format!("*{ref_struct}")
-    } else {
-        ref_struct
-    };
-
+    // Always a pointer, nullable or not: a struct that held its target by
+    // value could not hold itself (`parent_id NOT NULL`), nor a target that
+    // holds it back, and Go rejects both as an invalid recursive type.
     lines.push(format!(
-        "    {relation_field_name} {type_expr} {tag}",
+        "    {relation_field_name} *{ref_struct} {tag}",
         tag = struct_tag(&gorm_tag, "-"),
     ));
 }
@@ -445,7 +442,11 @@ fn render_composite_fk_relation_field(
     let fk_fields: Vec<String> = fk
         .local_cols
         .iter()
-        .map(|c| field_names[*c].clone())
+        .map(|c| {
+            field_names
+                .get(*c)
+                .map_or_else(|| to_go_field_name(c), Clone::clone)
+        })
         .collect();
     let gorm_tag = relation_tag(
         &fk_fields,
@@ -455,7 +456,7 @@ fn render_composite_fk_relation_field(
     );
 
     lines.push(format!(
-        "    {relation_field_name} {ref_struct} {tag}",
+        "    {relation_field_name} *{ref_struct} {tag}",
         tag = struct_tag(&gorm_tag, "-"),
     ));
 }
