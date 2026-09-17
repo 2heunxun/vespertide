@@ -1,5 +1,7 @@
 //! Cross-language helpers shared by every ORM exporter backend.
 
+use vespertide_core::{ReferenceAction, TableConstraint, TableDef};
+
 /// Join items as a double-quoted, comma-separated list: `"a", "b", "c"`.
 ///
 /// Consolidates the quoted-comma-join pattern previously copy-pasted across
@@ -86,6 +88,48 @@ pub(crate) fn unquote(s: &str) -> &str {
         }
     }
     s
+}
+
+/// `JSONB` is the one custom column type the backends map to a native JSON
+/// type instead of a plain string; the model may spell it in any case.
+pub(crate) fn is_jsonb_custom_type(custom_type: &str) -> bool {
+    custom_type.eq_ignore_ascii_case("JSONB")
+}
+
+/// A composite (multi-column) foreign key: its owning columns, target and
+/// referential actions. Backends with no native composite relation
+/// (SQLAlchemy, SQLModel, Django) surface it as a comment; GORM renders it as
+/// a relation field with comma-separated `foreignKey`/`references`.
+pub(crate) struct CompositeFk<'a> {
+    pub(crate) local_cols: Vec<&'a str>,
+    pub(crate) ref_table: &'a str,
+    pub(crate) ref_cols: Vec<&'a str>,
+    pub(crate) on_delete: Option<&'a ReferenceAction>,
+    pub(crate) on_update: Option<&'a ReferenceAction>,
+}
+
+pub(crate) fn collect_composite_fks(table: &TableDef) -> Vec<CompositeFk<'_>> {
+    table
+        .constraints
+        .iter()
+        .filter_map(|constraint| match constraint {
+            TableConstraint::ForeignKey {
+                columns,
+                ref_table,
+                ref_columns,
+                on_delete,
+                on_update,
+                ..
+            } if columns.len() > 1 && columns.len() == ref_columns.len() => Some(CompositeFk {
+                local_cols: columns.iter().map(AsRef::as_ref).collect(),
+                ref_table: ref_table.as_str(),
+                ref_cols: ref_columns.iter().map(AsRef::as_ref).collect(),
+                on_delete: on_delete.as_ref(),
+                on_update: on_update.as_ref(),
+            }),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Claim a relation field name, recording it in `taken` so later fields

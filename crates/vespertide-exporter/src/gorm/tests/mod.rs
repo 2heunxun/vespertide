@@ -7,7 +7,7 @@ use vespertide_core::schema::column::{
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ColumnDef, ReferenceAction, TableDef};
 
-use super::render::{infer_relation_field_name, to_go_field_name};
+use super::render::{go_relation_field_name, to_go_field_name};
 use super::types::go_type_for_column_mapped;
 use super::{render_entity, render_entity_with_schema};
 
@@ -85,8 +85,8 @@ fn test_to_go_field_name(#[case] input: &str, #[case] expected: &str) {
 #[case("author_id", "Author")]
 #[case("parent_id", "Parent")]
 #[case("node", "Node")]
-fn test_infer_relation_field_name(#[case] input: &str, #[case] expected: &str) {
-    assert_eq!(infer_relation_field_name(input), expected);
+fn test_go_relation_field_name(#[case] input: &str, #[case] expected: &str) {
+    assert_eq!(go_relation_field_name(input), expected);
 }
 
 // -----------------------------------------------------------------------

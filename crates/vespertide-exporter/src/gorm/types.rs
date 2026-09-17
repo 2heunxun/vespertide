@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use super::render::to_pascal_case;
+use crate::utils::common::is_jsonb_custom_type;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, SimpleColumnType};
 use vespertide_naming::{IdentifierStart, sanitize_identifier};
 
@@ -40,7 +41,7 @@ impl UsedImports {
                     self.needs_decimal = true;
                 }
                 if let ComplexColumnType::Custom { custom_type } = ty
-                    && custom_type.to_uppercase() == "JSONB"
+                    && is_jsonb_custom_type(custom_type)
                 {
                     self.needs_datatypes = true;
                 }
@@ -93,7 +94,7 @@ fn go_base_type(col_type: &ColumnType) -> String {
                 "string".to_string()
             }
             ComplexColumnType::Custom { custom_type } => {
-                if custom_type.to_uppercase() == "JSONB" {
+                if is_jsonb_custom_type(custom_type) {
                     "datatypes.JSON".to_string()
                 } else {
                     "string".to_string()

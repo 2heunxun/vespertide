@@ -2,11 +2,16 @@ use std::collections::{HashMap, HashSet};
 
 use super::enums::render_enum;
 use super::types::{UsedImports, build_field_kwargs, django_field_type, reference_action_str};
-use crate::utils::python::collect_composite_fks;
+use crate::constraint_scan::{
+    primary_key, primary_key_columns, single_column_fk_details, single_column_uniques,
+};
+use crate::utils::common::{claim_binding, collect_composite_fks};
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType};
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ReferenceAction, TableDef};
-use vespertide_naming::{IdentifierStart, build_unique_constraint_name, sanitize_identifier};
+use vespertide_naming::{
+    IdentifierStart, build_unique_constraint_name, pluralize, sanitize_identifier,
+};
 
 pub fn render_entity(table: &TableDef) -> Result<String, String> {
     let mut used = UsedImports::default();
@@ -148,9 +153,9 @@ fn find_many_to_many_fields(table: &TableDef, schema: &[TableDef]) -> Vec<String
         .map(|(target, junction)| {
             let base = pluralize(target);
             let field_name = if target_counts.get(target).copied().unwrap_or(0) > 1 {
-                unique_name(&format!("{base}_via_{junction}"), &mut used_names)
+                claim_binding(format!("{base}_via_{junction}"), &mut used_names)
             } else {
-                unique_name(&base, &mut used_names)
+                claim_binding(base, &mut used_names)
             };
             let target_class = sanitize_identifier(&to_pascal_case(target), IdentifierStart::Underscore);
             let junction_class =
@@ -162,28 +167,6 @@ fn find_many_to_many_fields(table: &TableDef, schema: &[TableDef]) -> Vec<String
         .collect()
 }
 
-fn pluralize(name: &str) -> String {
-    if name.ends_with('s') {
-        name.to_string()
-    } else {
-        format!("{name}s")
-    }
-}
-
-fn unique_name(base: &str, used: &mut HashSet<String>) -> String {
-    if used.insert(base.to_string()) {
-        return base.to_string();
-    }
-    let mut n = 2;
-    loop {
-        let candidate = format!("{base}_{n}");
-        if used.insert(candidate.clone()) {
-            return candidate;
-        }
-        n += 1;
-    }
-}
-
 fn render_entity_part(
     table: &TableDef,
     used: &mut UsedImports,
@@ -193,23 +176,7 @@ fn render_entity_part(
     let mut lines: Vec<String> = Vec::new();
 
     // --- Constraint lookups ---
-    let pk_columns: HashSet<String> = table
-        .constraints
-        .iter()
-        .filter_map(|c| {
-            if let TableConstraint::PrimaryKey { columns, .. } = c {
-                Some(
-                    columns
-                        .iter()
-                        .map(|c| c.as_str().to_owned())
-                        .collect::<Vec<_>>(),
-                )
-            } else {
-                None
-            }
-        })
-        .flatten()
-        .collect();
+    let pk_columns = primary_key_columns(&table.constraints);
 
     let auto_increment = table.constraints.iter().any(|c| {
         matches!(
@@ -225,58 +192,12 @@ fn render_entity_part(
 
     // Column order (not just membership) matters for CompositePrimaryKey's
     // positional args, so capture it separately from the `pk_columns` set.
-    let pk_columns_ordered: Vec<String> = table
-        .constraints
-        .iter()
-        .find_map(|c| {
-            if let TableConstraint::PrimaryKey { columns, .. } = c {
-                Some(columns.iter().map(|c| c.as_str().to_owned()).collect())
-            } else {
-                None
-            }
-        })
+    let pk_columns_ordered = primary_key(&table.constraints)
+        .map(TableConstraint::columns)
         .unwrap_or_default();
 
-    let single_unique_cols: HashSet<String> = table
-        .constraints
-        .iter()
-        .filter_map(|c| {
-            if let TableConstraint::Unique { columns, .. } = c {
-                if columns.len() == 1 {
-                    Some(columns[0].as_str().to_owned())
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    // single-column FK info: col_name → (ref_table, on_delete, on_update)
-    let fk_map: HashMap<String, (&str, Option<&ReferenceAction>, Option<&ReferenceAction>)> = table
-        .constraints
-        .iter()
-        .filter_map(|c| {
-            if let TableConstraint::ForeignKey {
-                columns,
-                ref_table,
-                ref_columns,
-                on_delete,
-                on_update,
-                ..
-            } = c
-                && columns.len() == 1
-                && ref_columns.len() == 1
-            {
-                return Some((
-                    columns[0].as_str().to_owned(),
-                    (ref_table.as_str(), on_delete.as_ref(), on_update.as_ref()),
-                ));
-            }
-            None
-        })
-        .collect();
+    let single_unique_cols = single_column_uniques(&table.constraints);
+    let fk_map = single_column_fk_details(&table.constraints);
 
     // Enum class names for this table's columns
     let enum_class_map: HashMap<&str, String> = table
@@ -342,60 +263,59 @@ fn render_entity_part(
             lines.push(format!("    # {}", comment.replace('\n', " ")));
         }
 
-        let attname =
-            if let Some(&(ref_table, on_delete, on_update)) = fk_map.get(col.name.as_str()) {
-                let field_name = render_fk_field(
-                    &mut lines,
-                    &col.name,
-                    ref_table,
-                    on_delete,
-                    on_update,
-                    col.nullable,
-                    &mut used_field_names,
-                );
-                // A ForeignKey's attname is `{field}_id` whatever `db_column` says.
-                format!("{field_name}_id")
+        let attname = if let Some(fk) = fk_map.get(col.name.as_str()) {
+            let field_name = render_fk_field(
+                &mut lines,
+                &col.name,
+                fk.ref_table,
+                fk.on_delete,
+                fk.on_update,
+                col.nullable,
+                &mut used_field_names,
+            );
+            // A ForeignKey's attname is `{field}_id` whatever `db_column` says.
+            format!("{field_name}_id")
+        } else {
+            let effective_pk = is_pk && !is_composite_pk;
+            let field_type = django_field_type(
+                &col.r#type,
+                effective_pk,
+                auto_increment && !is_composite_pk,
+            );
+            let field_name = claim_binding(
+                sanitize_identifier(col.name.as_str(), IdentifierStart::Underscore),
+                &mut used_field_names,
+            );
+            let db_column = if field_name == col.name.as_str() {
+                None
             } else {
-                let effective_pk = is_pk && !is_composite_pk;
-                let field_type = django_field_type(
-                    &col.r#type,
-                    effective_pk,
-                    auto_increment && !is_composite_pk,
-                );
-                let field_name = unique_name(
-                    &sanitize_identifier(col.name.as_str(), IdentifierStart::Underscore),
-                    &mut used_field_names,
-                );
-                let db_column = if field_name == col.name.as_str() {
-                    None
-                } else {
-                    Some(col.name.as_str())
-                };
-                let kwargs = build_field_kwargs(
-                    &col.r#type,
-                    effective_pk,
-                    is_unique,
-                    col.nullable,
-                    col.default.as_ref(),
-                    enum_class_map.get(col.name.as_str()).map(String::as_str),
-                    db_column,
-                    used,
-                );
-                let kwargs_str = kwargs.join(", ");
-                if kwargs_str.is_empty() {
-                    lines.push(format!("    {field_name} = {field_type}()"));
-                } else {
-                    lines.push(format!("    {field_name} = {field_type}({kwargs_str})"));
-                }
-                field_name
+                Some(col.name.as_str())
             };
+            let kwargs = build_field_kwargs(
+                &col.r#type,
+                effective_pk,
+                is_unique,
+                col.nullable,
+                col.default.as_ref(),
+                enum_class_map.get(col.name.as_str()).map(String::as_str),
+                db_column,
+                used,
+            );
+            let kwargs_str = kwargs.join(", ");
+            if kwargs_str.is_empty() {
+                lines.push(format!("    {field_name} = {field_type}()"));
+            } else {
+                lines.push(format!("    {field_name} = {field_type}({kwargs_str})"));
+            }
+            field_name
+        };
         attnames.insert(col.name.as_str(), attname);
     }
 
     if is_composite_pk {
         let args = pk_columns_ordered
             .iter()
-            .map(|col| format!("\"{}\"", attname_of(&attnames, col)))
+            .map(|col| format!("\"{}\"", attname_of(&attnames, col.as_str())))
             .collect::<Vec<_>>()
             .join(", ");
         lines.insert(
@@ -513,7 +433,7 @@ fn render_fk_field(
     let (field_name, db_column) = fk_field_name(col_name);
     // The `_id` strip can collapse two distinct columns onto the same
     // attribute name (e.g. `a_id` -> `a` colliding with a real column `a`).
-    let deduped_field_name = unique_name(&field_name, used_field_names);
+    let deduped_field_name = claim_binding(field_name.clone(), used_field_names);
     let db_column =
         db_column.or_else(|| (deduped_field_name != field_name).then(|| col_name.to_string()));
     let field_name = deduped_field_name;
@@ -621,13 +541,5 @@ mod tests {
         assert_eq!(to_pascal_case("order__item"), "OrderItem");
         assert_eq!(to_pascal_case("_leading"), "Leading");
         assert_eq!(to_pascal_case("trailing_"), "Trailing");
-    }
-
-    #[test]
-    fn test_unique_name_double_collision_appends_incrementing_suffix() {
-        let mut used = HashSet::new();
-        used.insert("tag".to_string());
-        used.insert("tag_2".to_string());
-        assert_eq!(unique_name("tag", &mut used), "tag_3");
     }
 }

@@ -3,8 +3,7 @@ use super::types::{UsedTypes, column_type_to_python, column_type_to_sqlalchemy};
 use crate::parallel_config::{
     PYTHON_EXPORT_PAR_TABLE_MIN_LEN, SQLALCHEMY_EXPORT_PAR_TABLE_THRESHOLD,
 };
-use crate::utils::common::{join_qualified_refs, join_quoted, push_attr};
-use crate::utils::python::collect_composite_fks;
+use crate::utils::common::{collect_composite_fks, join_qualified_refs, join_quoted, push_attr};
 use rayon::prelude::*;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
 use vespertide_core::schema::constraint::TableConstraint;

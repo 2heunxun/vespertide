@@ -2,14 +2,17 @@ use std::collections::{HashMap, HashSet};
 
 use super::enums::render_enum;
 use super::types::{UsedImports, go_type_for_column_mapped};
-use crate::utils::common::claim_binding;
+use crate::constraint_scan::{
+    FkDetails, primary_key_columns, single_column_fk_details, single_column_uniques,
+};
+use crate::utils::common::{CompositeFk, claim_binding, collect_composite_fks};
 use vespertide_core::schema::column::{
     ColumnType, ComplexColumnType, EnumValues, SimpleColumnType,
 };
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::schema::names::ColumnName;
 use vespertide_core::{ColumnDef, DefaultValue, ReferenceAction, TableDef};
-use vespertide_naming::{IdentifierStart, sanitize_identifier};
+use vespertide_naming::{IdentifierStart, pluralize, sanitize_identifier};
 
 /// The Go imports the columns of `tables` need.
 pub(super) fn imports_for<'a>(tables: impl IntoIterator<Item = &'a TableDef>) -> UsedImports {
@@ -118,21 +121,8 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
         .map(|(name, _, qualified)| (*name, qualified.clone()))
         .collect();
 
-    let fk_by_column = collect_fk_info(&table.constraints);
-
-    let pk_columns: HashSet<String> = table
-        .constraints
-        .iter()
-        .filter_map(|c| {
-            if let TableConstraint::PrimaryKey { columns, .. } = c {
-                Some(columns.clone())
-            } else {
-                None
-            }
-        })
-        .flatten()
-        .map(|c| c.as_str().to_owned())
-        .collect();
+    let fk_by_column = single_column_fk_details(&table.constraints);
+    let pk_columns = primary_key_columns(&table.constraints);
 
     let auto_increment = table.constraints.iter().any(|c| {
         matches!(
@@ -146,21 +136,7 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
 
     let is_composite_pk = pk_columns.len() > 1;
 
-    let single_unique_columns: HashSet<String> = table
-        .constraints
-        .iter()
-        .filter_map(|c| {
-            if let TableConstraint::Unique { columns, .. } = c {
-                if columns.len() == 1 {
-                    Some(columns[0].as_str().to_owned())
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .collect();
+    let single_unique_columns = single_column_uniques(&table.constraints);
 
     let index_map = collect_index_info(&table.constraints);
     let composite_unique_map = collect_composite_unique_info(&table.constraints);
@@ -228,7 +204,7 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
     // Composite (multi-column) FK relation fields. GORM supports composite
     // associations via comma-separated `foreignKey`/`references` tags, unlike
     // Django which has no native equivalent.
-    for fk in collect_composite_fk_info(&table.constraints) {
+    for fk in collect_composite_fks(table) {
         render_composite_fk_relation_field(&mut lines, &fk, &mut used_relation_names);
     }
 
@@ -270,84 +246,6 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
     lines.push(String::new());
 
     lines
-}
-
-// ---------------------------------------------------------------------------
-// FK info collection
-// ---------------------------------------------------------------------------
-
-struct FkInfo {
-    ref_table: String,
-    on_delete: Option<ReferenceAction>,
-    on_update: Option<ReferenceAction>,
-}
-
-struct CompositeFkInfo {
-    local_cols: Vec<String>,
-    ref_table: String,
-    ref_cols: Vec<String>,
-    on_delete: Option<ReferenceAction>,
-    on_update: Option<ReferenceAction>,
-}
-
-fn collect_composite_fk_info(constraints: &[TableConstraint]) -> Vec<CompositeFkInfo> {
-    constraints
-        .iter()
-        .filter_map(|c| {
-            if let TableConstraint::ForeignKey {
-                columns,
-                ref_table,
-                ref_columns,
-                on_delete,
-                on_update,
-                ..
-            } = c
-                && columns.len() > 1
-                && columns.len() == ref_columns.len()
-            {
-                return Some(CompositeFkInfo {
-                    local_cols: columns.iter().map(|c| c.as_str().to_owned()).collect(),
-                    ref_table: ref_table.as_str().to_owned(),
-                    ref_cols: ref_columns.iter().map(|c| c.as_str().to_owned()).collect(),
-                    on_delete: on_delete.clone(),
-                    on_update: on_update.clone(),
-                });
-            }
-            None
-        })
-        .collect()
-}
-
-fn collect_fk_info(constraints: &[TableConstraint]) -> HashMap<String, FkInfo> {
-    constraints
-        .iter()
-        .filter_map(|c| {
-            if let TableConstraint::ForeignKey {
-                columns,
-                ref_table,
-                ref_columns,
-                on_delete,
-                on_update,
-                ..
-            } = c
-            {
-                if columns.len() == 1 && ref_columns.len() == 1 {
-                    Some((
-                        columns[0].as_str().to_owned(),
-                        FkInfo {
-                            ref_table: ref_table.as_str().to_owned(),
-                            on_delete: on_delete.clone(),
-                            on_update: on_update.clone(),
-                        },
-                    ))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -437,15 +335,10 @@ fn find_reverse_relations(table_name: &str, schema: &[TableDef]) -> Vec<ReverseR
                 let base_name = if is_self_ref {
                     "Children".to_string()
                 } else {
-                    let pascal = sanitize_identifier(
-                        &to_pascal_case(other.name.as_str()),
+                    sanitize_identifier(
+                        &to_pascal_case(&pluralize(other.name.as_str())),
                         IdentifierStart::Underscore,
-                    );
-                    if pascal.ends_with('s') {
-                        pascal
-                    } else {
-                        format!("{pascal}s")
-                    }
+                    )
                 };
                 raw.push((
                     other.name.as_str().to_owned(),
@@ -519,13 +412,13 @@ fn render_column_field(
 fn render_fk_relation_field(
     lines: &mut Vec<String>,
     col: &ColumnDef,
-    fk: &FkInfo,
+    fk: &FkDetails,
     used_relation_names: &mut HashSet<String>,
 ) {
     let ref_struct =
-        sanitize_identifier(&to_pascal_case(&fk.ref_table), IdentifierStart::Underscore);
+        sanitize_identifier(&to_pascal_case(fk.ref_table), IdentifierStart::Underscore);
     let fk_field_name = to_go_field_name(&col.name);
-    let mut relation_field_name = infer_relation_field_name(&col.name);
+    let mut relation_field_name = go_relation_field_name(&col.name);
     if relation_field_name == fk_field_name {
         relation_field_name = format!("{relation_field_name}{ref_struct}");
     }
@@ -535,10 +428,10 @@ fn render_fk_relation_field(
     let relation_field_name = claim_binding(relation_field_name, used_relation_names);
 
     let mut constraint_parts: Vec<String> = Vec::new();
-    if let Some(ref action) = fk.on_delete {
+    if let Some(action) = fk.on_delete {
         constraint_parts.push(format!("OnDelete:{}", action.to_sql_keyword()));
     }
-    if let Some(ref action) = fk.on_update {
+    if let Some(action) = fk.on_update {
         constraint_parts.push(format!("OnUpdate:{}", action.to_sql_keyword()));
     }
 
@@ -566,11 +459,11 @@ fn render_fk_relation_field(
 /// using GORM's comma-separated `foreignKey`/`references` tag syntax.
 fn render_composite_fk_relation_field(
     lines: &mut Vec<String>,
-    fk: &CompositeFkInfo,
+    fk: &CompositeFk,
     used_relation_names: &mut HashSet<String>,
 ) {
     let ref_struct =
-        sanitize_identifier(&to_pascal_case(&fk.ref_table), IdentifierStart::Underscore);
+        sanitize_identifier(&to_pascal_case(fk.ref_table), IdentifierStart::Underscore);
 
     let relation_field_name = claim_binding(ref_struct.clone(), used_relation_names);
 
@@ -578,10 +471,10 @@ fn render_composite_fk_relation_field(
     let ref_fields: Vec<String> = fk.ref_cols.iter().map(|c| to_go_field_name(c)).collect();
 
     let mut constraint_parts: Vec<String> = Vec::new();
-    if let Some(ref action) = fk.on_delete {
+    if let Some(action) = fk.on_delete {
         constraint_parts.push(format!("OnDelete:{}", action.to_sql_keyword()));
     }
-    if let Some(ref action) = fk.on_update {
+    if let Some(action) = fk.on_update {
         constraint_parts.push(format!("OnUpdate:{}", action.to_sql_keyword()));
     }
 
@@ -700,7 +593,11 @@ pub(super) fn to_go_field_name(s: &str) -> String {
     sanitize_identifier(&pascal, IdentifierStart::Underscore)
 }
 
-pub(super) fn infer_relation_field_name(fk_column: &str) -> String {
-    let base = fk_column.strip_suffix("_id").unwrap_or(fk_column);
-    sanitize_identifier(&to_pascal_case(base), IdentifierStart::Underscore)
+/// Go field name for a belongs-to relation: the FK column without its `_id`
+/// suffix, in PascalCase.
+pub(super) fn go_relation_field_name(fk_column: &str) -> String {
+    sanitize_identifier(
+        &to_pascal_case(vespertide_naming::infer_relation_field_name(fk_column)),
+        IdentifierStart::Underscore,
+    )
 }

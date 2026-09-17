@@ -8,7 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use vespertide_core::{ColumnName, TableConstraint, TableDef};
+use vespertide_core::{ColumnName, ReferenceAction, TableConstraint, TableDef};
 use vespertide_naming::{infer_relation_field_name, to_pascal_case};
 
 /// Collect the column names from every single-column constraint that `extract`
@@ -73,20 +73,30 @@ pub(crate) fn single_column_indexes(constraints: &[TableConstraint]) -> HashSet<
     })
 }
 
-/// Map each single-column foreign key's column name to its
-/// `(ref_table, ref_col)` target. Only foreign keys with exactly one owning
-/// column and one referenced column are included; composite FKs are skipped.
+/// A single-column foreign key's target and referential actions.
+pub(crate) struct FkDetails<'a> {
+    pub(crate) ref_table: &'a str,
+    pub(crate) ref_column: &'a str,
+    pub(crate) on_delete: Option<&'a ReferenceAction>,
+    pub(crate) on_update: Option<&'a ReferenceAction>,
+}
+
+/// Map each single-column foreign key's column name to its target and
+/// referential actions. Only foreign keys with exactly one owning column and
+/// one referenced column are included; composite FKs are skipped.
 ///
 /// Lookup-only, ordering unused.
-pub(crate) fn single_column_fk_targets(
+pub(crate) fn single_column_fk_details(
     constraints: &[TableConstraint],
-) -> HashMap<&str, (&str, &str)> {
+) -> HashMap<&str, FkDetails<'_>> {
     let mut map = HashMap::new();
     for constraint in constraints {
         if let TableConstraint::ForeignKey {
             columns,
             ref_table,
             ref_columns,
+            on_delete,
+            on_update,
             ..
         } = constraint
             && columns.len() == 1
@@ -94,11 +104,28 @@ pub(crate) fn single_column_fk_targets(
         {
             map.insert(
                 columns[0].as_str(),
-                (ref_table.as_str(), ref_columns[0].as_str()),
+                FkDetails {
+                    ref_table: ref_table.as_str(),
+                    ref_column: ref_columns[0].as_str(),
+                    on_delete: on_delete.as_ref(),
+                    on_update: on_update.as_ref(),
+                },
             );
         }
     }
     map
+}
+
+/// Map each single-column foreign key's column name to its
+/// `(ref_table, ref_col)` target — [`single_column_fk_details`] without the
+/// referential actions.
+pub(crate) fn single_column_fk_targets(
+    constraints: &[TableConstraint],
+) -> HashMap<&str, (&str, &str)> {
+    single_column_fk_details(constraints)
+        .into_iter()
+        .map(|(col, fk)| (col, (fk.ref_table, fk.ref_column)))
+        .collect()
 }
 
 /// Name segment a relation derives from its FK columns.

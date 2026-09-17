@@ -10,7 +10,7 @@ src/
 ├── orm.rs              # OrmExporter trait, Orm enum (SeaOrm/SqlAlchemy/SqlModel/Jpa/Prisma/Drizzle/Gorm/Django),
 │                       #   Orm::file_extension(), dispatch
 ├── constraint_scan.rs  # Shared constraint scans + FK relation naming
-│                       #   (fk_relation_names/relation_segment/collect_back_relations)
+│                       #   (single_column_fk_details/fk_relation_names/relation_segment/collect_back_relations)
 ├── enum_scan.rs        # Shared per-table enum-column scan (Prisma/Drizzle)
 ├── parallel_config.rs  # Rayon parallelism thresholds
 ├── python_naming.rs    # Shared PascalCase naming (SQLAlchemy/SQLModel/JPA/Django/GORM/CLI)
@@ -23,7 +23,8 @@ src/
 ├── drizzle/            # mod.rs, render.rs, types.rs, enums.rs — Drizzle TypeScript models
 ├── gorm/               # mod.rs, render.rs, types.rs, enums.rs, tests/ — GORM structs
 ├── django/             # mod.rs, render.rs, types.rs, enums.rs — Django models.Model classes
-├── utils/              # common.rs (join_quoted/unquote/claim_field_name), python.rs,
+├── utils/              # common.rs (join_quoted/unquote/claim_field_name/collect_composite_fks/is_jsonb_custom_type),
+│                       #   python.rs (render_enum/enum_member_name/column_type_to_python),
 │                       #   typescript.rs (ts_binding/ts_string)
 └── tests/              # Shared orm_cases! cross-ORM snapshot suite + fixtures/ + snapshots/
 ```
@@ -97,7 +98,7 @@ SQLAlchemy's positional column name).
   tables and emits `ManyToManyField(..., through=..., related_name="+")` on both sides; purely
   self-referential junctions are skipped rather than guessed at
 - **Composite (multi-column) FK**: Django has no native multi-column FK field, so
-  `collect_composite_fks` (from `utils/python.rs`, shared with SQLAlchemy) is used to emit a
+  `collect_composite_fks` (from `utils/common.rs`, shared with SQLAlchemy, SQLModel and GORM) is used to emit a
   `# composite foreign key: (...) -> ref_table(...)` comment instead of silently dropping the
   relationship
 - **`build_default()`**: only emits a bare (unquoted) SQL default when it parses as a numeric
