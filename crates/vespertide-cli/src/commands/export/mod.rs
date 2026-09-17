@@ -340,6 +340,11 @@ fn build_output_path(root: &Path, rel_path: &Path, orm: Orm) -> PathBuf {
             }
             // SeaORM files are Rust modules, so the stem doubles as a `mod` name.
             Orm::SeaOrm => seaorm_module_name(&sanitized),
+            // Python files are imported as modules, so the stem must be an
+            // identifier: `1users.py` cannot be imported.
+            Orm::SqlAlchemy | Orm::SqlModel | Orm::Django => {
+                sanitize_identifier(&sanitized, IdentifierStart::Underscore)
+            }
             _ => sanitized,
         };
         out.set_file_name(format!("{file_stem}.{ext}"));
