@@ -3,7 +3,8 @@ use std::collections::{HashMap, HashSet};
 use super::enums::render_enum;
 use super::types::{UsedImports, build_field_kwargs, django_field_type, reference_action_str};
 use crate::constraint_scan::{
-    primary_key, primary_key_columns, single_column_fk_details, single_column_uniques,
+    junction_targets, primary_key, primary_key_columns, single_column_fk_details,
+    single_column_uniques,
 };
 use crate::utils::common::{claim_binding, collect_composite_fks};
 use crate::utils::python::is_python_keyword;
@@ -35,8 +36,8 @@ pub fn render_entity_with_schema_and_config(
     app_label: Option<&str>,
 ) -> Result<String, String> {
     let mut used = UsedImports::default();
-    let m2m_fields = find_many_to_many_fields(table, schema);
-    let body = render_entity_part(table, &mut used, &m2m_fields, app_label);
+    let m2m = many_to_many_targets(table, schema);
+    let body = render_entity_part(table, &mut used, &m2m, app_label);
     Ok(assemble_with_imports(&used, &[body]))
 }
 
@@ -51,127 +52,39 @@ pub fn export_with_config(schema: &[TableDef], app_label: Option<&str>) -> Resul
     let parts: Vec<String> = schema
         .iter()
         .map(|t| {
-            let m2m_fields = find_many_to_many_fields(t, schema);
-            render_entity_part(t, &mut used, &m2m_fields, app_label)
+            let m2m = many_to_many_targets(t, schema);
+            render_entity_part(t, &mut used, &m2m, app_label)
         })
         .collect();
     Ok(assemble_with_imports(&used, &parts))
 }
 
-/// Recognize many-to-many junction tables (composite PK, 2+ FKs, all FK
-/// columns part of the PK) that reference `table`, and render the
-/// corresponding `ManyToManyField` lines for the *other* side of each
-/// junction. Purely self-referential junctions (every FK pointing back at
-/// `table`) are skipped rather than guessed at.
-fn find_many_to_many_fields(table: &TableDef, schema: &[TableDef]) -> Vec<String> {
-    let mut matches: Vec<(String, String)> = Vec::new(); // (target_table, junction_table)
-
-    for other in schema {
-        if other.name == table.name {
+/// The other side of every many-to-many junction that links `table`: each
+/// `(target, junction)` pair whose target `schema` also knows, in schema
+/// order. Purely self-referential junctions yield no pairs.
+fn many_to_many_targets<'a>(table: &TableDef, schema: &'a [TableDef]) -> Vec<(&'a str, &'a str)> {
+    let mut pairs = Vec::new();
+    for junction in schema {
+        if junction.name == table.name {
             continue;
         }
-
-        let other_pk: HashSet<String> = other
-            .constraints
-            .iter()
-            .filter_map(|c| {
-                if let TableConstraint::PrimaryKey { columns, .. } = c {
-                    Some(
-                        columns
-                            .iter()
-                            .map(|c| c.as_str().to_owned())
-                            .collect::<Vec<_>>(),
-                    )
-                } else {
-                    None
-                }
-            })
-            .flatten()
-            .collect();
-        if other_pk.len() < 2 {
+        let junction_pk = primary_key_columns(&junction.constraints);
+        let Some(targets) = junction_targets(table, junction, &junction_pk) else {
             continue;
-        }
-
-        let fks: Vec<(Vec<String>, String)> = other
-            .constraints
-            .iter()
-            .filter_map(|c| {
-                if let TableConstraint::ForeignKey {
-                    columns, ref_table, ..
-                } = c
-                {
-                    Some((
-                        columns.iter().map(|c| c.as_str().to_owned()).collect(),
-                        ref_table.as_str().to_owned(),
-                    ))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        if fks.len() < 2 {
-            continue;
-        }
-
-        let all_fk_cols_in_pk = fks
-            .iter()
-            .all(|(cols, _)| cols.iter().all(|c| other_pk.contains(c.as_str())));
-        if !all_fk_cols_in_pk {
-            continue;
-        }
-
-        if !fks
-            .iter()
-            .any(|(_, ref_table)| ref_table.as_str() == table.name.as_str())
-        {
-            continue;
-        }
-        if fks
-            .iter()
-            .all(|(_, ref_table)| ref_table.as_str() == table.name.as_str())
-        {
-            continue;
-        }
-
-        for (_, ref_table) in &fks {
-            if ref_table.as_str() == table.name.as_str() {
-                continue;
-            }
-            if schema.iter().any(|t| t.name.as_str() == ref_table.as_str()) {
-                matches.push((ref_table.clone(), other.name.as_str().to_owned()));
+        };
+        for target in targets {
+            if schema.iter().any(|t| t.name == *target) {
+                pairs.push((target.as_str(), junction.name.as_str()));
             }
         }
     }
-
-    let mut target_counts: HashMap<String, usize> = HashMap::new();
-    for (target, _) in &matches {
-        *target_counts.entry(target.clone()).or_default() += 1;
-    }
-
-    let mut used_names: HashSet<String> = HashSet::new();
-    matches
-        .iter()
-        .map(|(target, junction)| {
-            let base = pluralize(target);
-            let field_name = if target_counts.get(target).copied().unwrap_or(0) > 1 {
-                claim_binding(format!("{base}_via_{junction}"), &mut used_names)
-            } else {
-                claim_binding(base, &mut used_names)
-            };
-            let target_class = sanitize_identifier(&to_pascal_case(target), IdentifierStart::Underscore);
-            let junction_class =
-                sanitize_identifier(&to_pascal_case(junction), IdentifierStart::Underscore);
-            format!(
-                "    {field_name} = models.ManyToManyField(\"{target_class}\", through=\"{junction_class}\", related_name=\"+\")"
-            )
-        })
-        .collect()
+    pairs
 }
 
 fn render_entity_part(
     table: &TableDef,
     used: &mut UsedImports,
-    extra_fields: &[String],
+    m2m: &[(&str, &str)],
     app_label: Option<&str>,
 ) -> String {
     let mut lines: Vec<String> = Vec::new();
@@ -324,8 +237,29 @@ fn render_entity_part(
         );
     }
 
-    for line in extra_fields {
-        lines.push(line.clone());
+    // --- Many-to-many fields: the other side of each junction linking this
+    // table. Named after the pluralized target, or `{target}_via_{junction}`
+    // when two junctions reach one target; claimed after the columns so a
+    // field never shadows a scalar of the same name.
+    let mut target_counts: HashMap<&str, usize> = HashMap::new();
+    for (target, _) in m2m {
+        *target_counts.entry(target).or_default() += 1;
+    }
+    for (target, junction) in m2m {
+        let base = pluralize(target);
+        let raw = if target_counts[target] > 1 {
+            format!("{base}_via_{junction}")
+        } else {
+            base
+        };
+        let field_name = django_field_name(&raw, &mut used_field_names);
+        let target_class =
+            sanitize_identifier(&to_pascal_case(target), IdentifierStart::Underscore);
+        let junction_class =
+            sanitize_identifier(&to_pascal_case(junction), IdentifierStart::Underscore);
+        lines.push(format!(
+            "    {field_name} = models.ManyToManyField(\"{target_class}\", through=\"{junction_class}\", related_name=\"+\")"
+        ));
     }
 
     // Composite (multi-column) FKs have no native Django ORM field — surface

@@ -10,7 +10,8 @@ src/
 ├── orm.rs              # OrmExporter trait, Orm enum (SeaOrm/SqlAlchemy/SqlModel/Jpa/Prisma/Drizzle/Gorm/Django),
 │                       #   Orm::file_extension(), dispatch
 ├── constraint_scan.rs  # Shared constraint scans + FK relation naming
-│                       #   (single_column_fk_details/fk_relation_names/relation_segment/collect_back_relations)
+│                       #   (single_column_fk_details/junction_targets/fk_relation_names/relation_segment/
+│                       #   collect_back_relations)
 ├── enum_scan.rs        # Shared per-table enum-column scan (Prisma/Drizzle)
 ├── parallel_config.rs  # Rayon parallelism thresholds
 ├── python_naming.rs    # Shared PascalCase naming (SQLAlchemy/SQLModel/JPA/Django/GORM/CLI)
@@ -98,9 +99,11 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
 
 ### Django (Python)
 - Renders `models.Model` classes with a `class Meta` (`db_table`, `indexes`, `constraints`)
-- **M2M junction detection**: `find_many_to_many_fields()` recognizes composite-PK, 2+ FK junction
-  tables and emits `ManyToManyField(..., through=..., related_name="+")` on both sides; purely
-  self-referential junctions are skipped rather than guessed at
+- **M2M junction detection**: `constraint_scan::junction_targets` (shared with SeaORM) recognizes
+  composite-PK, 2+ FK junction tables; each side gets `ManyToManyField(..., through=...,
+  related_name="+")`, named after the pluralized target (`{target}_via_{junction}` when two
+  junctions reach one target) and run through `django_field_name` after the columns, so it never
+  shadows a scalar field. Purely self-referential junctions are skipped rather than guessed at
 - **Composite (multi-column) FK**: Django has no native multi-column FK field, so
   `collect_composite_fks` (from `utils/common.rs`, shared with SQLAlchemy, SQLModel and GORM) is used to emit a
   `# composite foreign key: (...) -> ref_table(...)` comment instead of silently dropping the
