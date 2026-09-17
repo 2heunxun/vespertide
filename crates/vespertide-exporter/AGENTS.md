@@ -173,7 +173,12 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
   `primary_key=True` in real Django; omitting it fails Django's own `fields.E100` system check
 - **FK fields**: a FK column that is the table's (non-composite) PK or carries a single-column
   unique renders as `models.OneToOneField` — `ForeignKey(unique=True)` is only fields.W342 pointing
-  at that class — and the PK one keeps `primary_key=True`
+  at that class — and the PK one keeps `primary_key=True`. A key that references anything but
+  the target's primary key carries `to_field=` (Django would otherwise join on the primary key
+  and silently return the wrong rows), named through the target's own `column_field_names`. A
+  key into a model with a composite primary key stays a plain column plus a
+  `# foreign key: (col) -> table(ref)` comment: Django cannot relate to such a model
+  (fields.E347)
 - **Config**: `DjangoExporterWithConfig` for `app_label` (omitted from `Meta` when unset); its
   `export` renders the whole schema as one module, which is what the CLI writes (`models.py`) —
   Django loads an app's models from its one `models` module

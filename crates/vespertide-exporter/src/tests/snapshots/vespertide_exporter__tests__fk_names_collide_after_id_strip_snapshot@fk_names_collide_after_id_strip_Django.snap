@@ -18,7 +18,7 @@ class Target(models.Model):
 class Src(models.Model):
     pk_field = models.IntegerField(db_column="pk", primary_key=True)
     a = models.ForeignKey("Target", on_delete=models.RESTRICT, related_name="+", null=True, blank=True)
-    a2 = models.ForeignKey("Target", on_delete=models.RESTRICT, db_column="a", related_name="+", null=True, blank=True)
+    a2 = models.ForeignKey("Target", on_delete=models.RESTRICT, to_field="alt", db_column="a", related_name="+", null=True, blank=True)
 
     class Meta:
         managed = False

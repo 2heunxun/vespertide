@@ -11,7 +11,8 @@ class Src(models.Model):
     id = models.IntegerField(primary_key=True)
     a_id = models.IntegerField()
     b_id = models.IntegerField()
-    solo = models.ForeignKey("Target", on_delete=models.RESTRICT, db_column="solo", related_name="+")
+    solo = models.IntegerField()
+    # foreign key: (solo) -> target(u)
     # composite foreign key: (a_id, b_id) -> target(a, b)
 
     class Meta:

@@ -5,7 +5,7 @@ use super::types::{
     UsedImports, build_default, build_field_kwargs, django_field_type, reference_action_str,
 };
 use crate::constraint_scan::{
-    junction_targets, primary_key, primary_key_columns, single_column_fk_details,
+    FkDetails, junction_targets, primary_key, primary_key_columns, single_column_fk_details,
     single_column_uniques,
 };
 use crate::python_naming::to_pascal_case;
@@ -22,7 +22,7 @@ use vespertide_naming::{
 pub fn render_entity(table: &TableDef) -> Result<String, String> {
     let mut used = UsedImports::default();
     let names = module_names(std::slice::from_ref(table));
-    let body = render_entity_part(table, &mut used, &[], &names, None);
+    let body = render_entity_part(table, &[], &mut used, &names, None);
     Ok(assemble_with_imports(&used, &[body]))
 }
 
@@ -30,9 +30,8 @@ pub fn render_entity(table: &TableDef) -> Result<String, String> {
 /// tables can be recognized and exposed as `ManyToManyField(..., through=...)`.
 pub fn render_entity_with_schema(table: &TableDef, schema: &[TableDef]) -> Result<String, String> {
     let mut used = UsedImports::default();
-    let m2m = many_to_many_targets(table, schema);
     let names = module_names(scope_of(table, schema));
-    let body = render_entity_part(table, &mut used, &m2m, &names, None);
+    let body = render_entity_part(table, schema, &mut used, &names, None);
     Ok(assemble_with_imports(&used, &[body]))
 }
 
@@ -48,10 +47,7 @@ pub fn export_with_config(schema: &[TableDef], app_label: Option<&str>) -> Resul
     let names = module_names(schema);
     let parts: Vec<String> = schema
         .iter()
-        .map(|t| {
-            let m2m = many_to_many_targets(t, schema);
-            render_entity_part(t, &mut used, &m2m, &names, app_label)
-        })
+        .map(|t| render_entity_part(t, schema, &mut used, &names, app_label))
         .collect();
     Ok(assemble_with_imports(&used, &parts))
 }
@@ -75,6 +71,7 @@ fn many_to_many_targets<'a>(table: &TableDef, schema: &'a [TableDef]) -> Vec<(&'
         };
         let reached_by_foreign_key: HashSet<&str> = single_column_fk_details(&junction.constraints)
             .values()
+            .filter(|fk| is_relatable(fk, schema))
             .map(|fk| fk.ref_table)
             .collect();
         if !reached_by_foreign_key.contains(table.name.as_str()) {
@@ -93,12 +90,13 @@ fn many_to_many_targets<'a>(table: &TableDef, schema: &'a [TableDef]) -> Vec<(&'
 
 fn render_entity_part(
     table: &TableDef,
+    schema: &[TableDef],
     used: &mut UsedImports,
-    m2m: &[(&str, &str)],
     names: &ScopeNames,
     app_label: Option<&str>,
 ) -> String {
     let mut lines: Vec<String> = Vec::new();
+    let m2m = many_to_many_targets(table, schema);
 
     // --- Constraint lookups ---
     let pk_columns = primary_key_columns(&table.constraints);
@@ -180,9 +178,11 @@ fn render_entity_part(
     // collapse two originally-distinct columns onto the same Python
     // attribute name; disambiguate with a numeric suffix rather than
     // silently emitting a duplicate class attribute.
-    let mut used_field_names: HashSet<String> = HashSet::new();
+    let (field_names, mut used_field_names) = column_field_names(table, schema);
     let mut attnames: HashMap<&str, String> = HashMap::new();
+    let mut unrelatable: Vec<String> = Vec::new();
     for col in &table.columns {
+        let field_name = field_names[col.name.as_str()].as_str();
         let is_pk = pk_columns.contains(col.name.as_str());
         let is_unique = single_unique_cols.contains(col.name.as_str());
 
@@ -191,21 +191,29 @@ fn render_entity_part(
         }
 
         let effective_pk = is_pk && !is_composite_pk;
-        let attname = if let Some(fk) = fk_map.get(col.name.as_str()) {
+        let fk = fk_map.get(col.name.as_str());
+        if let Some(fk) = fk.filter(|fk| !is_relatable(fk, schema)) {
+            unrelatable.push(format!(
+                "    # foreign key: ({}) -> {}({})",
+                col.name, fk.ref_table, fk.ref_column
+            ));
+        }
+        let attname = if let Some(fk) = fk.filter(|fk| is_relatable(fk, schema)) {
             let default = col
                 .default
                 .as_ref()
                 .and_then(|dv| build_default(&col.r#type, &dv.to_sql(), used));
-            let field_name = render_fk_field(
+            render_fk_field(
                 &mut lines,
                 &col.name,
+                field_name,
                 &class_of(names, fk.ref_table),
+                to_field(fk, schema).as_deref(),
                 fk.on_delete,
                 default.as_deref(),
                 effective_pk,
                 is_unique,
                 col.nullable,
-                &mut used_field_names,
             );
             // A ForeignKey's attname is `{field}_id` whatever `db_column` says.
             format!("{field_name}_id")
@@ -215,7 +223,6 @@ fn render_entity_part(
                 effective_pk,
                 auto_increment && !is_composite_pk,
             );
-            let field_name = django_field_name(col.name.as_str(), &mut used_field_names);
             let db_column = if field_name == col.name.as_str() {
                 None
             } else {
@@ -237,7 +244,7 @@ fn render_entity_part(
             } else {
                 lines.push(format!("    {field_name} = {field_type}({kwargs_str})"));
             }
-            field_name
+            field_name.to_string()
         };
         attnames.insert(col.name.as_str(), attname);
     }
@@ -259,10 +266,10 @@ fn render_entity_part(
     // when two junctions reach one target; claimed after the columns so a
     // field never shadows a scalar of the same name.
     let mut target_counts: HashMap<&str, usize> = HashMap::new();
-    for (target, _) in m2m {
+    for (target, _) in &m2m {
         *target_counts.entry(target).or_default() += 1;
     }
-    for (target, junction) in m2m {
+    for (target, junction) in &m2m {
         let base = pluralize(target);
         let raw = if target_counts[target] > 1 {
             format!("{base}_via_{junction}")
@@ -277,10 +284,12 @@ fn render_entity_part(
         ));
     }
 
-    // Composite (multi-column) FKs have no native Django ORM field — surface
-    // them as a comment rather than silently dropping the relationship info.
-    // The individual columns still render above as plain scalar fields, and
-    // referential integrity is enforced by the generated database schema.
+    // Composite (multi-column) FKs have no native Django ORM field, and neither
+    // has a key into a composite-key model — surface them as a comment rather
+    // than silently dropping the relationship info. The individual columns
+    // still render above as plain scalar fields, and referential integrity is
+    // enforced by the generated database schema.
+    lines.extend(unrelatable);
     for fk in collect_composite_fks(table) {
         let local = fk.local_cols.join(", ");
         let refs = fk.ref_cols.join(", ");
@@ -383,20 +392,17 @@ fn render_entity_part(
 fn render_fk_field(
     lines: &mut Vec<String>,
     col_name: &str,
+    field_name: &str,
     ref_class: &str,
+    to_field: Option<&str>,
     on_delete: Option<&ReferenceAction>,
     default: Option<&str>,
     is_pk: bool,
     is_unique: bool,
     nullable: bool,
-    used_field_names: &mut HashSet<String>,
-) -> String {
+) {
     // Django reads a ForeignKey through `{field}_id`, so the column keeps its
     // database name exactly when the stripped base survives every rename.
-    let field_name = django_field_name(
-        vespertide_naming::infer_relation_field_name(col_name),
-        used_field_names,
-    );
     let db_column = (format!("{field_name}_id") != col_name).then(|| col_name.to_string());
     // Django emulates `on_delete` itself and rejects SET_DEFAULT on a field
     // without a default (fields.E321). The table is unmanaged, so the
@@ -412,6 +418,9 @@ fn render_fk_field(
         format!("\"{ref_class}\""),
         format!("on_delete={on_delete_str}"),
     ];
+    if let Some(to_field) = to_field {
+        kwargs.push(format!("to_field={}", string_literal(to_field)));
+    }
     if is_pk {
         kwargs.push("primary_key=True".into());
     }
@@ -436,7 +445,62 @@ fn render_fk_field(
     };
     let kwargs_str = kwargs.join(", ");
     lines.push(format!("    {field_name} = {field_class}({kwargs_str})"));
-    field_name
+}
+
+/// Django cannot relate to a model with a composite primary key
+/// (fields.E347), so a foreign key into one stays a plain column. A target
+/// outside `schema` is taken at its word.
+fn is_relatable(fk: &FkDetails, schema: &[TableDef]) -> bool {
+    schema
+        .iter()
+        .find(|t| t.name.as_str() == fk.ref_table)
+        .is_none_or(|target| primary_key_columns(&target.constraints).len() < 2)
+}
+
+/// The `to_field` a foreign key needs: the target's field for the referenced
+/// column, whenever that column is not the target's primary key — which is
+/// what Django would otherwise join on.
+fn to_field(fk: &FkDetails, schema: &[TableDef]) -> Option<String> {
+    let target = schema.iter().find(|t| t.name.as_str() == fk.ref_table)?;
+    if primary_key_columns(&target.constraints).contains(fk.ref_column) {
+        return None;
+    }
+    let (target_fields, _) = column_field_names(target, schema);
+    Some(
+        target_fields
+            .get(fk.ref_column)
+            .map_or(fk.ref_column, String::as_str)
+            .to_string(),
+    )
+}
+
+/// The Django field name of every column of `table`, claimed in declaration
+/// order, with the set those claims filled. A foreign key Django can express
+/// is named after its relation (`user_id` -> `user`), every other column after
+/// itself. Sanitizing distinct columns (`a_id` -> `a`, `a` -> `a`) can land two
+/// of them on one attribute; the later one is numbered.
+fn column_field_names<'a>(
+    table: &'a TableDef,
+    schema: &[TableDef],
+) -> (HashMap<&'a str, String>, HashSet<String>) {
+    let fk_map = single_column_fk_details(&table.constraints);
+    let mut taken = HashSet::new();
+    let names = table
+        .columns
+        .iter()
+        .map(|col| {
+            let is_relation = fk_map
+                .get(col.name.as_str())
+                .is_some_and(|fk| is_relatable(fk, schema));
+            let base = if is_relation {
+                vespertide_naming::infer_relation_field_name(&col.name)
+            } else {
+                col.name.as_str()
+            };
+            (col.name.as_str(), django_field_name(base, &mut taken))
+        })
+        .collect();
+    (names, taken)
 }
 
 /// Every class `tables` declare in their module: models, then choices classes.
