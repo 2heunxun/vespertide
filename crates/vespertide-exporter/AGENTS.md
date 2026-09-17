@@ -12,7 +12,7 @@ src/
 ├── constraint_scan.rs  # Shared constraint scans + FK relation naming
 │                       #   (single_column_fk_details/junction_targets/fk_relation_names/relation_segment/
 │                       #   collect_back_relations)
-├── enum_scan.rs        # Shared per-table enum-column scan (Prisma/Drizzle)
+├── enum_scan.rs        # Shared enum-column scans (Prisma/Drizzle/GORM/Django)
 ├── parallel_config.rs  # Rayon parallelism thresholds
 ├── python_naming.rs    # Shared PascalCase naming (SQLAlchemy/SQLModel/JPA/Django/GORM/CLI)
 ├── seaorm/             # mod.rs, render.rs, types.rs, enums.rs, imports.rs,

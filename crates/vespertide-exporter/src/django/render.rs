@@ -6,6 +6,7 @@ use crate::constraint_scan::{
     junction_targets, primary_key, primary_key_columns, single_column_fk_details,
     single_column_uniques,
 };
+use crate::enum_scan::enum_identifiers_shared_across_tables;
 use crate::utils::common::{claim_binding, collect_composite_fks};
 use crate::utils::python::is_python_keyword;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType};
@@ -17,7 +18,7 @@ use vespertide_naming::{
 
 pub fn render_entity(table: &TableDef) -> Result<String, String> {
     let mut used = UsedImports::default();
-    let body = render_entity_part(table, &mut used, &[], None);
+    let body = render_entity_part(table, &mut used, &[], &HashSet::new(), None);
     Ok(assemble_with_imports(&used, &[body]))
 }
 
@@ -37,7 +38,8 @@ pub fn render_entity_with_schema_and_config(
 ) -> Result<String, String> {
     let mut used = UsedImports::default();
     let m2m = many_to_many_targets(table, schema);
-    let body = render_entity_part(table, &mut used, &m2m, app_label);
+    let shared_enums = enum_identifiers_shared_across_tables(schema, enum_class_name);
+    let body = render_entity_part(table, &mut used, &m2m, &shared_enums, app_label);
     Ok(assemble_with_imports(&used, &[body]))
 }
 
@@ -49,11 +51,12 @@ pub fn export(schema: &[TableDef]) -> Result<String, String> {
 /// model's `Meta` class.
 pub fn export_with_config(schema: &[TableDef], app_label: Option<&str>) -> Result<String, String> {
     let mut used = UsedImports::default();
+    let shared_enums = enum_identifiers_shared_across_tables(schema, enum_class_name);
     let parts: Vec<String> = schema
         .iter()
         .map(|t| {
             let m2m = many_to_many_targets(t, schema);
-            render_entity_part(t, &mut used, &m2m, app_label)
+            render_entity_part(t, &mut used, &m2m, &shared_enums, app_label)
         })
         .collect();
     Ok(assemble_with_imports(&used, &parts))
@@ -85,6 +88,7 @@ fn render_entity_part(
     table: &TableDef,
     used: &mut UsedImports,
     m2m: &[(&str, &str)],
+    shared_enums: &HashSet<String>,
     app_label: Option<&str>,
 ) -> String {
     let mut lines: Vec<String> = Vec::new();
@@ -113,16 +117,22 @@ fn render_entity_part(
     let single_unique_cols = single_column_uniques(&table.constraints);
     let fk_map = single_column_fk_details(&table.constraints);
 
-    // Enum class names for this table's columns
+    let class_name = sanitize_identifier(&to_pascal_case(&table.name), IdentifierStart::Underscore);
+
+    // Enum class names for this table's columns. A name another table also
+    // declares is qualified with the model, as the module is one namespace.
     let enum_class_map: HashMap<&str, String> = table
         .columns
         .iter()
         .filter_map(|col| {
             if let ColumnType::Complex(ComplexColumnType::Enum { name, .. }) = &col.r#type {
-                Some((
-                    col.name.as_str(),
-                    sanitize_identifier(&to_pascal_case(name), IdentifierStart::Underscore),
-                ))
+                let bare = enum_class_name(name);
+                let qualified = if shared_enums.contains(&bare) {
+                    format!("{class_name}{bare}")
+                } else {
+                    bare
+                };
+                Some((col.name.as_str(), qualified))
             } else {
                 None
             }
@@ -130,20 +140,18 @@ fn render_entity_part(
         .collect();
 
     // --- Enum class definitions ---
-    let mut seen_enums: HashSet<String> = HashSet::new();
+    let mut seen_enums: HashSet<&str> = HashSet::new();
     for col in &table.columns {
-        if let ColumnType::Complex(ComplexColumnType::Enum { name, values }) = &col.r#type {
-            let class_name =
-                sanitize_identifier(&to_pascal_case(name), IdentifierStart::Underscore);
-            if seen_enums.insert(class_name.clone()) {
-                render_enum(&mut lines, &class_name, values);
+        if let ColumnType::Complex(ComplexColumnType::Enum { values, .. }) = &col.r#type {
+            let enum_class = enum_class_map[col.name.as_str()].as_str();
+            if seen_enums.insert(enum_class) {
+                render_enum(&mut lines, enum_class, values);
                 lines.push(String::new());
             }
         }
     }
 
     // --- Class declaration ---
-    let class_name = sanitize_identifier(&to_pascal_case(&table.name), IdentifierStart::Underscore);
     if let Some(ref desc) = table.description {
         lines.push(format!("class {class_name}(models.Model):"));
         lines.push(format!("    \"\"\"{}\"\"\"", desc.replace('\n', " ")));
@@ -409,6 +417,10 @@ fn render_fk_field(
     let kwargs_str = kwargs.join(", ");
     lines.push(format!("    {field_name} = {field_class}({kwargs_str})"));
     field_name
+}
+
+fn enum_class_name(name: &str) -> String {
+    sanitize_identifier(&to_pascal_case(name), IdentifierStart::Underscore)
 }
 
 /// What Django calls a column inside `Meta.indexes`, `Meta.constraints` and

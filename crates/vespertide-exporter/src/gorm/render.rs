@@ -5,6 +5,7 @@ use super::types::{UsedImports, go_type_for_column_mapped};
 use crate::constraint_scan::{
     FkDetails, primary_key_columns, single_column_fk_details, single_column_uniques,
 };
+use crate::enum_scan::enum_identifiers_shared_across_tables;
 use crate::utils::common::{
     CompositeFk, claim_binding, collect_composite_fks, integer_enum_variant_value, unquote,
 };
@@ -64,34 +65,8 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
 
     let struct_name = exported_go_name(&table.name);
 
-    // Find enum names that appear in multiple schema tables (need qualified Go type names)
-    let conflicting_enums: HashSet<String> = {
-        let mut counts: HashMap<String, usize> = HashMap::new();
-        for col in &table.columns {
-            if let ColumnType::Complex(ComplexColumnType::Enum { name, .. }) = &col.r#type {
-                counts.entry(exported_go_name(name)).or_insert(1);
-            }
-        }
-        for other in schema {
-            if other.name == table.name {
-                continue;
-            }
-            let mut seen = HashSet::new();
-            for col in &other.columns {
-                if let ColumnType::Complex(ComplexColumnType::Enum { name, .. }) = &col.r#type {
-                    let pascal = exported_go_name(name);
-                    if seen.insert(pascal.clone()) {
-                        *counts.entry(pascal).or_default() += 1;
-                    }
-                }
-            }
-        }
-        counts
-            .into_iter()
-            .filter(|(_, c)| *c > 1)
-            .map(|(n, _)| n)
-            .collect()
-    };
+    // Enum names that appear in multiple schema tables need qualified Go type names
+    let conflicting_enums = enum_identifiers_shared_across_tables(schema, exported_go_name);
 
     // Collect enums defined in this table's columns, with qualified names where needed
     let enums: Vec<(&str, &EnumValues, String)> = table
