@@ -12,9 +12,10 @@ use vespertide_core::schema::column::{
     ColumnType, ComplexColumnType, EnumValues, SimpleColumnType,
 };
 use vespertide_core::schema::constraint::TableConstraint;
-use vespertide_core::schema::names::ColumnName;
 use vespertide_core::{ColumnDef, DefaultValue, ReferenceAction, TableDef};
-use vespertide_naming::{IdentifierStart, pluralize, sanitize_identifier};
+use vespertide_naming::{
+    IdentifierStart, build_index_name, build_unique_constraint_name, pluralize, sanitize_identifier,
+};
 
 /// The Go imports the columns of `tables` need.
 pub(super) fn imports_for<'a>(tables: impl IntoIterator<Item = &'a TableDef>) -> UsedImports {
@@ -132,8 +133,8 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
 
     let single_unique_columns = single_column_uniques(&table.constraints);
 
-    let index_map = collect_index_info(&table.constraints);
-    let composite_unique_map = collect_composite_unique_info(&table.constraints);
+    let index_map = collect_index_names(table);
+    let composite_unique_map = collect_composite_unique_names(table);
 
     let reverse_relations = find_reverse_relations(&table.name, schema);
 
@@ -244,44 +245,38 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
 }
 
 // ---------------------------------------------------------------------------
-// Index info collection
+// Index / unique names
 // ---------------------------------------------------------------------------
 
-struct IndexInfo {
-    name: Option<String>,
-}
-
-fn collect_index_info(constraints: &[TableConstraint]) -> HashMap<String, Vec<IndexInfo>> {
-    let mut map: HashMap<String, Vec<IndexInfo>> = HashMap::new();
-    for c in constraints {
+/// Index names per column, spelled as the SQL layer spells them so
+/// `AutoMigrate` finds the index the migration created instead of adding a
+/// second one. Every column of a composite index carries the same name, which
+/// is how GORM groups them.
+fn collect_index_names(table: &TableDef) -> HashMap<&str, Vec<String>> {
+    let mut map: HashMap<&str, Vec<String>> = HashMap::new();
+    for c in &table.constraints {
         if let TableConstraint::Index { name, columns } = c {
+            let index_name = build_index_name(&table.name, columns, name.as_deref());
             for col in columns {
-                map.entry(col.as_str().to_owned())
+                map.entry(col.as_str())
                     .or_default()
-                    .push(IndexInfo {
-                        name: name.as_ref().map(|n| n.as_str().to_owned()),
-                    });
+                    .push(index_name.clone());
             }
         }
     }
     map
 }
 
-fn collect_composite_unique_info(constraints: &[TableConstraint]) -> HashMap<String, String> {
+/// Composite unique-index name per column, spelled as the SQL layer spells it.
+fn collect_composite_unique_names(table: &TableDef) -> HashMap<&str, String> {
     let mut map = HashMap::new();
-    for c in constraints {
+    for c in &table.constraints {
         if let TableConstraint::Unique { name, columns, .. } = c
             && columns.len() > 1
         {
-            let uq_name = name.as_ref().map_or_else(
-                || {
-                    let parts: Vec<&str> = columns.iter().map(ColumnName::as_str).collect();
-                    format!("uq_{}", parts.join("_"))
-                },
-                |n| n.as_str().to_owned(),
-            );
+            let uq_name = build_unique_constraint_name(&table.name, columns, name.as_deref());
             for col in columns {
-                map.insert(col.as_str().to_owned(), uq_name.clone());
+                map.insert(col.as_str(), uq_name.clone());
             }
         }
     }
@@ -381,7 +376,7 @@ fn render_column_field(
     is_pk: bool,
     auto_increment: bool,
     is_unique: bool,
-    indexes: &[IndexInfo],
+    indexes: &[String],
     composite_unique_name: Option<&String>,
     enum_name_map: &HashMap<&str, String>,
 ) {
@@ -507,7 +502,7 @@ fn build_gorm_tag(
     is_pk: bool,
     auto_increment: bool,
     is_unique: bool,
-    indexes: &[IndexInfo],
+    indexes: &[String],
     composite_unique_name: Option<&String>,
 ) -> String {
     let mut parts: Vec<String> = vec![format!("column:{}", col.name)];
@@ -558,12 +553,8 @@ fn build_gorm_tag(
         parts.push(tag);
     }
 
-    for idx in indexes {
-        if let Some(ref name) = idx.name {
-            parts.push(format!("index:{name}"));
-        } else {
-            parts.push("index".into());
-        }
+    for name in indexes {
+        parts.push(format!("index:{name}"));
     }
 
     if let Some(uq_name) = composite_unique_name {

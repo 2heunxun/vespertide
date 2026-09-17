@@ -10,8 +10,8 @@ import (
 
 type Articles struct {
     ID int32 `gorm:"column:id;primaryKey" json:"id"`
-    Title string `gorm:"column:title;not null;type:text;index" json:"title"`
-    CreatedAt time.Time `gorm:"column:created_at;not null;index:idx_articles_created_at" json:"created_at"`
+    Title string `gorm:"column:title;not null;type:text;index:ix_articles__title" json:"title"`
+    CreatedAt time.Time `gorm:"column:created_at;not null;index:ix_articles__idx_articles_created_at" json:"created_at"`
 }
 
 func (Articles) TableName() string { return "articles" }

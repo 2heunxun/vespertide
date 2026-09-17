@@ -11,9 +11,9 @@ import (
 )
 
 type ArticleUser struct {
-    ArticleID uuid.UUID `gorm:"column:article_id;primaryKey;type:uuid;index" json:"article_id"`
+    ArticleID uuid.UUID `gorm:"column:article_id;primaryKey;type:uuid;index:ix_article_user__article_id" json:"article_id"`
     Article Article `gorm:"foreignKey:ArticleID;constraint:OnDelete:CASCADE" json:"-"`
-    UserID uuid.UUID `gorm:"column:user_id;primaryKey;type:uuid;index" json:"user_id"`
+    UserID uuid.UUID `gorm:"column:user_id;primaryKey;type:uuid;index:ix_article_user__user_id" json:"user_id"`
     User User `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"-"`
     AuthorOrder int32 `gorm:"column:author_order;not null;default:1" json:"author_order"`
     Role string `gorm:"column:role;not null;size:20;default:'contributor'" json:"role"`
