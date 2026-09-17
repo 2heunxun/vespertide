@@ -773,6 +773,19 @@ pub(crate) fn json_default() -> TableDef {
     )
 }
 
+/// A default carrying `;`, which GORM's tag syntax cannot hold.
+pub(crate) fn semicolon_default() -> TableDef {
+    table(
+        "notes",
+        vec![
+            simple("id", SimpleColumnType::Integer),
+            simple("note", SimpleColumnType::Text).default("'a;b'".into()),
+            simple("body", SimpleColumnType::Text),
+        ],
+        vec![pk(&["id"])],
+    )
+}
+
 pub(crate) fn self_referencing_fk() -> TableDef {
     let raw = TableDef {
         name: "employees".into(),

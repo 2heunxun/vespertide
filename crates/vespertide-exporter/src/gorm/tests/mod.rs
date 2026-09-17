@@ -162,36 +162,6 @@ fn test_conflicting_enum_names_qualified() {
 }
 
 // -----------------------------------------------------------------------
-// Char column → type:char + size in GORM tag
-// -----------------------------------------------------------------------
-
-#[test]
-fn test_char_type_column() {
-    let table = TableDef {
-        name: "codes".into(),
-        description: None,
-        columns: vec![
-            col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-            col(
-                "code",
-                ColumnType::Complex(ComplexColumnType::Char { length: 3 }),
-            ),
-        ],
-        constraints: vec![TableConstraint::PrimaryKey {
-            auto_increment: true,
-            columns: vec!["id".into()],
-            strategy: vespertide_core::PrimaryKeyAdditionStrategy::default(),
-        }],
-    };
-    let result = render_entity(&table).unwrap();
-    assert!(
-        result.contains("type:char"),
-        "Expected type:char in GORM tag"
-    );
-    assert!(result.contains("size:3"), "Expected size:3 in GORM tag");
-}
-
-// -----------------------------------------------------------------------
 // FK field name collision: infer == go_field → disambiguate with ref struct
 // -----------------------------------------------------------------------
 

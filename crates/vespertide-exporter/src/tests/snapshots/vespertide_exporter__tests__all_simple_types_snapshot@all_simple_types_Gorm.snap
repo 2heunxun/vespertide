@@ -27,9 +27,9 @@ type AllTypes struct {
     ByteaCol []byte `gorm:"column:bytea_col;not null" json:"bytea_col"`
     UuidCol uuid.UUID `gorm:"column:uuid_col;not null;type:uuid" json:"uuid_col"`
     JsonCol datatypes.JSON `gorm:"column:json_col;not null" json:"json_col"`
-    InetCol string `gorm:"column:inet_col;not null" json:"inet_col"`
-    CidrCol string `gorm:"column:cidr_col;not null" json:"cidr_col"`
-    MacaddrCol string `gorm:"column:macaddr_col;not null" json:"macaddr_col"`
+    InetCol string `gorm:"column:inet_col;not null;type:inet" json:"inet_col"`
+    CidrCol string `gorm:"column:cidr_col;not null;type:cidr" json:"cidr_col"`
+    MacaddrCol string `gorm:"column:macaddr_col;not null;type:macaddr" json:"macaddr_col"`
     XmlCol string `gorm:"column:xml_col;not null;type:xml" json:"xml_col"`
 }
 

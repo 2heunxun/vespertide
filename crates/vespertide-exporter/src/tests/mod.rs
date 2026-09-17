@@ -262,6 +262,11 @@ orm_cases!(
     fixtures::json_default
 );
 orm_cases!(
+    semicolon_default_snapshot,
+    "semicolon_default",
+    fixtures::semicolon_default
+);
+orm_cases!(
     self_referencing_fk_snapshot,
     "self_referencing_fk",
     fixtures::self_referencing_fk

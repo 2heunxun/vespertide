@@ -15,7 +15,7 @@ use super::bindings::FileBindings;
 use super::types::column_ctor;
 use super::{DrizzleDialect, Imports, js_name};
 use crate::constraint_scan::{collect_back_relations, fk_relation_names, relation_segment};
-use crate::utils::common::{claim_field_name, unquote};
+use crate::utils::common::{claim_field_name, integer_enum_variant_value, unquote};
 use crate::utils::typescript::ts_string;
 
 // ─── Constraint lookups ──────────────────────────────────────────────────────
@@ -564,9 +564,9 @@ pub(super) fn default_chain(
         values: EnumValues::Integer(variants),
         ..
     }) = col_type
-        && let Some(variant) = variants.iter().find(|v| v.name == default_sql)
+        && let Some(value) = integer_enum_variant_value(variants, default_sql)
     {
-        return DefaultChain::literal(format!(".default({})", variant.value));
+        return DefaultChain::literal(format!(".default({value})"));
     }
 
     // A bare keyword such as `CURRENT_USER`.

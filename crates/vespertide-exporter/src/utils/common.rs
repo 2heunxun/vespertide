@@ -1,6 +1,6 @@
 //! Cross-language helpers shared by every ORM exporter backend.
 
-use vespertide_core::{ReferenceAction, TableConstraint, TableDef};
+use vespertide_core::{NumValue, ReferenceAction, TableConstraint, TableDef};
 
 /// Join items as a double-quoted, comma-separated list: `"a", "b", "c"`.
 ///
@@ -88,6 +88,13 @@ pub(crate) fn unquote(s: &str) -> &str {
         }
     }
     s
+}
+
+/// The stored value of the integer-enum variant named `name`, if there is one.
+/// A model may write an integer enum's default as the variant name; the column
+/// stores the value.
+pub(crate) fn integer_enum_variant_value(variants: &[NumValue], name: &str) -> Option<i64> {
+    variants.iter().find(|v| v.name == name).map(|v| v.value)
 }
 
 /// `JSONB` is the one custom column type the backends map to a native JSON

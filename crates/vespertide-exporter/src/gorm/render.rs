@@ -5,7 +5,9 @@ use super::types::{UsedImports, go_type_for_column_mapped};
 use crate::constraint_scan::{
     FkDetails, primary_key_columns, single_column_fk_details, single_column_uniques,
 };
-use crate::utils::common::{CompositeFk, claim_binding, collect_composite_fks};
+use crate::utils::common::{
+    CompositeFk, claim_binding, collect_composite_fks, integer_enum_variant_value, unquote,
+};
 use vespertide_core::schema::column::{
     ColumnType, ComplexColumnType, EnumValues, SimpleColumnType,
 };
@@ -530,12 +532,16 @@ fn build_gorm_tag(
         ColumnType::Simple(SimpleColumnType::Date) => parts.push("type:date".into()),
         ColumnType::Simple(SimpleColumnType::Time) => parts.push("type:time".into()),
         ColumnType::Simple(SimpleColumnType::Uuid) => parts.push("type:uuid".into()),
+        ColumnType::Simple(SimpleColumnType::Inet) => parts.push("type:inet".into()),
+        ColumnType::Simple(SimpleColumnType::Cidr) => parts.push("type:cidr".into()),
+        ColumnType::Simple(SimpleColumnType::Macaddr) => parts.push("type:macaddr".into()),
         ColumnType::Complex(ComplexColumnType::Varchar { length }) => {
             parts.push(format!("size:{length}"));
         }
+        // GORM only applies `size` to its built-in string type; a bare `type:char`
+        // is `char(1)` on every database.
         ColumnType::Complex(ComplexColumnType::Char { length }) => {
-            parts.push(format!("size:{length}"));
-            parts.push("type:char".into());
+            parts.push(format!("type:char({length})"));
         }
         ColumnType::Complex(ComplexColumnType::Numeric { precision, scale }) => {
             parts.push(format!("type:numeric({precision},{scale})"));
@@ -547,7 +553,7 @@ fn build_gorm_tag(
     }
 
     if let Some(ref default) = col.default
-        && let Some(tag) = build_default_tag(default)
+        && let Some(tag) = build_default_tag(default, &col.r#type)
     {
         parts.push(tag);
     }
@@ -567,10 +573,21 @@ fn build_gorm_tag(
     parts.join(";")
 }
 
-fn build_default_tag(default: &DefaultValue) -> Option<String> {
+fn build_default_tag(default: &DefaultValue, col_type: &ColumnType) -> Option<String> {
     let sql = default.to_sql();
-    if sql.contains('(') {
-        return None; // Skip server-side function calls like NOW()
+    // A function call has no literal to pin, and `"` or `;` would end the
+    // struct tag or the gorm setting early, taking every later tag with it.
+    if sql.contains(['(', '"', ';']) {
+        return None;
+    }
+    // An integer enum's default may name a variant; the column stores its value.
+    if let ColumnType::Complex(ComplexColumnType::Enum {
+        values: EnumValues::Integer(variants),
+        ..
+    }) = col_type
+        && let Some(value) = integer_enum_variant_value(variants, unquote(&sql))
+    {
+        return Some(format!("default:{value}"));
     }
     Some(format!("default:{sql}"))
 }
