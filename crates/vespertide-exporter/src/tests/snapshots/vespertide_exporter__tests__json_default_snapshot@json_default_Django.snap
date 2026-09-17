@@ -12,4 +12,5 @@ class Configs(models.Model):
     data = models.JSONField()
 
     class Meta:
+        managed = False
         db_table = "configs"

@@ -13,4 +13,5 @@ class Accounts(models.Model):
     tenant_id = models.BigIntegerField()
 
     class Meta:
+        managed = False
         db_table = "accounts"

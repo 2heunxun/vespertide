@@ -11,4 +11,5 @@ class Dual(models.Model):
     username = models.TextField(primary_key=True)
 
     class Meta:
+        managed = False
         db_table = "dual"

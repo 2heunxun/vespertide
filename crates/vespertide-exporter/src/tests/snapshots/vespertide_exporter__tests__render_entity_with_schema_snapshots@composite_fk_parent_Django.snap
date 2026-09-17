@@ -13,4 +13,5 @@ class Parent(models.Model):
     id2 = models.IntegerField()
 
     class Meta:
+        managed = False
         db_table = "parent"

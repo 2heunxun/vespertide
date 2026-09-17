@@ -17,4 +17,5 @@ class Users(models.Model):
     name = models.TextField(null=True, blank=True)
 
     class Meta:
+        managed = False
         db_table = "users"

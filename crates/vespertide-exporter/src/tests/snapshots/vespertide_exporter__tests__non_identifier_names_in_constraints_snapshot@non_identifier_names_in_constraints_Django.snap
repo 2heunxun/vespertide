@@ -15,6 +15,7 @@ class Membership(models.Model):
     _3created = models.TextField(db_column="3created")
 
     class Meta:
+        managed = False
         db_table = "membership"
         indexes = [
             models.Index(fields=["_3created"]),

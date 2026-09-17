@@ -16,4 +16,5 @@ class TaskRuns(models.Model):
     status = models.IntegerField(choices=TaskRunStatus.choices)
 
     class Meta:
+        managed = False
         db_table = "task_runs"

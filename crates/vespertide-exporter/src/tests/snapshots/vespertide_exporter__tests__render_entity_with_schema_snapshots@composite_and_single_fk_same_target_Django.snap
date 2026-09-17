@@ -15,4 +15,5 @@ class Src(models.Model):
     # composite foreign key: (a_id, b_id) -> target(a, b)
 
     class Meta:
+        managed = False
         db_table = "src"

@@ -13,4 +13,5 @@ class Notes(models.Model):
     body = models.TextField()
 
     class Meta:
+        managed = False
         db_table = "notes"

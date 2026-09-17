@@ -13,4 +13,5 @@ class Order(models.Model):
     select = models.IntegerField()
 
     class Meta:
+        managed = False
         db_table = "order"

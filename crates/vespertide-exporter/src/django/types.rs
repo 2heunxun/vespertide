@@ -3,6 +3,8 @@ use vespertide_core::schema::column::{
 };
 use vespertide_core::{DefaultValue, ReferenceAction};
 
+use crate::utils::common::is_jsonb_custom_type;
+
 #[derive(Default)]
 pub(super) struct UsedImports {
     pub(super) needs_timezone: bool,
@@ -55,6 +57,11 @@ pub(super) fn django_field_type(
                 "models.CharField"
             }
             ComplexColumnType::Numeric { .. } => "models.DecimalField",
+            // Postgres has no implicit `text -> jsonb` cast, so a `TextField` on a
+            // JSONB column fails every write.
+            ComplexColumnType::Custom { custom_type } if is_jsonb_custom_type(custom_type) => {
+                "models.JSONField"
+            }
             ComplexColumnType::Custom { .. } => "models.TextField",
             ComplexColumnType::Enum { values, .. } => match values {
                 EnumValues::String(_) => "models.CharField",

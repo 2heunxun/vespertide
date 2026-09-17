@@ -16,6 +16,7 @@ class Orders(models.Model):
     status = models.CharField(max_length=7, choices=Status.choices)
 
     class Meta:
+        managed = False
         db_table = "orders"
 
 class Status(models.TextChoices):
@@ -27,4 +28,5 @@ class Tasks(models.Model):
     status = models.CharField(max_length=4, choices=Status.choices)
 
     class Meta:
+        managed = False
         db_table = "tasks"

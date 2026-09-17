@@ -11,6 +11,7 @@ class Users(models.Model):
     id = models.IntegerField(primary_key=True)
 
     class Meta:
+        managed = False
         db_table = "users"
 
 class Items(models.Model):
@@ -18,4 +19,5 @@ class Items(models.Model):
     owner = models.ForeignKey("Users", on_delete=models.RESTRICT, db_column="owner", related_name="+", null=True, blank=True)
 
     class Meta:
+        managed = False
         db_table = "items"

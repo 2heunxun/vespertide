@@ -11,4 +11,5 @@ class Article(models.Model):
     id = models.BigIntegerField(primary_key=True)
 
     class Meta:
+        managed = False
         db_table = "article"

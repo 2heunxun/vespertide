@@ -98,7 +98,13 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
   holds only function-level unit tests (Go type mapping, field and relation naming)
 
 ### Django (Python)
-- Renders `models.Model` classes with a `class Meta` (`db_table`, `indexes`, `constraints`)
+- Renders `models.Model` classes with a `class Meta` (`managed = False` — vespertide owns the DDL,
+  so `makemigrations` must not create or alter these tables — `db_table`, `indexes`, `constraints`).
+  `UniqueConstraint` names come from `build_unique_constraint_name` with the source name as the
+  key, matching the SQL layer; `Meta.indexes` keep their source names because Django caps index
+  names at 30 characters (models.E034)
+- **JSONB**: a `Custom` column type spelled `jsonb` maps to `models.JSONField` (the shared
+  `is_jsonb_custom_type`); other custom types fall back to `TextField`
 - **M2M junction detection**: `constraint_scan::junction_targets` (shared with SeaORM) recognizes
   composite-PK, 2+ FK junction tables; each side gets `ManyToManyField(..., through=...,
   related_name="+")`, named after the pluralized target (`{target}_via_{junction}` when two

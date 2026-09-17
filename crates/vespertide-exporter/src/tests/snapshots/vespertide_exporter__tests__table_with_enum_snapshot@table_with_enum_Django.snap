@@ -17,4 +17,5 @@ class Orders(models.Model):
     status = models.CharField(max_length=9, choices=OrderStatus.choices)
 
     class Meta:
+        managed = False
         db_table = "orders"

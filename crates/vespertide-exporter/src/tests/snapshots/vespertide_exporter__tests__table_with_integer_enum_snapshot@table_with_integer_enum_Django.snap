@@ -17,4 +17,5 @@ class Tasks(models.Model):
     priority = models.IntegerField(choices=PriorityLevel.choices)
 
     class Meta:
+        managed = False
         db_table = "tasks"

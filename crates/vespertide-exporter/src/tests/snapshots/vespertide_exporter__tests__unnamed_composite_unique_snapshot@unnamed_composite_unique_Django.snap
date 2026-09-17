@@ -13,6 +13,7 @@ class UnnamedUnique(models.Model):
     col_b = models.IntegerField()
 
     class Meta:
+        managed = False
         db_table = "unnamed_unique"
         constraints = [
             models.UniqueConstraint(fields=["col_a", "col_b"], name="uq_unnamed_unique__col_a_col_b"),

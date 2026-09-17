@@ -15,4 +15,5 @@ class ComplexTypes(models.Model):
     custom_col = models.TextField()
 
     class Meta:
+        managed = False
         db_table = "complex_types"

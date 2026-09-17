@@ -13,4 +13,5 @@ class Profiles(models.Model):
     avatar_url = models.CharField(max_length=500, null=True, blank=True)
 
     class Meta:
+        managed = False
         db_table = "profiles"

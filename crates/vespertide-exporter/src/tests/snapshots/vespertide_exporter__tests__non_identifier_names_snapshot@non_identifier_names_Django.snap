@@ -14,4 +14,5 @@ class _1users(models.Model):
     _1st_owner = models.ForeignKey("_1users", on_delete=models.RESTRICT, db_column="1st_owner_id", related_name="+", null=True, blank=True)
 
     class Meta:
+        managed = False
         db_table = "1users"

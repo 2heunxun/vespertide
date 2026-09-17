@@ -19,4 +19,5 @@ class Tasks(models.Model):
     is_archived = models.BooleanField(default=False)
 
     class Meta:
+        managed = False
         db_table = "tasks"

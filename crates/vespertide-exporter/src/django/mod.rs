@@ -200,30 +200,6 @@ mod tests {
     }
 
     #[test]
-    fn test_custom_type_field() {
-        let table = TableDef {
-            name: "docs".into(),
-            description: None,
-            columns: vec![
-                col("id", ColumnType::Simple(SimpleColumnType::Integer)),
-                col(
-                    "data",
-                    ColumnType::Complex(ComplexColumnType::Custom {
-                        custom_type: "JSONB".into(),
-                    }),
-                ),
-            ],
-            constraints: vec![auto_pk(&["id"])],
-        };
-        let result = render_entity(&table).unwrap();
-        // Custom type → models.TextField (Django has no native JSONB)
-        assert!(
-            result.contains("data = models.TextField()"),
-            "expected Custom→TextField in:\n{result}"
-        );
-    }
-
-    #[test]
     fn test_uuid_default() {
         let mut id_col = col("id", ColumnType::Simple(SimpleColumnType::Uuid));
         id_col.default = Some(DefaultValue::String("gen_random_uuid()".into()));

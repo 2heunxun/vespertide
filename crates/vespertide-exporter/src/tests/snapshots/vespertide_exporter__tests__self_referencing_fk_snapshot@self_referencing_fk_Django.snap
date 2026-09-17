@@ -12,4 +12,5 @@ class Employees(models.Model):
     manager = models.ForeignKey("Employees", on_delete=models.SET_NULL, related_name="+", null=True, blank=True)
 
     class Meta:
+        managed = False
         db_table = "employees"

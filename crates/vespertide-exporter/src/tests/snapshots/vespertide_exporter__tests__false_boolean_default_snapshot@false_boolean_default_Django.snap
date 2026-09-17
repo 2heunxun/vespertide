@@ -12,4 +12,5 @@ class BoolDefaults(models.Model):
     is_deleted = models.BooleanField(default=False)
 
     class Meta:
+        managed = False
         db_table = "bool_defaults"

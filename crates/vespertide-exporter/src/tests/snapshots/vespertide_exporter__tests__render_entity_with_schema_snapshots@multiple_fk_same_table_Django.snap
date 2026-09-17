@@ -13,4 +13,5 @@ class Post(models.Model):
     used_by_user = models.ForeignKey("User", on_delete=models.RESTRICT, related_name="+")
 
     class Meta:
+        managed = False
         db_table = "post"

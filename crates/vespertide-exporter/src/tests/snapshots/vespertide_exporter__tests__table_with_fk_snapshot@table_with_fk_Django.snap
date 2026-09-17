@@ -13,4 +13,5 @@ class Posts(models.Model):
     title = models.TextField()
 
     class Meta:
+        managed = False
         db_table = "posts"

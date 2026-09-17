@@ -29,4 +29,5 @@ class AllTypes(models.Model):
     xml_col = models.TextField()
 
     class Meta:
+        managed = False
         db_table = "all_types"

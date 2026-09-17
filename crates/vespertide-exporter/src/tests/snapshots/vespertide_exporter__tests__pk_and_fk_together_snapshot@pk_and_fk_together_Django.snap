@@ -18,6 +18,7 @@ class ArticleUser(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
+        managed = False
         db_table = "article_user"
         indexes = [
             models.Index(fields=["article_id"]),

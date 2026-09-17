@@ -13,4 +13,5 @@ class Users(models.Model):
     email = models.TextField()
 
     class Meta:
+        managed = False
         db_table = "users"

@@ -12,4 +12,5 @@ class Products(models.Model):
     price = models.IntegerField()
 
     class Meta:
+        managed = False
         db_table = "products"

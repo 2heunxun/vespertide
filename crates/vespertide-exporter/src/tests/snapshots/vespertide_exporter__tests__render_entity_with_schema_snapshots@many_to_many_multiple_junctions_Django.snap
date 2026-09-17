@@ -13,4 +13,5 @@ class User(models.Model):
     medias_via_user_media_favorite = models.ManyToManyField("Media", through="UserMediaFavorite", related_name="+")
 
     class Meta:
+        managed = False
         db_table = "user"

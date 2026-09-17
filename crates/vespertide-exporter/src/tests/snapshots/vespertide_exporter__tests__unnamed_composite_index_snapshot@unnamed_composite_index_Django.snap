@@ -13,6 +13,7 @@ class UnnamedIndex(models.Model):
     col_b = models.IntegerField()
 
     class Meta:
+        managed = False
         db_table = "unnamed_index"
         indexes = [
             models.Index(fields=["col_a", "col_b"]),

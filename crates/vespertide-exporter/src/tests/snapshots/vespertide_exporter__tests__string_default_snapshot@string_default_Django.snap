@@ -12,4 +12,5 @@ class StringDefaults(models.Model):
     status = models.TextField(default="active")
 
     class Meta:
+        managed = False
         db_table = "string_defaults"

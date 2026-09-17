@@ -12,6 +12,7 @@ class _1users(models.Model):
     email = models.TextField()
 
     class Meta:
+        managed = False
         db_table = "1users"
 
 class Posts(models.Model):
@@ -20,4 +21,5 @@ class Posts(models.Model):
     _2nd_owner = models.ForeignKey("_1users", on_delete=models.RESTRICT, db_column="2nd_owner_id", related_name="+", null=True, blank=True)
 
     class Meta:
+        managed = False
         db_table = "posts"

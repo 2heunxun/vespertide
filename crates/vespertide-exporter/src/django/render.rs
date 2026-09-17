@@ -306,6 +306,9 @@ fn render_entity_part(
 
     lines.push(String::new());
     lines.push("    class Meta:".into());
+    // vespertide owns the DDL; `makemigrations` must not try to create or
+    // alter these tables.
+    lines.push("        managed = False".into());
     lines.push(format!("        db_table = \"{}\"", table.name));
     if let Some(label) = app_label {
         lines.push(format!("        app_label = \"{label}\""));
@@ -338,12 +341,10 @@ fn render_entity_part(
                 .map(|c| format!("\"{}\"", attname_of(&attnames, c)))
                 .collect::<Vec<_>>()
                 .join(", ");
-            // `name` is required on every Django constraint, so an unnamed
-            // source constraint takes the name the SQL layer gives it.
-            let n = name.map_or_else(
-                || build_unique_constraint_name(&table.name, cols, None),
-                str::to_string,
-            );
+            // Spelled as the SQL layer spells it — a source name is the builder's
+            // key, not the final name — so Django and the migration agree on
+            // which constraint exists.
+            let n = build_unique_constraint_name(&table.name, cols, *name);
             lines.push(format!(
                 "            models.UniqueConstraint(fields=[{fields}], name=\"{n}\"),"
             ));

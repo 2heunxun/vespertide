@@ -14,10 +14,11 @@ class OrderItems(models.Model):
     quantity = models.IntegerField()
 
     class Meta:
+        managed = False
         db_table = "order_items"
         indexes = [
             models.Index(fields=["order_id"], name="ix_order_items__order_id"),
         ]
         constraints = [
-            models.UniqueConstraint(fields=["order_id", "product_id"], name="uq_order_items__order_product"),
+            models.UniqueConstraint(fields=["order_id", "product_id"], name="uq_order_items__uq_order_items__order_product"),
         ]

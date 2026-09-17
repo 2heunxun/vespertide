@@ -12,12 +12,14 @@ class UserRelations(models.Model):
     kind = models.TextField()
 
     class Meta:
+        managed = False
         db_table = "user_relations"
 
 class User(models.Model):
     id = models.IntegerField(primary_key=True)
 
     class Meta:
+        managed = False
         db_table = "user"
 
 class Sql(models.Model):
@@ -25,6 +27,7 @@ class Sql(models.Model):
     amount = models.IntegerField()
 
     class Meta:
+        managed = False
         db_table = "sql"
 
 class Posts(models.Model):
@@ -32,4 +35,5 @@ class Posts(models.Model):
     user = models.ForeignKey("User", on_delete=models.RESTRICT, related_name="+")
 
     class Meta:
+        managed = False
         db_table = "posts"

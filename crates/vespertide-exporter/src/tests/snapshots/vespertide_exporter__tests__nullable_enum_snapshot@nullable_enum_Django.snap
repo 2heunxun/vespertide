@@ -16,4 +16,5 @@ class NullableEnum(models.Model):
     status = models.CharField(max_length=8, choices=StatusType.choices, null=True, blank=True)
 
     class Meta:
+        managed = False
         db_table = "nullable_enum"

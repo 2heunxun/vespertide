@@ -15,6 +15,7 @@ class Users(models.Model):
     status = models.TextField(default="active")
 
     class Meta:
+        managed = False
         db_table = "users"
         indexes = [
             models.Index(fields=["department"], name="idx_department"),

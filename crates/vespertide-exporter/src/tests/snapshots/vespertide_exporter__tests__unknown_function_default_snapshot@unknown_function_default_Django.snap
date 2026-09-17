@@ -12,4 +12,5 @@ class UnknownDefaults(models.Model):
     code = models.TextField()
 
     class Meta:
+        managed = False
         db_table = "unknown_defaults"

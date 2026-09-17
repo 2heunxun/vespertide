@@ -13,4 +13,5 @@ class Child(models.Model):
     value = models.TextField()
 
     class Meta:
+        managed = False
         db_table = "child"

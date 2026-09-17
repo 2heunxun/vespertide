@@ -13,6 +13,7 @@ class Articles(models.Model):
     created_at = models.DateTimeField()
 
     class Meta:
+        managed = False
         db_table = "articles"
         indexes = [
             models.Index(fields=["created_at"], name="idx_articles_created_at"),

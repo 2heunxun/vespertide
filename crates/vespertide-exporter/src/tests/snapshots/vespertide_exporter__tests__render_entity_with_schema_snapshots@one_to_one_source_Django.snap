@@ -12,4 +12,5 @@ class Profile(models.Model):
     user = models.OneToOneField("User", on_delete=models.RESTRICT, related_name="+")
 
     class Meta:
+        managed = False
         db_table = "profile"

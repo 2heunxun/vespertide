@@ -15,4 +15,5 @@ class WithDefaults(models.Model):
     count = models.IntegerField(default=0)
 
     class Meta:
+        managed = False
         db_table = "with_defaults"

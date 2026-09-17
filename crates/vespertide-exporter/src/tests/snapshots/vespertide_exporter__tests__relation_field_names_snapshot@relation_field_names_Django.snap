@@ -13,6 +13,7 @@ class OrderRegions(models.Model):
     region_id = models.IntegerField()
 
     class Meta:
+        managed = False
         db_table = "order_regions"
 
 class OrderItems(models.Model):
@@ -24,6 +25,7 @@ class OrderItems(models.Model):
     # composite foreign key: (order_id, region_id) -> order_regions(order_id, region_id)
 
     class Meta:
+        managed = False
         db_table = "order_items"
 
 class Users(models.Model):
@@ -31,6 +33,7 @@ class Users(models.Model):
     posts = models.TextField()
 
     class Meta:
+        managed = False
         db_table = "users"
 
 class Posts(models.Model):
@@ -38,6 +41,7 @@ class Posts(models.Model):
     user = models.ForeignKey("Users", on_delete=models.RESTRICT, related_name="+")
 
     class Meta:
+        managed = False
         db_table = "posts"
 
 class Categories(models.Model):
@@ -45,4 +49,5 @@ class Categories(models.Model):
     parent = models.ForeignKey("Categories", on_delete=models.RESTRICT, related_name="+", null=True, blank=True)
 
     class Meta:
+        managed = False
         db_table = "categories"

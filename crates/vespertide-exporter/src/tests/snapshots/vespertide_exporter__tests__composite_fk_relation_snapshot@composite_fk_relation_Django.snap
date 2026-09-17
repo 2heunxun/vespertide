@@ -13,6 +13,7 @@ class Orders(models.Model):
     version = models.IntegerField()
 
     class Meta:
+        managed = False
         db_table = "orders"
 
 class LineItems(models.Model):
@@ -23,4 +24,5 @@ class LineItems(models.Model):
     # composite foreign key: (order_id, order_version) -> orders(id, version)
 
     class Meta:
+        managed = False
         db_table = "line_items"

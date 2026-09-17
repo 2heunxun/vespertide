@@ -12,6 +12,7 @@ class Target(models.Model):
     alt = models.IntegerField(unique=True)
 
     class Meta:
+        managed = False
         db_table = "target"
 
 class Src(models.Model):
@@ -20,4 +21,5 @@ class Src(models.Model):
     a2 = models.ForeignKey("Target", on_delete=models.RESTRICT, db_column="a", related_name="+", null=True, blank=True)
 
     class Meta:
+        managed = False
         db_table = "src"

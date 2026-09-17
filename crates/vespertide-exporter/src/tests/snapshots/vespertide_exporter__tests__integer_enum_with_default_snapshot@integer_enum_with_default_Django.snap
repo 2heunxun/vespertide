@@ -16,4 +16,5 @@ class Tasks(models.Model):
     status = models.IntegerField(choices=TaskStatus.choices, default=1)
 
     class Meta:
+        managed = False
         db_table = "tasks"

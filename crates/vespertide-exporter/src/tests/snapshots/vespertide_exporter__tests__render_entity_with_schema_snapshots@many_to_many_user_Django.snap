@@ -12,4 +12,5 @@ class User(models.Model):
     articles = models.ManyToManyField("Article", through="ArticleUser", related_name="+")
 
     class Meta:
+        managed = False
         db_table = "user"

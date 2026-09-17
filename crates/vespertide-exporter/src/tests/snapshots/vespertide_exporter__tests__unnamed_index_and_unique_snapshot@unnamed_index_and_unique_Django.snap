@@ -13,6 +13,7 @@ class Events(models.Model):
     date = models.DateField()
 
     class Meta:
+        managed = False
         db_table = "events"
         indexes = [
             models.Index(fields=["venue_id", "date"]),

@@ -14,4 +14,5 @@ class Articles(models.Model):
     status = models.TextField(default="draft")
 
     class Meta:
+        managed = False
         db_table = "articles"

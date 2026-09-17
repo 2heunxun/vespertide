@@ -16,4 +16,5 @@ class Logs(models.Model):
     tag = models.TextField()
 
     class Meta:
+        managed = False
         db_table = "logs"
