@@ -34,6 +34,8 @@ model Posts {
   id Int @id
   user_id Int
   user Users @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  table_name_id Int
+  table_name Categories @relation(fields: [table_name_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("posts")
 }
@@ -42,6 +44,7 @@ model Categories {
   id Int @id
   parent_id Int?
   parent Categories? @relation("CategoriesParent", fields: [parent_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  posts Posts[]
   parent_categories Categories[] @relation("CategoriesParent")
 
   @@map("categories")

@@ -5,12 +5,12 @@
 //! Drizzle, GORM and Django do not, and all start from the same per-table
 //! scan. What they do with it differs — Prisma deduplicates identifiers
 //! globally (see `prisma::enums`), Drizzle table-prefixes every type, GORM and
-//! Django prefix only the identifiers more than one table declares.
+//! Django claim them in the file's one scope (see `scope_names`).
 
 use vespertide_core::TableDef;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType, EnumValues};
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// Enum columns of a table, first declaration winning per name.
 pub(crate) fn collect_table_enums(table: &TableDef) -> Vec<(&str, &EnumValues)> {
@@ -26,26 +26,11 @@ pub(crate) fn collect_table_enums(table: &TableDef) -> Vec<(&str, &EnumValues)> 
     result
 }
 
-/// Identifiers more than one table of `schema` declares an enum under. Names
-/// are compared after `identifier` has converted them, since distinct names
-/// can collapse onto the same one (`doc_status` and `docStatus`).
-pub(crate) fn enum_identifiers_shared_across_tables(
-    schema: &[TableDef],
-    identifier: impl Fn(&str) -> String,
-) -> HashSet<String> {
-    let mut tables_declaring: HashMap<String, usize> = HashMap::new();
-    for table in schema {
-        let declared: HashSet<String> = collect_table_enums(table)
-            .into_iter()
-            .map(|(name, _)| identifier(name))
-            .collect();
-        for ident in declared {
-            *tables_declaring.entry(ident).or_default() += 1;
-        }
+/// An enum's variant names in declaration order: the values of a string
+/// enum, the member names of an integer one.
+pub(crate) fn variant_names(values: &EnumValues) -> Vec<&str> {
+    match values {
+        EnumValues::String(values) => values.iter().map(String::as_str).collect(),
+        EnumValues::Integer(values) => values.iter().map(|v| v.name.as_str()).collect(),
     }
-    tables_declaring
-        .into_iter()
-        .filter(|(_, tables)| *tables > 1)
-        .map(|(ident, _)| ident)
-        .collect()
 }

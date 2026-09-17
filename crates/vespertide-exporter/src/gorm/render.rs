@@ -1,12 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
-use super::enums::render_enum;
+use super::enums::{const_name, render_enum};
 use super::types::{UsedImports, go_type_for_column_mapped, is_go_string};
 use crate::constraint_scan::{
     BackRelation, FkDetails, collect_back_relations, primary_key_columns, single_column_fk_details,
     single_column_uniques,
 };
-use crate::enum_scan::enum_identifiers_shared_across_tables;
+use crate::enum_scan::{collect_table_enums, variant_names};
+use crate::scope_names::ScopeNames;
 use crate::utils::common::{
     CompositeFk, claim_binding, collect_composite_fks, integer_enum_variant_value, string_literal,
     unquote,
@@ -99,37 +100,50 @@ pub(super) fn gofmt_layout(lines: &[String]) -> String {
     out.join("\n")
 }
 
+/// Every name `tables` declare in their package: structs, enum types, then
+/// enum constants, which Go also puts at package scope (`Status` + `code` is
+/// `StatusCode`, and so is the struct of a `status_code` table).
+pub(super) fn package_names(tables: &[TableDef]) -> ScopeNames {
+    let mut names = ScopeNames::collect(tables, exported_go_name, exported_go_name);
+    for table in tables {
+        for (enum_name, values) in collect_table_enums(table) {
+            let type_name = names.enum_type(&table.name, enum_name).to_string();
+            for (index, variant) in variant_names(values).into_iter().enumerate() {
+                names.claim_member(
+                    &table.name,
+                    enum_name,
+                    index,
+                    const_name(&type_name, variant),
+                );
+            }
+        }
+    }
+    names
+}
+
+/// The struct a table is declared as; a table outside the package's schema —
+/// a foreign key may point there — keeps its natural name.
+fn struct_name_of(names: &ScopeNames, table: &str) -> String {
+    names
+        .table(table)
+        .map_or_else(|| exported_go_name(table), str::to_string)
+}
+
 /// Everything below the header for one table: enum types, the struct, and
 /// its methods.
-pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<String> {
+pub(super) fn render_table_body(
+    table: &TableDef,
+    schema: &[TableDef],
+    names: &ScopeNames,
+) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
 
-    let struct_name = exported_go_name(&table.name);
+    let struct_name = struct_name_of(names, &table.name);
 
-    // Enum names that appear in multiple schema tables need qualified Go type names
-    let conflicting_enums = enum_identifiers_shared_across_tables(schema, exported_go_name);
-
-    // Collect enums defined in this table's columns, with qualified names where needed
-    let enums: Vec<(&str, &EnumValues, String)> = table
-        .columns
-        .iter()
-        .filter_map(|col| {
-            if let ColumnType::Complex(ComplexColumnType::Enum { name, values }) = &col.r#type {
-                let pascal = exported_go_name(name);
-                let qualified = if conflicting_enums.contains(&pascal) {
-                    format!("{struct_name}{pascal}")
-                } else {
-                    pascal
-                };
-                Some((name.as_str(), values, qualified))
-            } else {
-                None
-            }
-        })
-        .collect();
+    let enums = collect_table_enums(table);
     let enum_name_map: HashMap<&str, String> = enums
         .iter()
-        .map(|(name, _, qualified)| (*name, qualified.clone()))
+        .map(|(name, _)| (*name, names.enum_type(&table.name, name).to_string()))
         .collect();
 
     let fk_by_column = single_column_fk_details(&table.constraints);
@@ -153,14 +167,11 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
     let composite_unique_map = collect_composite_unique_names(table);
 
     // --- Enum type declarations ---
-    // Two columns of one table may share an enum; Go rejects the second
-    // declaration of the same type.
-    let mut declared_enums: HashSet<&str> = HashSet::new();
-    for (_, values, qualified_name) in &enums {
-        if !declared_enums.insert(qualified_name.as_str()) {
-            continue;
-        }
-        render_enum(&mut lines, qualified_name, values);
+    for (enum_name, values) in &enums {
+        let const_names: Vec<String> = (0..variant_names(values).len())
+            .map(|index| names.member(&table.name, enum_name, index).to_string())
+            .collect();
+        render_enum(&mut lines, &enum_name_map[enum_name], &const_names, values);
         lines.push(String::new());
     }
 
@@ -174,8 +185,7 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
     // One set of taken names for the whole struct, columns first: no relation
     // field — belongs-to, composite or has-many — may take a column's name,
     // whichever order the table declares them in.
-    let field_names = column_field_names(table);
-    let mut taken: HashSet<String> = field_names.values().cloned().collect();
+    let (field_names, mut taken) = column_field_names(table);
 
     for col in &table.columns {
         let is_pk = pk_columns.contains(col.name.as_str());
@@ -208,6 +218,7 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
                 &field_names[col.name.as_str()],
                 fk,
                 schema,
+                names,
                 &mut taken,
             );
         }
@@ -217,7 +228,14 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
     // associations via comma-separated `foreignKey`/`references` tags, unlike
     // Django which has no native equivalent.
     for fk in collect_composite_fks(table) {
-        render_composite_fk_relation_field(&mut lines, &fk, &field_names, schema, &mut taken);
+        render_composite_fk_relation_field(
+            &mut lines,
+            &fk,
+            &field_names,
+            schema,
+            names,
+            &mut taken,
+        );
     }
 
     // Reverse relation fields (has-one / has-many) derived from schema context
@@ -236,7 +254,7 @@ pub(super) fn render_table_body(table: &TableDef, schema: &[TableDef]) -> Vec<St
             rel.on_delete.as_ref(),
             rel.on_update.as_ref(),
         );
-        let source_struct = exported_go_name(&rel.source_table);
+        let source_struct = struct_name_of(names, &rel.source_table);
         let go_type = if rel.is_one_to_one {
             format!("*{source_struct}")
         } else {
@@ -378,9 +396,10 @@ fn render_fk_relation_field(
     fk_field_name: &str,
     fk: &FkDetails,
     schema: &[TableDef],
+    names: &ScopeNames,
     taken: &mut HashSet<String>,
 ) {
-    let ref_struct = exported_go_name(fk.ref_table);
+    let ref_struct = struct_name_of(names, fk.ref_table);
     let mut relation_field_name = go_relation_field_name(&col.name);
     if relation_field_name == fk_field_name {
         relation_field_name = format!("{relation_field_name}{ref_struct}");
@@ -416,9 +435,10 @@ fn render_composite_fk_relation_field(
     fk: &CompositeFk,
     field_names: &HashMap<&str, String>,
     schema: &[TableDef],
+    names: &ScopeNames,
     taken: &mut HashSet<String>,
 ) {
-    let ref_struct = exported_go_name(fk.ref_table);
+    let ref_struct = struct_name_of(names, fk.ref_table);
 
     let relation_field_name = claim_binding(ref_struct.clone(), taken);
 
@@ -624,10 +644,13 @@ fn to_go_field_name(s: &str) -> String {
 
 /// Go field name for every column of `table`, claimed in declaration order so
 /// two columns that map to one Go name (`user_id`, `userId`) get distinct
-/// fields.
-fn column_field_names(table: &TableDef) -> HashMap<&str, String> {
-    let mut taken = HashSet::new();
-    table
+/// fields, with the set those claims filled — the struct's relation fields
+/// claim against the same one.
+fn column_field_names(table: &TableDef) -> (HashMap<&str, String>, HashSet<String>) {
+    // Every struct gets a `TableName` method, and Go rejects a field of the
+    // same name.
+    let mut taken = HashSet::from(["TableName".to_string()]);
+    let names = table
         .columns
         .iter()
         .map(|col| {
@@ -636,7 +659,8 @@ fn column_field_names(table: &TableDef) -> HashMap<&str, String> {
                 claim_binding(to_go_field_name(&col.name), &mut taken),
             )
         })
-        .collect()
+        .collect();
+    (names, taken)
 }
 
 /// The field name `column` has in `table_name`'s struct: its claimed name when
@@ -646,7 +670,7 @@ fn field_name_in(schema: &[TableDef], table_name: &str, column: &str) -> String 
     schema
         .iter()
         .find(|t| t.name.as_str() == table_name)
-        .and_then(|t| column_field_names(t).remove(column))
+        .and_then(|t| column_field_names(t).0.remove(column))
         .unwrap_or_else(|| to_go_field_name(column))
 }
 
@@ -687,11 +711,14 @@ fn go_initialisms(pascal: &str) -> String {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vespertide_core::schema::column::{ColumnType, SimpleColumnType};
+    use vespertide_core::schema::column::{
+        ColumnType, ComplexColumnType, EnumValues, SimpleColumnType,
+    };
     use vespertide_core::{ColumnDef, TableDef};
 
     use super::{
-        build_default_tag, column_field_names, go_relation_field_name, struct_tag, to_go_field_name,
+        build_default_tag, column_field_names, go_relation_field_name, package_names, struct_tag,
+        to_go_field_name,
     };
 
     #[rstest]
@@ -707,7 +734,8 @@ mod tests {
         assert_eq!(to_go_field_name(input), expected);
     }
 
-    /// Two columns that map to one Go name get distinct fields, in declaration order.
+    /// Two columns that map to one Go name get distinct fields, in declaration
+    /// order, and none takes the name of the struct's own `TableName` method.
     #[test]
     fn column_field_names_disambiguate_go_collisions() {
         let integer = || ColumnType::Simple(SimpleColumnType::Integer);
@@ -717,12 +745,38 @@ mod tests {
             columns: vec![
                 ColumnDef::new("user_id", integer(), false),
                 ColumnDef::new("userId", integer(), false),
+                ColumnDef::new("table_name", integer(), false),
             ],
             constraints: vec![],
         };
-        let names = column_field_names(&table);
+        let (names, _) = column_field_names(&table);
         assert_eq!(names["user_id"], "UserID");
         assert_eq!(names["userId"], "UserID2");
+        assert_eq!(names["table_name"], "TableName2");
+    }
+
+    /// Constants sit at package scope next to the types: values that fold onto
+    /// one name are numbered, and an empty value does not spell its own type.
+    #[test]
+    fn enum_constants_are_claimed_in_the_package_scope() {
+        let state = ColumnType::Complex(ComplexColumnType::Enum {
+            name: "state".into(),
+            values: EnumValues::String(vec![
+                "in progress".into(),
+                "in-progress".into(),
+                String::new(),
+            ]),
+        });
+        let table = TableDef {
+            name: "ticket".into(),
+            description: None,
+            columns: vec![ColumnDef::new("state", state, false)],
+            constraints: vec![],
+        };
+        let names = package_names(std::slice::from_ref(&table));
+        assert_eq!(names.member("ticket", "state", 0), "StateIn_progress");
+        assert_eq!(names.member("ticket", "state", 1), "StateIn_progress2");
+        assert_eq!(names.member("ticket", "state", 2), "State2");
     }
 
     #[rstest]

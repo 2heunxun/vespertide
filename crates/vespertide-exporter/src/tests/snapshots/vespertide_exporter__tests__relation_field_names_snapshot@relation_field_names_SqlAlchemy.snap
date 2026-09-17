@@ -40,6 +40,7 @@ class Posts(DeclarativeBase):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    table_name_id: Mapped[int] = mapped_column(Integer, ForeignKey("categories.id"), nullable=False)
 
 class Categories(DeclarativeBase):
     __tablename__ = "categories"

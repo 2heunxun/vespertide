@@ -4,13 +4,14 @@ use vespertide_naming::{IdentifierStart, sanitize_identifier};
 use super::render::to_pascal_case;
 use crate::utils::common::string_literal;
 
-pub(super) fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValues) {
-    // `name` is already the exported, PascalCased (and possibly struct-qualified)
-    // identifier built by the caller — re-running `to_pascal_case` here would
-    // fold the `_` the sanitizer substitutes for a character Go rejects
-    // (`User_id` -> `UserId`) and desync the type from its field.
-    let type_name = name;
-
+/// `type_name` and `const_names` are the names claimed for this enum in the
+/// package's scope, one constant per value in declaration order.
+pub(super) fn render_enum(
+    lines: &mut Vec<String>,
+    type_name: &str,
+    const_names: &[String],
+    values: &EnumValues,
+) {
     let mut rendered = match values {
         EnumValues::String(_) => {
             vec![
@@ -30,8 +31,7 @@ pub(super) fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValu
 
     match values {
         EnumValues::String(vals) => {
-            for val in vals {
-                let const_name = const_name(type_name, val);
+            for (val, const_name) in vals.iter().zip(const_names) {
                 rendered.push(format!(
                     "    {const_name} {type_name} = {}",
                     string_literal(val)
@@ -39,8 +39,7 @@ pub(super) fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValu
             }
         }
         EnumValues::Integer(vals) => {
-            for val in vals {
-                let const_name = const_name(type_name, &val.name);
+            for (val, const_name) in vals.iter().zip(const_names) {
                 rendered.push(format!("    {const_name} {type_name} = {}", val.value));
             }
         }
@@ -50,11 +49,12 @@ pub(super) fn render_enum(lines: &mut Vec<String>, name: &str, values: &EnumValu
     lines.extend(rendered);
 }
 
-/// A Go constant name for one enum member. The value is arbitrary text —
-/// `info-level` and `1critical` are legal in the database — so it is escaped
-/// the same way column names are. The `type_name` prefix already supplies a
-/// leading letter, so only interior characters can need replacing.
-fn const_name(type_name: &str, value: &str) -> String {
+/// The natural Go constant name for one enum member, before it is claimed in
+/// the package's scope. The value is arbitrary text — `info-level` and
+/// `1critical` are legal in the database — so it is escaped the same way
+/// column names are. The `type_name` prefix already supplies a leading letter,
+/// so only interior characters can need replacing.
+pub(super) fn const_name(type_name: &str, value: &str) -> String {
     sanitize_identifier(
         &format!("{type_name}{}", to_pascal_case(value)),
         IdentifierStart::Letter,

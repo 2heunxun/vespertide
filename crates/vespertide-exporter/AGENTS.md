@@ -15,6 +15,7 @@ src/
 ├── enum_scan.rs        # Shared enum-column scans (Prisma/Drizzle/GORM/Django)
 ├── parallel_config.rs  # Rayon parallelism thresholds
 ├── python_naming.rs    # Shared PascalCase naming (SQLAlchemy/SQLModel/JPA/Django/GORM/CLI)
+├── scope_names.rs      # Top-level names claimed once per schema (GORM package / Django module)
 ├── seaorm/             # mod.rs, render.rs, types.rs, enums.rs, imports.rs,
 │                       #   relations/ (fk_resolve, naming, self_ref, reverse), tests/
 ├── sqlalchemy/         # mod.rs, render.rs, types.rs, enums.rs — declarative_base models
@@ -25,7 +26,7 @@ src/
 ├── gorm/               # mod.rs, render.rs, types.rs, enums.rs — GORM structs
 ├── django/             # mod.rs, render.rs, types.rs, enums.rs — Django models.Model classes
 ├── utils/              # common.rs (join_quoted/string_literal/unquote/claim_field_name/collect_composite_fks/is_jsonb_custom_type),
-│                       #   python.rs (render_enum/enum_member_name/column_type_to_python),
+│                       #   python.rs (render_enum/enum_member_name/unmangled/column_type_to_python),
 │                       #   typescript.rs (ts_binding)
 └── tests/              # Shared orm_cases! cross-ORM snapshot suite + fixtures/ + snapshots/
 ```
@@ -95,7 +96,16 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
 - **Identifiers**: every struct, field and type name is an exported Go name (`exported_go_name`:
   `1users` → `X1users`), `Id` becomes `ID` only where it ends a word (`UserID`, but `Identity`),
   and one taken set per struct covers the columns first and then every relation field, so a
-  has-many or belongs-to never takes a column's name (`Posts2`, `OrderRegions3`)
+  has-many or belongs-to never takes a column's name (`Posts2`, `OrderRegions3`). That set starts
+  with `TableName`, the method every struct gets (a `table_name` column becomes `TableName2`, and
+  so does the belongs-to of a `table_name_id` key)
+- **Package scope**: structs, enum types and enum constants all live in one Go package, so
+  `scope_names::ScopeNames` claims them once for the whole schema — structs first, then enum
+  types (bare while nothing else holds the identifier, otherwise `{Struct}{Enum}`), then
+  constants (`{Type}{Variant}`; values that fold onto one name are numbered). A table `role` next
+  to an enum `role`, or `Status` + `code` next to a `status_code` table, no longer redeclares.
+  A single-table render claims the same way over `scope_names::scope_of` — the schema when it
+  holds the table, the table alone otherwise
 - **Tags**: `index:`/`uniqueIndex:` names come from the naming builders, so they match what the
   SQL layer creates and GORM groups a composite index by them; `char(N)` and the PG network types
   carry an explicit `type:`; a default GORM's tag syntax cannot hold (`;`, a function call)
@@ -122,6 +132,13 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
   mapping, `render.rs` field and relation naming, `mod.rs` package-name inference)
 
 ### Django (Python)
+- **Module scope**: model classes and choices classes share one module, so they are claimed
+  through the same `scope_names::ScopeNames` (models first; a choices class is bare while
+  nothing else holds the identifier, otherwise `{Model}{Enum}`). Members are scoped to their
+  class and numbered there when two values fold onto one name — Python's `Enum` refuses a
+  repeated member at import time. A choices class or member led by `__` keeps a single `_`
+  (`utils/python.rs::unmangled`): Python mangles such a name inside a class body, so the member
+  would be no member and the model could not name the class
 - Renders `models.Model` classes with a `class Meta` (`managed = False` — vespertide owns the DDL,
   so `makemigrations` must not create or alter these tables — `db_table`, `indexes`, `constraints`).
   `UniqueConstraint` names come from `build_unique_constraint_name` with the source name as the

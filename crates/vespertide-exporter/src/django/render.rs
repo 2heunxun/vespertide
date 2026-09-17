@@ -8,10 +8,10 @@ use crate::constraint_scan::{
     junction_targets, primary_key, primary_key_columns, single_column_fk_details,
     single_column_uniques,
 };
-use crate::enum_scan::enum_identifiers_shared_across_tables;
 use crate::python_naming::to_pascal_case;
+use crate::scope_names::{ScopeNames, scope_of};
 use crate::utils::common::{claim_binding, collect_composite_fks, string_literal};
-use crate::utils::python::is_python_keyword;
+use crate::utils::python::{is_python_keyword, unmangled};
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType};
 use vespertide_core::schema::constraint::TableConstraint;
 use vespertide_core::{ReferenceAction, TableDef};
@@ -21,7 +21,8 @@ use vespertide_naming::{
 
 pub fn render_entity(table: &TableDef) -> Result<String, String> {
     let mut used = UsedImports::default();
-    let body = render_entity_part(table, &mut used, &[], &HashSet::new(), None);
+    let names = module_names(std::slice::from_ref(table));
+    let body = render_entity_part(table, &mut used, &[], &names, None);
     Ok(assemble_with_imports(&used, &[body]))
 }
 
@@ -30,8 +31,8 @@ pub fn render_entity(table: &TableDef) -> Result<String, String> {
 pub fn render_entity_with_schema(table: &TableDef, schema: &[TableDef]) -> Result<String, String> {
     let mut used = UsedImports::default();
     let m2m = many_to_many_targets(table, schema);
-    let shared_enums = enum_identifiers_shared_across_tables(schema, enum_class_name);
-    let body = render_entity_part(table, &mut used, &m2m, &shared_enums, None);
+    let names = module_names(scope_of(table, schema));
+    let body = render_entity_part(table, &mut used, &m2m, &names, None);
     Ok(assemble_with_imports(&used, &[body]))
 }
 
@@ -44,12 +45,12 @@ pub fn export(schema: &[TableDef]) -> Result<String, String> {
 /// class.
 pub fn export_with_config(schema: &[TableDef], app_label: Option<&str>) -> Result<String, String> {
     let mut used = UsedImports::default();
-    let shared_enums = enum_identifiers_shared_across_tables(schema, enum_class_name);
+    let names = module_names(schema);
     let parts: Vec<String> = schema
         .iter()
         .map(|t| {
             let m2m = many_to_many_targets(t, schema);
-            render_entity_part(t, &mut used, &m2m, &shared_enums, app_label)
+            render_entity_part(t, &mut used, &m2m, &names, app_label)
         })
         .collect();
     Ok(assemble_with_imports(&used, &parts))
@@ -94,7 +95,7 @@ fn render_entity_part(
     table: &TableDef,
     used: &mut UsedImports,
     m2m: &[(&str, &str)],
-    shared_enums: &HashSet<String>,
+    names: &ScopeNames,
     app_label: Option<&str>,
 ) -> String {
     let mut lines: Vec<String> = Vec::new();
@@ -123,22 +124,16 @@ fn render_entity_part(
     let single_unique_cols = single_column_uniques(&table.constraints);
     let fk_map = single_column_fk_details(&table.constraints);
 
-    let class_name = model_class_name(&table.name);
+    let class_name = class_of(names, &table.name);
 
-    // Enum class names for this table's columns. A name another table also
-    // declares is qualified with the model, as the module is one namespace.
+    // Enum class names for this table's columns, as claimed in the module.
     let enum_class_map: HashMap<&str, String> = table
         .columns
         .iter()
         .filter_map(|col| {
             if let ColumnType::Complex(ComplexColumnType::Enum { name, .. }) = &col.r#type {
-                let bare = enum_class_name(name);
-                let qualified = if shared_enums.contains(&bare) {
-                    format!("{class_name}{bare}")
-                } else {
-                    bare
-                };
-                Some((col.name.as_str(), qualified))
+                let class = names.enum_type(&table.name, name).to_string();
+                Some((col.name.as_str(), class))
             } else {
                 None
             }
@@ -204,7 +199,7 @@ fn render_entity_part(
             let field_name = render_fk_field(
                 &mut lines,
                 &col.name,
-                fk.ref_table,
+                &class_of(names, fk.ref_table),
                 fk.on_delete,
                 default.as_deref(),
                 effective_pk,
@@ -275,8 +270,8 @@ fn render_entity_part(
             base
         };
         let field_name = django_field_name(&raw, &mut used_field_names);
-        let target_class = model_class_name(target);
-        let junction_class = model_class_name(junction);
+        let target_class = class_of(names, target);
+        let junction_class = class_of(names, junction);
         lines.push(format!(
             "    {field_name} = models.ManyToManyField(\"{target_class}\", through=\"{junction_class}\", related_name=\"+\")"
         ));
@@ -388,7 +383,7 @@ fn render_entity_part(
 fn render_fk_field(
     lines: &mut Vec<String>,
     col_name: &str,
-    ref_table: &str,
+    ref_class: &str,
     on_delete: Option<&ReferenceAction>,
     default: Option<&str>,
     is_pk: bool,
@@ -403,7 +398,6 @@ fn render_fk_field(
         used_field_names,
     );
     let db_column = (format!("{field_name}_id") != col_name).then(|| col_name.to_string());
-    let ref_class = model_class_name(ref_table);
     // Django emulates `on_delete` itself and rejects SET_DEFAULT on a field
     // without a default (fields.E321). The table is unmanaged, so the
     // database still applies its own rule; DO_NOTHING leaves it to. `ON
@@ -445,6 +439,19 @@ fn render_fk_field(
     field_name
 }
 
+/// Every class `tables` declare in their module: models, then choices classes.
+fn module_names(tables: &[TableDef]) -> ScopeNames {
+    ScopeNames::collect(tables, model_class_name, enum_class_name)
+}
+
+/// The class a table is declared as; a table outside the module's schema — a
+/// foreign key may point there — keeps its natural name.
+fn class_of(names: &ScopeNames, table: &str) -> String {
+    names
+        .table(table)
+        .map_or_else(|| model_class_name(table), str::to_string)
+}
+
 /// A table's model class. Django rejects a model name that starts with `_`
 /// (models.E023), so a name that cannot lead with its own first character
 /// gains a letter instead.
@@ -452,8 +459,13 @@ fn model_class_name(table: &str) -> String {
     sanitize_identifier(&to_pascal_case(table), IdentifierStart::Letter)
 }
 
+/// An enum's choices class. A model names it from inside its own class body,
+/// where Python would mangle a `__`-led name.
 fn enum_class_name(name: &str) -> String {
-    sanitize_identifier(&to_pascal_case(name), IdentifierStart::Underscore)
+    unmangled(sanitize_identifier(
+        &to_pascal_case(name),
+        IdentifierStart::Underscore,
+    ))
 }
 
 /// What Django calls a column inside `Meta.indexes`, `Meta.constraints` and
@@ -521,5 +533,13 @@ mod tests {
     fn django_field_name_passes_the_field_checks(#[case] column: &str, #[case] expected: &str) {
         let mut taken = HashSet::new();
         assert_eq!(django_field_name(column, &mut taken), expected);
+    }
+
+    #[rstest::rstest]
+    #[case::plain("order_status", "OrderStatus")]
+    #[case::digit_led("1st", "_1st")]
+    #[case::leading_run_python_would_mangle("--kind", "_kind")]
+    fn enum_class_name_can_be_named_from_a_model(#[case] name: &str, #[case] expected: &str) {
+        assert_eq!(enum_class_name(name), expected);
     }
 }

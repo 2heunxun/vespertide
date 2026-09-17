@@ -32,9 +32,11 @@ type Users struct {
 func (Users) TableName() string { return "users" }
 
 type Posts struct {
-	ID     int32 `gorm:"column:id;primaryKey" json:"id"`
-	UserID int32 `gorm:"column:user_id;not null" json:"user_id"`
-	User   Users `gorm:"foreignKey:UserID" json:"-"`
+	ID          int32      `gorm:"column:id;primaryKey" json:"id"`
+	UserID      int32      `gorm:"column:user_id;not null" json:"user_id"`
+	User        Users      `gorm:"foreignKey:UserID" json:"-"`
+	TableNameID int32      `gorm:"column:table_name_id;not null" json:"table_name_id"`
+	TableName2  Categories `gorm:"foreignKey:TableNameID" json:"-"`
 }
 
 func (Posts) TableName() string { return "posts" }
@@ -43,6 +45,7 @@ type Categories struct {
 	ID       int32        `gorm:"column:id;primaryKey" json:"id"`
 	ParentID *int32       `gorm:"column:parent_id" json:"parent_id"`
 	Parent   *Categories  `gorm:"foreignKey:ParentID" json:"-"`
+	Posts    []Posts      `gorm:"foreignKey:TableNameID" json:"-"`
 	Children []Categories `gorm:"foreignKey:ParentID" json:"-"`
 }
 

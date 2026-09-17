@@ -5,7 +5,8 @@ mod types;
 use std::path::Path;
 
 use crate::orm::OrmExporter;
-use render::{gofmt_layout, imports_for, render_header, render_table_body};
+use crate::scope_names::scope_of;
+use render::{gofmt_layout, imports_for, package_names, render_header, render_table_body};
 use vespertide_core::TableDef;
 
 pub struct GormExporter;
@@ -126,7 +127,8 @@ fn render_entity_inner(table: &TableDef, schema: &[TableDef]) -> String {
         DEFAULT_GORM_PACKAGE_NAME,
         &imports_for(std::slice::from_ref(table)),
     );
-    lines.extend(render_table_body(table, schema));
+    let names = package_names(scope_of(table, schema));
+    lines.extend(render_table_body(table, schema, &names));
     gofmt_layout(&lines)
 }
 
@@ -140,11 +142,12 @@ pub fn export(schema: &[TableDef]) -> Result<String, String> {
 
 fn export_with_package(schema: &[TableDef], package_name: &str) -> String {
     let mut lines = render_header(package_name, &imports_for(schema));
+    let names = package_names(schema);
     for (i, table) in schema.iter().enumerate() {
         if i > 0 {
             lines.push(String::new());
         }
-        lines.extend(render_table_body(table, schema));
+        lines.extend(render_table_body(table, schema, &names));
     }
     gofmt_layout(&lines)
 }

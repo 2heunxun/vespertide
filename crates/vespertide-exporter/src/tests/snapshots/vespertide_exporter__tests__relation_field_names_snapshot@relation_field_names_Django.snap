@@ -39,6 +39,7 @@ class Users(models.Model):
 class Posts(models.Model):
     id = models.IntegerField(primary_key=True)
     user = models.ForeignKey("Users", on_delete=models.RESTRICT, related_name="+")
+    table_name = models.ForeignKey("Categories", on_delete=models.RESTRICT, related_name="+")
 
     class Meta:
         managed = False

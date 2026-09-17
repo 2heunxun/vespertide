@@ -40,6 +40,7 @@ class Posts(SQLModel, table=True):
 
     id: int = Field(primary_key=True)
     user_id: int = Field(foreign_key="users.id")
+    table_name_id: int = Field(foreign_key="categories.id")
 
 class Categories(SQLModel, table=True):
     __tablename__ = "categories"

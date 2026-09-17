@@ -11,6 +11,7 @@ pub mod orm;
 mod parallel_config;
 pub mod prisma;
 pub mod python_naming;
+mod scope_names;
 pub mod seaorm;
 pub mod sqlalchemy;
 pub mod sqlmodel;

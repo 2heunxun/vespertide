@@ -66,8 +66,11 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub user_id: i32,
+    pub table_name_id: i32,
     #[sea_orm(belongs_to, from = "user_id", to = "id")]
     pub user: HasOne<super::users::Entity>,
+    #[sea_orm(belongs_to, from = "table_name_id", to = "id")]
+    pub table_name: HasOne<super::categories::Entity>,
 }
 
 vespera::schema_type!(Schema from Model, name = "PostsSchema");
@@ -85,6 +88,8 @@ pub struct Model {
     pub parent_id: Option<i32>,
     #[sea_orm(belongs_to, from = "parent_id", to = "id")]
     pub parent: HasOne<super::categories::Entity>,
+    #[sea_orm(has_many)]
+    pub posts: HasMany<super::posts::Entity>,
 }
 
 vespera::schema_type!(Schema from Model, name = "CategoriesSchema");

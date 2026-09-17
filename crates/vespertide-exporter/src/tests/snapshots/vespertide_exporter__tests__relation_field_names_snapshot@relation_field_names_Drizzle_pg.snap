@@ -39,12 +39,15 @@ export const usersRelations = relations(users, ({ one, many }) => ({
 export const posts = pgTable("posts", {
   id: integer("id").primaryKey(),
   userId: integer("user_id").notNull(),
+  tableNameId: integer("table_name_id").notNull(),
 }, (t) => [
   foreignKey({ columns: [t.userId], foreignColumns: [users.id], name: "fk_posts__user_id" }),
+  foreignKey({ columns: [t.tableNameId], foreignColumns: [categories.id], name: "fk_posts__table_name_id" }),
 ]);
 
 export const postsRelations = relations(posts, ({ one, many }) => ({
   user: one(users, { fields: [posts.userId], references: [users.id] }),
+  tableName: one(categories, { fields: [posts.tableNameId], references: [categories.id] }),
 }));
 
 export const categories = pgTable("categories", {
@@ -56,5 +59,6 @@ export const categories = pgTable("categories", {
 
 export const categoriesRelations = relations(categories, ({ one, many }) => ({
   parent: one(categories, { fields: [categories.parentId], references: [categories.id], relationName: "CategoriesParent" }),
+  posts: many(posts),
   parentCategories: many(categories, { relationName: "CategoriesParent" }),
 }));

@@ -9,8 +9,9 @@ use super::{col, fk, nullable_simple, pk, simple, string_enum};
 /// Relation field names that run into a struct's own columns: a composite FK
 /// whose target struct name is already taken by two columns (`order_regions`,
 /// `order_regions2`), a has-many whose pluralized source name is a column
-/// (`users.posts`), and a self-reference, whose reverse side only appears when
-/// the table is rendered with itself in the schema.
+/// (`users.posts`), a belongs-to that spells the `TableName` method GORM gives
+/// every struct (`posts.table_name_id`), and a self-reference, whose reverse
+/// side only appears when the table is rendered with itself in the schema.
 pub(crate) fn relation_field_names() -> Vec<TableDef> {
     let order_regions = TableDef {
         name: "order_regions".into(),
@@ -59,8 +60,13 @@ pub(crate) fn relation_field_names() -> Vec<TableDef> {
         columns: vec![
             simple("id", SimpleColumnType::Integer),
             simple("user_id", SimpleColumnType::Integer),
+            simple("table_name_id", SimpleColumnType::Integer),
         ],
-        constraints: vec![pk(&["id"]), fk(&["user_id"], "users", &["id"])],
+        constraints: vec![
+            pk(&["id"]),
+            fk(&["user_id"], "users", &["id"]),
+            fk(&["table_name_id"], "categories", &["id"]),
+        ],
     };
     let categories = TableDef {
         name: "categories".into(),

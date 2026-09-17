@@ -56,7 +56,21 @@ pub(crate) fn escape_python_keyword(mut name: String) -> String {
 /// Python accepts a leading `_` in a member name, so the digit escape is `_`
 /// rather than the letter Prisma needs.
 pub(crate) fn enum_member_name(value: &str) -> String {
-    sanitize_identifier(&to_screaming_snake_case(value), IdentifierStart::Underscore)
+    unmangled(sanitize_identifier(
+        &to_screaming_snake_case(value),
+        IdentifierStart::Underscore,
+    ))
+}
+
+/// Inside a class body Python rewrites a name led by `__` into
+/// `_Class__name`: an enum member spelled that way is no member, and a class
+/// spelled that way cannot be named from another class. One `_` stays.
+pub(crate) fn unmangled(name: String) -> String {
+    let body = name.trim_start_matches('_');
+    if name.len() - body.len() < 2 {
+        return name;
+    }
+    format!("_{body}")
 }
 
 /// Map a `ColumnType` to its Python type annotation string, shared verbatim by
@@ -107,5 +121,22 @@ pub(crate) fn column_type_to_python(col_type: &ColumnType, nullable: bool) -> St
         format!("Optional[{base}]")
     } else {
         base.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::enum_member_name;
+
+    #[rstest]
+    #[case::plain("pending", "PENDING")]
+    #[case::words("in progress", "IN_PROGRESS")]
+    #[case::digit_led("1st", "_1ST")]
+    #[case::one_leading_separator("-x", "_X")]
+    #[case::leading_run_python_would_mangle("--x", "_X")]
+    fn enum_values_become_member_names(#[case] value: &str, #[case] expected: &str) {
+        assert_eq!(enum_member_name(value), expected);
     }
 }
