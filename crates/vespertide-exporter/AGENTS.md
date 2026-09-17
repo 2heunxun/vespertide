@@ -22,7 +22,7 @@ src/
 ├── jpa/                # mod.rs, render.rs, types.rs — JPA/Hibernate entities
 ├── prisma/             # mod.rs, render.rs, types.rs, enums.rs — schema.prisma models
 ├── drizzle/            # mod.rs, render.rs, types.rs, enums.rs — Drizzle TypeScript models
-├── gorm/               # mod.rs, render.rs, types.rs, enums.rs, tests/ — GORM structs
+├── gorm/               # mod.rs, render.rs, types.rs, enums.rs — GORM structs
 ├── django/             # mod.rs, render.rs, types.rs, enums.rs — Django models.Model classes
 ├── utils/              # common.rs (join_quoted/unquote/claim_field_name/collect_composite_fks/is_jsonb_custom_type),
 │                       #   python.rs (render_enum/enum_member_name/column_type_to_python),
@@ -112,8 +112,9 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
 - **Layout**: `gofmt_layout` is the last step of every render — tab indents, struct-field and
   constant columns padded the way `gofmt` aligns them, single blank lines, import groups sorted —
   so the file passes a project's `gofmt -l` check as written
-- **Tests**: rendered output is pinned by the shared `orm_cases!` suite; `gorm/tests/mod.rs`
-  holds only function-level unit tests (Go type mapping, field and relation naming)
+- **Tests**: rendered output is pinned by the shared `orm_cases!` suite; the inline
+  `#[cfg(test)] mod tests` blocks hold only function-level unit tests (`types.rs` Go type
+  mapping, `render.rs` field and relation naming, `mod.rs` package-name inference)
 
 ### Django (Python)
 - Renders `models.Model` classes with a `class Meta` (`managed = False` — vespertide owns the DDL,
@@ -153,8 +154,8 @@ trailing `_` — so `django/render.rs::django_field_name` applies Django's field
   `export` renders the whole schema as one module, which is what the CLI writes (`models.py`) —
   Django loads an app's models from its one `models` module
 - **Tests**: rendered output is pinned by the shared `orm_cases!` suite; the inline
-  `#[cfg(test)] mod tests` in `django/mod.rs` holds only function-level unit tests (field-class
-  and `on_delete` mappings)
+  `#[cfg(test)] mod tests` blocks hold only function-level unit tests (`mod.rs` field-class and
+  `on_delete` mappings, `render.rs` field-name repairs)
 
 ### Prisma (schema.prisma)
 - Emits models only — no `datasource`/`generator` block, so the output drops into an existing schema

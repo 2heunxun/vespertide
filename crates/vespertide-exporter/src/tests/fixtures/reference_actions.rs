@@ -6,10 +6,10 @@ use vespertide_core::{ReferenceAction, TableDef};
 
 use super::{nullable_simple, pk, simple};
 
-/// The only fixture whose foreign keys set `ON UPDATE` as well as `ON DELETE`.
+/// Foreign keys that set `ON UPDATE` as well as `ON DELETE`, one action each.
 /// GORM, Prisma and Drizzle render both, Django renders `on_delete` alone
 /// (its `ForeignKey` has no update action), and the remaining four drop them
-/// — a spread only this fixture pins. Between the two children every action
+/// — a spread this fixture pins. Between the two children every action
 /// but `SET NULL` (pinned by `self_referencing_fk`) appears, each paired with a
 /// different one so a backend that emits one in the other's place is visible;
 /// `comments.post_id` is nullable so the pointer form of a relation field

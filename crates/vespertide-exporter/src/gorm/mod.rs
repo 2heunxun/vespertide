@@ -115,7 +115,8 @@ pub fn render_entity(table: &TableDef) -> Result<String, String> {
     Ok(render_entity_inner(table, &[]))
 }
 
-/// Render a GORM entity with full schema context for reverse-relation (HasMany) generation.
+/// Render a GORM entity with full schema context, which the reverse side of
+/// every relation (has-one / has-many) needs.
 pub fn render_entity_with_schema(table: &TableDef, schema: &[TableDef]) -> Result<String, String> {
     Ok(render_entity_inner(table, schema))
 }
@@ -149,4 +150,21 @@ fn export_with_package(schema: &[TableDef], package_name: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use std::path::Path;
+
+    use rstest::rstest;
+
+    use super::go_package_name;
+
+    #[rstest]
+    #[case::default_dir_matches_folder("src/models", "models")]
+    #[case::infers_from_folder_name("src/entities", "entities")]
+    #[case::strips_invalid_chars("src/db-models", "dbmodels")]
+    #[case::falls_back_when_digit_led("src/2024-models", "models")]
+    #[case::falls_back_on_non_ascii("src/모델", "models")]
+    #[case::falls_back_on_reserved_word("src/type", "models")]
+    fn go_package_name_inferred_from_export_dir(#[case] export_dir: &str, #[case] expected: &str) {
+        assert_eq!(go_package_name(Path::new(export_dir)), expected);
+    }
+}

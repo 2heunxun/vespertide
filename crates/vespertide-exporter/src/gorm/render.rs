@@ -20,9 +20,9 @@ use vespertide_naming::{
 };
 
 /// The Go imports the columns of `tables` need.
-pub(super) fn imports_for<'a>(tables: impl IntoIterator<Item = &'a TableDef>) -> UsedImports {
+pub(super) fn imports_for(tables: &[TableDef]) -> UsedImports {
     let mut used = UsedImports::default();
-    for col in tables.into_iter().flat_map(|table| &table.columns) {
+    for col in tables.iter().flat_map(|table| &table.columns) {
         used.add_column_type(&col.r#type);
     }
     used
@@ -581,18 +581,18 @@ pub(super) use crate::python_naming::to_pascal_case;
 /// start given an upper-case letter prefix. GORM skips unexported struct
 /// fields, and a `_`-led type is unreachable from other packages.
 pub(super) fn exported_go_name(s: &str) -> String {
-    export(&to_pascal_case(s))
+    exported(&to_pascal_case(s))
 }
 
 /// Go field name for a column: [`exported_go_name`] with Go's `ID` initialism.
-pub(super) fn to_go_field_name(s: &str) -> String {
-    export(&go_initialisms(&to_pascal_case(s)))
+fn to_go_field_name(s: &str) -> String {
+    exported(&go_initialisms(&to_pascal_case(s)))
 }
 
 /// Go field name for every column of `table`, claimed in declaration order so
 /// two columns that map to one Go name (`user_id`, `userId`) get distinct
 /// fields.
-pub(super) fn column_field_names(table: &TableDef) -> HashMap<&str, String> {
+fn column_field_names(table: &TableDef) -> HashMap<&str, String> {
     let mut taken = HashSet::new();
     table
         .columns
@@ -619,11 +619,11 @@ fn field_name_in(schema: &[TableDef], table_name: &str, column: &str) -> String 
 
 /// Go field name for a belongs-to relation: the FK column without its `_id`
 /// suffix, in PascalCase.
-pub(super) fn go_relation_field_name(fk_column: &str) -> String {
+fn go_relation_field_name(fk_column: &str) -> String {
     exported_go_name(vespertide_naming::infer_relation_field_name(fk_column))
 }
 
-fn export(pascal: &str) -> String {
+fn exported(pascal: &str) -> String {
     let mut name = sanitize_identifier(pascal, IdentifierStart::Letter);
     // `Letter` copies the case of the first letter it finds (`x1users`), and Go
     // exports by case. The first byte is always an ASCII letter after
@@ -649,4 +649,53 @@ fn go_initialisms(pascal: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vespertide_core::schema::column::{ColumnType, SimpleColumnType};
+    use vespertide_core::{ColumnDef, TableDef};
+
+    use super::{column_field_names, go_relation_field_name, to_go_field_name};
+
+    #[rstest]
+    #[case("user_id", "UserID")]
+    #[case("id", "ID")]
+    #[case("created_at", "CreatedAt")]
+    #[case("profile_image", "ProfileImage")]
+    #[case("media_id", "MediaID")]
+    #[case("identity", "Identity")]
+    #[case("idx", "Idx")]
+    #[case("1st_place", "X1stPlace")]
+    fn column_names_become_exported_go_fields(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(to_go_field_name(input), expected);
+    }
+
+    /// Two columns that map to one Go name get distinct fields, in declaration order.
+    #[test]
+    fn column_field_names_disambiguate_go_collisions() {
+        let integer = || ColumnType::Simple(SimpleColumnType::Integer);
+        let table = TableDef {
+            name: "sessions".into(),
+            description: None,
+            columns: vec![
+                ColumnDef::new("user_id", integer(), false),
+                ColumnDef::new("userId", integer(), false),
+            ],
+            constraints: vec![],
+        };
+        let names = column_field_names(&table);
+        assert_eq!(names["user_id"], "UserID");
+        assert_eq!(names["userId"], "UserID2");
+    }
+
+    #[rstest]
+    #[case("user_id", "User")]
+    #[case("author_id", "Author")]
+    #[case("parent_id", "Parent")]
+    #[case("node", "Node")]
+    fn fk_columns_name_their_relation_field(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(go_relation_field_name(input), expected);
+    }
 }

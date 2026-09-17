@@ -390,7 +390,7 @@ orm_cases!(
     "binding_collisions",
     fixtures::binding_collisions
 );
-// The only fixture that sets `ON UPDATE` as well as `ON DELETE`.
+// Every referential action, `ON UPDATE` included, across both nullabilities.
 orm_cases!(
     multi reference_actions_snapshot,
     "reference_actions",
@@ -464,6 +464,8 @@ fn to_pascal_case_shared_semantics(
         ("user_id", "UserId"),
         ("a_b_c", "ABC"),
         ("a__b", "AB"),
+        ("_leading", "Leading"),
+        ("trailing_", "Trailing"),
         ("order_item", "OrderItem"),
         ("user_profile_image", "UserProfileImage")
     )]

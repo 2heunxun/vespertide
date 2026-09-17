@@ -9,6 +9,7 @@ use crate::constraint_scan::{
     single_column_uniques,
 };
 use crate::enum_scan::enum_identifiers_shared_across_tables;
+use crate::python_naming::to_pascal_case;
 use crate::utils::common::{claim_binding, collect_composite_fks};
 use crate::utils::python::is_python_keyword;
 use vespertide_core::schema::column::{ColumnType, ComplexColumnType};
@@ -496,8 +497,6 @@ fn assemble_with_imports(used: &UsedImports, parts: &[String]) -> String {
     lines.join("\n")
 }
 
-pub(super) use crate::python_naming::to_pascal_case;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -513,13 +512,5 @@ mod tests {
     fn django_field_name_passes_the_field_checks(#[case] column: &str, #[case] expected: &str) {
         let mut taken = HashSet::new();
         assert_eq!(django_field_name(column, &mut taken), expected);
-    }
-
-    #[test]
-    fn test_to_pascal_case_double_underscore() {
-        // An empty segment between two underscores contributes nothing
-        assert_eq!(to_pascal_case("order__item"), "OrderItem");
-        assert_eq!(to_pascal_case("_leading"), "Leading");
-        assert_eq!(to_pascal_case("trailing_"), "Trailing");
     }
 }

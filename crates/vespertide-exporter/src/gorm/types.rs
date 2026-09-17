@@ -105,3 +105,52 @@ fn go_base_type(col_type: &ColumnType) -> String {
         },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use rstest::rstest;
+    use vespertide_core::schema::column::{ColumnType, ComplexColumnType, SimpleColumnType};
+
+    use super::go_type_for_column_mapped;
+
+    #[rstest]
+    #[case(ColumnType::Simple(SimpleColumnType::SmallInt), false, "int16")]
+    #[case(ColumnType::Simple(SimpleColumnType::Integer), false, "int32")]
+    #[case(ColumnType::Simple(SimpleColumnType::BigInt), false, "int64")]
+    #[case(ColumnType::Simple(SimpleColumnType::Real), false, "float32")]
+    #[case(
+        ColumnType::Simple(SimpleColumnType::DoublePrecision),
+        false,
+        "float64"
+    )]
+    #[case(ColumnType::Simple(SimpleColumnType::Text), false, "string")]
+    #[case(ColumnType::Simple(SimpleColumnType::Boolean), false, "bool")]
+    #[case(ColumnType::Simple(SimpleColumnType::Timestamp), false, "time.Time")]
+    #[case(ColumnType::Simple(SimpleColumnType::Timestamptz), false, "time.Time")]
+    #[case(ColumnType::Simple(SimpleColumnType::Date), false, "time.Time")]
+    #[case(ColumnType::Simple(SimpleColumnType::Time), false, "time.Time")]
+    #[case(ColumnType::Simple(SimpleColumnType::Uuid), false, "uuid.UUID")]
+    #[case(ColumnType::Simple(SimpleColumnType::Json), false, "datatypes.JSON")]
+    #[case(ColumnType::Simple(SimpleColumnType::Bytea), false, "[]byte")]
+    #[case(ColumnType::Simple(SimpleColumnType::Inet), false, "string")]
+    #[case(ColumnType::Complex(ComplexColumnType::Varchar { length: 255 }), false, "string")]
+    #[case(ColumnType::Complex(ComplexColumnType::Numeric { precision: 10, scale: 2 }), false, "decimal.Decimal")]
+    #[case(ColumnType::Complex(ComplexColumnType::Custom { custom_type: "JSONB".into() }), false, "datatypes.JSON")]
+    #[case(ColumnType::Complex(ComplexColumnType::Custom { custom_type: "jsonb".into() }), false, "datatypes.JSON")]
+    #[case(ColumnType::Complex(ComplexColumnType::Custom { custom_type: "TEXT".into() }), false, "string")]
+    #[case(ColumnType::Simple(SimpleColumnType::Integer), true, "*int32")]
+    #[case(ColumnType::Simple(SimpleColumnType::Text), true, "*string")]
+    #[case(ColumnType::Simple(SimpleColumnType::Timestamp), true, "*time.Time")]
+    fn column_types_map_to_go_types(
+        #[case] col_type: ColumnType,
+        #[case] nullable: bool,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(
+            go_type_for_column_mapped(&col_type, nullable, &HashMap::new()),
+            expected
+        );
+    }
+}
